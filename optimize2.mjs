@@ -735,9 +735,8 @@ async function processFile(io, filename) {
     console.log(`         отчёт: output/${dstName.replace(/\.glb$/i, '.report.md')}`);
     return 'fail';
   }
-  const pct = before.fileBytes ? ((1 - after.fileBytes / before.fileBytes) * 100).toFixed(0) : 0;
-  const gpuPct = before.gpuBytes ? ((1 - after.gpuBytes / before.gpuBytes) * 100).toFixed(0) : 0;
-  console.log(`[ГОТОВО] ${dstName}: файл ${MB(before.fileBytes)} → ${MB(after.fileBytes)} МБ (−${pct}%), VRAM ${MB(before.gpuBytes)} → ${MB(after.gpuBytes)} МБ (−${gpuPct}%)`);
+  const pct = (b, a) => (b ? (a <= b ? `−${((1 - a / b) * 100).toFixed(0)}%` : `+${((a / b - 1) * 100).toFixed(0)}%`) : '—');
+  console.log(`[ГОТОВО] ${dstName}: файл ${MB(before.fileBytes)} → ${MB(after.fileBytes)} МБ (${pct(before.fileBytes, after.fileBytes)}), VRAM ${MB(before.gpuBytes)} → ${MB(after.gpuBytes)} МБ (${pct(before.gpuBytes, after.gpuBytes)})`);
   console.log(`         отчёт: output/${dstName.replace(/\.glb$/i, '.report.md')}`);
   return 'ok';
 }
