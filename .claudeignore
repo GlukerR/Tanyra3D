@@ -1,0 +1,28 @@
+# Входные/выходные ассеты — бинарные файлы, не код
+input/
+output/
+_work/
+logs/
+
+# Зависимости Node.js
+node_modules/
+
+# Бинарные форматы 3D
+*.glb
+*.gltf
+*.ktx2
+*.bin
+
+# Текстуры
+*.png
+*.jpg
+*.jpeg
+*.webp
+
+# Временные и диагностические файлы
+*.log
+diag_report.txt
+Текстовый документ.txt
+
+# Git
+.git/

@@ -205,9 +205,23 @@ function collectMetrics(doc, fileBytes) {
     nodes: root.listNodes().length,
     scenes: root.listScenes().length,
     animations: root.listAnimations().length,
-    skins: root.listSkins().length,
+    skins: effectiveSkins(doc),
     bounds: sceneBounds(doc),
   };
+}
+
+// «Действующие» скины: привязаны к узлу, чей меш реально имеет JOINTS_0 (без него
+// скин ничего не деформирует). Экспортёры оставляют скины-пустышки при node-анимации —
+// их удаление рендер не меняет, и инвариант не должен считать это потерей.
+function effectiveSkins(doc) {
+  const used = new Set();
+  for (const node of doc.getRoot().listNodes()) {
+    const skin = node.getSkin();
+    const mesh = node.getMesh();
+    if (!skin || !mesh) continue;
+    if (mesh.listPrimitives().some((p) => p.getAttribute('JOINTS_0'))) used.add(skin);
+  }
+  return used.size;
 }
 
 function sceneBounds(doc) {
@@ -285,10 +299,10 @@ const RULES = [
     async fix(finding, ctx) {
       const root = ctx.document.getRoot();
       const semBefore = listSemantics(ctx.document);
-      const b = { tex: root.listTextures().length, mat: root.listMaterials().length };
+      const b = { tex: root.listTextures().length, mat: root.listMaterials().length, skins: root.listSkins().length, effSkins: effectiveSkins(ctx.document) };
       await ctx.document.transform(fns.prune({ keepAttributes: false, keepLeaves: false }));
       const semAfter = listSemantics(ctx.document);
-      const a = { tex: root.listTextures().length, mat: root.listMaterials().length };
+      const a = { tex: root.listTextures().length, mat: root.listMaterials().length, skins: root.listSkins().length, effSkins: effectiveSkins(ctx.document) };
       const out = { found: [], details: [] };
       for (const s of semBefore) {
         if (!semAfter.has(s)) {
@@ -298,6 +312,11 @@ const RULES = [
       }
       if (b.tex > a.tex) { out.found.push(`неиспользуемые текстуры: ${b.tex - a.tex}`); out.details.push(`Текстуры: удалено ${b.tex - a.tex} неиспользуемых`); }
       if (b.mat > a.mat) { out.found.push(`неиспользуемые материалы: ${b.mat - a.mat}`); out.details.push(`Материалы: удалено ${b.mat - a.mat} неиспользуемых`); }
+      if (b.skins > a.skins && b.effSkins === a.effSkins) {
+        // удалены только пустышки: действующих скинов не убыло (иначе инвариант остановит запись)
+        out.found.push(`скины-пустышки (у мешей нет JOINTS/WEIGHTS): ${b.skins - a.skins}`);
+        out.details.push(`Удалено ${b.skins - a.skins} скинов-пустышек — деформаций не было, анимация работает через иерархию узлов`);
+      }
       return out;
     },
   },
@@ -714,7 +733,7 @@ async function processFile(io, filename) {
   else v.push(`❌ треугольники расходятся: ожидали ${trianglesBase - degenerateRemoved}, получили ${after.triangles}`);
   // 3-5. анимации, скины, сцены
   v.push(before.animations === after.animations ? `✅ анимации: ${after.animations}` : `❌ анимации потеряны: было ${before.animations}, стало ${after.animations}`);
-  v.push(before.skins === after.skins ? `✅ скины: ${after.skins}` : `❌ скины потеряны: было ${before.skins}, стало ${after.skins}`);
+  v.push(before.skins === after.skins ? `✅ действующие скины: ${after.skins}` : `❌ скины потеряны: было ${before.skins}, стало ${after.skins}`);
   v.push(before.scenes === after.scenes ? `✅ иерархия сцен цела: ${after.scenes}` : `❌ сцены потеряны: было ${before.scenes}, стало ${after.scenes}`);
   // 6. bounding box в пределах эпсилон (квантование кодека даёт микросдвиг — допуск 1% диагонали)
   if (before.bounds && after.bounds) {

@@ -27,6 +27,31 @@ The transforms themselves are a thin adapter layer over glTF-Transform.
 
 ---
 
+## 1b. Competitive landscape — where we sit (map from research notes)
+
+Positioning check against what already exists. The pattern: strong *engines* and strong
+*validators* exist, but almost nobody owns the **explanation + UX** layer for the asset
+author.
+
+| Tool | Type | Does | Gap we fill |
+|---|---|---|---|
+| **glTF-Validator** (Khronos) | CLI/lib | Spec conformance (we *use* it in validation) | No optimization, no advice |
+| **glTF-Transform** | SDK/CLI | Low-level edit/optimize (our engine) | Requires coding; no analysis narrative |
+| **meshoptimizer / gltfpack** | lib/CLI | Best-in-class geometry opt for GPU | Black box; no feedback to the author on *how to fix the source* |
+| **glTF Asset Auditor** | CLI/web | Pass/fail against business-req profiles (Wayfair/Target QA) | Diagnoses, does not heal; no education |
+| **VNTANA Mesh Optimizer** | Desktop app | Local bulk optimize + presets | Closed, commercial; no explain-why layer |
+| **RapidPipeline** | Cloud | Web platform batch optimize | Cloud-bound; not local/CLI-first |
+| **Simplygon** | Enterprise | Pro auto-optimization (LOD, decimation) | Expensive enterprise; not for artists/indies |
+| **Sketchfab** | Web | View/sell models | Not an optimization pipeline |
+
+**Free niche:** the "translator from GPU-speak to artist-speak" — a tool that analyzes,
+finds the bottleneck, explains *why* it matters, and applies an engine-aware, safety-proven
+fix. Competition is high in *optimization engines*, low in *content-preparation UX*. Our
+moat is trust + explanation, not a new compressor. Our differentiation vs each: reuse the
+proven engines (never reimplement), add advice to the author, and never corrupt an asset.
+
+---
+
 ## 2. Core architectural decisions (with challenges to the original spec)
 
 ### 2.1 Rules analyze independently, but fixes DO NOT — the engine is a DAG, not a flat list
@@ -103,6 +128,18 @@ the model looks the same. Three tiers, cheapest first:
    before & after from fixed camera angles → SSIM / pixel diff. This is the only way to
    *prove* a `perceptual`-tier fix. It is the crown jewel and the hardest subsystem —
    deferred past MVP, but the interfaces must leave room for it from day one.
+
+The same perceptual machinery powers the GUI's visual diff (research notes): a **pixel-diff
+overlay** highlighting changed pixels after texture/geometry compression, and a **geometry
+error heat map** — `meshopt_simplify` returns normalized deviation (0..1, scaled by
+`meshopt_simplifyScale`), written into vertex colors or a custom `_ERROR` attribute and
+painted by a gradient shader so the artist *sees* where the silhouette distorted. These are
+viewer-side surfaces over the same validation data, built once trust exists.
+
+Separately, **GPU-efficiency metrics** (ACMR / ATVR / Overfetch from meshoptimizer) are
+*analysis*, not validation — they don't gate the write, they feed the report ("geometry is
+not GPU-cache-friendly"). They belong to the analyze phase, translated from numbers into
+plain advice.
 
 If any invariant fails, the offending fix is rolled back (working copy model makes this
 cheap) and recorded as skipped-with-reason. **We never mutate the input file.**
@@ -274,6 +311,7 @@ load asset (glTF-Transform NodeIO, all extensions + decoders registered)
 - **Multiple scenes** — process all, not just scene 0.
 - **Non-triangle primitives** (POINTS/LINES) — never run triangle-only passes (weld, degenerate) on them.
 - **Vertex colors that are actually used** — `COLOR_0` multiplies baseColor; only auto-remove if provably constant-white, else recommend with `--force`.
+- **Double-sided materials** — `doubleSided:true` on a closed mesh wastes backface overdraw, but disabling it silently breaks genuinely two-sided surfaces (foliage, cloth, zero-thickness planes). Detect and *recommend*, never auto-disable; a platform profile (web/mobile) may opt in.
 - **UV channel removal requires renumbering** — removing `TEXCOORD_0` while `_1` is used means rewriting every material's texCoord index and any `KHR_texture_transform`.
 - **Extension-referenced resources** — a UV set or texture used only by a material extension (clearcoat, sheen, transmission) must not read as "unused". Analysis must be extension-aware.
 - **Draco vs Meshopt already present** — round-trip decode/encode, don't stack.
@@ -294,6 +332,17 @@ runs on a real asset and produces a report so insightful the developer says "I d
 know that was in my model," plus autofix they *trust* because it has never once corrupted
 an asset.** Trust is the moat. Everything else (GUI, VS Code, Action) is the *same core*
 behind a different surface and can wait.
+
+**Surface shape, when surfaces come: desktop-first, web-second, CLI-third** (from research
+notes; product-owner steer). Batch work on large local assets — file-system access, GPU,
+drag-drop folders, predictable heavy processing — pulls toward a local desktop app
+(Tauri/Electron + Node/Rust), the shape of VNTANA's optimizer. The web is a *review portal*
+(share, remote review, light inspection), not the heavy-processing core (RapidPipeline is
+the cloud counter-example; Khronos' web viewer shows web *viewing* is mature). The CLI stays
+the third pillar for CI/automation. Nuance vs `ROADMAP.md` §4c: a *thin* drag-drop wrapper
+over the engine is cheap and worth doing early (it's what makes the tool legible to artists
+and fuels the devlog); the *full* batch-review workspace with synced dual viewports and heat
+maps is the Phase-4 surface, built only after the engine is trusted.
 
 Recommended sequencing, each stage fully functional:
 
