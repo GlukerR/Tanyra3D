@@ -1,0 +1,16 @@
+{
+  "name": "glb-web-optimize",
+  "version": "3.0.0",
+  "private": true,
+  "description": "Умный оптимизатор GLB/glTF для веба — анализ, безопасная оптимизация, отчёты",
+  "type": "module",
+  "dependencies": {
+    "@gltf-transform/core": "^4.2.0",
+    "@gltf-transform/extensions": "^4.2.0",
+    "@gltf-transform/functions": "^4.2.0",
+    "draco3dgltf": "^1.5.7",
+    "gltf-validator": "^2.0.0-dev.3.10",
+    "meshoptimizer": "^0.22.0",
+    "sharp": "^0.33.0"
+  }
+}
