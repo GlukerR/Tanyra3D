@@ -148,20 +148,32 @@ function runCli(args) {
 }
 
 // ---------- метрики и снимки ----------
-function collectMetrics(doc, fileBytes) {
-  const root = doc.getRoot();
+// Треугольники и draw calls считаем ПО УЗЛАМ СЦЕНЫ, а не по объектам-мешам:
+// dedup схлопывает одинаковые меши в «один меш на многих узлах», flatten разворачивает
+// обратно — счёт по мешам прыгает, хотя рендер не меняется. Счёт по сцене инвариантен.
+function sceneGeometry(doc) {
   let drawCalls = 0;
   let triangles = 0;
-  for (const mesh of root.listMeshes()) {
-    for (const prim of mesh.listPrimitives()) {
-      drawCalls += 1;
-      if (prim.getMode() === 4) {
-        const idx = prim.getIndices();
-        const pos = prim.getAttribute('POSITION');
-        triangles += Math.floor((idx ? idx.getCount() : pos ? pos.getCount() : 0) / 3);
+  for (const scene of doc.getRoot().listScenes()) {
+    scene.traverse((node) => {
+      const mesh = node.getMesh();
+      if (!mesh) return;
+      for (const prim of mesh.listPrimitives()) {
+        drawCalls += 1;
+        if (prim.getMode() === 4) {
+          const idx = prim.getIndices();
+          const pos = prim.getAttribute('POSITION');
+          triangles += Math.floor((idx ? idx.getCount() : pos ? pos.getCount() : 0) / 3);
+        }
       }
-    }
+    });
   }
+  return { drawCalls, triangles };
+}
+
+function collectMetrics(doc, fileBytes) {
+  const root = doc.getRoot();
+  const { drawCalls, triangles } = sceneGeometry(doc);
   let textureBytes = 0;
   let gpuBytes = 0;
   try {
@@ -200,7 +212,7 @@ function sceneBounds(doc) {
 }
 
 function countTriangles(doc) {
-  return collectMetrics(doc, 0).triangles;
+  return sceneGeometry(doc).triangles;
 }
 
 function listSemantics(doc) {
@@ -363,8 +375,9 @@ const RULES = [
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
     canFix() { return { safe: true, reason: 'треугольник с повторным индексом имеет нулевую площадь и не рисуется' }; },
     fix(finding, ctx) {
-      // два/три одинаковых индекса = нулевая площадь; считаем ПОСЛЕ weld (он их порождает)
-      let removedTotal = 0;
+      // два/три одинаковых индекса = нулевая площадь; считаем ПОСЛЕ weld (он их порождает).
+      // Итог меряем дельтой по сцене: правка общего аксессора действует на все его инстансы.
+      const trisBefore = countTriangles(ctx.document);
       const patched = new Set();
       for (const mesh of ctx.document.getRoot().listMeshes()) {
         for (const prim of mesh.listPrimitives()) {
@@ -377,19 +390,16 @@ const RULES = [
             const a = arr[i], b = arr[i + 1], c = arr[i + 2];
             if (a !== b && b !== c && a !== c) out.push(a, b, c);
           }
-          const removed = (arr.length - out.length) / 3;
-          if (removed > 0) {
-            indices.setArray(new arr.constructor(out));
-            removedTotal += removed;
-          }
+          if (out.length < arr.length) indices.setArray(new arr.constructor(out));
           patched.add(indices); // общий аксессор не обрабатываем дважды
         }
       }
-      ctx.cache.set('degenerateRemoved', removedTotal); // для инварианта по треугольникам
-      if (removedTotal > 0) {
+      const sceneRemoved = trisBefore - countTriangles(ctx.document);
+      ctx.cache.set('degenerateRemoved', sceneRemoved); // для инварианта по треугольникам
+      if (sceneRemoved > 0) {
         return {
-          found: [`вырожденные треугольники (нулевая площадь): ${removedTotal}`],
-          details: [`Вырожденные треугольники: удалено ${removedTotal} (нулевая площадь, на рендер не влияли)`],
+          found: [`вырожденные треугольники (нулевая площадь): ${sceneRemoved}`],
+          details: [`Вырожденные треугольники: удалено ${sceneRemoved} (нулевая площадь, на рендер не влияли)`],
         };
       }
       return {};
@@ -594,6 +604,22 @@ async function processFile(io, filename) {
 
   const report = { found: [], skipped: [], applied: [], validation: [] };
 
+  // Входное сжатие геометрии снимаем сразу после загрузки (данные уже распакованы в память).
+  // Иначе расширение остаётся на документе и КАЖДАЯ запись (включая tmp для KTX2) молча
+  // пережимает геометрию заново — Draco лосси по связности, потери накапливаются.
+  // Граничный случай из ARCHITECTURE.md §6: «Draco vs Meshopt already present — не стекировать».
+  const strippedCodecs = [];
+  for (const ext of ctx.document.getRoot().listExtensionsUsed()) {
+    if (ext.extensionName === 'KHR_draco_mesh_compression' || ext.extensionName === 'EXT_meshopt_compression') {
+      strippedCodecs.push(ext.extensionName);
+      ext.dispose();
+    }
+  }
+  if (strippedCodecs.length) {
+    report.found.push(`входная геометрия уже сжата (${strippedCodecs.join(', ')}) — распакована при загрузке`);
+    report.applied.push(`Снято входное сжатие ${strippedCodecs.join(', ')} — перекодировано заново (${OPTS.codec}), без двойного сжатия и скрытых пережатий`);
+  }
+
   // -------- ФАЗА 1 · АНАЛИЗ (только чтение) --------
   const activeRules = orderRules(RULES.filter((r) => r.meta.enabled(OPTS)));
   console.log(`    фаза 1/5 · анализ (${activeRules.length} правил активно)`);
@@ -676,7 +702,22 @@ async function processFile(io, filename) {
     const validator = await import('gltf-validator');
     const res = await validator.validateBytes(new Uint8Array(glb));
     const errs = res.issues.numErrors;
-    v.push(errs === 0 ? '✅ gltf-validator (Khronos): 0 ошибок' : `❌ gltf-validator: ${errs} ошибок — смотри отчёт валидатора`);
+    if (errs === 0) {
+      v.push('✅ gltf-validator (Khronos): 0 ошибок');
+    } else {
+      // вход мог быть битым изначально — проверяем исходник и блокируем только НОВЫЕ ошибки
+      const inRes = await validator.validateBytes(new Uint8Array(fs.readFileSync(src)));
+      const inErrs = inRes.issues.numErrors;
+      if (inErrs > 0) report.found.push(`входной файл уже содержит ${inErrs} ошибок gltf-validator (дефект экспорта, не оптимизации)`);
+      if (errs <= inErrs) {
+        v.push(`ℹ gltf-validator: осталось ${errs} ошибок, унаследованных от входа (в исходнике ${inErrs}) — оптимизация новых не добавила`);
+        for (const m of res.issues.messages.filter((m) => m.severity === 0).slice(0, 3)) {
+          v.push(`ℹ пример: ${m.code} @ ${m.pointer || '—'}`);
+        }
+      } else {
+        v.push(`❌ gltf-validator: ${errs} ошибок (на входе было ${inErrs}) — оптимизация добавила новые`);
+      }
+    }
   } catch {
     v.push('ℹ gltf-validator не установлен — структурная валидация пропущена');
   }
