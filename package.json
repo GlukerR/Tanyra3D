@@ -1,6 +1,6 @@
 {
   "name": "glb-web-optimize",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "private": true,
   "description": "Умный оптимизатор GLB/glTF для веба — анализ, безопасная оптимизация, отчёты",
   "type": "module",

@@ -11,6 +11,9 @@
 //   node optimize2.mjs draco                  Draco
 //   node optimize2.mjs --keep-parts           не объединять меши
 //   node optimize2.mjs --no-ktx               не трогать текстуры
+//   node optimize2.mjs --uastc                ВСЕ текстуры в UASTC (макс. качество, тяжёлый файл;
+//                                             по умолчанию режим mixed: цвет→ETC1S, нормали/ORM→UASTC)
+//   node optimize2.mjs --dry-run              полный анализ и отчёт, но без записи .glb
 //   node optimize2.mjs --strip-vertex-colors  удалить вершинные цвета, даже раскрашенные
 //
 // Вход: input/*.glb и input/*.gltf  →  Выход: output/*.glb + output/*.report.md
@@ -67,6 +70,11 @@ const OPTS = {
   keepParts: argv.includes('--keep-parts'),
   noKtx: argv.includes('--no-ktx'),
   stripColors: argv.includes('--strip-vertex-colors'),
+  // mixed (по умолчанию, решение Александра 2026-07-17): цветовые текстуры → ETC1S
+  // (лёгкие и в файле, и в VRAM), data-текстуры (нормали/occlusion/roughness) → UASTC
+  // (ETC1S мылит нормали). --uastc возвращает прежний режим «всё в UASTC».
+  texMode: argv.includes('--uastc') ? 'uastc' : 'mixed',
+  dryRun: argv.includes('--dry-run'),
 };
 
 // Политика автофикса (ARCHITECTURE.md §2.4): применяем provable + numeric + perceptual
@@ -497,7 +505,13 @@ const RULES = [
     },
     async fix(finding, ctx) {
       const out = { found: [], skipped: [], details: [] };
-      let needKtx = 0;
+      // data-текстуры (нормали/occlusion/roughness) — UASTC: ETC1S мылит нормали и даёт
+      // ступеньки на roughness. Цветовые (baseColor/emissive/прочее) — ETC1S: в разы
+      // легче в файле при той же экономии VRAM. Regex и glob должны совпадать по смыслу.
+      const DATA_SLOT_RE = /normal|occlusion|roughness/i;
+      const DATA_SLOT_GLOB = '*{normal,Normal,occlusion,Occlusion,metallicRoughness,Roughness}*';
+      const dataTex = [];
+      const colorTex = [];
       for (const tex of ctx.document.getRoot().listTextures()) {
         const mime = tex.getMimeType();
         const name = tex.getName() || '—';
@@ -512,27 +526,44 @@ const RULES = [
           tex.setMimeType('image/png');
           out.details.push(`Текстура «${name}»: ${mime} → PNG (без потерь, для toktx)`);
         }
-        needKtx += 1;
+        const slots = fns.listTextureSlots(tex).join(' ');
+        if (DATA_SLOT_RE.test(slots)) dataTex.push(name);
+        else colorTex.push(name);
       }
+      const needKtx = dataTex.length + colorTex.length;
       if (needKtx === 0) {
         ctx.log('        все текстуры уже KTX2 или их нет — кодирование пропущено');
         return out;
       }
       out.found.push(`текстуры не в KTX2: ${needKtx}`);
-      ctx.log(`        кодирование KTX2/UASTC (${needKtx} шт.)`);
+      const mixed = ctx.opts.texMode === 'mixed';
+      ctx.log(`        кодирование KTX2 (${needKtx} шт., режим ${mixed ? 'mixed: ETC1S+UASTC' : 'uastc'})`);
       const tmpA = path.join(OUTPUT_DIR, `_tmp_${ctx.dstName}`);
       const tmpB = path.join(OUTPUT_DIR, `_tmp2_${ctx.dstName}`);
+      const tmpC = path.join(OUTPUT_DIR, `_tmp3_${ctx.dstName}`);
       try {
         await ctx.io.write(tmpA, ctx.document);
-        runCli(['uastc', tmpA, tmpB, '--level', '2', '--zstd', '18']);
-        ctx.document = await ctx.io.read(tmpB); // дальше пайплайн работает с KTX2-версией
+        let cur = tmpA;
+        if (mixed) {
+          if (dataTex.length) { runCli(['uastc', cur, tmpB, '--slots', DATA_SLOT_GLOB, '--level', '2', '--zstd', '18']); cur = tmpB; }
+          if (colorTex.length) { runCli(['etc1s', cur, tmpC, '--slots', `!(${DATA_SLOT_GLOB})`, '--quality', '255']); cur = tmpC; }
+        } else {
+          runCli(['uastc', cur, tmpB, '--level', '2', '--zstd', '18']);
+          cur = tmpB;
+        }
+        ctx.document = await ctx.io.read(cur); // дальше пайплайн работает с KTX2-версией
       } finally {
         // временные файлы не должны оставаться в output даже при ошибке
-        for (const t of [tmpA, tmpB]) {
+        for (const t of [tmpA, tmpB, tmpC]) {
           try { if (fs.existsSync(t)) fs.rmSync(t); } catch { /* занят — уберётся при следующем запуске */ }
         }
       }
-      out.details.push(`Текстуры → KTX2/UASTC: ${needKtx} шт. (--level 2 --zstd 18, без RDO)`);
+      if (mixed) {
+        if (colorTex.length) out.details.push(`Цветовые текстуры → KTX2/ETC1S, quality 255 (${colorTex.length} шт.: ${colorTex.join(', ')}) — компактны в файле и в VRAM`);
+        if (dataTex.length) out.details.push(`Data-текстуры → KTX2/UASTC --level 2 --zstd 18 (${dataTex.length} шт.: ${dataTex.join(', ')}) — нормали/ORM без артефактов ETC1S`);
+      } else {
+        out.details.push(`Текстуры → KTX2/UASTC: ${needKtx} шт. (--level 2 --zstd 18, без RDO; режим --uastc)`);
+      }
       return out;
     },
   },
@@ -584,7 +615,7 @@ async function processFile(io, filename) {
   const src = path.join(INPUT_DIR, filename);
   const dstName = filename.replace(/\.gltf$/i, '.glb');
   const dst = path.join(OUTPUT_DIR, dstName);
-  if (fs.existsSync(dst)) {
+  if (!OPTS.dryRun && fs.existsSync(dst)) {
     console.log(`[ПРОПУСК] ${filename} — уже есть в output/`);
     return 'skip';
   }
@@ -726,18 +757,19 @@ async function processFile(io, filename) {
 
   // -------- ФАЗА 5 · ОТЧЁТ + запись (.glb пишем ТОЛЬКО если есть applied и валидация прошла) --------
   console.log('    фаза 5/5 · отчёт');
-  const writeAsset = validationOk && report.applied.length > 0;
+  const writeAsset = !OPTS.dryRun && validationOk && report.applied.length > 0;
   if (writeAsset) fs.writeFileSync(dst, glb);
-  writeReport(dstName, report, before, after, writeAsset);
+  const reportName = writeReport(dstName, report, before, after, writeAsset);
 
   if (!validationOk) {
     console.error(`[ОШИБКА] ${filename}: валидация не прошла — .glb НЕ записан, подробности в отчёте`);
-    console.log(`         отчёт: output/${dstName.replace(/\.glb$/i, '.report.md')}`);
+    console.log(`         отчёт: output/${reportName}`);
     return 'fail';
   }
   const pct = (b, a) => (b ? (a <= b ? `−${((1 - a / b) * 100).toFixed(0)}%` : `+${((a / b - 1) * 100).toFixed(0)}%`) : '—');
-  console.log(`[ГОТОВО] ${dstName}: файл ${MB(before.fileBytes)} → ${MB(after.fileBytes)} МБ (${pct(before.fileBytes, after.fileBytes)}), VRAM ${MB(before.gpuBytes)} → ${MB(after.gpuBytes)} МБ (${pct(before.gpuBytes, after.gpuBytes)})`);
-  console.log(`         отчёт: output/${dstName.replace(/\.glb$/i, '.report.md')}`);
+  const tag = OPTS.dryRun ? '[DRY-RUN]' : '[ГОТОВО]';
+  console.log(`${tag} ${dstName}: файл ${MB(before.fileBytes)} → ${MB(after.fileBytes)} МБ (${pct(before.fileBytes, after.fileBytes)}), VRAM ${MB(before.gpuBytes)} → ${MB(after.gpuBytes)} МБ (${pct(before.gpuBytes, after.gpuBytes)})${OPTS.dryRun ? ' — файл НЕ записан' : ''}`);
+  console.log(`         отчёт: output/${reportName}`);
   return 'ok';
 }
 
@@ -747,7 +779,10 @@ function diffLine(label, before, after, fmt = (v) => v) {
 }
 
 function writeReport(name, report, before, after, assetWritten) {
-  const flags = (OPTS.keepParts ? ' · без join' : '') + (OPTS.noKtx ? ' · без KTX2' : '') + (OPTS.stripColors ? ' · strip-vertex-colors' : '');
+  const flags = (OPTS.keepParts ? ' · без join' : '')
+    + (OPTS.noKtx ? ' · без KTX2' : ` · текстуры: ${OPTS.texMode}`)
+    + (OPTS.stripColors ? ' · strip-vertex-colors' : '')
+    + (OPTS.dryRun ? ' · **DRY-RUN**' : '');
   const lines = [
     `# Отчёт оптимизации — ${name}`,
     '',
@@ -768,7 +803,12 @@ function writeReport(name, report, before, after, assetWritten) {
     '## Валидация',
     '',
     ...report.validation.map((s) => `- ${s}`),
-    ...(assetWritten ? [] : ['', '**Файл .glb НЕ записан** — не было применённых фиксов или валидация не прошла.']),
+    ...(assetWritten ? [] : [
+      '',
+      OPTS.dryRun
+        ? '**Режим dry-run** — файл .glb не записан; отчёт показывает, что БЫЛО БЫ сделано (все фазы прогнаны в памяти, цифры точные).'
+        : '**Файл .glb НЕ записан** — не было применённых фиксов или валидация не прошла.',
+    ]),
     '',
     '## Оценка улучшений',
     '',
@@ -785,7 +825,10 @@ function writeReport(name, report, before, after, assetWritten) {
     diffLine('Узлы сцены', before.nodes, after.nodes),
     '',
   ];
-  fs.writeFileSync(path.join(OUTPUT_DIR, name.replace(/\.(glb|gltf)$/i, '.report.md')), lines.join('\n'), 'utf8');
+  // dry-run пишет отчёт под отдельным именем, чтобы не затирать отчёт реального прогона
+  const reportName = name.replace(/\.(glb|gltf)$/i, OPTS.dryRun ? '.dryrun.report.md' : '.report.md');
+  fs.writeFileSync(path.join(OUTPUT_DIR, reportName), lines.join('\n'), 'utf8');
+  return reportName;
 }
 
 // ---------- main ----------
@@ -810,7 +853,12 @@ async function main() {
       'meshopt.encoder': MeshoptEncoder,
     });
 
-  console.log(`Кодек: ${OPTS.codec}` + (OPTS.keepParts ? ' | без join' : '') + (OPTS.noKtx ? ' | без KTX2' : '') + (OPTS.stripColors ? ' | strip-vertex-colors' : '') + (TOKTX ? '' : ' | toktx НЕ найден'));
+  console.log(`Кодек: ${OPTS.codec}`
+    + (OPTS.noKtx ? ' | без KTX2' : ` | текстуры: ${OPTS.texMode}`)
+    + (OPTS.keepParts ? ' | без join' : '')
+    + (OPTS.stripColors ? ' | strip-vertex-colors' : '')
+    + (OPTS.dryRun ? ' | DRY-RUN (без записи .glb)' : '')
+    + (TOKTX ? '' : ' | toktx НЕ найден'));
   console.log(`Файлов: ${files.length}\n`);
 
   let ok = 0, skip = 0, fail = 0;
