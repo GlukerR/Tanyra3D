@@ -17,11 +17,15 @@
 //   node optimize2.mjs --strip-vertex-colors  удалить вершинные цвета, даже раскрашенные
 //
 // Вход: input/*.glb и input/*.gltf  →  Выход: output/*.glb + output/*.report.md
+//
+// Программный API (контракт: docs/ARCHITECTURE.md §4b, раздел Б):
+//   import { optimizeFile, listRules, VERSION } from './optimize2.mjs';
+// При импорте main() НЕ запускается, консоль не перехватывается, логи не пишутся.
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import * as gltfCore from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
@@ -37,45 +41,52 @@ const OUTPUT_DIR = path.join(BASE_DIR, 'output');
 const LOG_DIR = path.join(BASE_DIR, 'logs');
 const LOG_KEEP_DAYS = 30; // логи старше — удаляются при следующем запуске
 
-// ---------- логи: всё из консоли дублируется в файл logs/run_*.log ----------
-fs.mkdirSync(LOG_DIR, { recursive: true });
-const _stamp = new Date().toISOString().replace(/:/g, '-').replace('T', '_').slice(0, 19);
-const LOG_FILE = path.join(LOG_DIR, `run_${_stamp}.log`);
-const _logLines = [`=== glb_web_optimize v3 · запуск ${new Date().toISOString()} ===`, `argv: ${process.argv.slice(2).join(' ') || '(без аргументов)'}`];
-for (const m of ['log', 'error', 'warn']) {
-  const orig = console[m].bind(console);
-  console[m] = (...a) => {
-    _logLines.push(a.map((x) => (typeof x === 'string' ? x : (x && x.stack) || String(x))).join(' '));
-    orig(...a);
+// ---------- логи (только CLI): всё из консоли дублируется в файл logs/run_*.log ----------
+// Вызывается ТОЛЬКО из CLI-пути: при импорте как модуля консоль не перехватывается.
+function initCliLogging(opts) {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+  const stamp = new Date().toISOString().replace(/:/g, '-').replace('T', '_').slice(0, 19);
+  const logFile = path.join(LOG_DIR, `run_${stamp}.log`);
+  const logLines = [`=== glb_web_optimize v3 · запуск ${new Date().toISOString()} ===`, `argv: ${process.argv.slice(2).join(' ') || '(без аргументов)'}`];
+  for (const m of ['log', 'error', 'warn']) {
+    const orig = console[m].bind(console);
+    console[m] = (...a) => {
+      logLines.push(a.map((x) => (typeof x === 'string' ? x : (x && x.stack) || String(x))).join(' '));
+      orig(...a);
+    };
+  }
+  const flushLog = () => {
+    try { fs.writeFileSync(logFile, logLines.join('\n') + '\n', 'utf8'); } catch { /* диск/права — лог не критичен */ }
+  };
+  process.on('exit', flushLog); // пишется и при падении, и при успехе
+
+  // ротация: удалить логи старше LOG_KEEP_DAYS дней
+  try {
+    for (const f of fs.readdirSync(LOG_DIR)) {
+      if (!f.endsWith('.log')) continue;
+      const p = path.join(LOG_DIR, f);
+      if (Date.now() - fs.statSync(p).mtimeMs > LOG_KEEP_DAYS * 24 * 3600 * 1000) fs.rmSync(p);
+    }
+  } catch { /* не критично */ }
+
+  logLines.push(`node: ${process.version} | CLI: ${GLTF_CLI_JS || GLTF_CLI || 'не найден'} | toktx: ${(opts.noKtx ? null : TOKTX) || 'не найден'}`);
+}
+
+// ---------- аргументы CLI → opts (та же форма, что принимает optimizeFile) ----------
+function parseArgv(rawArgv) {
+  const argv = rawArgv.map((a) => a.toLowerCase());
+  return {
+    codec: argv.includes('draco') ? 'draco' : 'meshopt',
+    keepParts: argv.includes('--keep-parts'),
+    noKtx: argv.includes('--no-ktx'),
+    stripColors: argv.includes('--strip-vertex-colors'),
+    // mixed (по умолчанию, решение Александра 2026-07-17): цветовые текстуры → ETC1S
+    // (лёгкие и в файле, и в VRAM), data-текстуры (нормали/occlusion/roughness) → UASTC
+    // (ETC1S мылит нормали). --uastc возвращает прежний режим «всё в UASTC».
+    texMode: argv.includes('--uastc') ? 'uastc' : 'mixed',
+    dryRun: argv.includes('--dry-run'),
   };
 }
-function flushLog() {
-  try { fs.writeFileSync(LOG_FILE, _logLines.join('\n') + '\n', 'utf8'); } catch { /* диск/права — лог не критичен */ }
-}
-process.on('exit', flushLog); // пишется и при падении, и при успехе
-
-// ротация: удалить логи старше LOG_KEEP_DAYS дней
-try {
-  for (const f of fs.readdirSync(LOG_DIR)) {
-    if (!f.endsWith('.log')) continue;
-    const p = path.join(LOG_DIR, f);
-    if (Date.now() - fs.statSync(p).mtimeMs > LOG_KEEP_DAYS * 24 * 3600 * 1000) fs.rmSync(p);
-  }
-} catch { /* не критично */ }
-
-// ---------- аргументы → opts (флаги видят движок и правила через ctx.opts) ----------
-const argv = process.argv.slice(2).map((a) => a.toLowerCase());
-const OPTS = {
-  codec: argv.includes('draco') ? 'draco' : 'meshopt',
-  keepParts: argv.includes('--keep-parts'),
-  noKtx: argv.includes('--no-ktx'),
-  stripColors: argv.includes('--strip-vertex-colors'),
-  // mixed (по умолчанию, решение Александра 2026-07-17): цветовые текстуры → ETC1S
-  // (лёгкие и в файле, и в VRAM), data-текстуры (нормали/occlusion/roughness) → UASTC
-  // (ETC1S мылит нормали). --uastc возвращает прежний режим «всё в UASTC».
-  texMode: argv.includes('--uastc') ? 'uastc' : 'mixed',
-  dryRun: argv.includes('--dry-run'),
-};
 
 // Политика автофикса (ARCHITECTURE.md §2.4): применяем provable + numeric + perceptual
 // (perceptual = KTX2/UASTC — пользователь выбрал сам и доволен). lossy — никогда
@@ -128,7 +139,9 @@ function findToktx() {
   return null;
 }
 
-const TOKTX = OPTS.noKtx ? null : findToktx();
+// Инструмент ищем всегда (нужен и API-вызовам); --no-ktx отключает само правило
+// textures/ktx2 через meta.enabled, поэтому найденный TOKTX при noKtx не используется.
+const TOKTX = findToktx();
 const childEnv = { ...process.env };
 if (TOKTX) {
   const dir = path.dirname(TOKTX);
@@ -137,8 +150,6 @@ if (TOKTX) {
   const pathKey = Object.keys(childEnv).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
   if (!(childEnv[pathKey] || '').includes(dir)) childEnv[pathKey] = dir + path.delimiter + (childEnv[pathKey] || '');
 }
-
-_logLines.push(`node: ${process.version} | CLI: ${GLTF_CLI_JS || GLTF_CLI || 'не найден'} | toktx: ${TOKTX || 'не найден'}`);
 
 function runCli(args) {
   // gltf-transform CLI для фазы KTX2 (кодирование через toktx)
@@ -557,9 +568,9 @@ const RULES = [
       out.found.push(`текстуры не в KTX2: ${needKtx}`);
       const mixed = ctx.opts.texMode === 'mixed';
       ctx.log(`        кодирование KTX2 (${needKtx} шт., режим ${mixed ? 'mixed: ETC1S+UASTC' : 'uastc'})`);
-      const tmpA = path.join(OUTPUT_DIR, `_tmp_${ctx.dstName}`);
-      const tmpB = path.join(OUTPUT_DIR, `_tmp2_${ctx.dstName}`);
-      const tmpC = path.join(OUTPUT_DIR, `_tmp3_${ctx.dstName}`);
+      const tmpA = path.join(ctx.outDir, `_tmp_${ctx.dstName}`);
+      const tmpB = path.join(ctx.outDir, `_tmp2_${ctx.dstName}`);
+      const tmpC = path.join(ctx.outDir, `_tmp3_${ctx.dstName}`);
       try {
         await ctx.io.write(tmpA, ctx.document);
         let cur = tmpA;
@@ -630,29 +641,111 @@ function orderRules(rules) {
 
 const asLines = (v) => (v == null ? [] : Array.isArray(v) ? v : [v]);
 
-async function processFile(io, filename) {
-  const src = path.join(INPUT_DIR, filename);
-  const dstName = filename.replace(/\.gltf$/i, '.glb');
-  const dst = path.join(OUTPUT_DIR, dstName);
-  if (!OPTS.dryRun && fs.existsSync(dst)) {
-    console.log(`[ПРОПУСК] ${filename} — уже есть в output/`);
-    return 'skip';
-  }
+// ============================================================================
+// ПУБЛИЧНЫЙ API (контракт: docs/ARCHITECTURE.md §4b, раздел Б).
+// CLI ниже — тонкая обёртка над optimizeFile.
+// ============================================================================
 
-  console.log(`[РАБОТА] ${filename}`);
+export const VERSION = JSON.parse(fs.readFileSync(path.join(BASE_DIR, 'package.json'), 'utf8')).version;
+
+// read-only копии meta: мутации у потребителя не влияют на движок
+export function listRules() {
+  return RULES.map((r) => ({ ...r.meta, runAfter: [...(r.meta.runAfter || [])], touches: [...(r.meta.touches || [])] }));
+}
+
+// io с декодерами создаётся один раз и переиспользуется всеми вызовами
+let _ioPromise = null;
+function getIO() {
+  if (!_ioPromise) {
+    _ioPromise = (async () => {
+      await MeshoptEncoder.ready;
+      await MeshoptDecoder.ready;
+      return new NodeIO()
+        .registerExtensions(ALL_EXTENSIONS)
+        .registerDependencies({
+          'draco3d.decoder': await draco3d.createDecoderModule(),
+          'draco3d.encoder': await draco3d.createEncoderModule(),
+          'meshopt.decoder': MeshoptDecoder,
+          'meshopt.encoder': MeshoptEncoder,
+        });
+    })();
+  }
+  return _ioPromise;
+}
+
+// значения по умолчанию — ровно как у CLI без флагов (контракт §4b)
+function normalizeOpts(opts = {}) {
+  return {
+    codec: opts.codec === 'draco' ? 'draco' : 'meshopt',
+    texMode: opts.texMode === 'uastc' ? 'uastc' : 'mixed',
+    keepParts: !!opts.keepParts,
+    noKtx: !!opts.noKtx,
+    stripColors: !!opts.stripColors,
+    dryRun: !!opts.dryRun,
+    outDir: path.resolve(String(opts.outDir || 'output')),
+    force: !!opts.force,
+    onProgress: typeof opts.onProgress === 'function' ? opts.onProgress : null,
+    // аддитивная опция (не в контракте, разрешено правилами стабильности): приёмник
+    // строк хода работы. По умолчанию тишина; CLI передаёт console.log.
+    log: typeof opts.log === 'function' ? opts.log : () => {},
+  };
+}
+
+// Находки/применения уровня движка (вне RULES) — стабильные ruleId «engine/*»
+const ENGINE_META = {
+  inputCompression: { id: 'engine/input-compression', category: 'geometry', severity: 'info', fixSafety: 'provable' },
+  inputValidation: { id: 'engine/input-validation', category: 'scene', severity: 'warn', fixSafety: 'none' },
+};
+
+export async function optimizeFile(srcPath, opts = {}) {
+  const o = normalizeOpts(opts);
+  const src = path.resolve(String(srcPath));
+  const dstName = path.basename(src).replace(/\.gltf$/i, '.glb');
+  const result = {
+    status: 'ok',
+    file: { src, dst: path.join(o.outDir, dstName), written: false, reportPath: null },
+    findings: [],   // { ruleId, category, severity, fixSafety, text }
+    skipped: [],    // { ruleId, text, reason }
+    applied: [],    // { ruleId, fixSafety, text }
+    validation: [], // { level: 'pass'|'info'|'fail', text }
+    metrics: { before: null, after: null },
+  };
+  try {
+    return await runFile(src, dstName, o, result);
+  } catch (e) {
+    // исключение (модель не читается и т.п.) — наружу не летит, а становится status:'fail'
+    result.status = 'fail';
+    result.error = e && e.message ? e.message : String(e);
+    return result;
+  }
+}
+
+async function runFile(src, dstName, o, result) {
+  const dst = result.file.dst;
+  if (!o.dryRun && !o.force && fs.existsSync(dst)) {
+    result.status = 'skip';
+    return result;
+  }
+  const progress = o.onProgress || (() => {});
+  const log = o.log;
+  const addFound = (meta, v) => { for (const text of asLines(v)) result.findings.push({ ruleId: meta.id, category: meta.category, severity: meta.severity, fixSafety: meta.fixSafety, text }); };
+  const addSkipped = (meta, v, reason) => { for (const text of asLines(v)) result.skipped.push({ ruleId: meta.id, text, reason: reason ?? text }); };
+  const addApplied = (meta, v) => { for (const text of asLines(v)) result.applied.push({ ruleId: meta.id, fixSafety: meta.fixSafety, text }); };
+
+  fs.mkdirSync(o.outDir, { recursive: true });
+  const io = await getIO();
 
   // -------- загрузка: исходный файл НЕ трогаем никогда, работаем с копией в памяти --------
   const ctx = {
     document: await io.read(src),
     io,
-    opts: OPTS,
+    opts: o,
+    outDir: o.outDir,
     dstName,
     cache: new Map(),
-    log: (msg) => console.log(msg),
+    log,
   };
   const before = collectMetrics(ctx.document, fs.statSync(src).size);
-
-  const report = { found: [], skipped: [], applied: [], validation: [] };
 
   // Входное сжатие геометрии снимаем сразу после загрузки (данные уже распакованы в память).
   // Иначе расширение остаётся на документе и КАЖДАЯ запись (включая tmp для KTX2) молча
@@ -666,48 +759,54 @@ async function processFile(io, filename) {
     }
   }
   if (strippedCodecs.length) {
-    report.found.push(`входная геометрия уже сжата (${strippedCodecs.join(', ')}) — распакована при загрузке`);
-    report.applied.push(`Снято входное сжатие ${strippedCodecs.join(', ')} — перекодировано заново (${OPTS.codec}), без двойного сжатия и скрытых пережатий`);
+    addFound(ENGINE_META.inputCompression, `входная геометрия уже сжата (${strippedCodecs.join(', ')}) — распакована при загрузке`);
+    addApplied(ENGINE_META.inputCompression, `Снято входное сжатие ${strippedCodecs.join(', ')} — перекодировано заново (${o.codec}), без двойного сжатия и скрытых пережатий`);
   }
 
   // -------- ФАЗА 1 · АНАЛИЗ (только чтение) --------
-  const activeRules = orderRules(RULES.filter((r) => r.meta.enabled(OPTS)));
-  console.log(`    фаза 1/5 · анализ (${activeRules.length} правил активно)`);
+  progress({ type: 'phase', phase: 1, name: 'анализ' });
+  const activeRules = orderRules(RULES.filter((r) => r.meta.enabled(o)));
+  log(`    фаза 1/5 · анализ (${activeRules.length} правил активно)`);
   const findings = [];
   for (const rule of activeRules) {
     for (const f of rule.analyze(ctx)) findings.push({ rule, finding: f });
   }
 
   // -------- ФАЗА 2 · ПЛАН (canFix + политика безопасности, порядок уже топологический) --------
-  console.log('    фаза 2/5 · план');
+  progress({ type: 'phase', phase: 2, name: 'план' });
+  log('    фаза 2/5 · план');
   const planned = [];
   for (const { rule, finding } of findings) {
-    if (!rule.fix) { report.found.push(...asLines(finding.text)); continue; }
+    if (!rule.fix) { addFound(rule.meta, finding.text); continue; }
     const decision = rule.canFix ? rule.canFix(finding, ctx) : { safe: true, reason: '' };
     if (!decision.safe) {
-      report.skipped.push(`${rule.meta.title} — ${decision.reason}`);
+      addSkipped(rule.meta, `${rule.meta.title} — ${decision.reason}`, decision.reason);
       continue;
     }
     const tier = finding.fixSafety || rule.meta.fixSafety;
     if (TIER_RANK[tier] > TIER_RANK[AUTOFIX_MAX_TIER] && !decision.force) {
-      report.skipped.push(`${rule.meta.title} — уровень безопасности «${tier}» не применяется автоматически`);
+      const reason = `уровень безопасности «${tier}» не применяется автоматически`;
+      addSkipped(rule.meta, `${rule.meta.title} — ${reason}`, reason);
       continue;
     }
     planned.push({ rule, finding });
   }
 
   // -------- ФАЗА 3 · ПРИМЕНЕНИЕ (по порядку, меняем рабочую копию) --------
-  console.log(`    фаза 3/5 · применение (${planned.length} фиксов)`);
+  progress({ type: 'phase', phase: 3, name: 'применение' });
+  log(`    фаза 3/5 · применение (${planned.length} фиксов)`);
   for (const { rule, finding } of planned) {
-    console.log(`      • ${rule.meta.title}`);
+    progress({ type: 'rule', phase: 3, ruleId: rule.meta.id, title: rule.meta.title });
+    log(`      • ${rule.meta.title}`);
     const res = (await rule.fix(finding, ctx)) || {};
-    report.found.push(...asLines(res.found));
-    report.skipped.push(...asLines(res.skipped));
-    report.applied.push(...asLines(res.details ?? res.detail));
+    addFound(rule.meta, res.found);
+    addSkipped(rule.meta, res.skipped);
+    addApplied(rule.meta, res.details ?? res.detail);
   }
 
   // -------- ФАЗА 4 · ВАЛИДАЦИЯ (весь ассет; при провале .glb НЕ записывается) --------
-  console.log('    фаза 4/5 · валидация');
+  progress({ type: 'phase', phase: 4, name: 'валидация' });
+  log('    фаза 4/5 · валидация');
   // материалы резолвятся: ни один примитив не ссылается на удалённый материал
   let materialsOk = true;
   for (const mesh of ctx.document.getRoot().listMeshes()) {
@@ -720,76 +819,79 @@ async function processFile(io, filename) {
   const glb = await io.writeBinary(ctx.document); // байты будущего файла — в памяти, на диск пока ничего
   const after = collectMetrics(await io.readBinary(glb), glb.byteLength);
 
-  const v = report.validation;
+  const v = result.validation;
+  const vp = (level, text) => v.push({ level, text }); // md-отчёт рендерит ✅/ℹ/❌ из level
   // 1. геометрия на месте
-  if (before.triangles === 0) v.push('ℹ треугольной геометрии не было и нет');
-  else v.push(after.triangles > 0 ? '✅ геометрия на месте' : '❌ ГЕОМЕТРИЯ ПУСТАЯ — файл битый!');
+  if (before.triangles === 0) vp('info', 'треугольной геометрии не было и нет');
+  else if (after.triangles > 0) vp('pass', 'геометрия на месте');
+  else vp('fail', 'ГЕОМЕТРИЯ ПУСТАЯ — файл битый!');
   // 2. треугольники не изменились (кроме вырожденных); окно отсчёта — как в v2 (до weld)
   const trianglesBase = ctx.cache.get('trianglesBeforeWeld') ?? before.triangles;
   const degenerateRemoved = ctx.cache.get('degenerateRemoved') ?? 0;
   const triangleDelta = trianglesBase - after.triangles;
-  if (triangleDelta === 0) v.push('✅ число треугольников не изменилось');
-  else if (triangleDelta === degenerateRemoved) v.push(`ℹ треугольников стало меньше на ${triangleDelta} — только вырожденные (нулевая площадь), рендер идентичен`);
-  else v.push(`❌ треугольники расходятся: ожидали ${trianglesBase - degenerateRemoved}, получили ${after.triangles}`);
+  if (triangleDelta === 0) vp('pass', 'число треугольников не изменилось');
+  else if (triangleDelta === degenerateRemoved) vp('info', `треугольников стало меньше на ${triangleDelta} — только вырожденные (нулевая площадь), рендер идентичен`);
+  else vp('fail', `треугольники расходятся: ожидали ${trianglesBase - degenerateRemoved}, получили ${after.triangles}`);
   // 3-5. анимации, скины, сцены
-  v.push(before.animations === after.animations ? `✅ анимации: ${after.animations}` : `❌ анимации потеряны: было ${before.animations}, стало ${after.animations}`);
-  v.push(before.skins === after.skins ? `✅ действующие скины: ${after.skins}` : `❌ скины потеряны: было ${before.skins}, стало ${after.skins}`);
-  v.push(before.scenes === after.scenes ? `✅ иерархия сцен цела: ${after.scenes}` : `❌ сцены потеряны: было ${before.scenes}, стало ${after.scenes}`);
+  if (before.animations === after.animations) vp('pass', `анимации: ${after.animations}`);
+  else vp('fail', `анимации потеряны: было ${before.animations}, стало ${after.animations}`);
+  if (before.skins === after.skins) vp('pass', `действующие скины: ${after.skins}`);
+  else vp('fail', `скины потеряны: было ${before.skins}, стало ${after.skins}`);
+  if (before.scenes === after.scenes) vp('pass', `иерархия сцен цела: ${after.scenes}`);
+  else vp('fail', `сцены потеряны: было ${before.scenes}, стало ${after.scenes}`);
   // 6. bounding box в пределах эпсилон (квантование кодека даёт микросдвиг — допуск 1% диагонали)
   if (before.bounds && after.bounds) {
     const diag = Math.hypot(...[0, 1, 2].map((i) => before.bounds.max[i] - before.bounds.min[i]));
     const eps = Math.max(1e-6, diag * 0.01);
     const ok = [0, 1, 2].every((i) =>
       Math.abs(before.bounds.min[i] - after.bounds.min[i]) <= eps && Math.abs(before.bounds.max[i] - after.bounds.max[i]) <= eps);
-    v.push(ok ? '✅ bounding box в пределах эпсилон' : '❌ bounding box изменился — модель съехала или схлопнулась');
+    if (ok) vp('pass', 'bounding box в пределах эпсилон');
+    else vp('fail', 'bounding box изменился — модель съехала или схлопнулась');
   } else {
-    v.push('ℹ bounding box не посчитан (getBounds недоступен или нет сцены)');
+    vp('info', 'bounding box не посчитан (getBounds недоступен или нет сцены)');
   }
   // 7. материалы
-  v.push(materialsOk ? '✅ каждый материал резолвится' : '❌ примитив ссылается на удалённый материал');
+  if (materialsOk) vp('pass', 'каждый материал резолвится');
+  else vp('fail', 'примитив ссылается на удалённый материал');
   // 8. gltf-validator (Khronos)
   try {
     const validator = await import('gltf-validator');
     const res = await validator.validateBytes(new Uint8Array(glb));
     const errs = res.issues.numErrors;
     if (errs === 0) {
-      v.push('✅ gltf-validator (Khronos): 0 ошибок');
+      vp('pass', 'gltf-validator (Khronos): 0 ошибок');
     } else {
       // вход мог быть битым изначально — проверяем исходник и блокируем только НОВЫЕ ошибки
       const inRes = await validator.validateBytes(new Uint8Array(fs.readFileSync(src)));
       const inErrs = inRes.issues.numErrors;
-      if (inErrs > 0) report.found.push(`входной файл уже содержит ${inErrs} ошибок gltf-validator (дефект экспорта, не оптимизации)`);
+      if (inErrs > 0) addFound(ENGINE_META.inputValidation, `входной файл уже содержит ${inErrs} ошибок gltf-validator (дефект экспорта, не оптимизации)`);
       if (errs <= inErrs) {
-        v.push(`ℹ gltf-validator: осталось ${errs} ошибок, унаследованных от входа (в исходнике ${inErrs}) — оптимизация новых не добавила`);
+        vp('info', `gltf-validator: осталось ${errs} ошибок, унаследованных от входа (в исходнике ${inErrs}) — оптимизация новых не добавила`);
         for (const m of res.issues.messages.filter((m) => m.severity === 0).slice(0, 3)) {
-          v.push(`ℹ пример: ${m.code} @ ${m.pointer || '—'}`);
+          vp('info', `пример: ${m.code} @ ${m.pointer || '—'}`);
         }
       } else {
-        v.push(`❌ gltf-validator: ${errs} ошибок (на входе было ${inErrs}) — оптимизация добавила новые`);
+        vp('fail', `gltf-validator: ${errs} ошибок (на входе было ${inErrs}) — оптимизация добавила новые`);
       }
     }
   } catch {
-    v.push('ℹ gltf-validator не установлен — структурная валидация пропущена');
+    vp('info', 'gltf-validator не установлен — структурная валидация пропущена');
   }
 
-  const validationOk = !v.some((line) => line.startsWith('❌'));
+  const validationOk = !v.some((x) => x.level === 'fail');
 
   // -------- ФАЗА 5 · ОТЧЁТ + запись (.glb пишем ТОЛЬКО если есть applied и валидация прошла) --------
-  console.log('    фаза 5/5 · отчёт');
-  const writeAsset = !OPTS.dryRun && validationOk && report.applied.length > 0;
+  progress({ type: 'phase', phase: 5, name: 'отчёт' });
+  log('    фаза 5/5 · отчёт');
+  const writeAsset = !o.dryRun && validationOk && result.applied.length > 0;
   if (writeAsset) fs.writeFileSync(dst, glb);
-  const reportName = writeReport(dstName, report, before, after, writeAsset);
+  const reportName = writeReport(dstName, result, before, after, writeAsset, o);
 
-  if (!validationOk) {
-    console.error(`[ОШИБКА] ${filename}: валидация не прошла — .glb НЕ записан, подробности в отчёте`);
-    console.log(`         отчёт: output/${reportName}`);
-    return 'fail';
-  }
-  const pct = (b, a) => (b ? (a <= b ? `−${((1 - a / b) * 100).toFixed(0)}%` : `+${((a / b - 1) * 100).toFixed(0)}%`) : '—');
-  const tag = OPTS.dryRun ? '[DRY-RUN]' : '[ГОТОВО]';
-  console.log(`${tag} ${dstName}: файл ${MB(before.fileBytes)} → ${MB(after.fileBytes)} МБ (${pct(before.fileBytes, after.fileBytes)}), VRAM ${MB(before.gpuBytes)} → ${MB(after.gpuBytes)} МБ (${pct(before.gpuBytes, after.gpuBytes)})${OPTS.dryRun ? ' — файл НЕ записан' : ''}`);
-  console.log(`         отчёт: output/${reportName}`);
-  return 'ok';
+  result.file.written = writeAsset;
+  result.file.reportPath = path.join(o.outDir, reportName);
+  result.metrics = { before, after };
+  result.status = validationOk ? 'ok' : 'fail'; // fail = валидация не прошла, .glb не записан
+  return result;
 }
 
 // ---------- отчёт: рендерится централизованно из данных, а не собирается правилами ----------
@@ -797,34 +899,37 @@ function diffLine(label, before, after, fmt = (v) => v) {
   return `| ${label} | ${fmt(before)} | ${fmt(after)} |`;
 }
 
-function writeReport(name, report, before, after, assetWritten) {
-  const flags = (OPTS.keepParts ? ' · без join' : '')
-    + (OPTS.noKtx ? ' · без KTX2' : ` · текстуры: ${OPTS.texMode}`)
-    + (OPTS.stripColors ? ' · strip-vertex-colors' : '')
-    + (OPTS.dryRun ? ' · **DRY-RUN**' : '');
+// уровень → префикс строки валидации в md (разбор обратно: level хранится в RunResult)
+const LEVEL_PREFIX = { pass: '✅', info: 'ℹ', fail: '❌' };
+
+function writeReport(name, report, before, after, assetWritten, opts) {
+  const flags = (opts.keepParts ? ' · без join' : '')
+    + (opts.noKtx ? ' · без KTX2' : ` · текстуры: ${opts.texMode}`)
+    + (opts.stripColors ? ' · strip-vertex-colors' : '')
+    + (opts.dryRun ? ' · **DRY-RUN**' : '');
   const lines = [
     `# Отчёт оптимизации — ${name}`,
     '',
-    `Дата: ${new Date().toISOString().slice(0, 10)} · кодек: ${OPTS.codec} · автофикс: до «${AUTOFIX_MAX_TIER}»${flags}`,
+    `Дата: ${new Date().toISOString().slice(0, 10)} · кодек: ${opts.codec} · автофикс: до «${AUTOFIX_MAX_TIER}»${flags}`,
     '',
     '## Найдено (проблемы)',
     '',
-    ...(report.found.length ? report.found.map((f) => `- ✓ ${f}`) : ['- индивидуальных находок нет (структурная чистка без замечаний)']),
+    ...(report.findings.length ? report.findings.map((f) => `- ✓ ${f.text}`) : ['- индивидуальных находок нет (структурная чистка без замечаний)']),
     '',
     '## Пропущено (и почему)',
     '',
-    ...(report.skipped.length ? report.skipped.map((s) => `- ${s}`) : ['- нет']),
+    ...(report.skipped.length ? report.skipped.map((s) => `- ${s.text}`) : ['- нет']),
     '',
     '## Применено',
     '',
-    ...(report.applied.length ? report.applied.map((a) => `- ${a}`) : ['- нет']),
+    ...(report.applied.length ? report.applied.map((a) => `- ${a.text}`) : ['- нет']),
     '',
     '## Валидация',
     '',
-    ...report.validation.map((s) => `- ${s}`),
+    ...report.validation.map((s) => `- ${LEVEL_PREFIX[s.level]} ${s.text}`),
     ...(assetWritten ? [] : [
       '',
-      OPTS.dryRun
+      opts.dryRun
         ? '**Режим dry-run** — файл .glb не записан; отчёт показывает, что БЫЛО БЫ сделано (все фазы прогнаны в памяти, цифры точные).'
         : '**Файл .glb НЕ записан** — не было применённых фиксов или валидация не прошла.',
     ]),
@@ -845,13 +950,15 @@ function writeReport(name, report, before, after, assetWritten) {
     '',
   ];
   // dry-run пишет отчёт под отдельным именем, чтобы не затирать отчёт реального прогона
-  const reportName = name.replace(/\.(glb|gltf)$/i, OPTS.dryRun ? '.dryrun.report.md' : '.report.md');
-  fs.writeFileSync(path.join(OUTPUT_DIR, reportName), lines.join('\n'), 'utf8');
+  const reportName = name.replace(/\.(glb|gltf)$/i, opts.dryRun ? '.dryrun.report.md' : '.report.md');
+  fs.writeFileSync(path.join(opts.outDir, reportName), lines.join('\n'), 'utf8');
   return reportName;
 }
 
-// ---------- main ----------
+// ---------- CLI: тонкая обёртка над optimizeFile (поведение — как в v0.0.6) ----------
 async function main() {
+  const OPTS = parseArgv(process.argv.slice(2));
+  initCliLogging(OPTS);
   fs.mkdirSync(INPUT_DIR, { recursive: true });
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
@@ -861,32 +968,48 @@ async function main() {
     return;
   }
 
-  await MeshoptEncoder.ready;
-  await MeshoptDecoder.ready;
-  const io = new NodeIO()
-    .registerExtensions(ALL_EXTENSIONS)
-    .registerDependencies({
-      'draco3d.decoder': await draco3d.createDecoderModule(),
-      'draco3d.encoder': await draco3d.createEncoderModule(),
-      'meshopt.decoder': MeshoptDecoder,
-      'meshopt.encoder': MeshoptEncoder,
-    });
+  await getIO(); // декодеры и io инициализируются до первого файла, как раньше
 
   console.log(`Кодек: ${OPTS.codec}`
     + (OPTS.noKtx ? ' | без KTX2' : ` | текстуры: ${OPTS.texMode}`)
     + (OPTS.keepParts ? ' | без join' : '')
     + (OPTS.stripColors ? ' | strip-vertex-colors' : '')
     + (OPTS.dryRun ? ' | DRY-RUN (без записи .glb)' : '')
-    + (TOKTX ? '' : ' | toktx НЕ найден'));
+    + ((OPTS.noKtx ? null : TOKTX) ? '' : ' | toktx НЕ найден'));
   console.log(`Файлов: ${files.length}\n`);
 
+  const pct = (b, a) => (b ? (a <= b ? `−${((1 - a / b) * 100).toFixed(0)}%` : `+${((a / b - 1) * 100).toFixed(0)}%`) : '—');
   let ok = 0, skip = 0, fail = 0;
   for (const f of files) {
     try {
-      const r = await processFile(io, f);
-      if (r === 'ok') ok++;
-      else if (r === 'skip') skip++;
-      else fail++;
+      const dstName = f.replace(/\.gltf$/i, '.glb');
+      if (!OPTS.dryRun && fs.existsSync(path.join(OUTPUT_DIR, dstName))) {
+        console.log(`[ПРОПУСК] ${f} — уже есть в output/`);
+        skip++;
+      } else {
+        console.log(`[РАБОТА] ${f}`);
+        const r = await optimizeFile(path.join(INPUT_DIR, f), { ...OPTS, outDir: OUTPUT_DIR, log: (m) => console.log(m) });
+        const reportName = r.file.reportPath ? path.basename(r.file.reportPath) : '';
+        if (r.status === 'ok') {
+          const b = r.metrics.before, a = r.metrics.after;
+          const tag = OPTS.dryRun ? '[DRY-RUN]' : '[ГОТОВО]';
+          console.log(`${tag} ${dstName}: файл ${MB(b.fileBytes)} → ${MB(a.fileBytes)} МБ (${pct(b.fileBytes, a.fileBytes)}), VRAM ${MB(b.gpuBytes)} → ${MB(a.gpuBytes)} МБ (${pct(b.gpuBytes, a.gpuBytes)})${OPTS.dryRun ? ' — файл НЕ записан' : ''}`);
+          console.log(`         отчёт: output/${reportName}`);
+          ok++;
+        } else if (r.status === 'skip') {
+          console.log(`[ПРОПУСК] ${f} — уже есть в output/`);
+          skip++;
+        } else if (r.error) {
+          // исключение внутри optimizeFile (модель не читается и т.п.)
+          fail++;
+          console.error(`[ОШИБКА] ${f}: ${r.error}`);
+        } else {
+          // валидация не прошла — отчёт есть, .glb не записан
+          fail++;
+          console.error(`[ОШИБКА] ${f}: валидация не прошла — .glb НЕ записан, подробности в отчёте`);
+          console.log(`         отчёт: output/${reportName}`);
+        }
+      }
     } catch (e) {
       fail++;
       console.error(`[ОШИБКА] ${f}: ${e.message || e}`);
@@ -896,4 +1019,21 @@ async function main() {
   console.log(`Итог: готово ${ok}, пропущено ${skip}, ошибок ${fail}`);
 }
 
-main().catch((e) => { console.error('[ФАТАЛЬНАЯ ОШИБКА]', e && e.stack ? e.stack : e); process.exit(1); });
+// ---------- запуск: main() ТОЛЬКО при прямом вызове (node optimize2.mjs), не при import ----------
+function isDirectCliRun() {
+  if (!process.argv[1]) return false; // REPL / eval — точно не наш CLI
+  try {
+    const argUrl = pathToFileURL(path.resolve(process.argv[1])).href;
+    // Windows: регистр буквы диска/пути не значим; кириллица в обоих URL
+    // percent-кодируется одинаково (оба URL строит один и тот же Node)
+    return process.platform === 'win32'
+      ? argUrl.toLowerCase() === import.meta.url.toLowerCase()
+      : argUrl === import.meta.url;
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectCliRun()) {
+  main().catch((e) => { console.error('[ФАТАЛЬНАЯ ОШИБКА]', e && e.stack ? e.stack : e); process.exit(1); });
+}

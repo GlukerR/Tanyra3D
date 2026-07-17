@@ -272,6 +272,101 @@ the engine can order and de-conflict fixes.
 
 ---
 
+## 4b. КОНТРАКТ публичного API ядра (зафиксирован 2026-07-18, для v0.1.0)
+
+> Эта секция — договор между агентами (core-engine · ai-assistant · web-interface).
+> core-engine реализует раздел Б; ai-assistant и web-interface зависят ТОЛЬКО от того,
+> что здесь записано, и не лезут во внутренности `optimize2.mjs`. Ломающее изменение
+> контракта = явное решение с правкой этой секции, не побочный эффект рефакторинга.
+
+### А. Фактическое API сейчас (v0.0.6) — только CLI и файлы
+
+`optimize2.mjs` ничего не экспортирует. Весь ввод/вывод:
+
+- **Запуск:** `node optimize2.mjs [draco] [--keep-parts] [--no-ktx] [--uastc] [--dry-run] [--strip-vertex-colors]`
+- **Вход:** файлы `input/*.glb|*.gltf` (папка фиксированная). Исходники никогда не изменяются.
+- **Выход:** `output/имя.glb` (только если ≥1 фикс применён И валидация прошла; в dry-run — никогда),
+  отчёт `output/имя.report.md` (в dry-run: `имя.dryrun.report.md`) со секциями
+  «Найдено → Пропущено (и почему) → Применено → Валидация → Оценка улучшений»,
+  полный лог `logs/run_*.log` (ротация 30 дней).
+- **Консольные маркеры:** `[РАБОТА] [ГОТОВО] [DRY-RUN] [ПРОПУСК] [ОШИБКА]`; итоговая строка
+  `Итог: готово N, пропущено M, ошибок K`. Уже существующий `output/имя.glb` → файл пропускается.
+- **Внутренние структуры** (не экспортированы, но стабильны по смыслу):
+  `metrics` = `{ fileBytes, drawCalls, triangles, textureBytes, gpuBytes, meshes, materials,
+  textures, nodes, scenes, animations, skins, bounds }` (треугольники/draw calls — по узлам
+  сцены, skins — только действующие); `report` = `{ found[], skipped[], applied[], validation[] }`
+  — массивы готовых русских строк; `RULES[i].meta` = `{ id, category, title, severity,
+  fixSafety, runAfter, touches, enabled }`.
+
+### Б. Целевой программный контракт v0.1.0 (реализует core-engine)
+
+`optimize2.mjs` становится модулем с экспортами, CLI — тонкая обёртка над ними (поведение CLI
+из раздела А сохраняется байт-в-байт).
+
+```js
+import { optimizeFile, listRules, VERSION } from './optimize2.mjs';
+
+const result = await optimizeFile(srcPath, {
+  // все флаги CLI, camelCase; значения по умолчанию — как у CLI:
+  codec: 'meshopt' | 'draco',        // 'meshopt'
+  texMode: 'mixed' | 'uastc',        // 'mixed'
+  keepParts: false, noKtx: false, stripColors: false, dryRun: false,
+  outDir: 'output',                  // куда писать .glb и отчёт
+  force: false,                      // true → обрабатывать, даже если output/имя.glb существует
+  onProgress: (e) => {},             // см. события ниже; опционально
+});
+```
+
+**События `onProgress`** (для статуса фаз в UI):
+`{ type: 'phase', phase: 1..5, name: 'анализ'|'план'|'применение'|'валидация'|'отчёт' }`
+и `{ type: 'rule', phase: 3, ruleId, title }` — перед применением каждого правила.
+
+**Результат `optimizeFile` (RunResult):**
+
+```js
+{
+  status: 'ok' | 'skip' | 'fail',    // fail = валидация не прошла, .glb не записан
+  file: { src, dst, written: boolean, reportPath },
+  findings: [ { ruleId, category, severity, fixSafety, text } ],  // «Найдено»
+  skipped:  [ { ruleId, text, reason } ],                          // «Пропущено» + причина
+  applied:  [ { ruleId, fixSafety, text } ],                       // «Применено»
+  validation: [ { level: 'pass'|'info'|'fail', text } ],           // ✅/ℹ/❌
+  metrics: { before: {…}, after: {…} },   // формы из раздела А, байты без форматирования
+  error?: string,                          // при исключении (модель не читается и т.п.)
+}
+```
+
+`listRules()` → массив `RULES[i].meta` (read-only) — для будущих настроек/доков.
+`VERSION` → строка из package.json.
+
+**Правила стабильности:** добавлять поля можно свободно; переименование/удаление полей или
+изменение семантики — ломающее изменение (правка этой секции + предупреждение зависимым
+агентам). Форматирование (МБ, проценты, язык UI) — зона потребителей; ядро отдаёт числа
+в байтах и готовые русские строки `text` как есть. Тексты объяснений «для человека» поверх
+`RunResult` — зона ai-assistant, не ядра.
+
+### В. Аддитивные детали реализации (2026-07-18, контракт Б реализован в optimize2.mjs)
+
+Не меняют контракт Б — только уточнения в рамках «добавлять поля можно свободно»:
+
+- `opts.log?: (line: string) => void` — приёмник строк хода работы (строки фаз и шагов
+  правил, как в консоли CLI). По умолчанию тишина; CLI передаёт `console.log`, чем
+  сохраняет прежний вывод. Библиотечный вызов без `log` ничего не печатает
+  (кроме внутреннего логгера glTF-Transform — строки `prune: Removed types…`).
+- Находки/применения уровня движка (вне `RULES`) имеют стабильные `ruleId` с префиксом
+  `engine/`: `engine/input-compression` (снятие входного Draco/Meshopt,
+  category `geometry`, fixSafety `provable`) и `engine/input-validation` (ошибки
+  gltf-validator, унаследованные от входа; category `scene`, severity `warn`, fixSafety `none`).
+- `file.src`, `file.dst`, `file.reportPath` — абсолютные пути; `outDir` из opts
+  резолвится относительно cwd процесса. При `status:'skip'` и при раннем `fail`
+  (исключение до отчёта) `reportPath: null`, `metrics.before/after: null`.
+- `skipped[].reason` — причина без префикса-заголовка; для строк, которые правило вернуло
+  единой фразой, `reason === text`.
+- `optimizeFile` кэширует один `NodeIO` (декодеры Draco/Meshopt) на процесс;
+  параллельные вызовы в одном процессе не изолированы по CPU — очередь на стороне потребителя.
+
+---
+
 ## 5. Data flow (five phases)
 
 ```
