@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OptiMesh — оптимизация GLB</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <span class="brand">OptiMesh</span>
+  <span class="brand-sub">оптимизатор GLB для веба</span>
+</header>
+
+<main class="workspace">
+
+  <!-- ЦЕНТР: drag&drop → сравнение -->
+  <section class="center-zone">
+
+    <div id="dropzone" class="dropzone">
+      <input type="file" id="file-input" accept=".glb" hidden>
+      <div class="dropzone-icon">⤓</div>
+      <p class="dropzone-title">Перетащите файл .glb сюда</p>
+      <p class="dropzone-sub">или</p>
+      <button id="choose-file-btn" class="btn-secondary">Выбрать файл</button>
+      <p id="chosen-file" class="chosen-file"></p>
+    </div>
+
+    <div id="comparison" class="comparison hidden">
+      <div class="compare-card" id="card-original">
+        <div class="compare-head">
+          <span class="compare-label">ОРИГИНАЛ</span>
+        </div>
+        <div class="compare-preview">
+          <span class="preview-stub">3D-превью появится в следующей версии</span>
+        </div>
+        <div class="compare-stats" id="stats-before"></div>
+      </div>
+
+      <div class="compare-arrow">
+        <span class="arrow-glyph">→</span>
+        <span id="delta-badge" class="delta-badge"></span>
+      </div>
+
+      <div class="compare-card" id="card-optimized">
+        <div class="compare-head">
+          <span class="compare-label accent">ОПТИМИЗИРОВАНО</span>
+        </div>
+        <div class="compare-preview">
+          <span class="preview-stub">3D-превью появится в следующей версии</span>
+        </div>
+        <div class="compare-stats" id="stats-after"></div>
+      </div>
+    </div>
+
+    <div id="fail-banner" class="fail-banner hidden">
+      <div class="fail-stripe"></div>
+      <div class="fail-body">
+        <p class="fail-title">Файл не записан</p>
+        <p class="fail-text">Модель не прошла проверку целостности — исходный файл не тронут.</p>
+        <div id="fail-validation" class="fail-validation"></div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ПРАВЫЙ ИНСПЕКТОР -->
+  <aside class="inspector">
+    <div class="inspector-scroll">
+
+      <div class="inspector-section">
+        <label class="section-label">Платформа</label>
+        <div class="select-wrap">
+          <select id="platform-select"></select>
+        </div>
+        <p id="platform-description" class="platform-description"></p>
+      </div>
+
+      <div class="inspector-section hidden" id="summary-section">
+        <label class="section-label">Итог</label>
+        <p id="summary-text" class="summary-text"></p>
+        <ul id="highlights-list" class="highlights-list"></ul>
+      </div>
+
+      <div class="inspector-section hidden" id="analysis-section">
+        <div class="section-head">
+          <label class="section-label">Анализ</label>
+          <span id="issues-count" class="issues-badge"></span>
+        </div>
+        <div id="issues-list" class="issues-list"></div>
+      </div>
+
+      <div class="inspector-section hidden" id="budgets-section">
+        <label class="section-label">Проверка бюджетов</label>
+        <div id="budgets-list" class="budgets-list"></div>
+      </div>
+
+      <div class="inspector-section hidden" id="warnings-section">
+        <label class="section-label">Предупреждения</label>
+        <ul id="warnings-list" class="warnings-list"></ul>
+      </div>
+
+      <div class="inspector-section hidden" id="applied-section">
+        <details>
+          <summary class="section-label collapsible-summary">Что сделано <span id="applied-count"></span></summary>
+          <ul id="applied-list" class="detail-list"></ul>
+        </details>
+      </div>
+
+      <div class="inspector-section hidden" id="skipped-section">
+        <details>
+          <summary class="section-label collapsible-summary">Что пропущено <span id="skipped-count"></span></summary>
+          <ul id="skipped-list" class="detail-list"></ul>
+        </details>
+      </div>
+
+      <div class="inspector-section hidden" id="validation-section">
+        <details>
+          <summary class="section-label collapsible-summary">Проверка целостности</summary>
+          <ul id="validation-list" class="detail-list"></ul>
+        </details>
+      </div>
+
+    </div>
+
+    <div class="inspector-footer">
+      <button id="run-btn" class="btn-primary" disabled>ОБРАБОТАТЬ</button>
+      <a id="download-btn" class="btn-primary hidden" download>СКАЧАТЬ РЕЗУЛЬТАТ</a>
+      <button id="reset-btn" class="btn-secondary hidden">Загрузить другой файл</button>
+    </div>
+  </aside>
+
+</main>
+
+<footer class="statusbar">
+  <div class="statusbar-left">
+    <span id="status-dot" class="status-dot"></span>
+    <span id="phase-status">Готово</span>
+  </div>
+  <div class="statusbar-right">
+    <span id="version-label"></span>
+  </div>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>

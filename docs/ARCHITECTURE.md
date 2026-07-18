@@ -367,6 +367,94 @@ const result = await optimizeFile(srcPath, {
 
 ---
 
+## 4c. Контракт слоя ассистента (v0.1.0)
+
+> Эта секция — договор между агентами (ai-assistant · web-interface). Реализует
+> ai-assistant в `assistant.mjs`. web-interface зависит ТОЛЬКО от того, что здесь записано.
+> `assistant.mjs` **не импортирует** `optimize2.mjs`: ядро вызывает web-interface, а слой
+> ассистента лишь переводит `RunResult` (§4b) на человеческий язык. Профили платформ —
+> ДАННЫЕ (`profiles/*.json`): новая платформа = новый json-файл без правки кода ассистента.
+> Ломающее изменение контракта = правка этой секции + предупреждение web-interface.
+
+### Экспорты `assistant.mjs`
+
+```js
+import { listPlatforms, planFor, explainResult } from './assistant.mjs';
+
+// Список платформ для выпадающего меню UI (читается из profiles/*.json).
+listPlatforms()
+// → [ { id, title, description } ]
+
+// План обработки под платформу: engineOpts передаются в optimizeFile КАК ЕСТЬ.
+planFor(platformId)
+// → {
+//     profileId,                 // id профиля
+//     title,                     // человеческое имя платформы
+//     engineOpts,                // ровно opts из §4b (codec, texMode, keepParts, noKtx, stripColors)
+//     explanation: [ string ],   // почему выбраны эти настройки, без жаргона
+//   }
+
+// Перевод RunResult (§4b) на человеческий язык для правой панели «Анализ».
+explainResult(runResult, platformId)
+// → {
+//     summary: string,           // 1–2 предложения: файл/видеопамять с числами
+//     highlights: [ string ],    // главные улучшения человеческим языком (макс. 5–6)
+//     budgetChecks: [ { name, limitText, actualText, ok: boolean, advice?: string } ],
+//     warnings: [ string ],      // из skipped и validation уровней info|fail
+//   }
+```
+
+**Семантика и правила:**
+
+- **Форматирование — зона ассистента.** Ядро отдаёт `metrics` в байтах (§4b); ассистент
+  сам переводит в КБ/МБ и проценты внутри текстов. web-interface тексты не пересчитывает,
+  только отображает как карточки-issues с цветовой маркировкой по полю `ok`.
+- **budgetChecks** сверяют `metrics.after` c `profile.budgets`. Проверяются только
+  измеримые метрики: `triangles`, `drawCalls`, `vramMB` (← `gpuBytes`), `fileMB`
+  (← `fileBytes`). `textureMaxSize` пока не проверяется — ядро не отдаёт размерность
+  текстур в `metrics`. При превышении (`ok:false`) `advice` объясняет, что превышено, на
+  сколько и что делать при экспорте.
+- **Рост файла при падении видеопамяти — НЕ ошибка.** Объясняется нейтрально: GPU-формат
+  текстур тяжелее в файле, зато на видеокарте занимает в разы меньше.
+- **Неизвестный `platformId`** → выброс `Error` с понятным текстом и списком доступных id.
+- **Нештатные статусы `RunResult`** (`error` / `status:'skip'` / `metrics === null`)
+  дают осмысленный `summary` и пустые массивы там, где данных нет.
+
+### Формат `profiles/*.json`
+
+```json
+{
+  "id": "shopify",
+  "title": "Shopify",
+  "description": "1–2 предложения для пользователя без жаргона",
+  "budgets": {
+    "triangles": 150000,
+    "drawCalls": 25,
+    "textureMaxSize": 2048,
+    "vramMB": 100,
+    "fileMB": 15
+  },
+  "engineOpts": {
+    "codec": "meshopt",
+    "texMode": "mixed",
+    "keepParts": false,
+    "noKtx": false,
+    "stripColors": false
+  },
+  "notes": [ "источник/обоснование каждого бюджета" ]
+}
+```
+
+- `engineOpts` — ровно поля `opts` из §4b (camelCase), передаются в `optimizeFile` без
+  преобразования.
+- `budgets` в человеческих единицах: `textureMaxSize` — пиксели, `vramMB`/`fileMB` — МБ,
+  `triangles`/`drawCalls` — штуки. Ассистент сам переводит МБ бюджета в байты при сверке.
+- `notes` — обоснование каждого бюджета (источник: рекомендации Khronos 3D Commerce,
+  официальные лимиты платформы, рекомендации Meta для Quest; либо консервативный «ориентир»).
+- Файл кладётся в `profiles/`, имя файла = `<id>.json`. Больше ничего регистрировать не нужно.
+
+---
+
 ## 5. Data flow (five phases)
 
 ```

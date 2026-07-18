@@ -1,10 +1,13 @@
 {
   "name": "glb-web-optimize",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "private": true,
   "license": "Apache-2.0",
   "description": "Умный оптимизатор GLB/glTF для веба — анализ, безопасная оптимизация, отчёты",
   "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
   "dependencies": {
     "@gltf-transform/core": "^4.2.0",
     "@gltf-transform/extensions": "^4.2.0",
