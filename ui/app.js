@@ -23,6 +23,9 @@
   const platformSelect = $('platform-select');
   const platformDescription = $('platform-description');
 
+  const extensionsPanel = $('extensions-panel');
+  const extensionsList = $('extensions-list');
+
   const summarySection = $('summary-section');
   const summaryText = $('summary-text');
   const highlightsList = $('highlights-list');
@@ -58,6 +61,7 @@
 
   let selectedFile = null;
   let platforms = [];
+  let extensions = [];
 
   // ---------------------------------------------------------------
   // Форматирование (байты → человекочитаемый вид) — зона web-interface
@@ -112,6 +116,7 @@
         platformSelect.appendChild(opt);
       }
       updatePlatformDescription();
+      loadExtensions(platformSelect.value);
     } catch (e) {
       platformSelect.innerHTML = '<option value="web">Веб</option>';
       platforms = [{ id: 'web', title: 'Веб', description: '' }];
@@ -123,7 +128,94 @@
     platformDescription.textContent = p ? p.description || '' : '';
   }
 
-  platformSelect.addEventListener('change', updatePlatformDescription);
+  platformSelect.addEventListener('change', () => {
+    updatePlatformDescription();
+    loadExtensions(platformSelect.value);
+  });
+
+  // ---------------------------------------------------------------
+  // Расширенные опции (KTX2, Draco, strip-colors, ...) — данные и описания
+  // приходят от AI Assistant через /api/extensions; здесь только рендер.
+  // ---------------------------------------------------------------
+
+  async function loadExtensions(platformId) {
+    extensions = [];
+    extensionsList.innerHTML = '';
+    extensionsPanel.classList.add('hidden');
+    if (!platformId) return;
+
+    try {
+      const res = await fetch(`/api/extensions?platform=${encodeURIComponent(platformId)}`);
+      const data = await res.json();
+      extensions = (data && data.extensions) || [];
+    } catch (e) {
+      extensions = []; // расширенные опции недоступны — базовая обработка всё равно работает
+    }
+
+    if (!extensions.length) return;
+
+    for (const ext of extensions) {
+      extensionsList.appendChild(buildExtensionRow(ext));
+    }
+    extensionsPanel.classList.remove('hidden');
+  }
+
+  function buildExtensionRow(ext) {
+    const row = document.createElement('div');
+    row.className = 'ext-row';
+
+    const head = document.createElement('div');
+    head.className = 'ext-row-head';
+
+    const label = document.createElement('label');
+    label.className = 'ext-label';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.className = 'ext-checkbox';
+    checkbox.value = ext.id;
+    checkbox.id = `ext-${ext.id}`;
+
+    const titleSpan = document.createElement('span');
+    titleSpan.textContent = ext.title || ext.id;
+
+    label.appendChild(checkbox);
+    label.appendChild(titleSpan);
+
+    const infoBtn = document.createElement('button');
+    infoBtn.type = 'button';
+    infoBtn.className = 'ext-info-btn';
+    infoBtn.textContent = '📖';
+    infoBtn.setAttribute('aria-label', `Подробнее: ${ext.title || ext.id}`);
+    if (ext.description) infoBtn.title = ext.description;
+
+    head.appendChild(label);
+    head.appendChild(infoBtn);
+
+    const desc = document.createElement('div');
+    desc.className = 'ext-description hidden';
+    if (ext.description) {
+      const descText = document.createElement('p');
+      descText.textContent = ext.description;
+      desc.appendChild(descText);
+    }
+    if (ext.impact) {
+      const impactText = document.createElement('p');
+      impactText.className = 'ext-impact';
+      impactText.textContent = `Влияние: ${ext.impact}`;
+      desc.appendChild(impactText);
+    }
+
+    infoBtn.addEventListener('click', () => desc.classList.toggle('hidden'));
+
+    row.appendChild(head);
+    row.appendChild(desc);
+    return row;
+  }
+
+  function getSelectedFeatures() {
+    return Array.from(extensionsList.querySelectorAll('.ext-checkbox:checked')).map((cb) => cb.value);
+  }
 
   // ---------------------------------------------------------------
   // Drag & drop / выбор файла
@@ -221,7 +313,9 @@
     }
 
     const platformId = platformSelect.value;
-    const url = `/api/optimize?platform=${encodeURIComponent(platformId)}&job=${encodeURIComponent(jobId)}`;
+    const features = getSelectedFeatures();
+    const featuresParam = features.length ? `&features=${encodeURIComponent(features.join(','))}` : '';
+    const url = `/api/optimize?platform=${encodeURIComponent(platformId)}&job=${encodeURIComponent(jobId)}${featuresParam}`;
 
     try {
       const res = await fetch(url, {

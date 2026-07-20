@@ -10,8 +10,17 @@
 //
 // Экспорты — зафиксированный контракт с web-interface (ARCHITECTURE.md §4c):
 //   listPlatforms()                     → [{ id, title, description }]
-//   planFor(platformId)                 → { profileId, title, engineOpts, explanation: [string] }
+//   planFor(platformId)                 → { profileId, title, engineOpts, explanation: [string],
+//                                           availableExtensions: [...] }  // engineOpts = БАЗОВЫЙ план (без KTX2/Draco)
+//   getAvailableExtensions(platformId)  → [{ id, title, description, impact, opts }]
+//   listExtensions(platformId)          → алиас getAvailableExtensions (имя, которое ждёт server.mjs)
 //   explainResult(runResult, platformId)→ { summary, highlights, budgetChecks, warnings }
+//
+// v0.0.8: профиль разделён на baselineOpts (базовые оптимизации — всегда и везде,
+// KTX2 ВЫКЛЮЧЕН: noKtx:true) и availableExtensions (опциональные расширения — KTX2,
+// Draco, strip-colors; включает пользователь). web-interface передаёт выбранные id
+// расширений в optimizeFile как advancedFeatures: ['ktx2', ...] — ядро само
+// переводит их в опции; поле opts у расширения — эквивалент для legacy-пути.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -92,7 +101,8 @@ export function listPlatforms() {
   for (const f of files.sort()) {
     try {
       const p = JSON.parse(fs.readFileSync(path.join(PROFILES_DIR, f), 'utf8'));
-      if (p && p.id) out.push({ id: p.id, title: p.title || p.id, description: p.description || '' });
+      // v0.1.0: показываем только включённые платформы (enabled: true или не указано = true)
+      if (p && p.id && p.enabled !== false) out.push({ id: p.id, title: p.title || p.id, description: p.description || '' });
     } catch {
       /* повреждённый профиль просто не показываем в списке */
     }
@@ -106,7 +116,9 @@ export function listPlatforms() {
 
 export function planFor(platformId) {
   const profile = loadProfile(platformId);
-  const opts = profile.engineOpts || {};
+  // v0.0.8: базовый план строится из baselineOpts (KTX2/Draco выключены);
+  // engineOpts — legacy-поле старых профилей, оставлено как фолбэк
+  const opts = profile.baselineOpts || profile.engineOpts || {};
   const b = profile.budgets || {};
 
   const explanation = [];
@@ -118,9 +130,12 @@ export function planFor(platformId) {
     explanation.push('Геометрию сожмём современным способом (meshopt) — файл меньше, а модель быстро распаковывается прямо на видеокарте.');
   }
 
+  // чистка структуры — базовая часть плана, происходит всегда
+  explanation.push('Уберём мусор без изменения картинки: дубли материалов и текстур, неиспользуемые данные, невидимые треугольники и «висящие» вершины.');
+
   // текстуры
   if (opts.noKtx) {
-    explanation.push('Текстуры оставим в исходном виде — без перевода в GPU-формат.');
+    explanation.push('Текстуры оставим в универсальном виде (PNG/WebP) — откроется в любом браузере без дополнительных загрузчиков. GPU-сжатие KTX2 доступно как расширенная опция.');
   } else if (opts.texMode === 'uastc') {
     explanation.push('Текстуры переведём в качественный GPU-формат — картинка остаётся чёткой, а видеопамяти нужно меньше.');
   } else {
@@ -153,8 +168,28 @@ export function planFor(platformId) {
     title: profile.title,
     engineOpts: { ...opts },
     explanation,
+    // аддитивное поле (в рамках правил стабильности §4c): web-interface может взять
+    // список расширений прямо из плана, не делая второй вызов
+    availableExtensions: extensionsOf(profile),
   };
 }
+
+// ----------------------------------------------------------------------------
+// getAvailableExtensions(platformId) — расширенные опции платформы (opt-in)
+// ----------------------------------------------------------------------------
+
+function extensionsOf(profile) {
+  const list = Array.isArray(profile.availableExtensions) ? profile.availableExtensions : [];
+  // копии: мутации у потребителя не должны влиять на закешированные профили
+  return list.map((e) => ({ ...e, opts: { ...(e.opts || {}) } }));
+}
+
+export function getAvailableExtensions(platformId) {
+  return extensionsOf(loadProfile(platformId));
+}
+
+// Алиас под имя, которое web-interface (server.mjs) уже ищет у ассистента.
+export const listExtensions = getAvailableExtensions;
 
 // ----------------------------------------------------------------------------
 // explainResult(runResult, platformId)

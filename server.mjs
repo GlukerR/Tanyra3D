@@ -58,6 +58,22 @@ function listPlatformsSafe() {
   return FALLBACK_PLATFORMS;
 }
 
+// Расширенные опции (KTX2/Draco/strip-colors/...) — контракт с AI Assistant §4c:
+//   listExtensions(platformId) → [{ id, title, description, impact }]
+// Пока assistant.mjs не реализует listExtensions(), возвращаем пустой список —
+// панель «Расширенные опции» в UI просто не покажется (нет придуманных web-interface данных).
+function listExtensionsSafe(platformId) {
+  if (assistant && typeof assistant.listExtensions === 'function') {
+    try {
+      const list = assistant.listExtensions(platformId);
+      if (Array.isArray(list)) return list;
+    } catch (e) {
+      console.error('[assistant] listExtensions() упал:', e.message);
+    }
+  }
+  return [];
+}
+
 function planForSafe(platformId) {
   if (assistant && typeof assistant.planFor === 'function') {
     try {
@@ -203,6 +219,13 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // --- расширенные опции для платформы ---
+    if (req.method === 'GET' && pathname === '/api/extensions') {
+      const platformId = url.searchParams.get('platform') || '';
+      sendJSON(res, 200, { extensions: listExtensionsSafe(platformId) });
+      return;
+    }
+
     // --- SSE прогресс ---
     if (req.method === 'GET' && pathname === '/api/progress') {
       const jobId = url.searchParams.get('job');
@@ -228,6 +251,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/optimize') {
       const platformId = url.searchParams.get('platform') || (listPlatformsSafe()[0] || {}).id;
       const jobId = url.searchParams.get('job') || '';
+      const featuresParam = url.searchParams.get('features') || '';
+      const advancedFeatures = featuresParam.split(',').map((s) => s.trim()).filter(Boolean);
 
       const rawName = req.headers['x-filename'] || 'model.glb';
       let decodedName;
@@ -262,6 +287,7 @@ const server = http.createServer(async (req, res) => {
       try {
         result = await optimizeFile(uploadPath, {
           ...engineOpts,
+          advancedFeatures,
           outDir: RESULTS_DIR,
           force: true,
           onProgress,
@@ -281,7 +307,7 @@ const server = http.createServer(async (req, res) => {
 
       if (jobId) sendSSE(jobId, { type: 'done', status: result.status });
 
-      sendJSON(res, 200, { result, explain, plan, downloadUrl });
+      sendJSON(res, 200, { result, explain, plan, advancedFeatures, downloadUrl });
       return;
     }
 

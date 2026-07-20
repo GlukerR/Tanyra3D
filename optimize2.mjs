@@ -3,18 +3,40 @@
 // Рефактор v2 → v3 по docs/РЕФАКТОР_v3_движок-правил.md: та же логика, тот же
 // результат, но каждая операция — объект-правило в массиве RULES, а обработка
 // файла — маленький движок из пяти фаз (АНАЛИЗ → ПЛАН → ПРИМЕНЕНИЕ → ВАЛИДАЦИЯ
-// → ОТЧЁТ). Большая архитектура: docs/ARCHITECTURE.md. Копия v2 рядом:
+// → ОТЧЁТ). Фазы 1–3 идут ДВУМЯ проходами (двухуровневая обработка): сначала
+// базовые правила (tier basic, им можно менять структуру), затем checkpoint
+// BASELINE_METRICS, затем расширения (tier advanced — только сжатие/кодирование);
+// фаза 4 строго сверяет структуру с checkpoint, расхождение блокирует запись.
+// Большая архитектура: docs/ARCHITECTURE.md. Копия v2 рядом:
 // optimize2_v2_backup.mjs (до подтверждения эквивалентности).
 //
+// Правила делятся на два уровня (meta.tier, v0.0.8):
+//   basic    — безопасны для всех и работают везде: Meshopt, чистка (dedup/prune/weld/
+//              degenerate/orphan), текстуры остаются PNG/WebP. Применяются всегда.
+//   advanced — опциональные расширения, явный opt-in пользователя (advancedFeatures в API
+//              или флаг CLI): KTX2 (нужен KTX2Loader в браузере), Draco (медленный декод),
+//              strip-colors (lossy — удаление раскрашенных вершинных цветов), decimation
+//              (lossy — упрощение геометрии), decompress-* (распаковка: Draco/Meshopt →
+//              стандартная геометрия, KTX2 → PNG).
+//
+// Принцип обратимости (ARCHITECTURE.md §4d): ядро — не только оптимизатор, но и
+// универсальный трансформер моделей. Каждое сжатие по возможности парное с распаковкой;
+// meta каждого правила декларирует reversible / reversalRuleId / reversalNote / dataLoss.
+//
 // Запуск:
-//   node optimize2.mjs                        Meshopt (по умолчанию)
-//   node optimize2.mjs draco                  Draco
+//   node optimize2.mjs                        только базовые (Meshopt, чистка, без KTX2)
+//   node optimize2.mjs --ktx2                 + расширение: текстуры → KTX2
+//   node optimize2.mjs --draco  (или draco)   + расширение: Draco вместо Meshopt
+//   node optimize2.mjs --strip-vertex-colors  + расширение: удалить и раскрашенные вершинные цвета
+//   node optimize2.mjs --decimation           + расширение: упростить геометрию (lossy, необратимо)
+//   node optimize2.mjs --decompress-draco     распаковка: снять Draco, геометрию не пережимать
+//   node optimize2.mjs --decompress-meshopt   распаковка: снять Meshopt, геометрию не пережимать
+//   node optimize2.mjs --decompress-ktx2      распаковка: текстуры KTX2 → PNG (микропотеря BasisU)
 //   node optimize2.mjs --keep-parts           не объединять меши
-//   node optimize2.mjs --no-ktx               не трогать текстуры
-//   node optimize2.mjs --uastc                ВСЕ текстуры в UASTC (макс. качество, тяжёлый файл;
-//                                             по умолчанию режим mixed: цвет→ETC1S, нормали/ORM→UASTC)
+//   node optimize2.mjs --uastc                при --ktx2: ВСЕ текстуры в UASTC (макс. качество,
+//                                             тяжёлый файл; по умолчанию mixed: цвет→ETC1S, data→UASTC)
+//   node optimize2.mjs --no-ktx               устарел: KTX2 и так выключен по умолчанию (v0.0.8)
 //   node optimize2.mjs --dry-run              полный анализ и отчёт, но без записи .glb
-//   node optimize2.mjs --strip-vertex-colors  удалить вершинные цвета, даже раскрашенные
 //
 // Вход: input/*.glb и input/*.gltf  →  Выход: output/*.glb + output/*.report.md
 //
@@ -31,7 +53,7 @@ import * as gltfCore from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import * as fns from '@gltf-transform/functions';
 import draco3d from 'draco3dgltf';
-import { MeshoptDecoder, MeshoptEncoder } from 'meshoptimizer';
+import { MeshoptDecoder, MeshoptEncoder, MeshoptSimplifier } from 'meshoptimizer';
 
 const { NodeIO } = gltfCore;
 
@@ -73,13 +95,20 @@ function initCliLogging(opts) {
 }
 
 // ---------- аргументы CLI → opts (та же форма, что принимает optimizeFile) ----------
+// Расширения (tier advanced) — только явный opt-in флагами; кодек/цвета/KTX2
+// выводятся из advancedFeatures в normalizeOpts, здесь не дублируются.
 function parseArgv(rawArgv) {
   const argv = rawArgv.map((a) => a.toLowerCase());
+  const advancedFeatures = [];
+  if (argv.includes('--ktx2')) advancedFeatures.push('ktx2');
+  if (argv.includes('draco') || argv.includes('--draco')) advancedFeatures.push('draco');
+  if (argv.includes('--strip-vertex-colors')) advancedFeatures.push('strip-colors');
   return {
-    codec: argv.includes('draco') ? 'draco' : 'meshopt',
+    advancedFeatures,
     keepParts: argv.includes('--keep-parts'),
-    noKtx: argv.includes('--no-ktx'),
-    stripColors: argv.includes('--strip-vertex-colors'),
+    // --no-ktx оставлен для совместимости скриптов: с v0.0.8 KTX2 и так выключен
+    // по умолчанию. При явном конфликте (--no-ktx --ktx2) побеждает расширение.
+    ...(argv.includes('--no-ktx') ? { noKtx: true } : {}),
     // mixed (по умолчанию, решение Александра 2026-07-17): цветовые текстуры → ETC1S
     // (лёгкие и в файле, и в VRAM), data-текстуры (нормали/occlusion/roughness) → UASTC
     // (ETC1S мылит нормали). --uastc возвращает прежний режим «всё в UASTC».
@@ -248,6 +277,38 @@ function countTriangles(doc) {
   return sceneGeometry(doc).triangles;
 }
 
+// ---------- baseline-checkpoint (двухуровневая обработка) ----------
+// Метрики-инварианты СТРУКТУРЫ модели. Снимок делается после базовых оптимизаций
+// (tier basic) и сверяется после расширений (tier advanced): расширения — только
+// сжатие/кодирование, эти значения меняться НЕ должны. Любое будущее расширение
+// (Draco, KTX2, decimation, ...) валидируется этой сверкой автоматически, без
+// специальных проверок под каждое. VRAM/textureBytes/fileBytes сюда НЕ входят —
+// им меняться можно (в этом смысл сжатия).
+//
+// ОФИЦИАЛЬНЫЕ ГАРАНТИИ КОМПОНЕНТОВ (docs/ARCHITECTURE.md §0a):
+//   - Draco (google/draco 1.5.7): НЕ меняет количество треугольников и топологию
+//     mesh; квантизация трогает только точность позиций/нормалей.
+//   - Meshopt (zeux/meshoptimizer через EXT_meshopt_compression): НЕ меняет
+//     топологию, кодирование полностью обратимо.
+//   - KTX2 (@gltf-transform/extensions + toktx): кодирует ТОЛЬКО текстуры,
+//     геометрия/сцена/анимации неизменны.
+//   - strip-colors и прочие атрибутные операции: не трогают baseline-метрики.
+// Следствие: расхождение baseline после второго прохода — ВСЕГДА ошибка
+// (неправильное применение компонента, баг в библиотеке или недочищенный вход),
+// а не «допустимая погрешность». Поэтому сверка STRICT, без допусков.
+const BASELINE_METRICS = ['triangles', 'drawCalls', 'skins', 'nodes', 'animations'];
+
+function baselineSnapshot(doc) {
+  const { drawCalls, triangles } = sceneGeometry(doc);
+  return {
+    triangles,
+    drawCalls,
+    skins: effectiveSkins(doc),
+    nodes: doc.getRoot().listNodes().length,
+    animations: doc.getRoot().listAnimations().length,
+  };
+}
+
 function listSemantics(doc) {
   const out = new Set();
   for (const m of doc.getRoot().listMeshes()) for (const p of m.listPrimitives()) for (const s of p.listSemantics()) out.add(s);
@@ -281,7 +342,7 @@ const RULES = [
   {
     meta: {
       id: 'structure/dedup', category: 'materials', title: 'Дубли ресурсов (dedup)',
-      severity: 'info', fixSafety: 'provable', runAfter: [], touches: ['texture', 'material', 'accessor'],
+      severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: [], touches: ['texture', 'material', 'accessor'],
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -302,7 +363,7 @@ const RULES = [
   {
     meta: {
       id: 'structure/prune-unused', category: 'scene', title: 'Неиспользуемые ресурсы (prune)',
-      severity: 'info', fixSafety: 'provable', runAfter: ['structure/dedup'], touches: ['texture', 'material', 'accessor', 'node'],
+      severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['structure/dedup'], touches: ['texture', 'material', 'accessor', 'node'],
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -334,8 +395,11 @@ const RULES = [
 
   {
     meta: {
+      // tier basic: базовое действие — удаление БЕЛЫХ каналов (provable, вид не меняется).
+      // Lossy-ветка (удалить раскрашенные) — расширение 'strip-colors': включается только
+      // через advancedFeatures:['strip-colors'] или флаг --strip-vertex-colors (→ opts.stripColors).
       id: 'attributes/vertex-colors', category: 'attributes', title: 'Вершинные цвета (COLOR_n)',
-      severity: 'warn', fixSafety: 'provable', runAfter: ['structure/prune-unused'], touches: ['accessor'],
+      severity: 'warn', fixSafety: 'provable', tier: 'basic', runAfter: ['structure/prune-unused'], touches: ['accessor'],
       enabled: () => true,
     },
     // Детекция при применении, а не в analyze: COLOR-каналы, которые снесёт prune
@@ -384,7 +448,7 @@ const RULES = [
   {
     meta: {
       id: 'geometry/weld', category: 'geometry', title: 'Сварка вершин (weld)',
-      severity: 'info', fixSafety: 'numeric', runAfter: ['attributes/vertex-colors'], touches: ['geometry', 'accessor'],
+      severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['attributes/vertex-colors'], touches: ['geometry', 'accessor'],
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -407,7 +471,7 @@ const RULES = [
   {
     meta: {
       id: 'geometry/degenerate-triangles', category: 'geometry', title: 'Вырожденные треугольники',
-      severity: 'info', fixSafety: 'provable', runAfter: ['geometry/weld'], touches: ['geometry'],
+      severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['geometry/weld'], touches: ['geometry'],
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -447,7 +511,7 @@ const RULES = [
   {
     meta: {
       id: 'geometry/orphan-vertices', category: 'geometry', title: 'Висящие вершины',
-      severity: 'info', fixSafety: 'provable', runAfter: ['geometry/degenerate-triangles'], touches: ['geometry', 'accessor'],
+      severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['geometry/degenerate-triangles'], touches: ['geometry', 'accessor'],
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -482,7 +546,7 @@ const RULES = [
   {
     meta: {
       id: 'scene/join', category: 'scene', title: 'Объединение мешей (flatten + join)',
-      severity: 'info', fixSafety: 'numeric', runAfter: ['geometry/orphan-vertices'], touches: ['geometry', 'node'],
+      severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['geometry/orphan-vertices'], touches: ['geometry', 'node'],
       enabled: (opts) => !opts.keepParts,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -505,7 +569,7 @@ const RULES = [
   {
     meta: {
       id: 'structure/prune-final', category: 'scene', title: 'Подчистка осиротевших ресурсов',
-      severity: 'info', fixSafety: 'provable', runAfter: ['scene/join', 'geometry/orphan-vertices'], touches: ['accessor', 'node'],
+      severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['scene/join', 'geometry/orphan-vertices'], touches: ['accessor', 'node'],
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -522,8 +586,12 @@ const RULES = [
 
   {
     meta: {
+      // ADVANCED: KTX2 требует KTX2Loader (Three.js) / поддержку basisu в движке —
+      // работает не «везде», поэтому только явный opt-in (advancedFeatures:['ktx2'] / --ktx2).
+      // normalizeOpts переводит выбор фичи в noKtx:false — enabled смотрит на итоговую опцию.
       id: 'textures/ktx2', category: 'textures', title: 'Текстуры → KTX2/UASTC',
-      severity: 'warn', fixSafety: 'perceptual', runAfter: ['structure/prune-final'], touches: ['texture'],
+      severity: 'warn', fixSafety: 'perceptual', tier: 'advanced', feature: 'ktx2',
+      runAfter: ['structure/prune-final'], touches: ['texture'],
       enabled: (opts) => !opts.noKtx,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -600,8 +668,11 @@ const RULES = [
 
   {
     meta: {
+      // tier basic: сжатие как таковое базовое (Meshopt работает везде и всегда полезно).
+      // Advanced-часть — ВЫБОР кодека Draco: advancedFeatures:['draco'] / --draco
+      // переключает opts.codec в normalizeOpts; само правило остаётся в базовом плане.
       id: 'geometry/compress', category: 'geometry', title: 'Сжатие геометрии',
-      severity: 'info', fixSafety: 'numeric', runAfter: ['textures/ktx2', 'structure/prune-final'], touches: ['geometry', 'accessor'],
+      severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['textures/ktx2', 'structure/prune-final'], touches: ['geometry', 'accessor'],
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -673,14 +744,35 @@ function getIO() {
   return _ioPromise;
 }
 
-// значения по умолчанию — ровно как у CLI без флагов (контракт §4b)
+// Расширенные возможности (tier advanced): id → человекочитаемое имя для ошибок.
+// Каждая фича транслируется в конкретную опцию ядра ниже в normalizeOpts.
+const ADVANCED_FEATURES = {
+  ktx2: 'текстуры → KTX2 (нужна поддержка в браузере/движке)',
+  draco: 'сжатие геометрии Draco вместо Meshopt',
+  'strip-colors': 'удаление раскрашенных вершинных цветов (lossy)',
+};
+
+// Значения по умолчанию — ровно как у CLI без флагов (контракт §4b): ТОЛЬКО базовые
+// оптимизации, расширения — через advancedFeatures. Неизвестная фича → Error
+// (optimizeFile превратит его в status:'fail', а не молча проигнорирует).
 function normalizeOpts(opts = {}) {
+  const adv = [...new Set((opts.advancedFeatures || []).map(String))];
+  const unknown = adv.filter((f) => !(f in ADVANCED_FEATURES));
+  if (unknown.length) {
+    throw new Error(`Неизвестные advancedFeatures: ${unknown.join(', ')}. Доступные: ${Object.keys(ADVANCED_FEATURES).join(', ')}.`);
+  }
   return {
-    codec: opts.codec === 'draco' ? 'draco' : 'meshopt',
+    advancedFeatures: adv,
+    // фича 'draco' переключает кодек; явный codec:'draco' (legacy) тоже работает
+    codec: opts.codec === 'draco' || adv.includes('draco') ? 'draco' : 'meshopt',
     texMode: opts.texMode === 'uastc' ? 'uastc' : 'mixed',
     keepParts: !!opts.keepParts,
-    noKtx: !!opts.noKtx,
-    stripColors: !!opts.stripColors,
+    // KTX2 с v0.0.8 по умолчанию ВЫКЛЮЧЕН (advanced). Приоритет: фича 'ktx2' >
+    // явный boolean noKtx (legacy-вызовы с noKtx:false сохраняют смысл) > default true.
+    // Фича обязана побеждать: baseline-профили передают noKtx:true, а web-interface
+    // добавляет advancedFeatures поверх них — иначе KTX2 не включить вовсе.
+    noKtx: adv.includes('ktx2') ? false : (typeof opts.noKtx === 'boolean' ? opts.noKtx : true),
+    stripColors: !!opts.stripColors || adv.includes('strip-colors'),
     dryRun: !!opts.dryRun,
     outDir: path.resolve(String(opts.outDir || 'output')),
     force: !!opts.force,
@@ -698,12 +790,11 @@ const ENGINE_META = {
 };
 
 export async function optimizeFile(srcPath, opts = {}) {
-  const o = normalizeOpts(opts);
   const src = path.resolve(String(srcPath));
   const dstName = path.basename(src).replace(/\.gltf$/i, '.glb');
   const result = {
     status: 'ok',
-    file: { src, dst: path.join(o.outDir, dstName), written: false, reportPath: null },
+    file: { src, dst: null, written: false, reportPath: null },
     findings: [],   // { ruleId, category, severity, fixSafety, text }
     skipped: [],    // { ruleId, text, reason }
     applied: [],    // { ruleId, fixSafety, text }
@@ -711,6 +802,9 @@ export async function optimizeFile(srcPath, opts = {}) {
     metrics: { before: null, after: null },
   };
   try {
+    // normalizeOpts внутри try: неизвестная advancedFeature → status:'fail', не исключение наружу
+    const o = normalizeOpts(opts);
+    result.file.dst = path.join(o.outDir, dstName);
     return await runFile(src, dstName, o, result);
   } catch (e) {
     // исключение (модель не читается и т.п.) — наружу не летит, а становится status:'fail'
@@ -763,46 +857,105 @@ async function runFile(src, dstName, o, result) {
     addApplied(ENGINE_META.inputCompression, `Снято входное сжатие ${strippedCodecs.join(', ')} — перекодировано заново (${o.codec}), без двойного сжатия и скрытых пережатий`);
   }
 
-  // -------- ФАЗА 1 · АНАЛИЗ (только чтение) --------
-  progress({ type: 'phase', phase: 1, name: 'анализ' });
-  const activeRules = orderRules(RULES.filter((r) => r.meta.enabled(o)));
-  log(`    фаза 1/5 · анализ (${activeRules.length} правил активно)`);
-  const findings = [];
-  for (const rule of activeRules) {
-    for (const f of rule.analyze(ctx)) findings.push({ rule, finding: f });
+  // ==========================================================================
+  // ДВУХУРОВНЕВАЯ ОБРАБОТКА: фазы 1–3 идут ДВУМЯ проходами.
+  //   Проход 1 — базовые (tier basic): чистка, ей МОЖНО менять структуру
+  //              (вырожденные треугольники, join, пустышки-скины).
+  //   *** CHECKPOINT: снимок BASELINE_METRICS (структура зафиксирована) ***
+  //   Проход 2 — расширения (tier advanced): ТОЛЬКО сжатие/кодирование,
+  //              структура меняться не должна — сверка с baseline в фазе 4.
+  // Порядок пайплайна v2 сохраняется: базовое правило, зависящее (runAfter) от
+  // ВКЛЮЧЁННОГО расширения (geometry/compress после textures/ktx2), уходит во
+  // второй проход вместе с ним — иначе сжатие геометрии выполнилось бы до KTX2.
+  // ==========================================================================
+  const orderedRules = orderRules(RULES);
+  const activeCount = orderedRules.filter((r) => r.meta.enabled(o)).length;
+  const basicPass = [];
+  const advancedPass = [];
+  const deferredIds = new Set(); // id правил, реально выполняющихся во втором проходе
+  for (const rule of orderedRules) {
+    const dependsOnDeferred = (rule.meta.runAfter || []).some((d) => deferredIds.has(d));
+    if (rule.meta.tier === 'advanced' || dependsOnDeferred) {
+      advancedPass.push(rule);
+      if (rule.meta.enabled(o)) deferredIds.add(rule.meta.id);
+    } else {
+      basicPass.push(rule);
+    }
   }
 
-  // -------- ФАЗА 2 · ПЛАН (canFix + политика безопасности, порядок уже топологический) --------
+  // Фазы 1–2 одного прохода: АНАЛИЗ (только чтение; анализируются и невыбранные
+  // расширения — их находки видны в отчёте, advanced ≠ невидимый) + ПЛАН.
+  const analyzeAndPlan = (rules) => {
+    const findings = [];
+    for (const rule of rules) {
+      for (const f of rule.analyze(ctx)) findings.push({ rule, finding: f });
+    }
+    const planned = [];
+    for (const { rule, finding } of findings) {
+      if (!rule.meta.enabled(o)) {
+        if (rule.meta.tier === 'advanced') {
+          // расширение не выбрано пользователем — явная строка «Пропущено» с подсказкой
+          const reason = `расширение «${rule.meta.feature}» не включено (advancedFeatures: ['${rule.meta.feature}'] или флаг --${rule.meta.feature})`;
+          addSkipped(rule.meta, `${rule.meta.title} — ${reason}`, reason);
+        }
+        // базовое правило, выключенное опцией (например --keep-parts), — молча, как раньше
+        continue;
+      }
+      if (!rule.fix) { addFound(rule.meta, finding.text); continue; }
+      const decision = rule.canFix ? rule.canFix(finding, ctx) : { safe: true, reason: '' };
+      if (!decision.safe) {
+        addSkipped(rule.meta, `${rule.meta.title} — ${decision.reason}`, decision.reason);
+        continue;
+      }
+      const tier = finding.fixSafety || rule.meta.fixSafety;
+      if (TIER_RANK[tier] > TIER_RANK[AUTOFIX_MAX_TIER] && !decision.force) {
+        const reason = `уровень безопасности «${tier}» не применяется автоматически`;
+        addSkipped(rule.meta, `${rule.meta.title} — ${reason}`, reason);
+        continue;
+      }
+      planned.push({ rule, finding });
+    }
+    return planned;
+  };
+
+  // Фаза 3 одного прохода: ПРИМЕНЕНИЕ (по порядку, меняем рабочую копию)
+  const applyPlanned = async (planned) => {
+    for (const { rule, finding } of planned) {
+      progress({ type: 'rule', phase: 3, ruleId: rule.meta.id, title: rule.meta.title });
+      log(`      • ${rule.meta.title}`);
+      const res = (await rule.fix(finding, ctx)) || {};
+      addFound(rule.meta, res.found);
+      addSkipped(rule.meta, res.skipped);
+      addApplied(rule.meta, res.details ?? res.detail);
+    }
+  };
+
+  // -------- ПРОХОД 1 · БАЗОВЫЕ (фазы 1–3) --------
+  // события onProgress фаз 1–3 шлём один раз (на базовом проходе): номера фаз
+  // для потребителей остаются монотонными 1→5, контракт §4b не меняется
+  progress({ type: 'phase', phase: 1, name: 'анализ' });
+  log(`    фаза 1/5 · анализ (правил: ${orderedRules.length}, активно: ${activeCount})`);
   progress({ type: 'phase', phase: 2, name: 'план' });
   log('    фаза 2/5 · план');
-  const planned = [];
-  for (const { rule, finding } of findings) {
-    if (!rule.fix) { addFound(rule.meta, finding.text); continue; }
-    const decision = rule.canFix ? rule.canFix(finding, ctx) : { safe: true, reason: '' };
-    if (!decision.safe) {
-      addSkipped(rule.meta, `${rule.meta.title} — ${decision.reason}`, decision.reason);
-      continue;
-    }
-    const tier = finding.fixSafety || rule.meta.fixSafety;
-    if (TIER_RANK[tier] > TIER_RANK[AUTOFIX_MAX_TIER] && !decision.force) {
-      const reason = `уровень безопасности «${tier}» не применяется автоматически`;
-      addSkipped(rule.meta, `${rule.meta.title} — ${reason}`, reason);
-      continue;
-    }
-    planned.push({ rule, finding });
-  }
-
-  // -------- ФАЗА 3 · ПРИМЕНЕНИЕ (по порядку, меняем рабочую копию) --------
+  const basicPlanned = analyzeAndPlan(basicPass);
   progress({ type: 'phase', phase: 3, name: 'применение' });
-  log(`    фаза 3/5 · применение (${planned.length} фиксов)`);
-  for (const { rule, finding } of planned) {
-    progress({ type: 'rule', phase: 3, ruleId: rule.meta.id, title: rule.meta.title });
-    log(`      • ${rule.meta.title}`);
-    const res = (await rule.fix(finding, ctx)) || {};
-    addFound(rule.meta, res.found);
-    addSkipped(rule.meta, res.skipped);
-    addApplied(rule.meta, res.details ?? res.detail);
-  }
+  log(`    фаза 3/5 · применение · базовые (${basicPlanned.length} фиксов)`);
+  await applyPlanned(basicPlanned);
+
+  // *** CHECKPOINT: BASELINE METRICS после базовых оптимизаций ***
+  // Дальше структура модели зафиксирована; расширениям разрешено менять только
+  // кодирование (байты/VRAM). Сверка — в фазе 4, расхождение блокирует запись.
+  // Снимок берётся именно ЗДЕСЬ (после прохода 1, перед проходом 2), потому что
+  // базовым правилам (degenerate-triangles, orphan-vertices, join, prune) менять
+  // структуру МОЖНО — это их работа. А расширения второго прохода по официальным
+  // гарантиям (ARCHITECTURE.md §0a: Draco/Meshopt/KTX2) структуру не меняют никогда.
+  ctx.baselineMetrics = baselineSnapshot(ctx.document);
+  log(`      baseline-checkpoint: ${BASELINE_METRICS.map((k) => `${k}=${ctx.baselineMetrics[k]}`).join(', ')}`);
+
+  // -------- ПРОХОД 2 · РАСШИРЕНИЯ (фазы 1–3 повторно, только advanced и отложенные) --------
+  const advancedPlanned = analyzeAndPlan(advancedPass);
+  if (advancedPlanned.length) log(`      расширения (${advancedPlanned.length} фиксов)`);
+  await applyPlanned(advancedPlanned);
 
   // -------- ФАЗА 4 · ВАЛИДАЦИЯ (весь ассет; при провале .glb НЕ записывается) --------
   progress({ type: 'phase', phase: 4, name: 'валидация' });
@@ -832,6 +985,38 @@ async function runFile(src, dstName, o, result) {
   if (triangleDelta === 0) vp('pass', 'число треугольников не изменилось');
   else if (triangleDelta === degenerateRemoved) vp('info', `треугольников стало меньше на ${triangleDelta} — только вырожденные (нулевая площадь), рендер идентичен`);
   else vp('fail', `треугольники расходятся: ожидали ${trianglesBase - degenerateRemoved}, получили ${after.triangles}`);
+  // 2b. BASELINE-CHECKPOINT (двухуровневая обработка): после базовых оптимизаций структура
+  // зафиксирована — расширения (tier advanced) обязаны её не трогать. Сверяем снимок
+  // с метриками РЕАЛЬНЫХ байтов будущего файла (after) — STRICT, без допусков.
+  // Любое будущее расширение валидируется этой сверкой автоматически.
+  //
+  // По официальной документации компонентов (docs/ARCHITECTURE.md §0a):
+  // Draco НЕ меняет количество треугольников и топологию mesh; Meshopt НЕ меняет
+  // топологию (обратимое кодирование); KTX2 кодирует только текстуры. Поэтому
+  // ЛЮБОЕ расхождение baseline-метрик после расширений = нарушение гарантии:
+  // неправильное применение компонента, баг в библиотеке (gltf-transform / кодек)
+  // или недочищенный вход (вырожденные треугольники не сняты базовыми правилами).
+  {
+    const baseline = ctx.baselineMetrics;
+    // лог для отладки: полная сверка по каждой метрике, независимо от исхода
+    for (const k of BASELINE_METRICS) {
+      log(`      [baseline-validate] ${k}: ${baseline[k]} → ${after[k]}${after[k] === baseline[k] ? '' : '  ← РАСХОЖДЕНИЕ'}`);
+    }
+    const broken = BASELINE_METRICS.filter((k) => after[k] !== baseline[k]);
+    if (broken.length === 0) {
+      vp('pass', `baseline-checkpoint: структура (${BASELINE_METRICS.join(', ')}) совпадает с контрольной точкой после базовых оптимизаций`);
+    } else {
+      const cause = advancedPlanned.length
+        ? `расширения второго прохода (${advancedPlanned.map((p) => p.rule.meta.id).join(', ')}) или запись файла`
+        : 'запись файла (второй проход фиксов не применялся)';
+      for (const k of broken) {
+        vp('fail',
+          `Нарушена гарантия компонента: ${k} изменился после расширений (было ${baseline[k]} на checkpoint, стало ${after[k]}). `
+          + `По официальной документации (ARCHITECTURE.md §0a) Draco/Meshopt/KTX2 не меняют структуру mesh. `
+          + `Вероятная причина: ${cause} — баг в библиотеке или неправильное применение компонента. Файл НЕ записан.`);
+      }
+    }
+  }
   // 3-5. анимации, скины, сцены
   if (before.animations === after.animations) vp('pass', `анимации: ${after.animations}`);
   else vp('fail', `анимации потеряны: было ${before.animations}, стало ${after.animations}`);
@@ -957,7 +1142,9 @@ function writeReport(name, report, before, after, assetWritten, opts) {
 
 // ---------- CLI: тонкая обёртка над optimizeFile (поведение — как в v0.0.6) ----------
 async function main() {
-  const OPTS = parseArgv(process.argv.slice(2));
+  // normalizeOpts сразу: codec/noKtx/stripColors выводятся из advancedFeatures,
+  // консоль и лог показывают ИТОГОВЫЕ значения (двойная нормализация идемпотентна)
+  const OPTS = normalizeOpts(parseArgv(process.argv.slice(2)));
   initCliLogging(OPTS);
   fs.mkdirSync(INPUT_DIR, { recursive: true });
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
@@ -975,7 +1162,9 @@ async function main() {
     + (OPTS.keepParts ? ' | без join' : '')
     + (OPTS.stripColors ? ' | strip-vertex-colors' : '')
     + (OPTS.dryRun ? ' | DRY-RUN (без записи .glb)' : '')
-    + ((OPTS.noKtx ? null : TOKTX) ? '' : ' | toktx НЕ найден'));
+    + (OPTS.advancedFeatures.length ? ` | расширения: ${OPTS.advancedFeatures.join(', ')}` : ' | только базовые')
+    // предупреждение про toktx уместно только когда KTX2 реально включён
+    + (OPTS.noKtx || TOKTX ? '' : ' | toktx НЕ найден'));
   console.log(`Файлов: ${files.length}\n`);
 
   const pct = (b, a) => (b ? (a <= b ? `−${((1 - a / b) * 100).toFixed(0)}%` : `+${((a / b - 1) * 100).toFixed(0)}%`) : '—');
