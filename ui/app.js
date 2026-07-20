@@ -54,6 +54,8 @@
   const runBtn = $('run-btn');
   const downloadBtn = $('download-btn');
   const resetBtn = $('reset-btn');
+  const irreversibleWarning = $('irreversible-warning');
+  const irreversibleList = $('irreversible-list');
 
   const statusDot = $('status-dot');
   const phaseStatus = $('phase-status');
@@ -286,6 +288,7 @@
     dropzone.classList.remove('hidden');
     comparison.classList.add('hidden');
     failBanner.classList.add('hidden');
+    irreversibleWarning.classList.add('hidden');
     [summarySection, analysisSection, budgetsSection, warningsSection,
       appliedSection, skippedSection, validationSection].forEach((s) => s.classList.add('hidden'));
     setPhase('Готово', null);
@@ -355,6 +358,7 @@
     failValidation.innerHTML = '';
     runBtn.classList.add('hidden');
     resetBtn.classList.remove('hidden');
+    irreversibleWarning.classList.add('hidden');
   }
 
   // ---------------------------------------------------------------
@@ -390,8 +394,24 @@
       downloadBtn.href = downloadUrl;
       const name = result.file && result.file.dst ? result.file.dst.split(/[\\/]/).pop() : 'model.glb';
       downloadBtn.setAttribute('download', name);
+      renderIrreversibleWarning(result.applied);
     } else {
       downloadBtn.classList.add('hidden');
+      irreversibleWarning.classList.add('hidden');
+    }
+  }
+
+  // §4d ARCHITECTURE.md: перед скачиванием предупреждаем о применённых изменениях,
+  // при которых данные потеряны безвозвратно (join структуры, strip раскрашенных цветов и т.п.)
+  function renderIrreversibleWarning(applied) {
+    const lossy = (applied || []).filter((a) => a.reversible === false && a.dataLoss === 'significant');
+    irreversibleWarning.classList.toggle('hidden', !lossy.length);
+    if (!lossy.length) return;
+    irreversibleList.innerHTML = '';
+    for (const a of lossy) {
+      const li = document.createElement('li');
+      li.textContent = a.text;
+      irreversibleList.appendChild(li);
     }
   }
 
@@ -412,6 +432,7 @@
     }
 
     downloadBtn.classList.add('hidden');
+    irreversibleWarning.classList.add('hidden');
     runBtn.classList.add('hidden');
     resetBtn.classList.remove('hidden');
   }

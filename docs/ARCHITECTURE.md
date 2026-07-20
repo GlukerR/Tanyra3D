@@ -646,7 +646,7 @@ const result = await optimizeFile(srcPath, {
   file: { src, dst, written: boolean, reportPath },
   findings: [ { ruleId, category, severity, fixSafety, text } ],  // «Найдено»
   skipped:  [ { ruleId, text, reason } ],                          // «Пропущено» + причина
-  applied:  [ { ruleId, fixSafety, text } ],                       // «Применено»
+  applied:  [ { ruleId, fixSafety, reversible, dataLoss, text } ], // «Применено» + обратимость (§4d)
   validation: [ { level: 'pass'|'info'|'fail', text } ],           // ✅/ℹ/❌
   metrics: { before: {…}, after: {…} },   // формы из раздела А, байты без форматирования
   error?: string,                          // при исключении (модель не читается и т.п.)
@@ -811,7 +811,7 @@ v0.0.8+ закладывает архитектуру **универсально
 - `reversible: boolean` — есть ли обратное?
 - `reversalRuleId?: string` — id обратного правила (если есть)
 - `reversalNote?: string` — описание для пользователя
-- `dataLoss?: 'none' | 'minor' | 'significant'` — потеря данных при распаковке (для обратимых)
+- `dataLoss?: 'none' | 'minor' | 'significant'` — потеря данных: для обратимых — при распаковке; для необратимых — насколько значимы безвозвратно потерянные данные (`none` = удалено только неиспользуемое/идентичное, `significant` = потеряна структура или видимое содержимое)
 - `references?: string[]` — ссылки на официальную документацию/спеку, обосновывающие правило (в духе §0: не выдумываем правила из головы). Показываются в отчёте на уровне «технические детали» (см. §4c, progressive disclosure).
 
 ### Режимы использования (для будущего UI)
@@ -825,6 +825,11 @@ v0.0.8+ закладывает архитектуру **универсально
 
 **Важно:** Когда пользователь скачивает результат с невозвратными изменениями (decimation, strip-colors, etc.) → 
 показывать warning: _«Применены необратимые изменения. Сохраните исходный файл перед скачиванием.»_
+
+Реализовано (v0.0.8): каждая запись `applied` несёт `reversible`/`dataLoss` из meta правила
+(lossy-ветка внутри правила может пометить свои строки отдельно — `res.irreversible` в fix());
+UI показывает предупреждение над кнопкой скачивания, если среди применённого есть
+`reversible: false` + `dataLoss: 'significant'`, со списком конкретных изменений.
 
 ---
 

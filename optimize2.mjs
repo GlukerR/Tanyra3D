@@ -343,6 +343,7 @@ const RULES = [
     meta: {
       id: 'structure/dedup', category: 'materials', title: 'Дубли ресурсов (dedup)',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: [], touches: ['texture', 'material', 'accessor'],
+      reversible: false, dataLoss: 'none', // склеиваются только байт-в-байт идентичные копии — терять нечего
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -364,6 +365,7 @@ const RULES = [
     meta: {
       id: 'structure/prune-unused', category: 'scene', title: 'Неиспользуемые ресурсы (prune)',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['structure/dedup'], touches: ['texture', 'material', 'accessor', 'node'],
+      reversible: false, dataLoss: 'none', // удаляется только то, на что нет ни одной ссылки
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -400,6 +402,9 @@ const RULES = [
       // через advancedFeatures:['strip-colors'] или флаг --strip-vertex-colors (→ opts.stripColors).
       id: 'attributes/vertex-colors', category: 'attributes', title: 'Вершинные цвета (COLOR_n)',
       severity: 'warn', fixSafety: 'provable', tier: 'basic', runAfter: ['structure/prune-unused'], touches: ['accessor'],
+      // базовая ветка (белые каналы) — потери нет; strip-ветка помечает свои строки
+      // через res.irreversible → dataLoss 'significant' на уровне applied-записи
+      reversible: false, dataLoss: 'none',
       enabled: () => true,
     },
     // Детекция при применении, а не в analyze: COLOR-каналы, которые снесёт prune
@@ -433,7 +438,7 @@ const RULES = [
             } else if (ctx.opts.stripColors) {
               prim.setAttribute(sem, null); // lossy, но пользователь явно форсировал флагом
               out.found.push(`${where}: реальная покраска вершин`);
-              out.details.push(`${where}: РАСКРАШЕН, удалён по флагу --strip-vertex-colors — вид может измениться`);
+              (out.irreversible ??= []).push(`${where}: РАСКРАШЕН, удалён по флагу --strip-vertex-colors — вид может измениться`);
             } else {
               out.found.push(`${where}: реальная покраска вершин`);
               out.skipped.push(`${where}: реальная покраска — НЕ удалён, влияет на вид. Форсировать: --strip-vertex-colors`);
@@ -449,6 +454,7 @@ const RULES = [
     meta: {
       id: 'geometry/weld', category: 'geometry', title: 'Сварка вершин (weld)',
       severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['attributes/vertex-colors'], touches: ['geometry', 'accessor'],
+      reversible: false, dataLoss: 'none', // свариваются только идентичные вершины
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -472,6 +478,7 @@ const RULES = [
     meta: {
       id: 'geometry/degenerate-triangles', category: 'geometry', title: 'Вырожденные треугольники',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['geometry/weld'], touches: ['geometry'],
+      reversible: false, dataLoss: 'none', // нулевая площадь — не рисовались
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -512,6 +519,7 @@ const RULES = [
     meta: {
       id: 'geometry/orphan-vertices', category: 'geometry', title: 'Висящие вершины',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['geometry/degenerate-triangles'], touches: ['geometry', 'accessor'],
+      reversible: false, dataLoss: 'none', // не адресованы индексами — не рисовались
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -547,6 +555,8 @@ const RULES = [
     meta: {
       id: 'scene/join', category: 'scene', title: 'Объединение мешей (flatten + join)',
       severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['geometry/orphan-vertices'], touches: ['geometry', 'node'],
+      reversible: false, dataLoss: 'significant', // §4d: структура узлов и имена частей теряются безвозвратно
+      reversalNote: 'Иерархия узлов и отдельные части объединены — из результата их не восстановить. Чтобы сохранить части, используйте --keep-parts.',
       enabled: (opts) => !opts.keepParts,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -570,6 +580,7 @@ const RULES = [
     meta: {
       id: 'structure/prune-final', category: 'scene', title: 'Подчистка осиротевших ресурсов',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['scene/join', 'geometry/orphan-vertices'], touches: ['accessor', 'node'],
+      reversible: false, dataLoss: 'none', // только осиротевшие после предыдущих фиксов ресурсы
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -592,6 +603,8 @@ const RULES = [
       id: 'textures/ktx2', category: 'textures', title: 'Текстуры → KTX2/UASTC',
       severity: 'warn', fixSafety: 'perceptual', tier: 'advanced', feature: 'ktx2',
       runAfter: ['structure/prune-final'], touches: ['texture'],
+      reversible: true, dataLoss: 'minor', // §4d: KTX2 ↔ PNG/WebP, потеря от BASIS-U распаковки
+      reversalNote: 'KTX2 можно распаковать обратно в PNG/WebP с небольшой потерей качества (BASIS-декодирование).',
       enabled: (opts) => !opts.noKtx,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -673,6 +686,8 @@ const RULES = [
       // переключает opts.codec в normalizeOpts; само правило остаётся в базовом плане.
       id: 'geometry/compress', category: 'geometry', title: 'Сжатие геометрии',
       severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['textures/ktx2', 'structure/prune-final'], touches: ['geometry', 'accessor'],
+      reversible: true, dataLoss: 'none', // §4d: Draco/Meshopt ↔ стандартный формат в пределах точности float32
+      reversalNote: 'Сжатая геометрия распаковывается обратно в стандартный формат без потери данных.',
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -785,8 +800,8 @@ function normalizeOpts(opts = {}) {
 
 // Находки/применения уровня движка (вне RULES) — стабильные ruleId «engine/*»
 const ENGINE_META = {
-  inputCompression: { id: 'engine/input-compression', category: 'geometry', severity: 'info', fixSafety: 'provable' },
-  inputValidation: { id: 'engine/input-validation', category: 'scene', severity: 'warn', fixSafety: 'none' },
+  inputCompression: { id: 'engine/input-compression', category: 'geometry', severity: 'info', fixSafety: 'provable', reversible: true, dataLoss: 'none' },
+  inputValidation: { id: 'engine/input-validation', category: 'scene', severity: 'warn', fixSafety: 'none', reversible: true, dataLoss: 'none' },
 };
 
 export async function optimizeFile(srcPath, opts = {}) {
@@ -797,7 +812,7 @@ export async function optimizeFile(srcPath, opts = {}) {
     file: { src, dst: null, written: false, reportPath: null },
     findings: [],   // { ruleId, category, severity, fixSafety, text }
     skipped: [],    // { ruleId, text, reason }
-    applied: [],    // { ruleId, fixSafety, text }
+    applied: [],    // { ruleId, fixSafety, reversible, dataLoss, text } — обратимость по §4d
     validation: [], // { level: 'pass'|'info'|'fail', text }
     metrics: { before: null, after: null },
   };
@@ -824,7 +839,19 @@ async function runFile(src, dstName, o, result) {
   const log = o.log;
   const addFound = (meta, v) => { for (const text of asLines(v)) result.findings.push({ ruleId: meta.id, category: meta.category, severity: meta.severity, fixSafety: meta.fixSafety, text }); };
   const addSkipped = (meta, v, reason) => { for (const text of asLines(v)) result.skipped.push({ ruleId: meta.id, text, reason: reason ?? text }); };
-  const addApplied = (meta, v) => { for (const text of asLines(v)) result.applied.push({ ruleId: meta.id, fixSafety: meta.fixSafety, text }); };
+  // over — переопределение полей обратимости для отдельных строк (lossy-ветки правил,
+  // см. res.irreversible): базовое поведение правила может быть без потерь, а форсированное — нет
+  const addApplied = (meta, v, over = {}) => {
+    for (const text of asLines(v)) {
+      result.applied.push({
+        ruleId: meta.id,
+        fixSafety: meta.fixSafety,
+        reversible: over.reversible ?? meta.reversible ?? false,
+        dataLoss: over.dataLoss ?? meta.dataLoss ?? 'none',
+        text,
+      });
+    }
+  };
 
   fs.mkdirSync(o.outDir, { recursive: true });
   const io = await getIO();
@@ -927,6 +954,8 @@ async function runFile(src, dstName, o, result) {
       addFound(rule.meta, res.found);
       addSkipped(rule.meta, res.skipped);
       addApplied(rule.meta, res.details ?? res.detail);
+      // строки с безвозвратной потерей данных (§4d) — UI предупредит перед скачиванием
+      addApplied(rule.meta, res.irreversible, { reversible: false, dataLoss: 'significant' });
     }
   };
 

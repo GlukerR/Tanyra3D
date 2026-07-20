@@ -601,6 +601,38 @@ details[open] > .collapsible-summary::before {
 
 /* ---------- Inspector footer ---------- */
 
+.irreversible-warning {
+  border-left: 2px solid var(--warning);
+  background: rgba(251, 191, 36, 0.08);
+  padding: 10px 12px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.irreversible-title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--warning);
+}
+
+.irreversible-text {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--on-surface-variant);
+  line-height: 1.45;
+}
+
+.irreversible-list {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  font-size: 11px;
+  color: var(--outline);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.4;
+}
+
 .inspector-footer {
   flex-shrink: 0;
   padding: 16px 18px;
