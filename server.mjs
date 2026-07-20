@@ -34,7 +34,7 @@ try {
 }
 
 const FALLBACK_PLATFORMS = [
-  { id: 'web', title: 'Веб', description: 'Стандартная подготовка для сайта' },
+  { id: 'web', title: 'Web', description: 'Стандартная подготовка для сайта' },
 ];
 
 const FALLBACK_ENGINE_OPTS = {

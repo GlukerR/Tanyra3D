@@ -120,8 +120,8 @@
       updatePlatformDescription();
       loadExtensions(platformSelect.value);
     } catch (e) {
-      platformSelect.innerHTML = '<option value="web">Веб</option>';
-      platforms = [{ id: 'web', title: 'Веб', description: '' }];
+      platformSelect.innerHTML = '<option value="web">Web</option>';
+      platforms = [{ id: 'web', title: 'Web', description: '' }];
     }
   }
 
