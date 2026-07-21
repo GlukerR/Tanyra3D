@@ -20,7 +20,7 @@ import { render } from './i18n.mjs';
 // Политика автофикса (ARCHITECTURE.md §2.4): применяем provable + numeric + perceptual
 // (perceptual = KTX2/UASTC — пользователь выбрал сам и доволен). lossy — никогда
 // автоматом; только явный force из canFix (например флаг --strip-vertex-colors).
-export const TIER_RANK = { provable: 0, numeric: 1, perceptual: 2, lossy: 3 };
+const TIER_RANK = { provable: 0, numeric: 1, perceptual: 2, lossy: 3 };
 export const AUTOFIX_MAX_TIER = 'perceptual';
 
 // Находки/применения уровня движка (вне правил аддона) — стабильные ruleId «engine/*».

@@ -42,8 +42,3 @@ export function render(messageId, data = {}, locale = 'en') {
   if (typeof tpl === 'function') return tpl(data);
   return String(tpl).replace(/\{(\w+)\}/g, (_, k) => (k in data ? String(data[k]) : `{${k}}`));
 }
-
-/** Есть ли каталог для локали (для валидации opts.locale на входе). */
-export function hasLocale(locale) {
-  return catalogs.has(locale);
-}
