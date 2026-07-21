@@ -37,8 +37,8 @@ export class Registry {
     const ext = path.extname(String(filePath)).toLowerCase().replace(/^\./, '');
     const addon = this._byFormat.get(ext);
     if (!addon) {
-      const known = [...this._byFormat.keys()].map((e) => `.${e}`).join(', ') || '(нет зарегистрированных)';
-      throw new Error(`Формат .${ext} не поддержан. Доступные: ${known}.`);
+      const known = [...this._byFormat.keys()].map((e) => `.${e}`).join(', ') || '(none registered)';
+      throw new Error(`Format .${ext} is not supported. Available: ${known}.`);
     }
     return addon;
   }

@@ -75,6 +75,6 @@ export function runCli(args) {
   } catch (e) {
     const raw = ((e.stderr || '') + '\n' + (e.stdout || '')).toString().trim();
     const tail = raw ? raw.split('\n').slice(-10).join('\n    ') : e.message;
-    throw new Error(`gltf-transform ${args[0]} завершился с ошибкой:\n    ${tail}`);
+    throw new Error(`gltf-transform ${args[0]} failed:\n    ${tail}`);
   }
 }

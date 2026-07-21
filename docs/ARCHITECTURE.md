@@ -303,14 +303,16 @@
    - Размер в VRAM (gpuBytes) — особенно при KTX2.
    - Потенциально: количество текстур (если используется dedup / prune).
 
-3. **Поэтому** baseline-checkpoint (BASELINE_METRICS в optimize2.mjs) содержит:
+3. **Поэтому** baseline-checkpoint (BASELINE_METRICS в `addons/gltf/metrics.mjs`, начиная с рефактора core/addon; движок читает их через `gltfAddon.BASELINE_METRICS`) содержит:
    ```
-   triangles, drawCalls, skins (действующие), nodes, animations
+   triangles, vertices, drawCalls, skins (действующие), nodes, animations
    ```
 
    И НЕ содержит fileBytes / gpuBytes / textureBytes, которым разрешено меняться.
 
-4. **Для будущих расширений** (decimation, simplify и др.): любое расширение, которое меняет BASELINE_METRICS, будет автоматически заблокировано валидацией на фазе 4 (ВАЛИДАЦИЯ).
+   `vertices` — МЯГКИЙ ключ (`BASELINE_SOFT`): его расхождение даёт ℹ (инфо), но НЕ блокирует запись — Draco сваривает вершины при сериализации, меняя их число, при сохранной топологии/треугольниках; для анимированных моделей структуру защищают жёсткие ключи (skins, animations). Остальные ключи — жёсткие (расхождение = ❌, файл не пишется).
+
+4. **Для будущих расширений** (decimation, simplify и др.): любое расширение, которое меняет жёсткий BASELINE_METRICS, будет автоматически заблокировано валидацией на фазе 4 (ВАЛИДАЦИЯ).
 
 ---
 
@@ -624,12 +626,14 @@ const result = await optimizeFile(srcPath, {
 ```
 
 **События `onProgress`** (для статуса фаз в UI):
-`{ type: 'phase', phase: 1..5, name: 'анализ'|'план'|'применение'|'валидация'|'отчёт' }`
-и `{ type: 'rule', phase: 3, ruleId, title }` — перед применением каждого правила.
+`{ type: 'phase', phase: 1..5, name: 'analysis'|'plan'|'apply'|'validation'|'report' }`
+(имена англоязычные — продукт англоязычный, C2) и `{ type: 'rule', phase: 3, ruleId, title }`
+— перед применением каждого правила.
 
 **Двухуровневая обработка (v0.0.9, внутренняя механика ядра):** фазы 1–3 идут двумя
 проходами — сначала базовые правила (tier basic), затем checkpoint структурных метрик
-`BASELINE_METRICS = ['triangles', 'drawCalls', 'skins', 'nodes', 'animations']`, затем
+`BASELINE_METRICS = ['triangles', 'vertices', 'drawCalls', 'skins', 'nodes', 'animations']`
+(`vertices` — мягкий ключ, ℹ без блокировки; см. §5), затем
 расширения (tier advanced; базовое правило с `runAfter` на включённое расширение уходит
 во второй проход вместе с ним — порядок пайплайна сохраняется). Фаза 4 строго сверяет
 метрики итоговых байтов с checkpoint: расхождение → `validation` получает `level:'fail'`
