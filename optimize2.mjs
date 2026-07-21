@@ -90,7 +90,7 @@ function initCliLogging(opts) {
   fs.mkdirSync(LOG_DIR, { recursive: true });
   const stamp = new Date().toISOString().replace(/:/g, '-').replace('T', '_').slice(0, 19);
   const logFile = path.join(LOG_DIR, `run_${stamp}.log`);
-  const logLines = [`=== glb_web_optimize · запуск ${new Date().toISOString()} ===`, `argv: ${process.argv.slice(2).join(' ') || '(без аргументов)'}`];
+  const logLines = [`=== glb_web_optimize · run ${new Date().toISOString()} ===`, `argv: ${process.argv.slice(2).join(' ') || '(no arguments)'}`];
   for (const m of ['log', 'error', 'warn']) {
     const orig = console[m].bind(console);
     console[m] = (...a) => {
@@ -112,7 +112,7 @@ function initCliLogging(opts) {
     }
   } catch { /* не критично */ }
 
-  logLines.push(`node: ${process.version} | CLI: ${GLTF_CLI_JS || GLTF_CLI || 'не найден'} | toktx: ${(opts.noKtx ? null : TOKTX) || 'не найден'}`);
+  logLines.push(`node: ${process.version} | CLI: ${GLTF_CLI_JS || GLTF_CLI || 'not found'} | toktx: ${(opts.noKtx ? null : TOKTX) || 'not found'}`);
 }
 
 // ---------- аргументы CLI → opts (та же форма, что принимает optimizeFile) ----------
@@ -147,21 +147,21 @@ async function main() {
 
   const files = fs.readdirSync(INPUT_DIR).filter((f) => /\.(glb|gltf)$/i.test(f)).sort();
   if (!files.length) {
-    console.log(`В папке input/ нет .glb/.gltf файлов. Положи модели сюда:\n  ${INPUT_DIR}`);
+    console.log(`No .glb/.gltf files in input/. Put models here:\n  ${INPUT_DIR}`);
     return;
   }
 
   await gltfAddon.createIO(); // декодеры и io инициализируются до первого файла, как раньше
 
-  console.log(`Кодек: ${OPTS.codec}`
-    + (OPTS.noKtx ? ' | без KTX2' : ` | текстуры: ${OPTS.texMode}`)
-    + (OPTS.keepParts ? ' | без join' : '')
+  console.log(`Codec: ${OPTS.codec}`
+    + (OPTS.noKtx ? ' | no KTX2' : ` | textures: ${OPTS.texMode}`)
+    + (OPTS.keepParts ? ' | no join' : '')
     + (OPTS.stripColors ? ' | strip-vertex-colors' : '')
-    + (OPTS.dryRun ? ' | DRY-RUN (без записи .glb)' : '')
-    + (OPTS.advancedFeatures.length ? ` | расширения: ${OPTS.advancedFeatures.join(', ')}` : ' | только базовые')
+    + (OPTS.dryRun ? ' | DRY-RUN (no .glb written)' : '')
+    + (OPTS.advancedFeatures.length ? ` | extensions: ${OPTS.advancedFeatures.join(', ')}` : ' | basic only')
     // предупреждение про toktx уместно только когда KTX2 реально включён
-    + (OPTS.noKtx || TOKTX ? '' : ' | toktx НЕ найден'));
-  console.log(`Файлов: ${files.length}\n`);
+    + (OPTS.noKtx || TOKTX ? '' : ' | toktx NOT found'));
+  console.log(`Files: ${files.length}\n`);
 
   const pct = (b, a) => (b ? (a <= b ? `−${((1 - a / b) * 100).toFixed(0)}%` : `+${((a / b - 1) * 100).toFixed(0)}%`) : '—');
   let ok = 0, skip = 0, fail = 0;
@@ -169,39 +169,39 @@ async function main() {
     try {
       const dstName = f.replace(/\.gltf$/i, '.glb');
       if (!OPTS.dryRun && fs.existsSync(path.join(OUTPUT_DIR, dstName))) {
-        console.log(`[ПРОПУСК] ${f} — уже есть в output/`);
+        console.log(`[SKIP] ${f} — already in output/`);
         skip++;
       } else {
-        console.log(`[РАБОТА] ${f}`);
+        console.log(`[WORKING] ${f}`);
         const r = await optimizeFile(path.join(INPUT_DIR, f), { ...OPTS, outDir: OUTPUT_DIR, log: (m) => console.log(m) });
         const reportName = r.file.reportPath ? path.basename(r.file.reportPath) : '';
         if (r.status === 'ok') {
           const b = r.metrics.before, a = r.metrics.after;
-          const tag = OPTS.dryRun ? '[DRY-RUN]' : '[ГОТОВО]';
-          console.log(`${tag} ${dstName}: файл ${MB(b.fileBytes)} → ${MB(a.fileBytes)} МБ (${pct(b.fileBytes, a.fileBytes)}), VRAM ${MB(b.gpuBytes)} → ${MB(a.gpuBytes)} МБ (${pct(b.gpuBytes, a.gpuBytes)})${OPTS.dryRun ? ' — файл НЕ записан' : ''}`);
-          console.log(`         отчёт: output/${reportName}`);
+          const tag = OPTS.dryRun ? '[DRY-RUN]' : '[DONE]';
+          console.log(`${tag} ${dstName}: file ${MB(b.fileBytes)} → ${MB(a.fileBytes)} MB (${pct(b.fileBytes, a.fileBytes)}), VRAM ${MB(b.gpuBytes)} → ${MB(a.gpuBytes)} MB (${pct(b.gpuBytes, a.gpuBytes)})${OPTS.dryRun ? ' — file NOT written' : ''}`);
+          console.log(`         report: output/${reportName}`);
           ok++;
         } else if (r.status === 'skip') {
-          console.log(`[ПРОПУСК] ${f} — уже есть в output/`);
+          console.log(`[SKIP] ${f} — already in output/`);
           skip++;
         } else if (r.error) {
           // исключение внутри optimizeFile (модель не читается и т.п.)
           fail++;
-          console.error(`[ОШИБКА] ${f}: ${r.error}`);
+          console.error(`[ERROR] ${f}: ${r.error}`);
         } else {
           // валидация не прошла — отчёт есть, .glb не записан
           fail++;
-          console.error(`[ОШИБКА] ${f}: валидация не прошла — .glb НЕ записан, подробности в отчёте`);
-          console.log(`         отчёт: output/${reportName}`);
+          console.error(`[ERROR] ${f}: validation failed — .glb NOT written, see the report`);
+          console.log(`         report: output/${reportName}`);
         }
       }
     } catch (e) {
       fail++;
-      console.error(`[ОШИБКА] ${f}: ${e.message || e}`);
+      console.error(`[ERROR] ${f}: ${e.message || e}`);
     }
     console.log();
   }
-  console.log(`Итог: готово ${ok}, пропущено ${skip}, ошибок ${fail}`);
+  console.log(`Summary: done ${ok}, skipped ${skip}, errors ${fail}`);
 }
 
 // ---------- запуск: main() ТОЛЬКО при прямом вызове (node optimize2.mjs), не при import ----------
@@ -220,5 +220,5 @@ function isDirectCliRun() {
 }
 
 if (isDirectCliRun()) {
-  main().catch((e) => { console.error('[ФАТАЛЬНАЯ ОШИБКА]', e && e.stack ? e.stack : e); process.exit(1); });
+  main().catch((e) => { console.error('[FATAL ERROR]', e && e.stack ? e.stack : e); process.exit(1); });
 }

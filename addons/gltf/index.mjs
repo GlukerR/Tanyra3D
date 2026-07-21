@@ -18,11 +18,16 @@ import draco3d from 'draco3dgltf';
 import { MeshoptDecoder, MeshoptEncoder } from 'meshoptimizer';
 
 import { AUTOFIX_MAX_TIER, ENGINE_META, compareBaseline } from '../../core/engine.mjs';
+import { register } from '../../core/i18n.mjs';
 import {
   BASELINE_METRICS, BASELINE_SOFT, MB, collectMetrics, baselineSnapshot,
 } from './metrics.mjs';
+import enMessages from './messages/en.mjs';
 import { RULES } from './rules.mjs';
 import { TOKTX } from './tools.mjs';
+
+// Регистрируем английский каталог правил при импорте аддона (единственный сейчас язык).
+register('en', enMessages);
 
 const { NodeIO } = gltfCore;
 
@@ -49,9 +54,9 @@ function createIO() {
 // Расширенные возможности (tier advanced): id → человекочитаемое имя для ошибок.
 // Каждая фича транслируется в конкретную опцию ядра ниже в normalizeOpts.
 const ADVANCED_FEATURES = {
-  ktx2: 'текстуры → KTX2 (нужна поддержка в браузере/движке)',
-  draco: 'сжатие геометрии Draco вместо Meshopt',
-  'strip-colors': 'удаление раскрашенных вершинных цветов (lossy)',
+  ktx2: 'textures → KTX2 (needs browser/engine support)',
+  draco: 'Draco geometry compression instead of Meshopt',
+  'strip-colors': 'removal of painted vertex colors (lossy)',
 };
 
 // Значения по умолчанию — ровно как у CLI без флагов (контракт §4b): ТОЛЬКО базовые
@@ -61,7 +66,7 @@ function normalizeOpts(opts = {}) {
   const adv = [...new Set((opts.advancedFeatures || []).map(String))];
   const unknown = adv.filter((f) => !(f in ADVANCED_FEATURES));
   if (unknown.length) {
-    throw new Error(`Неизвестные advancedFeatures: ${unknown.join(', ')}. Доступные: ${Object.keys(ADVANCED_FEATURES).join(', ')}.`);
+    throw new Error(`Unknown advancedFeatures: ${unknown.join(', ')}. Available: ${Object.keys(ADVANCED_FEATURES).join(', ')}.`);
   }
   return {
     advancedFeatures: adv,
@@ -76,6 +81,9 @@ function normalizeOpts(opts = {}) {
     noKtx: adv.includes('ktx2') ? false : (typeof opts.noKtx === 'boolean' ? opts.noKtx : true),
     stripColors: !!opts.stripColors || adv.includes('strip-colors'),
     dryRun: !!opts.dryRun,
+    // §4b: opts.locale можно добавлять свободно (default 'en'). Неизвестная локаль
+    // всплывёт ошибкой рендера при первом сообщении (→ status:'fail'), а не пустой строкой.
+    locale: typeof opts.locale === 'string' ? opts.locale : 'en',
     outDir: path.resolve(String(opts.outDir || 'output')),
     force: !!opts.force,
     onProgress: typeof opts.onProgress === 'function' ? opts.onProgress : null,
@@ -124,62 +132,62 @@ async function validate({ ctx, before, after, glbBytes, src, result, advancedPla
   }
 
   // 1. геометрия на месте
-  if (before.triangles === 0) vp('info', 'треугольной геометрии не было и нет');
-  else if (after.triangles > 0) vp('pass', 'геометрия на месте');
-  else vp('fail', 'ГЕОМЕТРИЯ ПУСТАЯ — файл битый!');
+  if (before.triangles === 0) vp('info', 'no triangle geometry before or after');
+  else if (after.triangles > 0) vp('pass', 'geometry is present');
+  else vp('fail', 'GEOMETRY IS EMPTY — broken file!');
   // 2. треугольники не изменились (кроме вырожденных); окно отсчёта — как в v2 (до weld)
   const trianglesBase = ctx.cache.get('trianglesBeforeWeld') ?? before.triangles;
   const degenerateRemoved = ctx.cache.get('degenerateRemoved') ?? 0;
   const triangleDelta = trianglesBase - after.triangles;
-  if (triangleDelta === 0) vp('pass', 'число треугольников не изменилось');
-  else if (triangleDelta === degenerateRemoved) vp('info', `треугольников стало меньше на ${triangleDelta} — только вырожденные (нулевая площадь), рендер идентичен`);
-  else vp('fail', `треугольники расходятся: ожидали ${trianglesBase - degenerateRemoved}, получили ${after.triangles}`);
+  if (triangleDelta === 0) vp('pass', 'triangle count unchanged');
+  else if (triangleDelta === degenerateRemoved) vp('info', `triangle count dropped by ${triangleDelta} — only degenerate ones (zero area), render is identical`);
+  else vp('fail', `triangle mismatch: expected ${trianglesBase - degenerateRemoved}, got ${after.triangles}`);
   // 2b. BASELINE-CHECKPOINT — строгая сверка структуры со снимком после базового прохода (движок)
   for (const line of compareBaseline(ctx.baselineMetrics, after, BASELINE_METRICS, { advancedPlannedIds, log, soft: BASELINE_SOFT })) v.push(line);
   // 3-5. анимации, скины, сцены
-  if (before.animations === after.animations) vp('pass', `анимации: ${after.animations}`);
-  else vp('fail', `анимации потеряны: было ${before.animations}, стало ${after.animations}`);
-  if (before.skins === after.skins) vp('pass', `действующие скины: ${after.skins}`);
-  else vp('fail', `скины потеряны: было ${before.skins}, стало ${after.skins}`);
-  if (before.scenes === after.scenes) vp('pass', `иерархия сцен цела: ${after.scenes}`);
-  else vp('fail', `сцены потеряны: было ${before.scenes}, стало ${after.scenes}`);
+  if (before.animations === after.animations) vp('pass', `animations: ${after.animations}`);
+  else vp('fail', `animations lost: was ${before.animations}, now ${after.animations}`);
+  if (before.skins === after.skins) vp('pass', `effective skins: ${after.skins}`);
+  else vp('fail', `skins lost: was ${before.skins}, now ${after.skins}`);
+  if (before.scenes === after.scenes) vp('pass', `scene hierarchy intact: ${after.scenes}`);
+  else vp('fail', `scenes lost: was ${before.scenes}, now ${after.scenes}`);
   // 6. bounding box в пределах эпсилон (квантование кодека даёт микросдвиг — допуск 1% диагонали)
   if (before.bounds && after.bounds) {
     const diag = Math.hypot(...[0, 1, 2].map((i) => before.bounds.max[i] - before.bounds.min[i]));
     const eps = Math.max(1e-6, diag * 0.01);
     const ok = [0, 1, 2].every((i) =>
       Math.abs(before.bounds.min[i] - after.bounds.min[i]) <= eps && Math.abs(before.bounds.max[i] - after.bounds.max[i]) <= eps);
-    if (ok) vp('pass', 'bounding box в пределах эпсилон');
-    else vp('fail', 'bounding box изменился — модель съехала или схлопнулась');
+    if (ok) vp('pass', 'bounding box within epsilon');
+    else vp('fail', 'bounding box changed — model shifted or collapsed');
   } else {
-    vp('info', 'bounding box не посчитан (getBounds недоступен или нет сцены)');
+    vp('info', 'bounding box not computed (getBounds unavailable or no scene)');
   }
   // 7. материалы
-  if (materialsOk) vp('pass', 'каждый материал резолвится');
-  else vp('fail', 'примитив ссылается на удалённый материал');
+  if (materialsOk) vp('pass', 'every material resolves');
+  else vp('fail', 'a primitive references a deleted material');
   // 8. gltf-validator (Khronos)
   try {
     const validator = await import('gltf-validator');
     const res = await validator.validateBytes(new Uint8Array(glbBytes));
     const errs = res.issues.numErrors;
     if (errs === 0) {
-      vp('pass', 'gltf-validator (Khronos): 0 ошибок');
+      vp('pass', 'gltf-validator (Khronos): 0 errors');
     } else {
       // вход мог быть битым изначально — проверяем исходник и блокируем только НОВЫЕ ошибки
       const inRes = await validator.validateBytes(new Uint8Array(fs.readFileSync(src)));
       const inErrs = inRes.issues.numErrors;
-      if (inErrs > 0) addFound(ENGINE_META.inputValidation, `входной файл уже содержит ${inErrs} ошибок gltf-validator (дефект экспорта, не оптимизации)`);
+      if (inErrs > 0) addFound(ENGINE_META.inputValidation, `the input file already has ${inErrs} gltf-validator errors (an export defect, not the optimization)`);
       if (errs <= inErrs) {
-        vp('info', `gltf-validator: осталось ${errs} ошибок, унаследованных от входа (в исходнике ${inErrs}) — оптимизация новых не добавила`);
+        vp('info', `gltf-validator: ${errs} errors remain, inherited from the input (${inErrs} in the source) — optimization added none`);
         for (const m of res.issues.messages.filter((m) => m.severity === 0).slice(0, 3)) {
-          vp('info', `пример: ${m.code} @ ${m.pointer || '—'}`);
+          vp('info', `example: ${m.code} @ ${m.pointer || '—'}`);
         }
       } else {
-        vp('fail', `gltf-validator: ${errs} ошибок (на входе было ${inErrs}) — оптимизация добавила новые`);
+        vp('fail', `gltf-validator: ${errs} errors (input had ${inErrs}) — optimization added new ones`);
       }
     }
   } catch {
-    vp('info', 'gltf-validator не установлен — структурная валидация пропущена');
+    vp('info', 'gltf-validator not installed — structural validation skipped');
   }
 }
 
@@ -193,51 +201,51 @@ const LEVEL_PREFIX = { pass: '✅', info: 'ℹ', fail: '❌' };
 
 function writeReport({ name, result, before, after, assetWritten, opts }) {
   const report = result;
-  const flags = (opts.keepParts ? ' · без join' : '')
-    + (opts.noKtx ? ' · без KTX2' : ` · текстуры: ${opts.texMode}`)
+  const flags = (opts.keepParts ? ' · no join' : '')
+    + (opts.noKtx ? ' · no KTX2' : ` · textures: ${opts.texMode}`)
     + (opts.stripColors ? ' · strip-vertex-colors' : '')
     + (opts.dryRun ? ' · **DRY-RUN**' : '');
   const lines = [
-    `# Отчёт оптимизации — ${name}`,
+    `# Optimization report — ${name}`,
     '',
-    `Дата: ${new Date().toISOString().slice(0, 10)} · кодек: ${opts.codec} · автофикс: до «${AUTOFIX_MAX_TIER}»${flags}`,
+    `Date: ${new Date().toISOString().slice(0, 10)} · codec: ${opts.codec} · autofix: up to "${AUTOFIX_MAX_TIER}"${flags}`,
     '',
-    '## Найдено (проблемы)',
+    '## Found (issues)',
     '',
-    ...(report.findings.length ? report.findings.map((f) => `- ✓ ${f.text}`) : ['- индивидуальных находок нет (структурная чистка без замечаний)']),
+    ...(report.findings.length ? report.findings.map((f) => `- ✓ ${f.text}`) : ['- no individual findings (structural cleanup with nothing to note)']),
     '',
-    '## Пропущено (и почему)',
+    '## Skipped (and why)',
     '',
-    ...(report.skipped.length ? report.skipped.map((s) => `- ${s.text}`) : ['- нет']),
+    ...(report.skipped.length ? report.skipped.map((s) => `- ${s.text}`) : ['- none']),
     '',
-    '## Применено',
+    '## Applied',
     '',
-    ...(report.applied.length ? report.applied.map((a) => `- ${a.text}`) : ['- нет']),
+    ...(report.applied.length ? report.applied.map((a) => `- ${a.text}`) : ['- none']),
     '',
-    '## Валидация',
+    '## Validation',
     '',
     ...report.validation.map((s) => `- ${LEVEL_PREFIX[s.level]} ${s.text}`),
     ...(assetWritten ? [] : [
       '',
       opts.dryRun
-        ? '**Режим dry-run** — файл .glb не записан; отчёт показывает, что БЫЛО БЫ сделано (все фазы прогнаны в памяти, цифры точные).'
-        : '**Файл .glb НЕ записан** — не было применённых фиксов или валидация не прошла.',
+        ? '**Dry-run mode** — the .glb was not written; the report shows what WOULD have been done (all phases ran in memory, numbers are exact).'
+        : '**The .glb was NOT written** — there were no applied fixes or validation failed.',
     ]),
     '',
-    '## Оценка улучшений',
+    '## Estimated improvements',
     '',
-    '| Показатель | До | После |',
+    '| Metric | Before | After |',
     '|---|---|---|',
-    diffLine('Файл', before.fileBytes, after.fileBytes, (v) => `${MB(v)} МБ`),
-    diffLine('VRAM текстур (GPU)', before.gpuBytes, after.gpuBytes, (v) => `${MB(v)} МБ`),
-    diffLine('Вес текстур в файле', before.textureBytes, after.textureBytes, (v) => `${MB(v)} МБ`),
-    diffLine('Draw calls (примитивы)', before.drawCalls, after.drawCalls),
-    diffLine('Треугольники', before.triangles, after.triangles),
-    diffLine('Вершины', before.vertices, after.vertices),
-    diffLine('Меши', before.meshes, after.meshes),
-    diffLine('Материалы', before.materials, after.materials),
-    diffLine('Текстуры', before.textures, after.textures),
-    diffLine('Узлы сцены', before.nodes, after.nodes),
+    diffLine('File', before.fileBytes, after.fileBytes, (v) => `${MB(v)} MB`),
+    diffLine('Texture VRAM (GPU)', before.gpuBytes, after.gpuBytes, (v) => `${MB(v)} MB`),
+    diffLine('Texture weight in file', before.textureBytes, after.textureBytes, (v) => `${MB(v)} MB`),
+    diffLine('Draw calls (primitives)', before.drawCalls, after.drawCalls),
+    diffLine('Triangles', before.triangles, after.triangles),
+    diffLine('Vertices', before.vertices, after.vertices),
+    diffLine('Meshes', before.meshes, after.meshes),
+    diffLine('Materials', before.materials, after.materials),
+    diffLine('Textures', before.textures, after.textures),
+    diffLine('Scene nodes', before.nodes, after.nodes),
     '',
   ];
   // dry-run пишет отчёт под отдельным именем, чтобы не затирать отчёт реального прогона

@@ -2,7 +2,7 @@
   "id": "quest",
   "enabled": false,
   "title": "Meta Quest (VR)",
-  "description": "Модель для VR-шлема Meta Quest. У шлема мобильная видеокарта и общая память с системой, поэтому геометрию и текстуры держим по-настоящему лёгкими.",
+  "description": "A model for the Meta Quest VR headset. The headset has a mobile GPU and shared system memory, so we keep geometry and textures genuinely light.",
   "budgets": {
     "triangles": 100000,
     "drawCalls": 50,
@@ -21,34 +21,34 @@
   "availableExtensions": [
     {
       "id": "ktx2",
-      "title": "KTX2-сжатие текстур",
-      "description": "Переводит текстуры в GPU-формат: экономит до ~80% видеопамяти — для Quest с общей памятью это особенно ценно. Требует поддержку KTX2 (basisu) в приложении.",
-      "impact": "Файл может вырасти на 5–10%, зато видеопамять под текстуры меньше в разы.",
+      "title": "KTX2 texture compression",
+      "description": "Converts textures to a GPU format: saves up to ~80% of video memory — especially valuable for Quest with its shared memory. Requires KTX2 (basisu) support in the app.",
+      "impact": "The file may grow 5–10%, but texture video memory drops several-fold.",
       "opts": { "noKtx": false }
     },
     {
       "id": "draco",
-      "title": "Draco-сжатие геометрии",
-      "description": "Минимальный вес файла (часто −50% на геометрии). Декодируется медленнее Meshopt, но поддерживается везде.",
-      "impact": "Файл заметно легче, декодирование при открытии медленнее.",
+      "title": "Draco geometry compression",
+      "description": "Minimal file weight (often −50% on geometry). Decodes slower than Meshopt but is supported everywhere.",
+      "impact": "The file is noticeably lighter; decoding on open is slower.",
       "opts": { "codec": "draco" }
     },
     {
       "id": "strip-colors",
-      "title": "Удалить вершинные цвета",
-      "description": "Удаляет раскрашенные цвета вершин. Включайте, только если цвета вершин не видны в модели (белые каналы убираются и без этой опции).",
-      "impact": "Экономит 5–20% размера, если цвета есть; может изменить вид, если они использовались.",
+      "title": "Remove vertex colors",
+      "description": "Removes painted vertex colors. Enable only if vertex colors are not visible in the model (white channels are removed without this option too).",
+      "impact": "Saves 5–20% of size if colors exist; may change the look if they were used.",
       "opts": { "stripColors": true }
     }
   ],
   "notes": [
-    "triangles 100000 — консервативный бюджет на один объект: рекомендации Meta для Quest дают 350–500 тыс. треугольников на весь кадр, оставляем запас под окружение и другие объекты.",
-    "drawCalls 50 — рекомендация Meta для Quest: 50–100 вызовов отрисовки на кадр; на один объект берём нижнюю границу.",
-    "textureMaxSize 1024 — рекомендация Meta: на мобильном GPU шлема текстуры держат небольшими (1K), 2K — только для крупных поверхностей.",
-    "vramMB 64 — ориентир: у Quest память общая с системой, экономия видеопамяти критична для стабильного FPS.",
-    "fileMB 8 — ориентир: меньше данных грузится в память шлема.",
-    "noKtx true — v0.0.8: базовый план без KTX2 (текстуры остаются PNG/WebP); KTX2 — расширение по явному выбору пользователя.",
-    "texMode mixed — если пользователь включит расширение ktx2: мобильный GPU шлема требует экономии, цветные текстуры в самом лёгком формате.",
-    "id расширения = имя фичи ядра: web-interface передаёт выбранные id в optimizeFile как advancedFeatures; поле opts — эквивалент для legacy-пути."
+    "triangles 100000 — a conservative budget for a single object: Meta's recommendations for Quest allow 350–500k triangles for the whole frame, so we leave headroom for the environment and other objects.",
+    "drawCalls 50 — Meta's recommendation for Quest: 50–100 draw calls per frame; for a single object we take the lower bound.",
+    "textureMaxSize 1024 — Meta's recommendation: on the headset's mobile GPU keep textures small (1K), 2K only for large surfaces.",
+    "vramMB 64 — guideline: Quest shares memory with the system, so saving video memory is critical for stable FPS.",
+    "fileMB 8 — guideline: less data loads into the headset's memory.",
+    "noKtx true — v0.0.8: baseline plan without KTX2 (textures stay PNG/WebP); KTX2 is an extension enabled by explicit user choice.",
+    "texMode mixed — if the user enables the ktx2 extension: the headset's mobile GPU needs savings, color textures in the lightest format.",
+    "extension id = core feature name: web-interface passes the selected ids to optimizeFile as advancedFeatures; the opts field is the equivalent for the legacy path."
   ]
 }

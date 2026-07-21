@@ -1,39 +1,39 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OptiMesh — оптимизация GLB</title>
+<title>OptiMesh — GLB optimization</title>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 
 <header class="topbar">
   <span class="brand">OptiMesh</span>
-  <span class="brand-sub">оптимизатор GLB для веба</span>
+  <span class="brand-sub">GLB optimizer for the web</span>
 </header>
 
 <main class="workspace">
 
-  <!-- ЦЕНТР: drag&drop → сравнение -->
+  <!-- CENTER: drag&drop → comparison -->
   <section class="center-zone">
 
     <div id="dropzone" class="dropzone">
       <input type="file" id="file-input" accept=".glb" hidden>
       <div class="dropzone-icon">⤓</div>
-      <p class="dropzone-title">Перетащите файл .glb сюда</p>
-      <p class="dropzone-sub">или</p>
-      <button id="choose-file-btn" class="btn-secondary">Выбрать файл</button>
+      <p class="dropzone-title">Drop a .glb file here</p>
+      <p class="dropzone-sub">or</p>
+      <button id="choose-file-btn" class="btn-secondary">Choose file</button>
       <p id="chosen-file" class="chosen-file"></p>
     </div>
 
     <div id="comparison" class="comparison hidden">
       <div class="compare-card" id="card-original">
         <div class="compare-head">
-          <span class="compare-label">ОРИГИНАЛ</span>
+          <span class="compare-label">ORIGINAL</span>
         </div>
         <div class="compare-preview">
-          <span class="preview-stub">3D-превью появится в следующей версии</span>
+          <span class="preview-stub">3D preview coming in the next version</span>
         </div>
         <div class="compare-stats" id="stats-before"></div>
       </div>
@@ -45,10 +45,10 @@
 
       <div class="compare-card" id="card-optimized">
         <div class="compare-head">
-          <span class="compare-label accent">ОПТИМИЗИРОВАНО</span>
+          <span class="compare-label accent">OPTIMIZED</span>
         </div>
         <div class="compare-preview">
-          <span class="preview-stub">3D-превью появится в следующей версии</span>
+          <span class="preview-stub">3D preview coming in the next version</span>
         </div>
         <div class="compare-stats" id="stats-after"></div>
       </div>
@@ -57,20 +57,20 @@
     <div id="fail-banner" class="fail-banner hidden">
       <div class="fail-stripe"></div>
       <div class="fail-body">
-        <p class="fail-title">Файл не записан</p>
-        <p class="fail-text">Модель не прошла проверку целостности — исходный файл не тронут.</p>
+        <p class="fail-title">File not written</p>
+        <p class="fail-text">The model failed the integrity check — the source file is untouched.</p>
         <div id="fail-validation" class="fail-validation"></div>
       </div>
     </div>
 
   </section>
 
-  <!-- ПРАВЫЙ ИНСПЕКТОР -->
+  <!-- RIGHT INSPECTOR -->
   <aside class="inspector">
     <div class="inspector-scroll">
 
       <div class="inspector-section">
-        <label class="section-label">Платформа</label>
+        <label class="section-label">Platform</label>
         <div class="select-wrap">
           <select id="platform-select"></select>
         </div>
@@ -78,51 +78,51 @@
       </div>
 
       <div class="inspector-section extensions hidden" id="extensions-panel">
-        <label class="section-label">Расширенные опции</label>
+        <label class="section-label">Advanced options</label>
         <div id="extensions-list" class="extensions-list"></div>
       </div>
 
       <div class="inspector-section hidden" id="summary-section">
-        <label class="section-label">Итог</label>
+        <label class="section-label">Summary</label>
         <p id="summary-text" class="summary-text"></p>
         <ul id="highlights-list" class="highlights-list"></ul>
       </div>
 
       <div class="inspector-section hidden" id="analysis-section">
         <div class="section-head">
-          <label class="section-label">Анализ</label>
+          <label class="section-label">Analysis</label>
           <span id="issues-count" class="issues-badge"></span>
         </div>
         <div id="issues-list" class="issues-list"></div>
       </div>
 
       <div class="inspector-section hidden" id="budgets-section">
-        <label class="section-label">Проверка бюджетов</label>
+        <label class="section-label">Budget check</label>
         <div id="budgets-list" class="budgets-list"></div>
       </div>
 
       <div class="inspector-section hidden" id="warnings-section">
-        <label class="section-label">Предупреждения</label>
+        <label class="section-label">Warnings</label>
         <ul id="warnings-list" class="warnings-list"></ul>
       </div>
 
       <div class="inspector-section hidden" id="applied-section">
         <details>
-          <summary class="section-label collapsible-summary">Что сделано <span id="applied-count"></span></summary>
+          <summary class="section-label collapsible-summary">What was done <span id="applied-count"></span></summary>
           <ul id="applied-list" class="detail-list"></ul>
         </details>
       </div>
 
       <div class="inspector-section hidden" id="skipped-section">
         <details>
-          <summary class="section-label collapsible-summary">Что пропущено <span id="skipped-count"></span></summary>
+          <summary class="section-label collapsible-summary">What was skipped <span id="skipped-count"></span></summary>
           <ul id="skipped-list" class="detail-list"></ul>
         </details>
       </div>
 
       <div class="inspector-section hidden" id="validation-section">
         <details>
-          <summary class="section-label collapsible-summary">Проверка целостности</summary>
+          <summary class="section-label collapsible-summary">Integrity check</summary>
           <ul id="validation-list" class="detail-list"></ul>
         </details>
       </div>
@@ -131,13 +131,13 @@
 
     <div class="inspector-footer">
       <div id="irreversible-warning" class="irreversible-warning hidden">
-        <p class="irreversible-title">Применены необратимые изменения</p>
-        <p class="irreversible-text">Сохраните исходный файл — эти данные из результата восстановить нельзя:</p>
+        <p class="irreversible-title">Irreversible changes applied</p>
+        <p class="irreversible-text">Keep the source file — this data cannot be restored from the result:</p>
         <ul id="irreversible-list" class="irreversible-list"></ul>
       </div>
-      <button id="run-btn" class="btn-primary" disabled>ОБРАБОТАТЬ</button>
-      <a id="download-btn" class="btn-primary hidden" download>СКАЧАТЬ РЕЗУЛЬТАТ</a>
-      <button id="reset-btn" class="btn-secondary hidden">Загрузить другой файл</button>
+      <button id="run-btn" class="btn-primary" disabled>OPTIMIZE</button>
+      <a id="download-btn" class="btn-primary hidden" download>DOWNLOAD RESULT</a>
+      <button id="reset-btn" class="btn-secondary hidden">Load another file</button>
     </div>
   </aside>
 
@@ -146,7 +146,7 @@
 <footer class="statusbar">
   <div class="statusbar-left">
     <span id="status-dot" class="status-dot"></span>
-    <span id="phase-status">Готово</span>
+    <span id="phase-status">Ready</span>
   </div>
   <div class="statusbar-right">
     <span id="version-label"></span>

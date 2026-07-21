@@ -71,30 +71,30 @@
 
   function fmtBytes(bytes) {
     if (bytes == null) return '—';
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   function fmtInt(n) {
     if (n == null) return '—';
-    return Number(n).toLocaleString('ru-RU');
+    return Number(n).toLocaleString('en-US');
   }
 
   function pctText(before, after) {
     if (!before) return '';
     const p = Math.round(((after - before) / before) * 100);
-    if (p === 0) return 'без изменений';
+    if (p === 0) return 'no change';
     return p < 0 ? `−${Math.abs(p)}%` : `+${p}%`;
   }
 
-  const CATEGORY_RU = {
-    geometry: 'Геометрия',
-    textures: 'Текстуры',
-    materials: 'Материалы',
-    uv: 'UV-развёртка',
-    attributes: 'Атрибуты',
-    scene: 'Сцена',
-    performance: 'Производительность',
+  const CATEGORY_LABELS = {
+    geometry: 'Geometry',
+    textures: 'Textures',
+    materials: 'Materials',
+    uv: 'UV layout',
+    attributes: 'Attributes',
+    scene: 'Scene',
+    performance: 'Performance',
   };
 
   const VALIDATION_ICON = { pass: '✓', info: 'i', fail: '✕' };
@@ -108,7 +108,7 @@
       const res = await fetch('/api/platforms');
       const data = await res.json();
       platforms = data.platforms || [];
-      versionLabel.textContent = data.engineVersion ? `ядро v${data.engineVersion}` : '';
+      versionLabel.textContent = data.engineVersion ? `core v${data.engineVersion}` : '';
 
       platformSelect.innerHTML = '';
       for (const p of platforms) {
@@ -188,7 +188,7 @@
     infoBtn.type = 'button';
     infoBtn.className = 'ext-info-btn';
     infoBtn.textContent = '📖';
-    infoBtn.setAttribute('aria-label', `Подробнее: ${ext.title || ext.id}`);
+    infoBtn.setAttribute('aria-label', `Details: ${ext.title || ext.id}`);
     if (ext.description) infoBtn.title = ext.description;
 
     head.appendChild(label);
@@ -204,7 +204,7 @@
     if (ext.impact) {
       const impactText = document.createElement('p');
       impactText.className = 'ext-impact';
-      impactText.textContent = `Влияние: ${ext.impact}`;
+      impactText.textContent = `Impact: ${ext.impact}`;
       desc.appendChild(impactText);
     }
 
@@ -226,13 +226,13 @@
   function handleFile(file) {
     if (!file) return;
     if (!/\.glb$/i.test(file.name)) {
-      chosenFileLabel.textContent = 'Нужен файл с расширением .glb';
+      chosenFileLabel.textContent = 'A file with a .glb extension is required';
       selectedFile = null;
       runBtn.disabled = true;
       return;
     }
     selectedFile = file;
-    chosenFileLabel.textContent = `Выбран файл: ${file.name} (${fmtBytes(file.size)})`;
+    chosenFileLabel.textContent = `Selected file: ${file.name} (${fmtBytes(file.size)})`;
     runBtn.disabled = false;
   }
 
@@ -264,9 +264,9 @@
 
   function onProgressEvent(e) {
     if (e.type === 'phase') {
-      setPhase(`Фаза ${e.phase}: ${e.name}`, 'busy');
+      setPhase(`Phase ${e.phase}: ${e.name}`, 'busy');
     } else if (e.type === 'rule') {
-      setPhase(`Правило: ${e.title}`, 'busy');
+      setPhase(`Rule: ${e.title}`, 'busy');
     }
   }
 
@@ -291,14 +291,14 @@
     irreversibleWarning.classList.add('hidden');
     [summarySection, analysisSection, budgetsSection, warningsSection,
       appliedSection, skippedSection, validationSection].forEach((s) => s.classList.add('hidden'));
-    setPhase('Готово', null);
+    setPhase('Ready', null);
   }
 
   async function runOptimize() {
     if (!selectedFile) return;
 
     runBtn.disabled = true;
-    setPhase('Загрузка файла…', 'busy');
+    setPhase('Uploading file…', 'busy');
 
     const jobId = (window.crypto && window.crypto.randomUUID)
       ? window.crypto.randomUUID()
@@ -335,25 +335,25 @@
       const data = await res.json();
 
       if (!res.ok) {
-        showGenericError(data && data.error ? data.error : `Сервер ответил с ошибкой (${res.status}).`);
+        showGenericError(data && data.error ? data.error : `The server responded with an error (${res.status}).`);
         return;
       }
 
       renderResult(data);
     } catch (e) {
       if (es) es.close();
-      showGenericError('Не удалось связаться с сервером: ' + e.message);
+      showGenericError('Could not reach the server: ' + e.message);
     } finally {
       runBtn.disabled = false;
     }
   }
 
   function showGenericError(message) {
-    setPhase('Ошибка', 'fail');
+    setPhase('Error', 'fail');
     dropzone.classList.add('hidden');
     comparison.classList.add('hidden');
     failBanner.classList.remove('hidden');
-    failBanner.querySelector('.fail-title').textContent = 'Не удалось обработать файл';
+    failBanner.querySelector('.fail-title').textContent = 'Could not process the file';
     failBanner.querySelector('.fail-text').textContent = message;
     failValidation.innerHTML = '';
     runBtn.classList.add('hidden');
@@ -374,7 +374,7 @@
       return;
     }
 
-    setPhase('Готово', null);
+    setPhase('Ready', null);
     comparison.classList.remove('hidden');
     failBanner.classList.add('hidden');
 
@@ -416,12 +416,12 @@
   }
 
   function renderFail(result, explain) {
-    setPhase('Файл не прошёл проверку', 'fail');
+    setPhase('File failed validation', 'fail');
     comparison.classList.add('hidden');
     failBanner.classList.remove('hidden');
-    failBanner.querySelector('.fail-title').textContent = 'Файл не записан';
+    failBanner.querySelector('.fail-title').textContent = 'File not written';
     failBanner.querySelector('.fail-text').textContent =
-      (explain && explain.summary) || 'Модель не прошла проверку целостности — исходный файл не тронут.';
+      (explain && explain.summary) || 'The model failed the integrity check — the source file is untouched.';
 
     failValidation.innerHTML = '';
     const items = (result && result.validation) || [];
@@ -445,12 +445,12 @@
     statsAfter.innerHTML = '';
 
     const rows = [
-      ['Файл', fmtBytes(before.fileBytes), fmtBytes(after.fileBytes)],
-      ['Треугольники', fmtInt(before.triangles), fmtInt(after.triangles)],
-      ['Элементов отрисовки', fmtInt(before.drawCalls), fmtInt(after.drawCalls)],
-      ['Материалы', fmtInt(before.materials), fmtInt(after.materials)],
-      ['Текстуры', fmtInt(before.textures), fmtInt(after.textures)],
-      ['Видеопамять текстур', fmtBytes(before.gpuBytes), fmtBytes(after.gpuBytes)],
+      ['File', fmtBytes(before.fileBytes), fmtBytes(after.fileBytes)],
+      ['Triangles', fmtInt(before.triangles), fmtInt(after.triangles)],
+      ['Draw calls', fmtInt(before.drawCalls), fmtInt(after.drawCalls)],
+      ['Materials', fmtInt(before.materials), fmtInt(after.materials)],
+      ['Textures', fmtInt(before.textures), fmtInt(after.textures)],
+      ['Texture VRAM', fmtBytes(before.gpuBytes), fmtBytes(after.gpuBytes)],
     ];
 
     for (const [label, beforeVal, afterVal] of rows) {
@@ -497,7 +497,7 @@
     if (!findings || !findings.length) return;
 
     const notableCount = findings.filter((f) => f.severity === 'error' || f.severity === 'warn').length;
-    issuesCount.textContent = notableCount ? `${notableCount} важных` : `${findings.length}`;
+    issuesCount.textContent = notableCount ? `${notableCount} important` : `${findings.length}`;
 
     issuesList.innerHTML = '';
     for (const f of findings) {
@@ -507,7 +507,7 @@
 
       const title = document.createElement('p');
       title.className = 'issue-title';
-      title.textContent = CATEGORY_RU[f.category] || f.category || 'Находка';
+      title.textContent = CATEGORY_LABELS[f.category] || f.category || 'Finding';
 
       const text = document.createElement('p');
       text.className = 'issue-text';

@@ -12,6 +12,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { render } from './i18n.mjs';
+
 /** @typedef {import('./types.mjs').Addon} Addon */
 /** @typedef {import('./types.mjs').RunResult} RunResult */
 
@@ -30,6 +32,11 @@ export const ENGINE_META = {
 
 const asLines = (v) => (v == null ? [] : Array.isArray(v) ? v : [v]);
 
+// Правила возвращают строки как { messageId, data }; движок рендерит их через i18n
+// перед записью в RunResult (text по-прежнему готовая строка — контракт §4b). Готовые
+// строки (сообщения самого движка) пропускаются как есть.
+const renderLines = (v, locale) => asLines(v).map((x) => (typeof x === 'string' ? x : render(x.messageId, x.data, locale)));
+
 // Топологическая сортировка по meta.runAfter (устойчивая: при равенстве — порядок массива).
 // Зависимости на выключенные правила считаются выполненными.
 export function orderRules(rules) {
@@ -39,7 +46,7 @@ export function orderRules(rules) {
   const out = [];
   while (pending.length) {
     const i = pending.findIndex((r) => (r.meta.runAfter || []).every((d) => !ids.has(d) || done.has(d)));
-    if (i === -1) throw new Error(`цикл в runAfter: ${pending.map((r) => r.meta.id).join(', ')}`);
+    if (i === -1) throw new Error(`cycle in runAfter: ${pending.map((r) => r.meta.id).join(', ')}`);
     const [r] = pending.splice(i, 1);
     done.add(r.meta.id);
     out.push(r);
@@ -57,27 +64,27 @@ export function orderRules(rules) {
 // animations. Возвращает строки валидации в порядке отчёта; логирует посписочную сверку.
 export function compareBaseline(baseline, after, keys, { advancedPlannedIds = [], log = () => {}, soft = new Set() } = {}) {
   for (const k of keys) {
-    log(`      [baseline-validate] ${k}: ${baseline[k]} → ${after[k]}${after[k] === baseline[k] ? '' : '  ← РАСХОЖДЕНИЕ'}`);
+    log(`      [baseline-validate] ${k}: ${baseline[k]} → ${after[k]}${after[k] === baseline[k] ? '' : '  ← MISMATCH'}`);
   }
   const broken = keys.filter((k) => after[k] !== baseline[k]);
   if (broken.length === 0) {
-    return [{ level: 'pass', text: `baseline-checkpoint: структура (${keys.join(', ')}) совпадает с контрольной точкой после базовых оптимизаций` }];
+    return [{ level: 'pass', text: `baseline-checkpoint: structure (${keys.join(', ')}) matches the checkpoint taken after the basic optimizations` }];
   }
   const cause = advancedPlannedIds.length
-    ? `расширения второго прохода (${advancedPlannedIds.join(', ')}) или запись файла`
-    : 'запись файла (второй проход фиксов не применялся)';
+    ? `second-pass extensions (${advancedPlannedIds.join(', ')}) or file writing`
+    : 'file writing (no second-pass fixes were applied)';
   return broken.map((k) => (soft.has(k)
     ? {
       level: 'info',
-      text: `${k} изменился на этапе кодирования (было ${baseline[k]} на checkpoint, стало ${after[k]}) — `
-        + `переиндексация/сварка вершин кодеком (напр. Draco зовёт weld перед сжатием). `
-        + `Треугольники и топология mesh сохранены; запись не блокируется. Для анимированных моделей структуру защищают строгие ключи (skins, animations).`,
+      text: `${k} changed during encoding (was ${baseline[k]} at checkpoint, now ${after[k]}) — `
+        + `the codec re-indexed/welded vertices (e.g. Draco calls weld before compression). `
+        + `Triangles and mesh topology are preserved; writing is not blocked. For animated models the strict keys (skins, animations) protect the structure.`,
     }
     : {
       level: 'fail',
-      text: `Нарушена гарантия компонента: ${k} изменился после расширений (было ${baseline[k]} на checkpoint, стало ${after[k]}). `
-        + `По официальной документации (ARCHITECTURE.md §0a) Draco/Meshopt/KTX2 не меняют структуру mesh. `
-        + `Вероятная причина: ${cause} — баг в библиотеке или неправильное применение компонента. Файл НЕ записан.`,
+      text: `Component guarantee violated: ${k} changed after the extensions (was ${baseline[k]} at checkpoint, now ${after[k]}). `
+        + `Per the components' official docs (ARCHITECTURE.md §0a) Draco/Meshopt/KTX2 do not change mesh structure. `
+        + `Likely cause: ${cause} — a library bug or incorrect component use. File NOT written.`,
     }));
 }
 
@@ -118,6 +125,7 @@ async function runFile(addon, src, dstName, o, result) {
   }
   const progress = o.onProgress || (() => {});
   const log = o.log;
+  const locale = o.locale;
   const addFound = (meta, v) => { for (const text of asLines(v)) result.findings.push({ ruleId: meta.id, category: meta.category, severity: meta.severity, fixSafety: meta.fixSafety, text }); };
   const addSkipped = (meta, v, reason) => { for (const text of asLines(v)) result.skipped.push({ ruleId: meta.id, text, reason: reason ?? text }); };
   // over — переопределение полей обратимости для отдельных строк (lossy-ветки правил,
@@ -155,8 +163,8 @@ async function runFile(addon, src, dstName, o, result) {
   // Граничный случай из ARCHITECTURE.md §6: «Draco vs Meshopt already present — не стекировать».
   const strippedCodecs = addon.stripInputCompression(ctx.document);
   if (strippedCodecs.length) {
-    addFound(ENGINE_META.inputCompression, `входная геометрия уже сжата (${strippedCodecs.join(', ')}) — распакована при загрузке`);
-    addApplied(ENGINE_META.inputCompression, `Снято входное сжатие ${strippedCodecs.join(', ')} — перекодировано заново (${o.codec}), без двойного сжатия и скрытых пережатий`);
+    addFound(ENGINE_META.inputCompression, `input geometry is already compressed (${strippedCodecs.join(', ')}) — decompressed on load`);
+    addApplied(ENGINE_META.inputCompression, `Removed input compression ${strippedCodecs.join(', ')} — re-encoded from scratch (${o.codec}), no double compression or hidden re-packing`);
   }
 
   // ==========================================================================
@@ -194,21 +202,22 @@ async function runFile(addon, src, dstName, o, result) {
       if (!rule.meta.enabled(o)) {
         if (rule.meta.tier === 'advanced') {
           // расширение не выбрано пользователем — явная строка «Пропущено» с подсказкой
-          const reason = `расширение «${rule.meta.feature}» не включено (advancedFeatures: ['${rule.meta.feature}'] или флаг --${rule.meta.feature})`;
+          const reason = `feature "${rule.meta.feature}" is not enabled (advancedFeatures: ['${rule.meta.feature}'] or the --${rule.meta.feature} flag)`;
           addSkipped(rule.meta, `${rule.meta.title} — ${reason}`, reason);
         }
         // базовое правило, выключенное опцией (например --keep-parts), — молча, как раньше
         continue;
       }
-      if (!rule.fix) { addFound(rule.meta, finding.text); continue; }
-      const decision = rule.canFix ? rule.canFix(finding, ctx) : { safe: true, reason: '' };
+      if (!rule.fix) { addFound(rule.meta, renderLines(finding.text, locale)); continue; }
+      const decision = rule.canFix ? rule.canFix(finding, ctx) : { safe: true };
       if (!decision.safe) {
-        addSkipped(rule.meta, `${rule.meta.title} — ${decision.reason}`, decision.reason);
+        const reason = decision.messageId ? render(decision.messageId, decision.data, locale) : (decision.reason || '');
+        addSkipped(rule.meta, `${rule.meta.title} — ${reason}`, reason);
         continue;
       }
       const tier = finding.fixSafety || rule.meta.fixSafety;
       if (TIER_RANK[tier] > TIER_RANK[AUTOFIX_MAX_TIER] && !decision.force) {
-        const reason = `уровень безопасности «${tier}» не применяется автоматически`;
+        const reason = `safety level "${tier}" is not applied automatically`;
         addSkipped(rule.meta, `${rule.meta.title} — ${reason}`, reason);
         continue;
       }
@@ -223,24 +232,24 @@ async function runFile(addon, src, dstName, o, result) {
       progress({ type: 'rule', phase: 3, ruleId: rule.meta.id, title: rule.meta.title });
       log(`      • ${rule.meta.title}`);
       const res = (await rule.fix(finding, ctx)) || {};
-      addFound(rule.meta, res.found);
-      addSkipped(rule.meta, res.skipped);
-      addApplied(rule.meta, res.details ?? res.detail);
+      addFound(rule.meta, renderLines(res.found, locale));
+      addSkipped(rule.meta, renderLines(res.skipped, locale));
+      addApplied(rule.meta, renderLines(res.details ?? res.detail, locale));
       // строки с безвозвратной потерей данных (§4d) — UI предупредит перед скачиванием
-      addApplied(rule.meta, res.irreversible, { reversible: false, dataLoss: 'significant' });
+      addApplied(rule.meta, renderLines(res.irreversible, locale), { reversible: false, dataLoss: 'significant' });
     }
   };
 
   // -------- ПРОХОД 1 · БАЗОВЫЕ (фазы 1–3) --------
   // события onProgress фаз 1–3 шлём один раз (на базовом проходе): номера фаз
   // для потребителей остаются монотонными 1→5, контракт §4b не меняется
-  progress({ type: 'phase', phase: 1, name: 'анализ' });
-  log(`    фаза 1/5 · анализ (правил: ${orderedRules.length}, активно: ${activeCount})`);
-  progress({ type: 'phase', phase: 2, name: 'план' });
-  log('    фаза 2/5 · план');
+  progress({ type: 'phase', phase: 1, name: 'analysis' });
+  log(`    phase 1/5 · analysis (rules: ${orderedRules.length}, active: ${activeCount})`);
+  progress({ type: 'phase', phase: 2, name: 'plan' });
+  log('    phase 2/5 · plan');
   const basicPlanned = analyzeAndPlan(basicPass);
-  progress({ type: 'phase', phase: 3, name: 'применение' });
-  log(`    фаза 3/5 · применение · базовые (${basicPlanned.length} фиксов)`);
+  progress({ type: 'phase', phase: 3, name: 'apply' });
+  log(`    phase 3/5 · apply · basic (${basicPlanned.length} fixes)`);
   await applyPlanned(basicPlanned);
 
   // *** CHECKPOINT: baseline-метрики после базовых оптимизаций ***
@@ -252,12 +261,12 @@ async function runFile(addon, src, dstName, o, result) {
 
   // -------- ПРОХОД 2 · РАСШИРЕНИЯ (фазы 1–3 повторно, только advanced и отложенные) --------
   const advancedPlanned = analyzeAndPlan(advancedPass);
-  if (advancedPlanned.length) log(`      расширения (${advancedPlanned.length} фиксов)`);
+  if (advancedPlanned.length) log(`      extensions (${advancedPlanned.length} fixes)`);
   await applyPlanned(advancedPlanned);
 
   // -------- ФАЗА 4 · ВАЛИДАЦИЯ (весь ассет; при провале .glb НЕ записывается) --------
-  progress({ type: 'phase', phase: 4, name: 'валидация' });
-  log('    фаза 4/5 · валидация');
+  progress({ type: 'phase', phase: 4, name: 'validation' });
+  log('    phase 4/5 · validation');
   const glb = await addon.writeBytes(io, ctx.document); // байты будущего файла — в памяти, на диск пока ничего
   const after = addon.collectMetrics(await addon.readBytes(io, glb), glb.byteLength);
   await addon.validate({
@@ -269,8 +278,8 @@ async function runFile(addon, src, dstName, o, result) {
   const validationOk = !result.validation.some((x) => x.level === 'fail');
 
   // -------- ФАЗА 5 · ОТЧЁТ + запись (.glb пишем ТОЛЬКО если есть applied и валидация прошла) --------
-  progress({ type: 'phase', phase: 5, name: 'отчёт' });
-  log('    фаза 5/5 · отчёт');
+  progress({ type: 'phase', phase: 5, name: 'report' });
+  log('    phase 5/5 · report');
   const writeAsset = !o.dryRun && validationOk && result.applied.length > 0;
   if (writeAsset) fs.writeFileSync(dst, glb);
   const reportName = addon.writeReport({ name: dstName, result, before, after, assetWritten: writeAsset, opts: o });

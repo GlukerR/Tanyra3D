@@ -2,7 +2,8 @@
 //
 // Роль: превратить выбор платформы в план обработки (engineOpts для ядра) и
 // перевести результат работы ядра (RunResult из ARCHITECTURE.md §4b) на человеческий
-// язык — для правой панели «Анализ» веб-интерфейса.
+// язык — для правой панели «Анализ» веб-интерфейса. Пользовательский текст — английский
+// (продукт англоязычный); комментарии — рабочие заметки, остаются русскими.
 //
 // ВАЖНО: этот модуль НЕ импортирует optimize2.mjs. Ядро вызывает web-interface, не мы.
 // Профили платформ — это ДАННЫЕ (profiles/*.json). Новая платформа = новый json-файл
@@ -40,16 +41,16 @@ function profilePath(id) {
 }
 
 function loadProfile(platformId) {
-  if (!platformId) throw new Error('Не указана платформа.');
+  if (!platformId) throw new Error('No platform specified.');
   const file = profilePath(platformId);
   if (!fs.existsSync(file)) {
     const known = listPlatforms().map((p) => p.id).join(', ');
-    throw new Error(`Неизвестная платформа «${platformId}». Доступные: ${known || '—'}.`);
+    throw new Error(`Unknown platform "${platformId}". Available: ${known || '—'}.`);
   }
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (e) {
-    throw new Error(`Профиль «${platformId}» повреждён: ${e.message}`);
+    throw new Error(`Profile "${platformId}" is corrupted: ${e.message}`);
   }
 }
 
@@ -61,29 +62,29 @@ const MB = (bytes) => bytes / (1024 * 1024);
 // Человеческий размер: до 1 МБ показываем в КБ, иначе в МБ — крошечные модели
 // не должны выглядеть как «0.0 МБ».
 const fmtMB = (bytes) => {
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`;
-  return `${MB(bytes).toFixed(1)} МБ`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${MB(bytes).toFixed(1)} MB`;
 };
-const fmtInt = (n) => Number(n).toLocaleString('ru-RU');
+const fmtInt = (n) => Number(n).toLocaleString('en-US');
 
 function deltaPct(before, after) {
   if (!before) return 0;
   return Math.round(((after - before) / before) * 100);
 }
 
-// «−18%» / «+220%» / «без изменений»
+// «−18%» / «+220%» / «no change»
 function pctText(before, after) {
   const p = deltaPct(before, after);
-  if (p === 0) return 'без изменений';
+  if (p === 0) return 'no change';
   return p < 0 ? `−${Math.abs(p)}%` : `+${p}%`;
 }
 
-// «в 4 раза» — для нейтрального объяснения падения VRAM
+// «4×» / «4.5×» — множитель для нейтрального объяснения падения VRAM
 function timesLess(before, after) {
   if (!after) return null;
   const ratio = before / after;
   if (ratio < 1.15) return null;
-  return `в ${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1).replace('.', ',')} раза`;
+  return `${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)}×`;
 }
 
 // ----------------------------------------------------------------------------
@@ -125,42 +126,42 @@ export function planFor(platformId) {
 
   // геометрия
   if (opts.codec === 'draco') {
-    explanation.push('Геометрию сожмём проверенным способом (Draco) — файл заметно легче, модель распакуется в браузере.');
+    explanation.push('Geometry will be compressed with a proven method (Draco) — the file gets noticeably lighter and the model unpacks in the browser.');
   } else {
-    explanation.push('Геометрию сожмём современным способом (meshopt) — файл меньше, а модель быстро распаковывается прямо на видеокарте.');
+    explanation.push('Geometry will be compressed with a modern method (meshopt) — a smaller file that unpacks quickly right on the GPU.');
   }
 
   // чистка структуры — базовая часть плана, происходит всегда
-  explanation.push('Уберём мусор без изменения картинки: дубли материалов и текстур, неиспользуемые данные, невидимые треугольники и «висящие» вершины.');
+  explanation.push('We remove junk without changing the picture: duplicate materials and textures, unused data, invisible triangles and orphan vertices.');
 
   // текстуры
   if (opts.noKtx) {
-    explanation.push('Текстуры оставим в универсальном виде (PNG/WebP) — откроется в любом браузере без дополнительных загрузчиков. GPU-сжатие KTX2 доступно как расширенная опция.');
+    explanation.push('Textures stay in a universal form (PNG/WebP) — they open in any browser without extra loaders. GPU KTX2 compression is available as an advanced option.');
   } else if (opts.texMode === 'uastc') {
-    explanation.push('Текстуры переведём в качественный GPU-формат — картинка остаётся чёткой, а видеопамяти нужно меньше.');
+    explanation.push('Textures are converted to a high-quality GPU format — the picture stays sharp while needing less video memory.');
   } else {
-    explanation.push('Цветные текстуры сожмём в лёгкий формат ради быстрой загрузки, а карты с мелкими деталями — в более точный. Так экономим и трафик, и видеопамять.');
+    explanation.push('Color textures are compressed into a light format for fast loading, and detail maps into a more precise one. This saves both traffic and video memory.');
   }
 
   // сборка деталей
   if (!opts.keepParts) {
-    explanation.push('Мелкие детали объединим в одну модель — видеокарте нужно меньше отдельных вызовов на отрисовку.');
+    explanation.push('Small parts are joined into a single model — the GPU needs fewer separate draw calls.');
   } else {
-    explanation.push('Отдельные детали модели сохраним как есть — не объединяем.');
+    explanation.push('Individual model parts are kept as they are — not joined.');
   }
 
   // цвета вершин
   if (opts.stripColors) {
-    explanation.push('Уберём неиспользуемые цвета вершин — они только утяжеляют файл.');
+    explanation.push('Unused vertex colors are removed — they only make the file heavier.');
   }
 
   // цель по бюджету платформы
   const targetBits = [];
-  if (b.triangles) targetBits.push(`до ${fmtInt(b.triangles)} треугольников`);
-  if (b.textureMaxSize) targetBits.push(`текстуры до ${b.textureMaxSize}px`);
-  if (b.vramMB) targetBits.push(`до ${b.vramMB} МБ видеопамяти`);
+  if (b.triangles) targetBits.push(`up to ${fmtInt(b.triangles)} triangles`);
+  if (b.textureMaxSize) targetBits.push(`textures up to ${b.textureMaxSize}px`);
+  if (b.vramMB) targetBits.push(`up to ${b.vramMB} MB video memory`);
   if (targetBits.length) {
-    explanation.push(`Цель — уложиться в бюджет платформы «${profile.title}»: ${targetBits.join(', ')}.`);
+    explanation.push(`Goal — fit the "${profile.title}" platform budget: ${targetBits.join(', ')}.`);
   }
 
   return {
@@ -206,7 +207,7 @@ export function explainResult(runResult, platformId) {
   // --- нештатные статусы ---
   if (rr.error) {
     return {
-      summary: `Не удалось обработать модель: ${rr.error}`,
+      summary: `Could not process the model: ${rr.error}`,
       highlights: [],
       budgetChecks: [],
       warnings: [],
@@ -214,7 +215,7 @@ export function explainResult(runResult, platformId) {
   }
   if (rr.status === 'skip') {
     return {
-      summary: 'Модель пропущена: результат для неё уже существует. Чтобы пересобрать заново, включите перезапись.',
+      summary: 'Model skipped: a result for it already exists. To rebuild it, enable overwrite.',
       highlights: [],
       budgetChecks: [],
       warnings: [],
@@ -222,7 +223,7 @@ export function explainResult(runResult, platformId) {
   }
   if (!before || !after) {
     return {
-      summary: 'Обработка не дошла до подсчёта результата — данные о модели недоступны.',
+      summary: 'Processing did not reach the result stage — model data is unavailable.',
       highlights: [],
       budgetChecks: [],
       warnings: collectWarnings(rr),
@@ -233,43 +234,43 @@ export function explainResult(runResult, platformId) {
   const fileGrew = after.fileBytes > before.fileBytes;
   const vramDropped = after.gpuBytes < before.gpuBytes;
 
-  let summary = `Готово. Файл: ${fmtMB(before.fileBytes)} → ${fmtMB(after.fileBytes)} (${pctText(before.fileBytes, after.fileBytes)}); `
-    + `видеопамять под текстуры: ${fmtMB(before.gpuBytes)} → ${fmtMB(after.gpuBytes)} (${pctText(before.gpuBytes, after.gpuBytes)}).`;
+  let summary = `Done. File: ${fmtMB(before.fileBytes)} → ${fmtMB(after.fileBytes)} (${pctText(before.fileBytes, after.fileBytes)}); `
+    + `texture video memory: ${fmtMB(before.gpuBytes)} → ${fmtMB(after.gpuBytes)} (${pctText(before.gpuBytes, after.gpuBytes)}).`;
   if (rr.status === 'fail') {
-    summary = 'Проверка результата не пройдена — оптимизированный файл не записан. ' + summary;
+    summary = 'Result check did not pass — the optimized file was not written. ' + summary;
   } else if (fileGrew && vramDropped) {
     // рост файла при падении VRAM — не ошибка, объясняем нейтрально
-    summary += ' Файл чуть потяжелел, зато видеопамять уменьшилась: GPU-формат текстур весит в файле больше, но на видеокарте занимает в разы меньше.';
+    summary += ' The file got slightly heavier but video memory dropped: the GPU texture format weighs more in the file yet takes far less on the GPU.';
   }
 
   // --- highlights: главные улучшения человеческим языком ---
   const highlights = [];
 
   if (after.fileBytes < before.fileBytes) {
-    highlights.push(`Файл легче на ${Math.abs(deltaPct(before.fileBytes, after.fileBytes))}% — быстрее загрузка.`);
+    highlights.push(`File is ${Math.abs(deltaPct(before.fileBytes, after.fileBytes))}% lighter — faster to load.`);
   } else if (fileGrew && vramDropped) {
     const tl = timesLess(before.gpuBytes, after.gpuBytes);
     highlights.push(tl
-      ? `Видеопамять под текстуры меньше ${tl} — модель не «съест» память на слабых устройствах.`
-      : 'Видеопамять под текстуры уменьшилась — модель бережнее к слабым устройствам.');
+      ? `Texture video memory is ${tl} smaller — the model won't eat memory on weak devices.`
+      : 'Texture video memory dropped — the model is gentler on weak devices.');
   }
 
   if (vramDropped && !(fileGrew)) {
-    highlights.push(`Видеопамять под текстуры меньше на ${Math.abs(deltaPct(before.gpuBytes, after.gpuBytes))}% — плавнее на слабых видеокартах.`);
+    highlights.push(`Texture video memory is ${Math.abs(deltaPct(before.gpuBytes, after.gpuBytes))}% lower — smoother on weak GPUs.`);
   }
 
   if (after.drawCalls < before.drawCalls) {
-    highlights.push(`Отрисовка проще: вызовов ${fmtInt(before.drawCalls)} → ${fmtInt(after.drawCalls)} — меньше нагрузка на видеокарту.`);
+    highlights.push(`Rendering is simpler: draw calls ${fmtInt(before.drawCalls)} → ${fmtInt(after.drawCalls)} — less GPU load.`);
   }
 
   if (before.triangles > 0 && after.triangles === before.triangles) {
-    highlights.push(`Форма модели сохранена полностью (${fmtInt(after.triangles)} треугольников) — геометрия не пострадала.`);
+    highlights.push(`Model shape fully preserved (${fmtInt(after.triangles)} triangles) — geometry untouched.`);
   } else if (before.triangles > 0 && after.triangles < before.triangles) {
-    highlights.push(`Убраны лишние треугольники: ${fmtInt(before.triangles)} → ${fmtInt(after.triangles)}.`);
+    highlights.push(`Extra triangles removed: ${fmtInt(before.triangles)} → ${fmtInt(after.triangles)}.`);
   }
 
   if (Array.isArray(rr.applied) && rr.applied.length) {
-    highlights.push(`Применено безопасных улучшений: ${rr.applied.length} — каждое проверено, форма и материалы не искажены.`);
+    highlights.push(`Safe improvements applied: ${rr.applied.length} — each verified, shape and materials not distorted.`);
   }
 
   // --- budgetChecks: metrics.after против бюджетов платформы ---
@@ -296,14 +297,14 @@ function buildBudgetChecks(budgets, after) {
     const actual = after.triangles;
     const ok = actual <= budgets.triangles;
     const c = {
-      name: 'Треугольники',
-      limitText: `до ${fmtInt(budgets.triangles)}`,
+      name: 'Triangles',
+      limitText: `up to ${fmtInt(budgets.triangles)}`,
       actualText: fmtInt(actual),
       ok,
     };
     if (!ok) {
       const over = actual - budgets.triangles;
-      c.advice = `Треугольников ${fmtInt(actual)} при бюджете ${fmtInt(budgets.triangles)} — на ${fmtInt(over)} больше. Упростите модель (decimation) при экспорте или уменьшите детализацию исходника.`;
+      c.advice = `${fmtInt(actual)} triangles against a budget of ${fmtInt(budgets.triangles)} — ${fmtInt(over)} over. Simplify the model (decimation) on export or lower the source detail.`;
     }
     checks.push(c);
   }
@@ -313,14 +314,14 @@ function buildBudgetChecks(budgets, after) {
     const actual = after.drawCalls;
     const ok = actual <= budgets.drawCalls;
     const c = {
-      name: 'Вызовы отрисовки (draw calls)',
-      limitText: `до ${fmtInt(budgets.drawCalls)}`,
+      name: 'Draw calls',
+      limitText: `up to ${fmtInt(budgets.drawCalls)}`,
       actualText: fmtInt(actual),
       ok,
     };
     if (!ok) {
       const over = actual - budgets.drawCalls;
-      c.advice = `Вызовов отрисовки ${fmtInt(actual)} при бюджете ${fmtInt(budgets.drawCalls)} — на ${fmtInt(over)} больше. Объедините детали и сократите число материалов при экспорте.`;
+      c.advice = `${fmtInt(actual)} draw calls against a budget of ${fmtInt(budgets.drawCalls)} — ${fmtInt(over)} over. Join parts and reduce the number of materials on export.`;
     }
     checks.push(c);
   }
@@ -331,13 +332,13 @@ function buildBudgetChecks(budgets, after) {
     const actual = after.gpuBytes;
     const ok = actual <= limitBytes;
     const c = {
-      name: 'Видеопамять под текстуры',
-      limitText: `до ${budgets.vramMB} МБ`,
+      name: 'Texture video memory',
+      limitText: `up to ${budgets.vramMB} MB`,
       actualText: fmtMB(actual),
       ok,
     };
     if (!ok) {
-      c.advice = `Текстуры занимают ${fmtMB(actual)} видеопамяти при рекомендации ${budgets.vramMB} МБ — превышение на ${Math.round((MB(actual) - budgets.vramMB))} МБ. Уменьшите разрешение текстур при экспорте или используйте меньше текстурных карт.`;
+      c.advice = `Textures take ${fmtMB(actual)} of video memory against a recommended ${budgets.vramMB} MB — ${Math.round((MB(actual) - budgets.vramMB))} MB over. Lower the texture resolution on export or use fewer texture maps.`;
     }
     checks.push(c);
   }
@@ -348,13 +349,13 @@ function buildBudgetChecks(budgets, after) {
     const actual = after.fileBytes;
     const ok = actual <= limitBytes;
     const c = {
-      name: 'Размер файла',
-      limitText: `до ${budgets.fileMB} МБ`,
+      name: 'File size',
+      limitText: `up to ${budgets.fileMB} MB`,
       actualText: fmtMB(actual),
       ok,
     };
     if (!ok) {
-      c.advice = `Файл ${fmtMB(actual)} превышает рекомендованные ${budgets.fileMB} МБ на ${(MB(actual) - budgets.fileMB).toFixed(1)} МБ. Уменьшите разрешение текстур или упростите геометрию при экспорте.`;
+      c.advice = `The ${fmtMB(actual)} file exceeds the recommended ${budgets.fileMB} MB by ${(MB(actual) - budgets.fileMB).toFixed(1)} MB. Lower the texture resolution or simplify the geometry on export.`;
     }
     checks.push(c);
   }
@@ -373,7 +374,7 @@ function collectWarnings(rr) {
     for (const s of rr.skipped) {
       if (!s || !s.text) continue;
       const reason = s.reason && s.reason !== s.text ? ` — ${s.reason}` : '';
-      warnings.push(`Не применили: ${s.text}${reason}`);
+      warnings.push(`Not applied: ${s.text}${reason}`);
     }
   }
 

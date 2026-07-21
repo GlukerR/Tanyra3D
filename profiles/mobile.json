@@ -2,7 +2,7 @@
   "id": "mobile",
   "enabled": false,
   "title": "Mobile (smartphones)",
-  "description": "Модель для просмотра на телефоне: в мобильном браузере или AR. Самый строгий бюджет — рассчитываем на недорогие устройства и мобильный интернет.",
+  "description": "A model for viewing on a phone: in a mobile browser or AR. The strictest budget — we target inexpensive devices and mobile internet.",
   "budgets": {
     "triangles": 50000,
     "drawCalls": 30,
@@ -21,34 +21,34 @@
   "availableExtensions": [
     {
       "id": "ktx2",
-      "title": "KTX2-сжатие текстур",
-      "description": "Переводит текстуры в GPU-формат: экономит до ~80% видеопамяти — бережёт память бюджетных телефонов. Требует поддержку KTX2Loader в браузере.",
-      "impact": "Файл может вырасти на 5–10%, зато видеопамять под текстуры меньше в разы.",
+      "title": "KTX2 texture compression",
+      "description": "Converts textures to a GPU format: saves up to ~80% of video memory — spares the memory of budget phones. Requires KTX2Loader support in the browser.",
+      "impact": "The file may grow 5–10%, but texture video memory drops several-fold.",
       "opts": { "noKtx": false }
     },
     {
       "id": "draco",
-      "title": "Draco-сжатие геометрии",
-      "description": "Минимальный вес файла (часто −50% на геометрии) — быстрее загрузка через мобильный интернет. Декодируется медленнее Meshopt, но поддерживается везде.",
-      "impact": "Файл заметно легче, декодирование при открытии медленнее.",
+      "title": "Draco geometry compression",
+      "description": "Minimal file weight (often −50% on geometry) — faster loading over mobile internet. Decodes slower than Meshopt but is supported everywhere.",
+      "impact": "The file is noticeably lighter; decoding on open is slower.",
       "opts": { "codec": "draco" }
     },
     {
       "id": "strip-colors",
-      "title": "Удалить вершинные цвета",
-      "description": "Удаляет раскрашенные цвета вершин. Включайте, только если цвета вершин не видны в модели (белые каналы убираются и без этой опции).",
-      "impact": "Экономит 5–20% размера, если цвета есть; может изменить вид, если они использовались.",
+      "title": "Remove vertex colors",
+      "description": "Removes painted vertex colors. Enable only if vertex colors are not visible in the model (white channels are removed without this option too).",
+      "impact": "Saves 5–20% of size if colors exist; may change the look if they were used.",
       "opts": { "stripColors": true }
     }
   ],
   "notes": [
-    "triangles 50000 — консервативный ориентир для недорогих смартфонов; ниже рекомендаций Khronos 3D Commerce ради плавности на слабом GPU.",
-    "drawCalls 30 — ориентир: на мобильном GPU каждый вызов отрисовки дороже, держим их мало.",
-    "textureMaxSize 1024 — консервативный ориентир: 1K достаточно для экрана телефона и бережёт память.",
-    "vramMB 48 — ориентир: у бюджетных телефонов мало видеопамяти.",
-    "fileMB 5 — ориентир: быстрая загрузка через мобильный интернет.",
-    "noKtx true — v0.0.8: базовый план без KTX2 (текстуры остаются PNG/WebP); KTX2 — расширение по явному выбору пользователя.",
-    "texMode mixed — если пользователь включит расширение ktx2: экономия трафика и видеопамяти важнее максимального качества на маленьком экране.",
-    "id расширения = имя фичи ядра: web-interface передаёт выбранные id в optimizeFile как advancedFeatures; поле opts — эквивалент для legacy-пути."
+    "triangles 50000 — a conservative guideline for inexpensive smartphones; below the Khronos 3D Commerce recommendations for smoothness on a weak GPU.",
+    "drawCalls 30 — guideline: each draw call is costlier on a mobile GPU, so we keep them few.",
+    "textureMaxSize 1024 — a conservative guideline: 1K is enough for a phone screen and saves memory.",
+    "vramMB 48 — guideline: budget phones have little video memory.",
+    "fileMB 5 — guideline: fast loading over mobile internet.",
+    "noKtx true — v0.0.8: baseline plan without KTX2 (textures stay PNG/WebP); KTX2 is an extension enabled by explicit user choice.",
+    "texMode mixed — if the user enables the ktx2 extension: saving traffic and video memory matters more than maximum quality on a small screen.",
+    "extension id = core feature name: web-interface passes the selected ids to optimizeFile as advancedFeatures; the opts field is the equivalent for the legacy path."
   ]
 }

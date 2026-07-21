@@ -28,13 +28,13 @@ const { optimizeFile, listRules, VERSION } = core;
 let assistant = null;
 try {
   assistant = await import('./assistant.mjs');
-  console.log('[assistant] assistant.mjs подключён');
+  console.log('[assistant] assistant.mjs connected');
 } catch (e) {
-  console.log('[assistant] assistant.mjs не найден — работаем без объяснений (фолбэк)');
+  console.log('[assistant] assistant.mjs not found — running without explanations (fallback)');
 }
 
 const FALLBACK_PLATFORMS = [
-  { id: 'web', title: 'Web', description: 'Стандартная подготовка для сайта' },
+  { id: 'web', title: 'Web', description: 'Standard web preparation' },
 ];
 
 const FALLBACK_ENGINE_OPTS = {
@@ -52,7 +52,7 @@ function listPlatformsSafe() {
       const p = assistant.listPlatforms();
       if (Array.isArray(p) && p.length) return p;
     } catch (e) {
-      console.error('[assistant] listPlatforms() упал:', e.message);
+      console.error('[assistant] listPlatforms() failed:', e.message);
     }
   }
   return FALLBACK_PLATFORMS;
@@ -68,7 +68,7 @@ function listExtensionsSafe(platformId) {
       const list = assistant.listExtensions(platformId);
       if (Array.isArray(list)) return list;
     } catch (e) {
-      console.error('[assistant] listExtensions() упал:', e.message);
+      console.error('[assistant] listExtensions() failed:', e.message);
     }
   }
   return [];
@@ -80,7 +80,7 @@ function planForSafe(platformId) {
       const plan = assistant.planFor(platformId);
       if (plan && typeof plan === 'object') return plan;
     } catch (e) {
-      console.error('[assistant] planFor() упал:', e.message);
+      console.error('[assistant] planFor() failed:', e.message);
     }
   }
   const known = FALLBACK_PLATFORMS.find((p) => p.id === platformId);
@@ -98,7 +98,7 @@ function explainResultSafe(runResult, platformId) {
       const explain = assistant.explainResult(runResult, platformId);
       if (explain && typeof explain === 'object') return explain;
     } catch (e) {
-      console.error('[assistant] explainResult() упал:', e.message);
+      console.error('[assistant] explainResult() failed:', e.message);
     }
   }
   // Фолбэк: без сочинённых от себя объяснений — пустые массивы,
@@ -157,7 +157,7 @@ async function serveStatic(req, res, urlPath) {
     res.end(data);
   } catch (e) {
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Не найдено: ' + rel);
+    res.end('Not found: ' + rel);
   }
 }
 
@@ -169,7 +169,7 @@ function readBody(req) {
     req.on('data', (chunk) => {
       size += chunk.length;
       if (size > MAX) {
-        reject(new Error('Файл слишком большой'));
+        reject(new Error('File too large'));
         req.destroy();
         return;
       }
@@ -231,7 +231,7 @@ const server = http.createServer(async (req, res) => {
       const jobId = url.searchParams.get('job');
       if (!jobId) {
         res.writeHead(400);
-        res.end('нужен параметр job');
+        res.end('job parameter required');
         return;
       }
       res.writeHead(200, {
@@ -263,13 +263,13 @@ const server = http.createServer(async (req, res) => {
       }
       const fileName = sanitizeFileName(decodedName);
       if (!/\.glb$/i.test(fileName)) {
-        sendJSON(res, 400, { error: 'Ожидается файл .glb' });
+        sendJSON(res, 400, { error: 'Expected a .glb file' });
         return;
       }
 
       const bytes = await readBody(req);
       if (!bytes.length) {
-        sendJSON(res, 400, { error: 'Пустое тело запроса — файл не получен' });
+        sendJSON(res, 400, { error: 'Empty request body — no file received' });
         return;
       }
 
@@ -293,8 +293,8 @@ const server = http.createServer(async (req, res) => {
           onProgress,
         });
       } catch (e) {
-        console.error('[optimize] исключение при обработке:', e);
-        sendJSON(res, 500, { error: 'Не удалось обработать модель: ' + e.message });
+        console.error('[optimize] exception during processing:', e);
+        sendJSON(res, 500, { error: 'Could not process the model: ' + e.message });
         return;
       }
 
@@ -316,13 +316,13 @@ const server = http.createServer(async (req, res) => {
       const f = url.searchParams.get('f');
       if (!f) {
         res.writeHead(400);
-        res.end('нужен параметр f');
+        res.end('f parameter required');
         return;
       }
       const filePath = safeJoin(RESULTS_DIR, path.basename(f));
       if (!filePath || !fs.existsSync(filePath)) {
         res.writeHead(404);
-        res.end('Файл результата не найден');
+        res.end('Result file not found');
         return;
       }
       const data = await fsp.readFile(filePath);
@@ -338,19 +338,19 @@ const server = http.createServer(async (req, res) => {
     }
 
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Не найдено');
+    res.end('Not found');
   } catch (e) {
-    console.error('[server] необработанная ошибка:', e);
+    console.error('[server] unhandled error:', e);
     if (!res.headersSent) {
-      sendJSON(res, 500, { error: 'Внутренняя ошибка сервера: ' + e.message });
+      sendJSON(res, 500, { error: 'Internal server error: ' + e.message });
     }
   }
 });
 
 server.on('error', (e) => {
   if (e.code === 'EADDRINUSE') {
-    console.error(`Порт ${PORT} уже занят — похоже, сервер уже запущен.`);
-    console.error(`Откройте http://localhost:${PORT} в браузере или закройте другой запуск (окно npm start).`);
+    console.error(`Port ${PORT} is already in use — the server seems to be running already.`);
+    console.error(`Open http://localhost:${PORT} in a browser or close the other run (the npm start window).`);
     process.exit(1);
   }
   throw e;
@@ -358,7 +358,7 @@ server.on('error', (e) => {
 
 server.listen(PORT, () => {
   const address = `http://localhost:${PORT}`;
-  console.log(`glb-web-optimize UI: ${address} (ядро v${VERSION})`);
+  console.log(`glb-web-optimize UI: ${address} (core v${VERSION})`);
 
   // Открываем браузер автоматически; неудача — не критична, просто печатаем ссылку.
   try {
@@ -370,6 +370,6 @@ server.listen(PORT, () => {
       spawn('xdg-open', [address], { stdio: 'ignore', detached: true }).unref();
     }
   } catch (e) {
-    console.log('Не удалось открыть браузер автоматически — откройте вручную:', address);
+    console.log('Could not open the browser automatically — open it manually:', address);
   }
 });

@@ -2,7 +2,7 @@
   "id": "threejs",
   "enabled": true,
   "title": "Web (Three.js)",
-  "description": "Модель для сайта: открывается прямо в браузере на компьютере или ноутбуке. Баланс между хорошим качеством картинки и быстрой загрузкой.",
+  "description": "A model for a website: opens right in the browser on a desktop or laptop. A balance between good image quality and fast loading.",
   "budgets": {
     "triangles": 100000,
     "drawCalls": 50,
@@ -21,40 +21,40 @@
   "availableExtensions": [
     {
       "id": "ktx2",
-      "title": "KTX2-сжатие текстур",
-      "description": "Переводит текстуры в GPU-формат: экономит до ~80% видеопамяти. Требует поддержку KTX2Loader в Three.js (или basisu в другом движке).",
-      "impact": "Файл может вырасти на 5–10%, зато видеопамять под текстуры меньше в разы.",
+      "title": "KTX2 texture compression",
+      "description": "Converts textures to a GPU format: saves up to ~80% of video memory. Requires KTX2Loader support in Three.js (or basisu in another engine).",
+      "impact": "The file may grow 5–10%, but texture video memory drops several-fold.",
       "reversible": true,
       "dataLoss": "none",
       "opts": { "noKtx": false }
     },
     {
       "id": "draco",
-      "title": "Draco-сжатие геометрии",
-      "description": "Минимальный вес файла (часто −50% на геометрии). Декодируется в браузере медленнее Meshopt, но поддерживается везде.",
-      "impact": "Файл заметно легче, декодирование при открытии медленнее.",
+      "title": "Draco geometry compression",
+      "description": "Minimal file weight (often −50% on geometry). Decodes slower than Meshopt in the browser but is supported everywhere.",
+      "impact": "The file is noticeably lighter; decoding on open is slower.",
       "reversible": true,
       "dataLoss": "none",
       "opts": { "codec": "draco" }
     },
     {
       "id": "strip-colors",
-      "title": "Удалить вершинные цвета",
-      "description": "Удаляет раскрашенные цвета вершин. Включайте, только если цвета вершин не видны в модели (белые каналы убираются и без этой опции).",
-      "impact": "Экономит 5–20% размера, если цвета есть; может изменить вид, если они использовались.",
+      "title": "Remove vertex colors",
+      "description": "Removes painted vertex colors. Enable only if vertex colors are not visible in the model (white channels are removed without this option too).",
+      "impact": "Saves 5–20% of size if colors exist; may change the look if they were used.",
       "reversible": false,
       "dataLoss": "significant",
       "opts": { "stripColors": true }
     }
   ],
   "notes": [
-    "triangles 100000 — целевое значение из рекомендаций Khronos 3D Commerce (real-time) для одного объекта на сцене.",
-    "textureMaxSize 2048 — рекомендация Khronos 3D Commerce: 2K как разумный максимум для веба.",
-    "drawCalls 50 — ориентир: держать число примитивов небольшим ради стабильных 60 fps на среднем железе.",
-    "vramMB 128 — ориентир для настольного/ноутбучного GPU при просмотре в браузере.",
-    "fileMB 10 — ориентир: файл такого размера загружается в браузере за несколько секунд на обычном интернете.",
-    "noKtx true — v0.0.8: базовый план без KTX2 (текстуры остаются PNG/WebP, работают в любом браузере); KTX2 — расширение по явному выбору пользователя.",
-    "texMode uastc — если пользователь включит расширение ktx2: на десктопе есть запас по трафику, выбираем более точный GPU-формат текстур ради качества картинки.",
-    "id расширения = имя фичи ядра: web-interface передаёт выбранные id в optimizeFile как advancedFeatures; поле opts — эквивалент для legacy-пути."
+    "triangles 100000 — target value from the Khronos 3D Commerce (real-time) recommendations for a single object in the scene.",
+    "textureMaxSize 2048 — Khronos 3D Commerce recommendation: 2K as a reasonable maximum for the web.",
+    "drawCalls 50 — guideline: keep the primitive count low for stable 60 fps on mid-range hardware.",
+    "vramMB 128 — guideline for a desktop/laptop GPU when viewing in the browser.",
+    "fileMB 10 — guideline: a file this size loads in the browser within a few seconds on ordinary internet.",
+    "noKtx true — v0.0.8: baseline plan without KTX2 (textures stay PNG/WebP, work in any browser); KTX2 is an extension enabled by explicit user choice.",
+    "texMode uastc — if the user enables the ktx2 extension: on desktop there is headroom for traffic, so we pick the more precise GPU texture format for image quality.",
+    "extension id = core feature name: web-interface passes the selected ids to optimizeFile as advancedFeatures; the opts field is the equivalent for the legacy path."
   ]
 }

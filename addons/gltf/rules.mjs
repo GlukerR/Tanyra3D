@@ -1,17 +1,17 @@
-// addons/gltf/rules.mjs — десять правил пайплайна glTF, перенесённые из optimize2.mjs
-// без изменения логики. Каждое действие пайплайна — объект формы (см. core/types.mjs):
+// addons/gltf/rules.mjs — десять правил пайплайна glTF. Логика фиксов перенесена из
+// optimize2.mjs без изменений; ВЕСЬ пользовательский текст вынесен в каталог
+// (messages/en.mjs) — правила возвращают { messageId, data }, а не готовую строку
+// (ядро рендерит их через core/i18n.mjs). Форма объекта-правила — см. core/types.mjs:
 //   meta { id, category, title, severity, fixSafety, tier, runAfter, touches, enabled, ... }
 //   analyze(ctx)          — фаза 1, только чтение
-//   canFix(finding, ctx)  — доказательство безопасности, причина идёт в отчёт
-//   fix(finding, ctx)     — фаза 3, меняет ctx.document (рабочую копию)
+//   canFix(finding, ctx)  — { safe, messageId, data } (причина идёт в отчёт как ключ)
+//   fix(finding, ctx)     — фаза 3, меняет ctx.document; возвращает { found/skipped/
+//                           details/irreversible } — массивы { messageId, data }
 //
-// fix возвращает { found, skipped, details } — строки для секций отчёта
-// «Найдено» / «Пропущено» / «Применено» (любое поле опционально).
-//
-// ВАЖНО (эквивалентность v2): бОльшая часть находок в glTF считается только
-// по факту применения (diff до/после prune, вырожденные треугольники появляются
-// ПОСЛЕ weld и т.д. — см. ARCHITECTURE.md §2.1). Поэтому analyze здесь возвращает
-// «задание» ({ messageId: 'pipeline' }), а конкретика с цифрами приходит из fix.
+// ВАЖНО (эквивалентность v2): бОльшая часть находок в glTF считается только по факту
+// применения (diff до/после prune, вырожденные треугольники появляются ПОСЛЕ weld и
+// т.д.). Поэтому analyze возвращает «задание» ({ messageId: 'pipeline' }), а конкретика
+// с цифрами приходит из fix — ровно те же измерения, что делал v2.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -19,6 +19,7 @@ import path from 'node:path';
 import * as fns from '@gltf-transform/functions';
 import { MeshoptEncoder } from 'meshoptimizer';
 
+import { render } from '../../core/i18n.mjs';
 import { collectMetrics, countTriangles, effectiveSkins, listSemantics } from './metrics.mjs';
 import { GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 
@@ -28,35 +29,35 @@ import { GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 export const RULES = [
   {
     meta: {
-      id: 'structure/dedup', category: 'materials', title: 'Дубли ресурсов (dedup)',
+      id: 'structure/dedup', category: 'materials', title: 'Duplicate resources (dedup)',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: [], touches: ['texture', 'material', 'accessor'],
       reversible: false, dataLoss: 'none', // склеиваются только байт-в-байт идентичные копии — терять нечего
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
-    canFix() { return { safe: true, reason: 'склейка идентичных ресурсов структурно безопасна' }; },
+    canFix() { return { safe: true, messageId: 'dedup.safe', data: {} }; },
     async fix(finding, ctx) {
       const root = ctx.document.getRoot();
       const b = { tex: root.listTextures().length, mat: root.listMaterials().length, acc: root.listAccessors().length };
       await ctx.document.transform(fns.dedup());
       const a = { tex: root.listTextures().length, mat: root.listMaterials().length, acc: root.listAccessors().length };
       const out = { found: [], details: [] };
-      if (b.tex > a.tex) { out.found.push(`дубли текстур: ${b.tex - a.tex}`); out.details.push(`Склеены дубли текстур (${b.tex - a.tex})`); }
-      if (b.mat > a.mat) { out.found.push(`дубли материалов: ${b.mat - a.mat}`); out.details.push(`Склеены дубли материалов (${b.mat - a.mat})`); }
-      if (b.acc > a.acc) { out.found.push(`дубли аксессоров: ${b.acc - a.acc}`); out.details.push(`Склеены дубли аксессоров (${b.acc - a.acc})`); }
+      if (b.tex > a.tex) { out.found.push({ messageId: 'dedup.found.textures', data: { n: b.tex - a.tex } }); out.details.push({ messageId: 'dedup.done.textures', data: { n: b.tex - a.tex } }); }
+      if (b.mat > a.mat) { out.found.push({ messageId: 'dedup.found.materials', data: { n: b.mat - a.mat } }); out.details.push({ messageId: 'dedup.done.materials', data: { n: b.mat - a.mat } }); }
+      if (b.acc > a.acc) { out.found.push({ messageId: 'dedup.found.accessors', data: { n: b.acc - a.acc } }); out.details.push({ messageId: 'dedup.done.accessors', data: { n: b.acc - a.acc } }); }
       return out;
     },
   },
 
   {
     meta: {
-      id: 'structure/prune-unused', category: 'scene', title: 'Неиспользуемые ресурсы (prune)',
+      id: 'structure/prune-unused', category: 'scene', title: 'Unused resources (prune)',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['structure/dedup'], touches: ['texture', 'material', 'accessor', 'node'],
       reversible: false, dataLoss: 'none', // удаляется только то, на что нет ни одной ссылки
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
-    canFix() { return { safe: true, reason: 'удаляется только то, на что нет ни одной ссылки' }; },
+    canFix() { return { safe: true, messageId: 'prune.safe', data: {} }; },
     async fix(finding, ctx) {
       const root = ctx.document.getRoot();
       const semBefore = listSemantics(ctx.document);
@@ -67,16 +68,16 @@ export const RULES = [
       const out = { found: [], details: [] };
       for (const s of semBefore) {
         if (!semAfter.has(s)) {
-          out.found.push(`атрибут ${s} не используется ни одним материалом`);
-          out.details.push(`Атрибут ${s}: не используется ни одним материалом — удалён (prune)`);
+          out.found.push({ messageId: 'prune.found.attribute', data: { sem: s } });
+          out.details.push({ messageId: 'prune.done.attribute', data: { sem: s } });
         }
       }
-      if (b.tex > a.tex) { out.found.push(`неиспользуемые текстуры: ${b.tex - a.tex}`); out.details.push(`Текстуры: удалено ${b.tex - a.tex} неиспользуемых`); }
-      if (b.mat > a.mat) { out.found.push(`неиспользуемые материалы: ${b.mat - a.mat}`); out.details.push(`Материалы: удалено ${b.mat - a.mat} неиспользуемых`); }
+      if (b.tex > a.tex) { out.found.push({ messageId: 'prune.found.textures', data: { n: b.tex - a.tex } }); out.details.push({ messageId: 'prune.done.textures', data: { n: b.tex - a.tex } }); }
+      if (b.mat > a.mat) { out.found.push({ messageId: 'prune.found.materials', data: { n: b.mat - a.mat } }); out.details.push({ messageId: 'prune.done.materials', data: { n: b.mat - a.mat } }); }
       if (b.skins > a.skins && b.effSkins === a.effSkins) {
         // удалены только пустышки: действующих скинов не убыло (иначе инвариант остановит запись)
-        out.found.push(`скины-пустышки (у мешей нет JOINTS/WEIGHTS): ${b.skins - a.skins}`);
-        out.details.push(`Удалено ${b.skins - a.skins} скинов-пустышек — деформаций не было, анимация работает через иерархию узлов`);
+        out.found.push({ messageId: 'prune.found.emptySkins', data: { n: b.skins - a.skins } });
+        out.details.push({ messageId: 'prune.done.emptySkins', data: { n: b.skins - a.skins } });
       }
       return out;
     },
@@ -87,7 +88,7 @@ export const RULES = [
       // tier basic: базовое действие — удаление БЕЛЫХ каналов (provable, вид не меняется).
       // Lossy-ветка (удалить раскрашенные) — расширение 'strip-colors': включается только
       // через advancedFeatures:['strip-colors'] или флаг --strip-vertex-colors (→ opts.stripColors).
-      id: 'attributes/vertex-colors', category: 'attributes', title: 'Вершинные цвета (COLOR_n)',
+      id: 'attributes/vertex-colors', category: 'attributes', title: 'Vertex colors (COLOR_n)',
       severity: 'warn', fixSafety: 'provable', tier: 'basic', runAfter: ['structure/prune-unused'], touches: ['accessor'],
       // базовая ветка (белые каналы) — потери нет; strip-ветка помечает свои строки
       // через res.irreversible → dataLoss 'significant' на уровне applied-записи
@@ -98,10 +99,10 @@ export const RULES = [
     // (например неиспользуемый COLOR_1), не должны попадать в находки — v2 сканировал
     // ПОСЛЕ prune, сохраняем то же окно измерения.
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
-    canFix(finding, ctx) {
+    canFix() {
       // белый (все значения 1.0) → provable: множитель baseColor равен единице.
       // раскрашенный → lossy: убирается только явным флагом (решение внутри fix).
-      return { safe: true, reason: 'белые каналы удаляются доказуемо безопасно; раскрашенные — только по флагу' };
+      return { safe: true, messageId: 'vertexColors.safe', data: {} };
     },
     fix(finding, ctx) {
       const out = { found: [], skipped: [], details: [] };
@@ -117,18 +118,18 @@ export const RULES = [
               acc.getElement(i, el); // нормализованные float-значения
               if (el.some((v) => v < 0.999)) { allWhite = false; break; }
             }
-            const where = `${sem} (меш «${mesh.getName() || '—'}»)`;
+            const data = { sem, mesh: mesh.getName() || '—' };
             if (allWhite) {
               prim.setAttribute(sem, null);
-              out.found.push(`${where}: все значения белые — на вид не влияет`);
-              out.details.push(`${where}: все значения белые — удалён, вид не меняется`);
+              out.found.push({ messageId: 'vertexColors.found.white', data });
+              out.details.push({ messageId: 'vertexColors.done.white', data });
             } else if (ctx.opts.stripColors) {
               prim.setAttribute(sem, null); // lossy, но пользователь явно форсировал флагом
-              out.found.push(`${where}: реальная покраска вершин`);
-              (out.irreversible ??= []).push(`${where}: РАСКРАШЕН, удалён по флагу --strip-vertex-colors — вид может измениться`);
+              out.found.push({ messageId: 'vertexColors.found.painted', data });
+              (out.irreversible ??= []).push({ messageId: 'vertexColors.stripped', data });
             } else {
-              out.found.push(`${where}: реальная покраска вершин`);
-              out.skipped.push(`${where}: реальная покраска — НЕ удалён, влияет на вид. Форсировать: --strip-vertex-colors`);
+              out.found.push({ messageId: 'vertexColors.found.painted', data });
+              out.skipped.push({ messageId: 'vertexColors.skipped', data });
             }
           }
         }
@@ -139,13 +140,13 @@ export const RULES = [
 
   {
     meta: {
-      id: 'geometry/weld', category: 'geometry', title: 'Сварка вершин (weld)',
+      id: 'geometry/weld', category: 'geometry', title: 'Vertex weld',
       severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['attributes/vertex-colors'], touches: ['geometry', 'accessor'],
       reversible: false, dataLoss: 'none', // свариваются только идентичные вершины
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
-    canFix() { return { safe: true, reason: 'свариваются только идентичные вершины' }; },
+    canFix() { return { safe: true, messageId: 'weld.safe', data: {} }; },
     async fix(finding, ctx) {
       // точка отсчёта для инварианта «треугольники не изменились» — как в v2:
       // после prune/цветов, до сварки (weld порождает вырожденные треугольники)
@@ -155,7 +156,7 @@ export const RULES = [
       await ctx.document.transform(fns.weld());
       for (const m of ctx.document.getRoot().listMeshes()) for (const p of m.listPrimitives()) { const pos = p.getAttribute('POSITION'); if (pos) va += pos.getCount(); }
       if (vb > va) {
-        return { found: [`идентичные вершины: ${vb - va}`], details: [`Сварка вершин (weld): ${vb} → ${va}`] };
+        return { found: [{ messageId: 'weld.found', data: { n: vb - va } }], details: [{ messageId: 'weld.done', data: { before: vb, after: va } }] };
       }
       return {};
     },
@@ -163,13 +164,13 @@ export const RULES = [
 
   {
     meta: {
-      id: 'geometry/degenerate-triangles', category: 'geometry', title: 'Вырожденные треугольники',
+      id: 'geometry/degenerate-triangles', category: 'geometry', title: 'Degenerate triangles',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['geometry/weld'], touches: ['geometry'],
       reversible: false, dataLoss: 'none', // нулевая площадь — не рисовались
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
-    canFix() { return { safe: true, reason: 'треугольник с повторным индексом имеет нулевую площадь и не рисуется' }; },
+    canFix() { return { safe: true, messageId: 'degenerate.safe', data: {} }; },
     fix(finding, ctx) {
       // два/три одинаковых индекса = нулевая площадь; считаем ПОСЛЕ weld (он их порождает).
       // Итог меряем дельтой по сцене: правка общего аксессора действует на все его инстансы.
@@ -194,8 +195,8 @@ export const RULES = [
       ctx.cache.set('degenerateRemoved', sceneRemoved); // для инварианта по треугольникам
       if (sceneRemoved > 0) {
         return {
-          found: [`вырожденные треугольники (нулевая площадь): ${sceneRemoved}`],
-          details: [`Вырожденные треугольники: удалено ${sceneRemoved} (нулевая площадь, на рендер не влияли)`],
+          found: [{ messageId: 'degenerate.found', data: { n: sceneRemoved } }],
+          details: [{ messageId: 'degenerate.done', data: { n: sceneRemoved } }],
         };
       }
       return {};
@@ -204,7 +205,7 @@ export const RULES = [
 
   {
     meta: {
-      id: 'geometry/orphan-vertices', category: 'geometry', title: 'Висящие вершины',
+      id: 'geometry/orphan-vertices', category: 'geometry', title: 'Orphan vertices',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['geometry/degenerate-triangles'], touches: ['geometry', 'accessor'],
       reversible: false, dataLoss: 'none', // не адресованы индексами — не рисовались
       enabled: () => true,
@@ -212,9 +213,9 @@ export const RULES = [
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
     canFix() {
       if (typeof fns.compactPrimitive !== 'function') {
-        return { safe: false, reason: 'compactPrimitive недоступен в этой версии @gltf-transform/functions — проход пропущен' };
+        return { safe: false, messageId: 'orphan.unavailable', data: {} };
       }
-      return { safe: true, reason: 'вершины не адресованы ни одним индексом и не рисуются' };
+      return { safe: true, messageId: 'orphan.safe', data: {} };
     },
     fix(finding, ctx) {
       let before = 0;
@@ -230,8 +231,8 @@ export const RULES = [
       }
       if (before > after) {
         return {
-          found: [`висящие вершины: ${before - after}`],
-          details: [`Висящие вершины: удалено ${before - after} (не адресованы индексами, не рисовались)`],
+          found: [{ messageId: 'orphan.found', data: { n: before - after } }],
+          details: [{ messageId: 'orphan.done', data: { n: before - after } }],
         };
       }
       return {};
@@ -240,14 +241,14 @@ export const RULES = [
 
   {
     meta: {
-      id: 'scene/join', category: 'scene', title: 'Объединение мешей (flatten + join)',
+      id: 'scene/join', category: 'scene', title: 'Mesh join (flatten + join)',
       severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['geometry/orphan-vertices'], touches: ['geometry', 'node'],
       reversible: false, dataLoss: 'significant', // §4d: структура узлов и имена частей теряются безвозвратно
-      reversalNote: 'Иерархия узлов и отдельные части объединены — из результата их не восстановить. Чтобы сохранить части, используйте --keep-parts.',
+      reversalNote: 'Node hierarchy and separate parts are merged — they cannot be restored from the result. To keep parts, use --keep-parts.',
       enabled: (opts) => !opts.keepParts,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
-    canFix() { return { safe: true, reason: 'модель статичная, отдельные части не нужны (иначе --keep-parts)' }; },
+    canFix() { return { safe: true, messageId: 'join.safe', data: {} }; },
     async fix(finding, ctx) {
       const m = () => { const r = collectMetrics(ctx.document, 0); return { drawCalls: r.drawCalls, nodes: r.nodes, meshes: r.meshes }; };
       const b = m();
@@ -255,8 +256,8 @@ export const RULES = [
       const a = m();
       if (b.drawCalls > a.drawCalls || b.nodes > a.nodes || b.meshes > a.meshes) {
         return {
-          found: [`лишние draw calls / узлы: draw calls ${b.drawCalls}, узлов ${b.nodes}`],
-          details: [`Меши объединены (flatten+join): draw calls ${b.drawCalls} → ${a.drawCalls}, узлы ${b.nodes} → ${a.nodes}`],
+          found: [{ messageId: 'join.found', data: { drawCalls: b.drawCalls, nodes: b.nodes } }],
+          details: [{ messageId: 'join.done', data: { dcBefore: b.drawCalls, dcAfter: a.drawCalls, nodesBefore: b.nodes, nodesAfter: a.nodes } }],
         };
       }
       return {};
@@ -265,19 +266,19 @@ export const RULES = [
 
   {
     meta: {
-      id: 'structure/prune-final', category: 'scene', title: 'Подчистка осиротевших ресурсов',
+      id: 'structure/prune-final', category: 'scene', title: 'Cleanup of orphaned resources',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['scene/join', 'geometry/orphan-vertices'], touches: ['accessor', 'node'],
       reversible: false, dataLoss: 'none', // только осиротевшие после предыдущих фиксов ресурсы
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
-    canFix() { return { safe: true, reason: 'удаляются только осиротевшие после предыдущих фиксов ресурсы' }; },
+    canFix() { return { safe: true, messageId: 'pruneFinal.safe', data: {} }; },
     async fix(finding, ctx) {
       const root = ctx.document.getRoot();
       const b = root.listAccessors().length;
       await ctx.document.transform(fns.prune()); // как в v2: подчистка после всех проходов
       const a = root.listAccessors().length;
-      if (b > a) return { details: [`Подчистка (prune): удалено ${b - a} осиротевших аксессоров`] };
+      if (b > a) return { details: [{ messageId: 'pruneFinal.done', data: { n: b - a } }] };
       return {};
     },
   },
@@ -287,19 +288,19 @@ export const RULES = [
       // ADVANCED: KTX2 требует KTX2Loader (Three.js) / поддержку basisu в движке —
       // работает не «везде», поэтому только явный opt-in (advancedFeatures:['ktx2'] / --ktx2).
       // normalizeOpts переводит выбор фичи в noKtx:false — enabled смотрит на итоговую опцию.
-      id: 'textures/ktx2', category: 'textures', title: 'Текстуры → KTX2/UASTC',
+      id: 'textures/ktx2', category: 'textures', title: 'Textures → KTX2/UASTC',
       severity: 'warn', fixSafety: 'perceptual', tier: 'advanced', feature: 'ktx2',
       runAfter: ['structure/prune-final'], touches: ['texture'],
       reversible: true, dataLoss: 'minor', // §4d: KTX2 ↔ PNG/WebP, потеря от BASIS-U распаковки
-      reversalNote: 'KTX2 можно распаковать обратно в PNG/WebP с небольшой потерей качества (BASIS-декодирование).',
+      reversalNote: 'KTX2 can be unpacked back to PNG/WebP with a small quality loss (BASIS decoding).',
       enabled: (opts) => !opts.noKtx,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
     canFix() {
       if (!TOKTX || !GLTF_CLI) {
-        return { safe: false, reason: 'toktx или gltf-transform CLI не найдены — текстуры оставлены в исходном формате' };
+        return { safe: false, messageId: 'ktx2.noTools', data: {} };
       }
-      return { safe: true, reason: 'UASTC --level 2 --zstd 18 без RDO — near-lossless, выбор пользователя' };
+      return { safe: true, messageId: 'ktx2.safe', data: {} };
     },
     async fix(finding, ctx) {
       const out = { found: [], skipped: [], details: [] };
@@ -314,7 +315,7 @@ export const RULES = [
         const mime = tex.getMimeType();
         const name = tex.getName() || '—';
         if (mime === 'image/ktx2') {
-          out.skipped.push(`Текстура «${name}»: уже KTX2 — повторно не кодируем (без лишней потери)`);
+          out.skipped.push({ messageId: 'ktx2.skipped.already', data: { name } });
           continue;
         }
         if (mime === 'image/webp' || mime === 'image/jpeg') {
@@ -322,7 +323,7 @@ export const RULES = [
           const png = await sharp(Buffer.from(tex.getImage())).png().toBuffer();
           tex.setImage(png);
           tex.setMimeType('image/png');
-          out.details.push(`Текстура «${name}»: ${mime} → PNG (без потерь, для toktx)`);
+          out.details.push({ messageId: 'ktx2.done.toPng', data: { name, mime } });
         }
         const slots = fns.listTextureSlots(tex).join(' ');
         if (DATA_SLOT_RE.test(slots)) dataTex.push(name);
@@ -330,12 +331,12 @@ export const RULES = [
       }
       const needKtx = dataTex.length + colorTex.length;
       if (needKtx === 0) {
-        ctx.log('        все текстуры уже KTX2 или их нет — кодирование пропущено');
+        ctx.log(render('ktx2.log.skipped', {}, ctx.opts.locale));
         return out;
       }
-      out.found.push(`текстуры не в KTX2: ${needKtx}`);
+      out.found.push({ messageId: 'ktx2.found', data: { n: needKtx } });
       const mixed = ctx.opts.texMode === 'mixed';
-      ctx.log(`        кодирование KTX2 (${needKtx} шт., режим ${mixed ? 'mixed: ETC1S+UASTC' : 'uastc'})`);
+      ctx.log(render('ktx2.log.encoding', { n: needKtx, mixed }, ctx.opts.locale));
       const tmpA = path.join(ctx.outDir, `_tmp_${ctx.dstName}`);
       const tmpB = path.join(ctx.outDir, `_tmp2_${ctx.dstName}`);
       const tmpC = path.join(ctx.outDir, `_tmp3_${ctx.dstName}`);
@@ -357,10 +358,10 @@ export const RULES = [
         }
       }
       if (mixed) {
-        if (colorTex.length) out.details.push(`Цветовые текстуры → KTX2/ETC1S, quality 255 (${colorTex.length} шт.: ${colorTex.join(', ')}) — компактны в файле и в VRAM`);
-        if (dataTex.length) out.details.push(`Data-текстуры → KTX2/UASTC --level 2 --zstd 18 (${dataTex.length} шт.: ${dataTex.join(', ')}) — нормали/ORM без артефактов ETC1S`);
+        if (colorTex.length) out.details.push({ messageId: 'ktx2.done.color', data: { n: colorTex.length, list: colorTex.join(', ') } });
+        if (dataTex.length) out.details.push({ messageId: 'ktx2.done.data', data: { n: dataTex.length, list: dataTex.join(', ') } });
       } else {
-        out.details.push(`Текстуры → KTX2/UASTC: ${needKtx} шт. (--level 2 --zstd 18, без RDO; режим --uastc)`);
+        out.details.push({ messageId: 'ktx2.done.uastc', data: { n: needKtx } });
       }
       return out;
     },
@@ -371,21 +372,21 @@ export const RULES = [
       // tier basic: сжатие как таковое базовое (Meshopt работает везде и всегда полезно).
       // Advanced-часть — ВЫБОР кодека Draco: advancedFeatures:['draco'] / --draco
       // переключает opts.codec в normalizeOpts; само правило остаётся в базовом плане.
-      id: 'geometry/compress', category: 'geometry', title: 'Сжатие геометрии',
+      id: 'geometry/compress', category: 'geometry', title: 'Geometry compression',
       severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['textures/ktx2', 'structure/prune-final'], touches: ['geometry', 'accessor'],
       reversible: true, dataLoss: 'none', // §4d: Draco/Meshopt ↔ стандартный формат в пределах точности float32
-      reversalNote: 'Сжатая геометрия распаковывается обратно в стандартный формат без потери данных.',
+      reversalNote: 'Compressed geometry unpacks back to the standard format without data loss.',
       enabled: () => true,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
-    canFix() { return { safe: true, reason: 'сжатие пакует данные вершин, число полигонов не меняется' }; },
+    canFix() { return { safe: true, messageId: 'compress.safe', data: {} }; },
     async fix(finding, ctx) {
       if (ctx.opts.codec === 'draco') {
         await ctx.document.transform(fns.draco());
       } else {
         await ctx.document.transform(fns.meshopt({ encoder: MeshoptEncoder }));
       }
-      return { details: [`Геометрия сжата (${ctx.opts.codec}) — число полигонов не изменилось`] };
+      return { details: [{ messageId: 'compress.done', data: { codec: ctx.opts.codec } }] };
     },
   },
 ];
