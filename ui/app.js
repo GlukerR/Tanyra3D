@@ -1,4 +1,4 @@
-// app.js — клиентская логика OptiMesh (v0.1.0). Без сборки, без CDN.
+// app.js — клиентская логика Tanyra3D (v0.1.0). Без сборки, без CDN.
 // Формат данных задают Core Engine (§4b ARCHITECTURE.md) и AI Assistant (assistant.mjs) —
 // этот файл только форматирует байты/проценты и рисует то, что вернул сервер.
 
@@ -11,14 +11,21 @@
   const fileInput = $('file-input');
   const chooseFileBtn = $('choose-file-btn');
   const chosenFileLabel = $('chosen-file');
+  const modelList = $('model-list');
+  const stageHint = $('stage-hint');
 
-  const comparison = $('comparison');
   const statsBefore = $('stats-before');
   const statsAfter = $('stats-after');
   const deltaBadge = $('delta-badge');
 
   const failBanner = $('fail-banner');
   const failValidation = $('fail-validation');
+
+  const viewportSplit = $('viewport-split');
+  const viewportSplitter = $('viewport-splitter');
+  const originalPane = $('preview-original');
+  const resetViewBtn = $('reset-view-btn');
+  const linkToggleBtn = $('link-toggle-btn');
 
   const platformSelect = $('platform-select');
   const platformDescription = $('platform-description');
@@ -53,7 +60,6 @@
 
   const runBtn = $('run-btn');
   const downloadBtn = $('download-btn');
-  const resetBtn = $('reset-btn');
   const irreversibleWarning = $('irreversible-warning');
   const irreversibleList = $('irreversible-list');
 
@@ -62,8 +68,31 @@
   const versionLabel = $('version-label');
 
   let selectedFile = null;
+  // Идентификатор загруженного исходника на сервере: пока он есть, повторная
+  // оптимизация той же модели идёт без перезаливки файла (меняем только флажки).
+  let currentSourceId = null;
+  let runToken = 0; // анти-кэш для перезаписываемого результата (вьюпорт + скачивание)
+  // Подпись настроек (платформа + флажки) последней УСПЕШНОЙ сборки. Пока настройки не
+  // менялись, «Rebuild with New Settings» неактивна — пересборка дала бы тот же результат.
+  let lastBuildSignature = null;
   let platforms = [];
   let extensions = [];
+
+  // Текущая подпись настроек оптимизации: платформа + отсортированный набор флажков.
+  function currentSettingsSignature() {
+    return platformSelect.value + '|' + getSelectedFeatures().slice().sort().join(',');
+  }
+
+  // Состояние кнопки запуска: до первой сборки — активна при выбранном файле;
+  // после сборки — активна только если настройки изменились с момента той сборки.
+  function updateRunButtonState() {
+    if (!selectedFile) { runBtn.disabled = true; runBtn.removeAttribute('title'); return; }
+    if (lastBuildSignature === null) { runBtn.disabled = false; runBtn.removeAttribute('title'); return; }
+    const unchanged = currentSettingsSignature() === lastBuildSignature;
+    runBtn.disabled = unchanged;
+    if (unchanged) runBtn.title = 'Change a setting to rebuild';
+    else runBtn.removeAttribute('title');
+  }
 
   // ---------------------------------------------------------------
   // Форматирование (байты → человекочитаемый вид) — зона web-interface
@@ -130,9 +159,10 @@
     platformDescription.textContent = p ? p.description || '' : '';
   }
 
-  platformSelect.addEventListener('change', () => {
+  platformSelect.addEventListener('change', async () => {
     updatePlatformDescription();
-    loadExtensions(platformSelect.value);
+    await loadExtensions(platformSelect.value);
+    updateRunButtonState();
   });
 
   // ---------------------------------------------------------------
@@ -177,6 +207,7 @@
     checkbox.className = 'ext-checkbox';
     checkbox.value = ext.id;
     checkbox.id = `ext-${ext.id}`;
+    checkbox.addEventListener('change', updateRunButtonState);
 
     const titleSpan = document.createElement('span');
     titleSpan.textContent = ext.title || ext.id;
@@ -223,7 +254,7 @@
   // Drag & drop / выбор файла
   // ---------------------------------------------------------------
 
-  function handleFile(file) {
+  async function handleFile(file) {
     if (!file) return;
     if (!/\.glb$/i.test(file.name)) {
       chosenFileLabel.textContent = 'A file with a .glb extension is required';
@@ -232,13 +263,76 @@
       return;
     }
     selectedFile = file;
-    chosenFileLabel.textContent = `Selected file: ${file.name} (${fmtBytes(file.size)})`;
+    chosenFileLabel.textContent = '';
     runBtn.disabled = false;
+    renderModelList(file);
+    if (stageHint) stageHint.classList.add('hidden');
+    // Новый файл → сбросить прежний результат и серверный исходник (будет перезалит).
+    clearResults();
+    // Сразу показать оригинал в левом вьюпорте + его базовые данные (ещё до сборки).
+    if (window.OptiViewer) {
+      const stats = await window.OptiViewer.loadOriginal(file);
+      renderOriginalStats(file.size, stats);
+    }
+  }
+
+  // HUD слева до первой сборки: основные данные модели, посчитанные из сцены на клиенте.
+  // После сборки заменяются авторитетными before/after-метриками ядра (renderComparison).
+  function renderOriginalStats(fileSize, stats) {
+    statsBefore.innerHTML = '';
+    if (!stats) return;
+    const rows = [
+      ['FILE', fmtBytes(fileSize)],
+      ['TRIS', fmtInt(stats.triangles)],
+      ['VERT', fmtInt(stats.vertices)],
+      ['DRAWS', fmtInt(stats.drawCalls)],
+      ['MATS', fmtInt(stats.materials)],
+      ['TEX', fmtInt(stats.textures)],
+    ];
+    for (const [k, v] of rows) statsBefore.appendChild(hudLine(k, v, null));
+  }
+
+  // Сбросить всё, что относится к предыдущему результату оптимизации (при загрузке
+  // новой модели). Саму загруженную модель и вьюпорты не трогает.
+  function clearResults() {
+    currentSourceId = null;
+    lastBuildSignature = null; // новая модель ещё не собиралась — первая сборка разрешена
+    downloadBtn.classList.add('hidden');
+    irreversibleWarning.classList.add('hidden');
+    failBanner.classList.add('hidden');
+    runBtn.textContent = 'Build Optimized Model';
+    // Правый HUD пуст до сборки; левый заполняется базовыми данными модели в handleFile.
+    statsAfter.innerHTML = '';
+    deltaBadge.textContent = '';
+    [summarySection, analysisSection, budgetsSection, warningsSection,
+      appliedSection, skippedSection, validationSection].forEach((s) => s.classList.add('hidden'));
+  }
+
+  // Список моделей слева. Пока одна модель за раз; позже — несколько с выбором.
+  function renderModelList(file) {
+    modelList.innerHTML = '';
+    const li = document.createElement('li');
+    li.className = 'model-item selected';
+    const icon = document.createElement('span');
+    icon.className = 'model-icon';
+    icon.textContent = '▣';
+    const name = document.createElement('span');
+    name.className = 'model-name';
+    name.textContent = file.name;
+    name.title = file.name;
+    const size = document.createElement('span');
+    size.className = 'model-size';
+    size.textContent = fmtBytes(file.size);
+    li.appendChild(icon);
+    li.appendChild(name);
+    li.appendChild(size);
+    modelList.appendChild(li);
   }
 
   chooseFileBtn.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
 
+  dropzone.addEventListener('click', () => fileInput.click());
   dropzone.addEventListener('dragover', (e) => {
     e.preventDefault();
     dropzone.classList.add('drag-over');
@@ -275,30 +369,41 @@
   // ---------------------------------------------------------------
 
   runBtn.addEventListener('click', runOptimize);
-  resetBtn.addEventListener('click', resetUI);
 
-  function resetUI() {
-    selectedFile = null;
-    fileInput.value = '';
-    chosenFileLabel.textContent = '';
-    runBtn.disabled = true;
-    runBtn.classList.remove('hidden');
-    downloadBtn.classList.add('hidden');
-    resetBtn.classList.add('hidden');
-    dropzone.classList.remove('hidden');
-    comparison.classList.add('hidden');
-    failBanner.classList.add('hidden');
-    irreversibleWarning.classList.add('hidden');
-    [summarySection, analysisSection, budgetsSection, warningsSection,
-      appliedSection, skippedSection, validationSection].forEach((s) => s.classList.add('hidden'));
-    setPhase('Ready', null);
+  function buildOptimizeUrl(jobId, useSource) {
+    const platformId = platformSelect.value;
+    const features = getSelectedFeatures();
+    const featuresParam = features.length ? `&features=${encodeURIComponent(features.join(','))}` : '';
+    const sourceParam = useSource && currentSourceId ? `&source=${encodeURIComponent(currentSourceId)}` : '';
+    return `/api/optimize?platform=${encodeURIComponent(platformId)}&job=${encodeURIComponent(jobId)}${featuresParam}${sourceParam}`;
+  }
+
+  // Повтор по sourceId — без тела (модель уже на сервере); первый прогон — с телом файла.
+  async function sendOptimize(jobId) {
+    const doFetch = (withSource) => fetch(buildOptimizeUrl(jobId, withSource), {
+      method: 'POST',
+      headers: {
+        'X-Filename': encodeURIComponent(selectedFile.name),
+        'Content-Type': 'application/octet-stream',
+      },
+      body: withSource ? null : selectedFile,
+    });
+
+    const useSource = !!currentSourceId;
+    let res = await doFetch(useSource);
+    // Исходник на сервере пропал (например, перезапуск) — перезаливаем файл и повторяем.
+    if (res.status === 410 && useSource) {
+      currentSourceId = null;
+      res = await doFetch(false);
+    }
+    return res;
   }
 
   async function runOptimize() {
     if (!selectedFile) return;
 
     runBtn.disabled = true;
-    setPhase('Uploading file…', 'busy');
+    setPhase(currentSourceId ? 'Optimizing…' : 'Uploading file…', 'busy');
 
     const jobId = (window.crypto && window.crypto.randomUUID)
       ? window.crypto.randomUUID()
@@ -315,20 +420,8 @@
       // SSE недоступен — работаем без живого статуса фаз
     }
 
-    const platformId = platformSelect.value;
-    const features = getSelectedFeatures();
-    const featuresParam = features.length ? `&features=${encodeURIComponent(features.join(','))}` : '';
-    const url = `/api/optimize?platform=${encodeURIComponent(platformId)}&job=${encodeURIComponent(jobId)}${featuresParam}`;
-
     try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'X-Filename': encodeURIComponent(selectedFile.name),
-          'Content-Type': 'application/octet-stream',
-        },
-        body: selectedFile,
-      });
+      const res = await sendOptimize(jobId);
 
       if (es) es.close();
 
@@ -344,20 +437,18 @@
       if (es) es.close();
       showGenericError('Could not reach the server: ' + e.message);
     } finally {
-      runBtn.disabled = false;
+      updateRunButtonState();
     }
   }
 
   function showGenericError(message) {
     setPhase('Error', 'fail');
-    dropzone.classList.add('hidden');
-    comparison.classList.add('hidden');
-    failBanner.classList.remove('hidden');
+    showWindow(failBanner);
     failBanner.querySelector('.fail-title').textContent = 'Could not process the file';
     failBanner.querySelector('.fail-text').textContent = message;
     failValidation.innerHTML = '';
-    runBtn.classList.add('hidden');
-    resetBtn.classList.remove('hidden');
+    // Кнопку не прячем; прогон не удался — разрешаем повтор даже с теми же настройками.
+    lastBuildSignature = null;
     irreversibleWarning.classList.add('hidden');
   }
 
@@ -367,7 +458,10 @@
 
   function renderResult(data) {
     const { result, explain, downloadUrl } = data;
-    dropzone.classList.add('hidden');
+
+    // Запоминаем серверный исходник даже при fail (файл уже загружен) — чтобы повтор
+    // с другими флажками шёл без перезаливки.
+    if (data.sourceId) currentSourceId = data.sourceId;
 
     if (!result || result.status === 'fail') {
       renderFail(result, explain);
@@ -375,7 +469,6 @@
     }
 
     setPhase('Ready', null);
-    comparison.classList.remove('hidden');
     failBanner.classList.add('hidden');
 
     renderComparison(result.metrics);
@@ -386,12 +479,22 @@
     renderAppliedSkipped(result.applied, result.skipped);
     renderValidation(result.validation);
 
-    runBtn.classList.add('hidden');
-    resetBtn.classList.remove('hidden');
+    // Кнопку не прячем — можно менять флажки и пересобирать результат сколько угодно раз.
+    // Запоминаем настройки этой сборки: пока их не изменят, пересборка неактивна.
+    runBtn.textContent = 'Rebuild with New Settings';
+    lastBuildSignature = currentSettingsSignature();
+
+    // Результат перезаписывается на сервере при каждом прогоне → анти-кэш в URL,
+    // чтобы вьюпорт и скачивание всегда брали свежий вариант.
+    const bust = (u) => (u ? u + (u.includes('?') ? '&' : '?') + 't=' + (++runToken) : u);
+    const freshUrl = bust(downloadUrl);
+
+    // Правый вьюпорт: загрузить оптимизированную модель (оригинал уже показан слева).
+    if (window.OptiViewer) window.OptiViewer.loadOptimized(freshUrl);
 
     if (downloadUrl) {
       downloadBtn.classList.remove('hidden');
-      downloadBtn.href = downloadUrl;
+      downloadBtn.href = freshUrl;
       const name = result.file && result.file.dst ? result.file.dst.split(/[\\/]/).pop() : 'model.glb';
       downloadBtn.setAttribute('download', name);
       renderIrreversibleWarning(result.applied);
@@ -417,8 +520,7 @@
 
   function renderFail(result, explain) {
     setPhase('File failed validation', 'fail');
-    comparison.classList.add('hidden');
-    failBanner.classList.remove('hidden');
+    showWindow(failBanner);
     failBanner.querySelector('.fail-title').textContent = 'File not written';
     failBanner.querySelector('.fail-text').textContent =
       (explain && explain.summary) || 'The model failed the integrity check — the source file is untouched.';
@@ -433,10 +535,13 @@
 
     downloadBtn.classList.add('hidden');
     irreversibleWarning.classList.add('hidden');
-    runBtn.classList.add('hidden');
-    resetBtn.classList.remove('hidden');
+    // Кнопку оставляем; сборка не прошла — разрешаем повтор даже без смены настроек.
+    lastBuildSignature = null;
+    // Кнопку OPTIMIZE оставляем — пользователь может изменить флажки и повторить.
   }
 
+  // Компактный HUD со статистикой в углах панелей. У оптимизированной стороны значения
+  // подсвечиваются: зелёным — если метрика улучшилась (меньше), янтарным — если выросла.
   function renderComparison(metrics) {
     if (!metrics || !metrics.before || !metrics.after) return;
     const { before, after } = metrics;
@@ -445,17 +550,26 @@
     statsAfter.innerHTML = '';
 
     const rows = [
-      ['File', fmtBytes(before.fileBytes), fmtBytes(after.fileBytes)],
-      ['Triangles', fmtInt(before.triangles), fmtInt(after.triangles)],
-      ['Draw calls', fmtInt(before.drawCalls), fmtInt(after.drawCalls)],
-      ['Materials', fmtInt(before.materials), fmtInt(after.materials)],
-      ['Textures', fmtInt(before.textures), fmtInt(after.textures)],
-      ['Texture VRAM', fmtBytes(before.gpuBytes), fmtBytes(after.gpuBytes)],
+      ['FILE', before.fileBytes, after.fileBytes, fmtBytes],
+      ['TRIS', before.triangles, after.triangles, fmtInt],
     ];
+    if (before.vertices != null || after.vertices != null) {
+      rows.push(['VERT', before.vertices, after.vertices, fmtInt]);
+    }
+    rows.push(
+      ['DRAWS', before.drawCalls, after.drawCalls, fmtInt],
+      ['MATS', before.materials, after.materials, fmtInt],
+      ['TEX', before.textures, after.textures, fmtInt],
+      ['VRAM', before.gpuBytes, after.gpuBytes, fmtBytes],
+    );
 
-    for (const [label, beforeVal, afterVal] of rows) {
-      statsBefore.appendChild(statRow(label, beforeVal));
-      statsAfter.appendChild(statRow(label, afterVal));
+    for (const [label, beforeVal, afterVal, fmt] of rows) {
+      statsBefore.appendChild(hudLine(label, fmt(beforeVal), null));
+      let cls = null;
+      if (beforeVal != null && afterVal != null && afterVal !== beforeVal) {
+        cls = afterVal < beforeVal ? 'better' : 'worse';
+      }
+      statsAfter.appendChild(hudLine(label, fmt(afterVal), cls));
     }
 
     const fileDelta = pctText(before.fileBytes, after.fileBytes);
@@ -464,15 +578,16 @@
     deltaBadge.classList.add(after.fileBytes <= before.fileBytes ? 'good' : 'neutral');
   }
 
-  function statRow(label, value) {
+  function hudLine(label, value, valClass) {
     const row = document.createElement('div');
-    row.className = 'stat-row';
-    const l = document.createElement('span');
-    l.textContent = label;
+    row.className = 'hud-line';
+    const k = document.createElement('span');
+    k.className = 'hud-key';
+    k.textContent = `${label}:`;
     const v = document.createElement('span');
-    v.className = 'stat-value';
+    v.className = 'hud-val' + (valClass ? ` ${valClass}` : '');
     v.textContent = value;
-    row.appendChild(l);
+    row.appendChild(k);
     row.appendChild(v);
     return row;
   }
@@ -606,6 +721,118 @@
       li.textContent = v.text;
       validationList.appendChild(li);
     }
+  }
+
+  // ---------------------------------------------------------------
+  // Окна (ошибки/диалоги): закрытие по × и перетаскивание за заголовок.
+  // Переиспользуемый паттерн — навесить setupWindow на любой .window (класс).
+  // ---------------------------------------------------------------
+
+  function setupWindow(el) {
+    if (!el) return;
+    const closeBtn = el.querySelector('.window-close');
+    if (closeBtn) closeBtn.addEventListener('click', () => el.classList.add('hidden'));
+
+    const bar = el.querySelector('.window-titlebar');
+    if (!bar) return;
+    let dragging = false;
+    let startX = 0;
+    let startY = 0;
+    let baseLeft = 0;
+    let baseTop = 0;
+
+    bar.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('.window-close')) return;
+      dragging = true;
+      bar.setPointerCapture(e.pointerId);
+      const rect = el.getBoundingClientRect();
+      const parent = el.offsetParent ? el.offsetParent.getBoundingClientRect() : { left: 0, top: 0 };
+      baseLeft = rect.left - parent.left;
+      baseTop = rect.top - parent.top;
+      // перейти с центрирующего transform на явные left/top в пикселях
+      el.style.left = `${baseLeft}px`;
+      el.style.top = `${baseTop}px`;
+      el.style.transform = 'none';
+      startX = e.clientX;
+      startY = e.clientY;
+      e.preventDefault();
+    });
+
+    bar.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      el.style.left = `${baseLeft + e.clientX - startX}px`;
+      el.style.top = `${baseTop + e.clientY - startY}px`;
+    });
+
+    const stop = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      try { bar.releasePointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+    };
+    bar.addEventListener('pointerup', stop);
+    bar.addEventListener('pointercancel', stop);
+  }
+
+  // Показать окно, вернув его в центр (сбросив позицию от прошлого перетаскивания).
+  function showWindow(el) {
+    el.style.left = '';
+    el.style.top = '';
+    el.style.transform = '';
+    el.classList.remove('hidden');
+  }
+
+  setupWindow(failBanner);
+
+  // ---------------------------------------------------------------
+  // Перетаскиваемый разделитель между вьюпортами (как в референс-макете)
+  // ---------------------------------------------------------------
+
+  (function setupSplitter() {
+    if (!viewportSplitter || !viewportSplit || !originalPane) return;
+    let dragging = false;
+
+    viewportSplitter.addEventListener('pointerdown', (e) => {
+      dragging = true;
+      viewportSplitter.setPointerCapture(e.pointerId);
+      document.body.classList.add('resizing');
+      e.preventDefault();
+    });
+
+    viewportSplitter.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      const rect = viewportSplit.getBoundingClientRect();
+      let pct = ((e.clientX - rect.left) / rect.width) * 100;
+      pct = Math.max(15, Math.min(85, pct));
+      originalPane.style.flex = `0 0 ${pct}%`;
+    });
+
+    const stop = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      try { viewportSplitter.releasePointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+      document.body.classList.remove('resizing');
+    };
+    viewportSplitter.addEventListener('pointerup', stop);
+    viewportSplitter.addEventListener('pointercancel', stop);
+  })();
+
+  // ---------------------------------------------------------------
+  // Мини-панель управления вьюпортом
+  // ---------------------------------------------------------------
+
+  if (resetViewBtn) {
+    resetViewBtn.addEventListener('click', () => {
+      if (window.OptiViewer) window.OptiViewer.resetView();
+    });
+  }
+
+  if (linkToggleBtn) {
+    linkToggleBtn.addEventListener('click', () => {
+      const on = !linkToggleBtn.classList.contains('is-on');
+      linkToggleBtn.classList.toggle('is-on', on);
+      linkToggleBtn.setAttribute('aria-pressed', String(on));
+      if (window.OptiViewer) window.OptiViewer.setLinked(on);
+    });
   }
 
   // ---------------------------------------------------------------

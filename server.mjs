@@ -9,6 +9,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = 3210;
@@ -16,7 +17,15 @@ const PORT = 3210;
 const UI_DIR = path.join(__dirname, 'ui');
 const UPLOADS_DIR = path.join(__dirname, '_web', 'uploads');
 const RESULTS_DIR = path.join(__dirname, '_web', 'results');
+// three.js для встроенного просмотрщика отдаётся прямо из node_modules (пакет-зависимость,
+// см. package.json). Никакого бандлера/CDN — браузер грузит нативные ESM через importmap
+// (см. ui/index.html), а декодеры Draco/KTX2 — по путям /vendor/three/examples/jsm/libs/...
+const THREE_DIR = path.join(__dirname, 'node_modules', 'three');
 
+// Никаких накоплений: на старте чистим прежние загрузки/результаты (только текущая
+// оптимизация хранится на диске — см. purgeSourcesExcept).
+await fsp.rm(UPLOADS_DIR, { recursive: true, force: true }).catch(() => {});
+await fsp.rm(RESULTS_DIR, { recursive: true, force: true }).catch(() => {});
 await fsp.mkdir(UPLOADS_DIR, { recursive: true });
 await fsp.mkdir(RESULTS_DIR, { recursive: true });
 
@@ -110,6 +119,24 @@ function explainResultSafe(runResult, platformId) {
 /** @type {Map<string, import('node:http').ServerResponse>} */
 const progressClients = new Map();
 
+// ---- Загруженные исходники (для повторной оптимизации без перезаливки) ----
+// Ядро — чистая функция (исходник не мутируется, см. §4d), поэтому одну и ту же модель
+// можно гонять с разными опциями сколько угодно раз. Сервер держит исходник, чтобы
+// десятки/сотни вариантов не перекачивали файл: клиент шлёт sourceId вместо тела.
+/** @type {Map<string, { uploadPath: string, name: string }>} */
+const sourceUploads = new Map();
+
+// Держим на диске только текущий исходник: при загрузке новой модели стираем все прежние
+// (папки uploads/<id> и results/<id>) — записи не копятся, живёт лишь последняя оптимизация.
+async function purgeSourcesExcept(keepId) {
+  for (const id of [...sourceUploads.keys()]) {
+    if (id === keepId) continue;
+    sourceUploads.delete(id);
+    await fsp.rm(path.join(UPLOADS_DIR, id), { recursive: true, force: true }).catch(() => {});
+    await fsp.rm(path.join(RESULTS_DIR, id), { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 function sendSSE(jobId, payload) {
   const res = progressClients.get(jobId);
   if (!res) return;
@@ -133,18 +160,23 @@ const MIME = {
   '.ico': 'image/x-icon',
   '.json': 'application/json; charset=utf-8',
   '.glb': 'model/gltf-binary',
+  '.wasm': 'application/wasm',
 };
 
 function safeJoin(baseDir, relPath) {
-  const resolved = path.resolve(baseDir, relPath);
-  if (!resolved.startsWith(path.resolve(baseDir))) return null;
+  const base = path.resolve(baseDir);
+  const resolved = path.resolve(base, relPath);
+  // Граница по разделителю пути, а не просто startsWith — иначе "base"+"-evil" (сосед,
+  // чьё имя начинается с того же префикса) ошибочно считался бы "внутри" baseDir.
+  if (resolved !== base && !resolved.startsWith(base + path.sep)) return null;
   return resolved;
 }
 
-async function serveStatic(req, res, urlPath) {
+async function serveStatic(req, res, urlPath, baseDir = UI_DIR, stripPrefix = '') {
   let rel = urlPath === '/' ? '/index.html' : urlPath;
   rel = decodeURIComponent(rel.split('?')[0]);
-  const filePath = safeJoin(UI_DIR, '.' + rel);
+  if (stripPrefix && rel.startsWith(stripPrefix)) rel = rel.slice(stripPrefix.length);
+  const filePath = safeJoin(baseDir, '.' + rel);
   if (!filePath) {
     res.writeHead(403);
     res.end('Forbidden');
@@ -207,6 +239,12 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
+    // --- three.js для просмотрщика (из node_modules/three) ---
+    if (req.method === 'GET' && pathname.startsWith('/vendor/three/')) {
+      await serveStatic(req, res, pathname, THREE_DIR, '/vendor/three');
+      return;
+    }
+
     // --- статика UI ---
     if (req.method === 'GET' && !pathname.startsWith('/api/')) {
       await serveStatic(req, res, pathname);
@@ -254,27 +292,54 @@ const server = http.createServer(async (req, res) => {
       const featuresParam = url.searchParams.get('features') || '';
       const advancedFeatures = featuresParam.split(',').map((s) => s.trim()).filter(Boolean);
 
-      const rawName = req.headers['x-filename'] || 'model.glb';
-      let decodedName;
-      try {
-        decodedName = decodeURIComponent(rawName);
-      } catch (e) {
-        decodedName = rawName;
-      }
-      const fileName = sanitizeFileName(decodedName);
-      if (!/\.glb$/i.test(fileName)) {
-        sendJSON(res, 400, { error: 'Expected a .glb file' });
-        return;
-      }
+      // Повторная оптимизация уже загруженного исходника (без перезаливки тела).
+      const sourceParam = url.searchParams.get('source') || '';
+      let sourceId;
+      let uploadPath;
+      let fileName;
 
-      const bytes = await readBody(req);
-      if (!bytes.length) {
-        sendJSON(res, 400, { error: 'Empty request body — no file received' });
-        return;
-      }
+      const cached = sourceParam && sourceUploads.get(sourceParam);
+      if (cached && fs.existsSync(cached.uploadPath)) {
+        sourceId = sourceParam;
+        uploadPath = cached.uploadPath;
+        fileName = cached.name;
+        // тело не ожидается — на всякий случай выкачиваем и игнорируем
+        await readBody(req).catch(() => {});
+      } else {
+        const rawName = req.headers['x-filename'] || 'model.glb';
+        let decodedName;
+        try {
+          decodedName = decodeURIComponent(rawName);
+        } catch (e) {
+          decodedName = rawName;
+        }
+        fileName = sanitizeFileName(decodedName);
+        if (!/\.glb$/i.test(fileName)) {
+          sendJSON(res, 400, { error: 'Expected a .glb file' });
+          return;
+        }
 
-      const uploadPath = path.join(UPLOADS_DIR, fileName);
-      await fsp.writeFile(uploadPath, bytes);
+        const bytes = await readBody(req);
+        if (!bytes.length) {
+          // Клиент просил повторить по sourceId, но исходник не найден (например, сервер
+          // перезапускался) — просим перезалить файл. Клиент повторит запрос с телом.
+          if (sourceParam) {
+            sendJSON(res, 410, { error: 'source_expired' });
+            return;
+          }
+          sendJSON(res, 400, { error: 'Empty request body — no file received' });
+          return;
+        }
+
+        sourceId = randomUUID();
+        const srcDir = path.join(UPLOADS_DIR, sourceId);
+        await fsp.mkdir(srcDir, { recursive: true });
+        uploadPath = path.join(srcDir, fileName);
+        await fsp.writeFile(uploadPath, bytes);
+        sourceUploads.set(sourceId, { uploadPath, name: fileName });
+        // новая модель → стереть данные предыдущих (не копим лишнее)
+        await purgeSourcesExcept(sourceId);
+      }
 
       const plan = planForSafe(platformId);
       const engineOpts = { ...FALLBACK_ENGINE_OPTS, ...(plan.engineOpts || {}) };
@@ -283,12 +348,17 @@ const server = http.createServer(async (req, res) => {
         if (jobId) sendSSE(jobId, e);
       };
 
+      // Результат каждого исходника — в своей подпапке, чтобы разные модели не
+      // перетирали друг друга; повторные прогоны одной модели перезаписывают её вариант.
+      const outDir = path.join(RESULTS_DIR, sourceId);
+      await fsp.mkdir(outDir, { recursive: true });
+
       let result;
       try {
         result = await optimizeFile(uploadPath, {
           ...engineOpts,
           advancedFeatures,
-          outDir: RESULTS_DIR,
+          outDir,
           force: true,
           onProgress,
         });
@@ -302,12 +372,13 @@ const server = http.createServer(async (req, res) => {
 
       let downloadUrl = null;
       if (result.status === 'ok' && result.file && result.file.written && result.file.dst) {
-        downloadUrl = '/api/download?f=' + encodeURIComponent(path.basename(result.file.dst));
+        const rel = path.relative(RESULTS_DIR, result.file.dst).split(path.sep).join('/');
+        downloadUrl = '/api/download?f=' + encodeURIComponent(rel);
       }
 
       if (jobId) sendSSE(jobId, { type: 'done', status: result.status });
 
-      sendJSON(res, 200, { result, explain, plan, advancedFeatures, downloadUrl });
+      sendJSON(res, 200, { result, explain, plan, advancedFeatures, downloadUrl, sourceId });
       return;
     }
 
@@ -319,7 +390,9 @@ const server = http.createServer(async (req, res) => {
         res.end('f parameter required');
         return;
       }
-      const filePath = safeJoin(RESULTS_DIR, path.basename(f));
+      // f может содержать подпапку исходника (sourceId/name.glb); safeJoin держит
+      // путь внутри RESULTS_DIR (защита от traversal — см. safeJoin).
+      const filePath = safeJoin(RESULTS_DIR, f);
       if (!filePath || !fs.existsSync(filePath)) {
         res.writeHead(404);
         res.end('Result file not found');

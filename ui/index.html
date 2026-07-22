@@ -3,61 +3,99 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OptiMesh — GLB optimization</title>
+<title>Tanyra3D — GLB optimizer</title>
 <link rel="stylesheet" href="/style.css">
+<!-- three.js для встроенного просмотрщика: нативные ESM из node_modules (server.mjs /vendor-роут),
+     без бандлера и без CDN. importmap должен идти ДО модульных скриптов. -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "/vendor/three/build/three.module.js",
+    "three/addons/": "/vendor/three/examples/jsm/"
+  }
+}
+</script>
 </head>
 <body>
 
 <header class="topbar">
-  <span class="brand">OptiMesh</span>
-  <span class="brand-sub">GLB optimizer for the web</span>
+  <span class="brand">Tanyra3D</span>
 </header>
 
 <main class="workspace">
 
-  <!-- CENTER: drag&drop → comparison -->
+  <!-- LEFT: model load zone (later — a multi-model list) -->
+  <aside class="outliner">
+    <div class="outliner-head">
+      <div>
+        <h2 class="outliner-title">Models</h2>
+        <p class="outliner-sub">GLB optimizer</p>
+      </div>
+      <button id="choose-file-btn" class="icon-btn" title="Add a model" aria-label="Add a model">+</button>
+    </div>
+    <div class="outliner-body">
+      <div id="dropzone" class="dropzone">
+        <input type="file" id="file-input" accept=".glb" hidden>
+        <div class="dropzone-icon">⤓</div>
+        <p class="dropzone-title">Drop a .glb file</p>
+        <p class="dropzone-sub">or click +</p>
+      </div>
+      <p id="chosen-file" class="chosen-file"></p>
+      <ul id="model-list" class="model-list"></ul>
+    </div>
+  </aside>
+
+  <!-- CENTER: full-bleed split — original ⇄ optimized viewports with a draggable divider -->
   <section class="center-zone">
 
-    <div id="dropzone" class="dropzone">
-      <input type="file" id="file-input" accept=".glb" hidden>
-      <div class="dropzone-icon">⤓</div>
-      <p class="dropzone-title">Drop a .glb file here</p>
-      <p class="dropzone-sub">or</p>
-      <button id="choose-file-btn" class="btn-secondary">Choose file</button>
-      <p id="chosen-file" class="chosen-file"></p>
+    <div id="viewport-split" class="viewport-split">
+
+      <!-- ORIGINAL pane -->
+      <div class="vp-pane" id="preview-original">
+        <canvas class="viewer-canvas"></canvas>
+        <header class="vp-hud vp-hud-left">
+          <span class="vp-label">ORIGINAL MESH</span>
+          <div class="vp-stats" id="stats-before"></div>
+        </header>
+        <div class="viewer-status hidden"></div>
+      </div>
+
+      <!-- Draggable divider -->
+      <div id="viewport-splitter" class="viewport-splitter" role="separator"
+           aria-orientation="vertical" title="Drag to resize">
+        <span class="splitter-grip"></span>
+      </div>
+
+      <!-- OPTIMIZED pane -->
+      <div class="vp-pane" id="preview-optimized">
+        <canvas class="viewer-canvas"></canvas>
+        <header class="vp-hud vp-hud-right">
+          <span class="vp-label accent">OPTIMIZED MESH</span>
+          <span id="delta-badge" class="delta-badge"></span>
+          <div class="vp-stats" id="stats-after"></div>
+        </header>
+        <div class="viewer-status hidden"></div>
+      </div>
+
     </div>
 
-    <div id="comparison" class="comparison hidden">
-      <div class="compare-card" id="card-original">
-        <div class="compare-head">
-          <span class="compare-label">ORIGINAL</span>
-        </div>
-        <div class="compare-preview">
-          <span class="preview-stub">3D preview coming in the next version</span>
-        </div>
-        <div class="compare-stats" id="stats-before"></div>
-      </div>
-
-      <div class="compare-arrow">
-        <span class="arrow-glyph">→</span>
-        <span id="delta-badge" class="delta-badge"></span>
-      </div>
-
-      <div class="compare-card" id="card-optimized">
-        <div class="compare-head">
-          <span class="compare-label accent">OPTIMIZED</span>
-        </div>
-        <div class="compare-preview">
-          <span class="preview-stub">3D preview coming in the next version</span>
-        </div>
-        <div class="compare-stats" id="stats-after"></div>
-      </div>
+    <!-- Viewport controls (bottom center) -->
+    <div class="vp-toolbar">
+      <button id="reset-view-btn" class="vp-tool" title="Reset view" aria-label="Reset view">⤢</button>
+      <button id="link-toggle-btn" class="vp-tool is-on" title="Link cameras" aria-pressed="true" aria-label="Link cameras">⇄</button>
     </div>
 
-    <div id="fail-banner" class="fail-banner hidden">
-      <div class="fail-stripe"></div>
-      <div class="fail-body">
-        <p class="fail-title">File not written</p>
+    <!-- Empty-stage hint (shown until a model is loaded) -->
+    <div id="stage-hint" class="stage-hint">Load a .glb from the left panel to preview it here</div>
+
+    <!-- Окно ошибки — закрываемое (×) и перетаскиваемое за заголовок.
+         Базовый паттерн `.window` для всех будущих окон (ошибки/диалоги). -->
+    <div id="fail-banner" class="window window--error fail-banner hidden" role="dialog" aria-label="Error">
+      <div class="window-titlebar">
+        <span class="window-title fail-title">File not written</span>
+        <button type="button" class="window-close" aria-label="Close">×</button>
+      </div>
+      <div class="window-body">
         <p class="fail-text">The model failed the integrity check — the source file is untouched.</p>
         <div id="fail-validation" class="fail-validation"></div>
       </div>
@@ -135,9 +173,8 @@
         <p class="irreversible-text">Keep the source file — this data cannot be restored from the result:</p>
         <ul id="irreversible-list" class="irreversible-list"></ul>
       </div>
-      <button id="run-btn" class="btn-primary" disabled>OPTIMIZE</button>
-      <a id="download-btn" class="btn-primary hidden" download>DOWNLOAD RESULT</a>
-      <button id="reset-btn" class="btn-secondary hidden">Load another file</button>
+      <button id="run-btn" class="btn-primary" disabled>Build Optimized Model</button>
+      <a id="download-btn" class="btn-primary btn-download hidden" download>DOWNLOAD RESULT</a>
     </div>
   </aside>
 
@@ -153,6 +190,7 @@
   </div>
 </footer>
 
+<script type="module" src="/viewer/index.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

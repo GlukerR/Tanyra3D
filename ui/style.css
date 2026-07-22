@@ -1,4 +1,4 @@
-/* OptiMesh — v0.1.0, палитра Midnight Obsidian + Electric Lavender (см. stitch_3d_asset_optimizer_ui/DESIGN.md) */
+/* Tanyra3D — v0.1.0, палитра Midnight Obsidian + Electric Lavender (см. stitch_3d_asset_optimizer_ui/DESIGN.md) */
 
 :root {
   --surface-lowest: #0d0d15;
@@ -71,11 +71,6 @@ body {
   color: var(--on-surface);
 }
 
-.brand-sub {
-  font-size: 12px;
-  color: var(--outline);
-}
-
 /* ---------- Workspace ---------- */
 
 .workspace {
@@ -84,29 +79,289 @@ body {
   min-height: 0;
 }
 
-.center-zone {
-  flex: 1;
-  min-width: 0;
-  background: var(--surface-lowest);
-  background-image: radial-gradient(circle, #24242c 1px, transparent 1px);
-  background-size: 26px 26px;
+/* ---------- Left outliner (load zone) ---------- */
+
+.outliner {
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--surface-low);
+  border-right: 1px solid var(--outline-variant);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.outliner-head {
+  flex-shrink: 0;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--outline-variant);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.outliner-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--on-surface);
+}
+
+.outliner-sub {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--outline);
+}
+
+.icon-btn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 32px;
-  overflow: auto;
+  background: var(--surface-container-high);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+  color: var(--on-surface);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.icon-btn:hover { background: var(--surface-container-highest); border-color: var(--primary-container); }
+
+.outliner-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.model-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.model-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  border-left: 2px solid transparent;
+  font-size: 12px;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+}
+
+.model-item:hover { background: var(--surface-container-high); }
+
+.model-item.selected {
+  background: var(--surface-container-high);
+  border-left-color: var(--primary-container);
+  color: var(--on-surface);
+}
+
+.model-icon { color: var(--primary-container); flex-shrink: 0; }
+.model-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-size { font-family: var(--font-mono); font-size: 10px; color: var(--outline); flex-shrink: 0; }
+
+/* ---------- Center stage ---------- */
+
+.center-zone {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  background: var(--surface-lowest);
+  overflow: hidden;
+}
+
+.viewport-split {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+
+.vp-pane {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  background-image: radial-gradient(circle, #24242c 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Левая панель имеет фиксированную долю (её тянет сплиттер), правая забирает остаток. */
+.vp-pane#preview-original { flex: 0 0 50%; }
+
+.viewer-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none; /* орбита пальцем на тач-экранах, без прокрутки страницы */
+}
+
+.viewer-status {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--outline);
+  text-align: center;
+  padding: 0 20px;
+  pointer-events: none;
+}
+
+/* HUD со статистикой в верхних углах панелей */
+.vp-hud {
+  position: absolute;
+  top: 14px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.vp-hud-left { left: 14px; }
+.vp-hud-right { right: 14px; text-align: right; }
+
+.vp-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--outline);
+}
+
+.vp-label.accent { color: var(--primary-container); }
+
+.vp-stats {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--on-surface-variant);
+}
+
+.hud-line { display: flex; gap: 6px; }
+.vp-hud-right .hud-line { justify-content: flex-end; }
+.hud-key { color: var(--outline); }
+.hud-val { color: var(--on-surface); }
+.hud-val.better { color: var(--success); }
+.hud-val.worse { color: var(--warning); }
+
+.delta-badge {
+  display: inline-block;
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.delta-badge:empty { display: none; }
+.delta-badge.good { color: var(--success); background: rgba(74, 222, 128, 0.12); }
+.delta-badge.neutral { color: var(--warning); background: rgba(251, 191, 36, 0.12); }
+
+/* Перетаскиваемый разделитель между панелями */
+.viewport-splitter {
+  position: relative;
+  flex: 0 0 6px;
+  z-index: 6;
+  background: var(--outline-variant);
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.viewport-splitter:hover,
+body.resizing .viewport-splitter { background: var(--primary-container); }
+
+.splitter-grip {
+  width: 4px;
+  height: 34px;
+  border-radius: 999px;
+  background: var(--surface-container-highest);
+}
+
+.viewport-splitter:hover .splitter-grip,
+body.resizing .splitter-grip { background: var(--surface); }
+
+/* во время перетаскивания отключаем орбиту, чтобы канвасы не перехватывали указатель */
+body.resizing .viewer-canvas { pointer-events: none; }
+body.resizing { cursor: col-resize; user-select: none; }
+
+/* Мини-панель управления вьюпортом (низ по центру) */
+.vp-toolbar {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface-low);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+}
+
+.vp-tool {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--on-surface-variant);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.vp-tool:hover { background: var(--surface-container-high); color: var(--on-surface); }
+.vp-tool.is-on { color: var(--primary-container); background: rgba(192, 193, 255, 0.10); }
+
+.stage-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 4;
+  font-size: 12px;
+  color: var(--outline);
+  pointer-events: none;
+  text-align: center;
+  padding: 0 24px;
 }
 
 /* ---------- Dropzone ---------- */
 
 .dropzone {
-  width: min(560px, 90%);
-  border: 2px dashed var(--outline-variant);
-  border-radius: var(--radius-xl);
-  padding: 56px 32px;
+  border: 1.5px dashed var(--outline-variant);
+  border-radius: var(--radius-lg);
+  padding: 22px 14px;
   text-align: center;
   background: rgba(31, 31, 39, 0.5);
   transition: border-color 0.15s ease, background 0.15s ease;
+  cursor: pointer;
 }
 
 .dropzone.drag-over {
@@ -115,179 +370,106 @@ body {
 }
 
 .dropzone-icon {
-  font-size: 36px;
+  font-size: 26px;
   color: var(--primary-container);
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .dropzone-title {
-  font-size: 18px;
+  font-size: 13px;
   font-weight: 500;
-  margin: 0 0 6px;
+  margin: 0 0 4px;
   color: var(--on-surface);
 }
 
 .dropzone-sub {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--outline);
-  margin: 0 0 14px;
+  margin: 0;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
 .chosen-file {
-  margin: 16px 0 0;
+  margin: 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11px;
   color: var(--primary-container);
   word-break: break-all;
 }
 
-/* ---------- Comparison ---------- */
+.chosen-file:empty { display: none; }
 
-.comparison {
-  width: 100%;
-  max-width: 980px;
+/* ---------- Window (переиспользуемое окно: ошибки/диалоги) ----------
+   Закрываемое (×) и перетаскиваемое за заголовок; overlay по центру сцены.
+   Базовый паттерн для всех будущих окон ошибок. */
+
+.window {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 8;
+  width: min(560px, 80%);
   display: flex;
-  align-items: stretch;
-  gap: 16px;
-}
-
-.compare-card {
-  flex: 1;
-  min-width: 0;
+  flex-direction: column;
   background: var(--surface-container);
   border: 1px solid var(--outline-variant);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
 }
 
-.compare-head {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--outline-variant);
-}
-
-.compare-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  color: var(--outline);
-}
-
-.compare-label.accent {
-  color: var(--primary-container);
-}
-
-.compare-preview {
-  height: 180px;
+.window-titlebar {
   display: flex;
   align-items: center;
-  justify-content: center;
-  background: radial-gradient(circle, #24242c 1px, transparent 1px);
-  background-size: 22px 22px;
-  border-bottom: 1px solid var(--outline-variant);
-}
-
-.preview-stub {
-  font-size: 11px;
-  color: var(--outline);
-  text-align: center;
-  padding: 0 20px;
-}
-
-.compare-stats {
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-
-.stat-row {
-  display: flex;
   justify-content: space-between;
-  gap: 12px;
-  color: var(--on-surface-variant);
+  gap: 8px;
+  padding: 8px 8px 8px 14px;
+  background: var(--surface-container-high);
+  border-bottom: 1px solid var(--outline-variant);
+  cursor: move;
+  user-select: none;
 }
 
-.stat-row .stat-value {
+.window-title {
+  font-size: 13px;
+  font-weight: 600;
   color: var(--on-surface);
-  font-weight: 500;
 }
 
-.compare-arrow {
+.window--error .window-title { color: var(--error); }
+
+.window-close {
   flex-shrink: 0;
-  width: 64px;
+  width: 24px;
+  height: 24px;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--outline);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
 }
 
-.arrow-glyph {
-  font-size: 22px;
-  color: var(--primary-container);
-}
+.window-close:hover { background: var(--surface-container-highest); color: var(--on-surface); }
 
-.delta-badge {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 600;
-  padding: 3px 8px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-
-.delta-badge.good {
-  color: var(--success);
-  background: rgba(74, 222, 128, 0.12);
-}
-
-.delta-badge.neutral {
-  color: var(--warning);
-  background: rgba(251, 191, 36, 0.12);
-}
-
-/* ---------- Fail banner ---------- */
-
-.fail-banner {
-  width: min(640px, 90%);
-  display: flex;
-  background: var(--surface-container);
-  border: 1px solid var(--outline-variant);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-
-.fail-stripe {
-  width: 4px;
-  background: var(--error);
-  flex-shrink: 0;
-}
-
-.fail-body {
-  padding: 20px 24px;
-  flex: 1;
-}
-
-.fail-title {
-  margin: 0 0 6px;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--error);
+.window-body {
+  padding: 16px 18px;
 }
 
 .fail-text {
-  margin: 0 0 14px;
+  margin: 0;
   color: var(--on-surface-variant);
   line-height: 1.5;
 }
 
-.fail-validation {
+.fail-validation:not(:empty) {
+  margin-top: 12px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -670,6 +852,15 @@ details[open] > .collapsible-summary::before {
   color: var(--outline);
   cursor: not-allowed;
 }
+
+/* Скачивание — вторичное действие под основной кнопкой «оптимизировать снова». */
+.btn-download {
+  background: var(--surface-container-high);
+  color: var(--on-surface);
+  border: 1px solid var(--outline-variant);
+}
+
+.btn-download:hover:not(:disabled) { background: var(--surface-container-highest); opacity: 1; }
 
 .btn-secondary {
   display: flex;

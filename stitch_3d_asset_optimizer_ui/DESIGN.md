@@ -1,5 +1,5 @@
 ---
-name: OptiMesh Pro
+name: Tanyra3D
 colors:
   surface: '#131317'
   surface-dim: '#13131b'
@@ -106,7 +106,7 @@ spacing:
 ---
 
 ## Brand & Style
-OptiMesh Pro is a technical, high-performance tool designed for 3D artists and technical directors. The brand personality is **Precise, Systematic, and Industrial**. 
+Tanyra3D is a technical, high-performance tool designed for 3D artists and technical directors. The brand personality is **Precise, Systematic, and Industrial**. 
 
 The design style is **Modern Professional with Technical Accents**. It utilizes a "Dark Mode First" approach that minimizes eye strain during long optimization sessions. The aesthetic leans into a "Digital Workbench" feel, combining clean layouts with high-density data displays. Visual interest is generated through functional color-coding (status indicators) and subtle depth created by tonal layering rather than heavy shadows. It feels like a high-end CAD or DCC (Digital Content Creation) application, prioritizing utility and clarity.
 

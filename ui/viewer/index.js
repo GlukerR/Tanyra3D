@@ -1,0 +1,227 @@
+// index.js — обвязка двух вьюпортов (оригинал ⇄ оптимизировано) поверх движка просмотра.
+//
+// Модуль НЕ знает про Three.js напрямую: он работает через узкий интерфейс, который даёт
+// createViewer() (сейчас единственная реализация — Three.js, см. viewer.js). Это тот же
+// приём «шва», что core/addon в ядре: завтра можно подменить движок просмотра или добавить
+// режим (дизайнерский, показ пропавших точек), не трогая эту обвязку и app.js.
+//
+// Наружу отдаётся глобальный API window.OptiViewer — его дёргает классический app.js
+// (который остаётся не-модульным скриптом), чтобы модульность просмотрщика не протекала
+// в остальной UI.
+
+import { Viewer } from "./viewer.js";
+
+/** Фабрика движка просмотра (шов под будущие движки/режимы). */
+function createViewer(canvas) {
+  return new Viewer(canvas);
+}
+
+/**
+ * Один слот сравнения: панель `.vp-pane` с <canvas> и строкой статуса.
+ * Лениво создаёт движок при первой загрузке (когда контейнер уже виден и имеет размер).
+ */
+class ViewportSlot {
+  constructor(container) {
+    this.container = container;
+    this.canvas = container.querySelector(".viewer-canvas");
+    this.statusEl = container.querySelector(".viewer-status");
+    this.viewer = null;
+    this._blobUrl = null;
+  }
+
+  _ensureViewer() {
+    if (!this.viewer) this.viewer = createViewer(this.canvas);
+    return this.viewer;
+  }
+
+  _setStatus(text) {
+    if (!this.statusEl) return;
+    this.statusEl.textContent = text || "";
+    this.statusEl.classList.toggle("hidden", !text);
+  }
+
+  _revokeBlob() {
+    if (this._blobUrl) {
+      URL.revokeObjectURL(this._blobUrl);
+      this._blobUrl = null;
+    }
+  }
+
+  /** Загрузить модель из URL (строка) или File (создаётся blob URL). */
+  async load(source) {
+    const viewer = this._ensureViewer();
+    this._setStatus("Loading…");
+
+    let url = source;
+    if (source instanceof File || source instanceof Blob) {
+      this._revokeBlob();
+      url = this._blobUrl = URL.createObjectURL(source);
+    }
+
+    try {
+      await viewer.load(url, {
+        onProgress: (e) => {
+          if (e && e.lengthComputable) {
+            this._setStatus(`Loading… ${Math.round((e.loaded / e.total) * 100)}%`);
+          }
+        },
+      });
+      this._setStatus("");
+    } catch (err) {
+      console.error("Viewer failed to load model:", err);
+      this._setStatus("Preview unavailable");
+      this._revokeBlob();
+      return null;
+    }
+    this._revokeBlob();
+    return viewer.getStats();
+  }
+
+  renderFrame() {
+    if (this.viewer) this.viewer.renderFrame();
+  }
+
+  showHint(text) {
+    this._setStatus(text);
+  }
+
+  reset() {
+    this._revokeBlob();
+    if (this.viewer) {
+      this.viewer.dispose();
+      this.viewer = null;
+    }
+    this._setStatus("");
+  }
+}
+
+class DualViewport {
+  constructor() {
+    this.left = null; // оригинал
+    this.right = null; // оптимизировано
+    this.linked = true; // связанные камеры: крутишь один — синхронно второй
+    this._syncing = false;
+    this._rafId = null;
+  }
+
+  _init() {
+    if (this.left && this.right) return true;
+    const leftEl = document.getElementById("preview-original");
+    const rightEl = document.getElementById("preview-optimized");
+    if (!leftEl || !rightEl) return false;
+    this.left = new ViewportSlot(leftEl);
+    this.right = new ViewportSlot(rightEl);
+    return true;
+  }
+
+  /**
+   * Подписывает контролы двух вьюпортов друг на друга. Снимает предыдущую подписку перед
+   * новой — иначе повторный show() без reset() между ними копил бы 'change'-слушатели на
+   * тех же экземплярах Viewer (they persist across show() calls; см. ViewportSlot._ensureViewer).
+   */
+  _linkCameras() {
+    this._unlinkCameras();
+    if (!this.left.viewer || !this.right.viewer) return;
+
+    const sync = (from, to) => {
+      if (this._syncing || !this.linked) return;
+      this._syncing = true;
+      to.applyCameraState(from.getCameraState());
+      this._syncing = false;
+    };
+    const onLeftChange = () => sync(this.left.viewer, this.right.viewer);
+    const onRightChange = () => sync(this.right.viewer, this.left.viewer);
+
+    this.left.viewer.controls.addEventListener("change", onLeftChange);
+    this.right.viewer.controls.addEventListener("change", onRightChange);
+    this._unlink = () => {
+      this.left.viewer?.controls.removeEventListener("change", onLeftChange);
+      this.right.viewer?.controls.removeEventListener("change", onRightChange);
+    };
+  }
+
+  _unlinkCameras() {
+    if (this._unlink) {
+      this._unlink();
+      this._unlink = null;
+    }
+  }
+
+  _startLoop() {
+    if (this._rafId != null) return;
+    const tick = () => {
+      this.left.renderFrame();
+      this.right.renderFrame();
+      this._rafId = requestAnimationFrame(tick);
+    };
+    this._rafId = requestAnimationFrame(tick);
+  }
+
+  _stopLoop() {
+    if (this._rafId != null) {
+      cancelAnimationFrame(this._rafId);
+      this._rafId = null;
+    }
+  }
+
+  /** Загрузить оригинал (File) в левый вьюпорт. Правый сбрасывается — прежний
+   *  оптимизированный результат больше не соответствует новой исходной модели. */
+  async loadOriginal(originalFile) {
+    if (!this._init()) return null;
+    this._unlinkCameras();
+    this.right.reset();
+    this.right.showHint("Run optimization to compare");
+    let stats = null;
+    if (originalFile) stats = await this.left.load(originalFile);
+    this._afterLoad();
+    return stats; // базовые метрики модели для HUD ещё до оптимизации
+  }
+
+  /** Загрузить оптимизированную модель (URL) в правый вьюпорт. */
+  async loadOptimized(optimizedUrl) {
+    if (!this._init()) return;
+    if (optimizedUrl) await this.right.load(optimizedUrl);
+    else this.right.showHint("No output file to preview");
+    this._afterLoad();
+  }
+
+  /** Показать обе модели сразу (оригинал слева, оптимизированную справа). */
+  async show(originalFile, optimizedUrl) {
+    await this.loadOriginal(originalFile);
+    await this.loadOptimized(optimizedUrl);
+  }
+
+  _afterLoad() {
+    if (this.left.viewer && this.right.viewer) this._linkCameras();
+    this._startLoop();
+  }
+
+  /** Заново навести камеры на модели (кнопка «сбросить ракурс»). */
+  resetView() {
+    if (this.left.viewer) this.left.viewer.frame();
+    if (this.right.viewer) this.right.viewer.frame();
+  }
+
+  setLinked(on) {
+    this.linked = !!on;
+  }
+
+  reset() {
+    this._stopLoop();
+    this._unlinkCameras();
+    if (this.left) this.left.reset();
+    if (this.right) this.right.reset();
+  }
+}
+
+const dual = new DualViewport();
+
+// Глобальный API для классического app.js.
+window.OptiViewer = {
+  loadOriginal: (file) => dual.loadOriginal(file),
+  loadOptimized: (url) => dual.loadOptimized(url),
+  show: (originalFile, optimizedUrl) => dual.show(originalFile, optimizedUrl),
+  resetView: () => dual.resetView(),
+  setLinked: (on) => dual.setLinked(on),
+  reset: () => dual.reset(),
+};
