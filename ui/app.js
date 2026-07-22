@@ -187,10 +187,10 @@
   // Draco). Meshopt/Draco/KTX2 требуют подключить декодер на целевом сайте (пометка «?»);
   // остальное (None/Join/Safe/Remove colors) работает на голом three.js.
   const OPT_GROUPS = [
-    { title: 'Geometry', kind: 'geometry' },
-    { title: 'Structural', kind: 'checks', ids: ['join'] },
-    { title: 'Textures', kind: 'checks', ids: ['ktx2'] },
     { title: 'Cleanup', kind: 'checks', ids: ['safe', 'strip-colors'] },
+    { title: 'Structural', kind: 'checks', ids: ['join'] },
+    { title: 'Geometry', kind: 'geometry' },
+    { title: 'Textures', kind: 'checks', ids: ['ktx2'] },
   ];
   const NEEDS_DECODER = new Set(['meshopt', 'draco', 'ktx2']);
   const DECODER_NOTE = 'Requires an additional decoder on your three.js site';
@@ -435,7 +435,9 @@
     extensionsList.querySelectorAll('.ext-source-badge').forEach((b) => b.remove());
     setCheck('safe', true);
     setCheck('join', true);
-    setCheck('strip-colors', true);
+    // Remove vertex colors по умолчанию ВЫКЛ: белые/пустые каналы и так чистит Safe без
+    // потерь; раскрашенные (лосси) убираются только явным выбором пользователя.
+    setCheck('strip-colors', false);
     setCheck('ktx2', false);
     geometryChoice = 'none';
 
