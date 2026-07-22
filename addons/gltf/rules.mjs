@@ -271,6 +271,57 @@ export const RULES = [
 
   {
     meta: {
+      // GPU-инстансинг: повторяющиеся меши → EXT_mesh_gpu_instancing (меньше draw calls).
+      // Отдельный флажок; расширение требует поддержки декодера на целевом сайте.
+      id: 'scene/instance', category: 'scene', title: 'GPU instancing',
+      severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['structure/prune-unused'], touches: ['node', 'mesh'],
+      reversible: true, dataLoss: 'none',
+      reversalNote: 'Instancing can be expanded back to individual nodes.',
+      feature: 'instance',
+      enabled: (o) => o.instance,
+    },
+    analyze() { return [{ messageId: 'pipeline', data: {} }]; },
+    canFix() { return { safe: true }; },
+    async fix(finding, ctx) {
+      const root = ctx.document.getRoot();
+      const b = { nodes: root.listNodes().length, dc: collectMetrics(ctx.document, 0).drawCalls };
+      await ctx.document.transform(fns.instance());
+      const a = { nodes: root.listNodes().length, dc: collectMetrics(ctx.document, 0).drawCalls };
+      if (a.nodes < b.nodes || a.dc < b.dc) {
+        return {
+          found: [`repeated meshes turned into GPU instances (EXT_mesh_gpu_instancing)`],
+          details: [`GPU instancing: draw calls ${b.dc} → ${a.dc}, nodes ${b.nodes} → ${a.nodes}`],
+        };
+      }
+      return { skipped: ['no repeated meshes to instance'] };
+    },
+  },
+
+  {
+    meta: {
+      // Ресэмпл анимаций: убрать избыточные ключевые кадры (без потерь качества).
+      id: 'animation/resample', category: 'performance', title: 'Resample animations',
+      severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['structure/prune-unused'], touches: ['accessor'],
+      reversible: false, dataLoss: 'none',
+      feature: 'resample',
+      enabled: (o) => o.resample,
+    },
+    analyze() { return [{ messageId: 'pipeline', data: {} }]; },
+    canFix() { return { safe: true }; },
+    async fix(finding, ctx) {
+      const root = ctx.document.getRoot();
+      if (!root.listAnimations().length) return { skipped: ['no animations to resample'] };
+      const bytes = () => root.listAccessors().reduce((s, a) => { const arr = a.getArray(); return s + (arr ? arr.byteLength : 0); }, 0);
+      const before = bytes();
+      await ctx.document.transform(fns.resample());
+      const after = bytes();
+      if (after < before) return { details: [`Animation keyframes resampled — accessor data ${before} → ${after} bytes`] };
+      return { details: ['Animation keyframes already minimal'] };
+    },
+  },
+
+  {
+    meta: {
       id: 'structure/prune-final', category: 'scene', title: 'Cleanup of orphaned resources',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['scene/join', 'geometry/orphan-vertices'], touches: ['accessor', 'node'],
       reversible: false, dataLoss: 'none', // только осиротевшие после предыдущих фиксов ресурсы

@@ -61,6 +61,8 @@ const ADVANCED_FEATURES = {
   meshopt: 'Meshopt geometry compression',
   draco: 'Draco geometry compression (instead of Meshopt)',
   join: 'join meshes / flatten scene — fewer draw calls (structural, irreversible)',
+  instance: 'GPU instancing (EXT_mesh_gpu_instancing) — repeated meshes as instances',
+  resample: 'resample animations — drop redundant keyframes (lossless)',
   ktx2: 'textures → KTX2 (needs browser/engine support)',
   'strip-colors': 'removal of painted vertex colors (lossy)',
 };
@@ -85,6 +87,8 @@ function normalizeOpts(opts = {}) {
     compress, // сжимать ли геометрию вообще
     codec: draco ? 'draco' : 'meshopt', // какой кодек — если compress включён
     join: (adv.includes('join') || !!opts.join) && !opts.keepParts, // склейка мешей — отдельный флажок
+    instance: adv.includes('instance') || !!opts.instance, // GPU-инстансинг (нужен декодер на сайте)
+    resample: adv.includes('resample') || !!opts.resample, // чистка кадров анимации (без потерь)
     // KTX2-режим: UASTC по умолчанию (самый безопасный/качественный для новичков);
     // ETC1S (максимальное сжатие) — texMode:'mixed' (ETC1S цвет + UASTC data-карты).
     texMode: opts.texMode === 'mixed' ? 'mixed' : 'uastc',

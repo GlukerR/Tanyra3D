@@ -197,11 +197,12 @@
   // остальное (None/Join/Safe/Remove colors) работает на голом three.js.
   const OPT_GROUPS = [
     { title: 'Cleanup', kind: 'checks', ids: ['safe', 'strip-colors'] },
-    { title: 'Structural', kind: 'checks', ids: ['join'] },
+    { title: 'Structural', kind: 'checks', ids: ['join', 'instance'] },
     { title: 'Geometry', kind: 'geometry' },
     { title: 'Textures', kind: 'checks', ids: ['ktx2'] },
+    { title: 'Animation', kind: 'checks', ids: ['resample'] },
   ];
-  const NEEDS_DECODER = new Set(['meshopt', 'draco', 'ktx2']);
+  const NEEDS_DECODER = new Set(['meshopt', 'draco', 'ktx2', 'instance']);
   const DECODER_NOTE = 'Requires an additional decoder on your three.js site';
 
   async function loadExtensions(platformId) {

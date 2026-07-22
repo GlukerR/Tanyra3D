@@ -47,6 +47,24 @@
       "opts": { "join": true }
     },
     {
+      "id": "instance",
+      "title": "GPU instancing",
+      "description": "Turns repeated meshes into GPU instances (EXT_mesh_gpu_instancing) — fewer draw calls. Requires the extension to be supported on the target site.",
+      "impact": "Fewer draw calls when the scene repeats meshes.",
+      "reversible": true,
+      "dataLoss": "none",
+      "opts": { "instance": true }
+    },
+    {
+      "id": "resample",
+      "title": "Resample animations",
+      "description": "Removes redundant animation keyframes without changing the motion — smaller animation data.",
+      "impact": "Smaller animations; no visible change.",
+      "reversible": false,
+      "dataLoss": "none",
+      "opts": { "resample": true }
+    },
+    {
       "id": "ktx2",
       "title": "KTX2 texture compression",
       "description": "Converts textures to a GPU format: saves up to ~80% of video memory — especially valuable for Quest with its shared memory. Requires KTX2 (basisu) support in the app.",
