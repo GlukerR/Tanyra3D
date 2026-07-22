@@ -14,6 +14,13 @@
   const modelList = $('model-list');
   const stageHint = $('stage-hint');
 
+  const btnMetadata = $('btn-metadata');
+  const btnValidation = $('btn-validation');
+  const metadataWindow = $('metadata-window');
+  const validationWindow = $('validation-window');
+  const metadataBody = $('metadata-body');
+  const validationBody = $('validation-body');
+
   const statsBefore = $('stats-before');
   const statsAfter = $('stats-after');
   const deltaBadge = $('delta-badge');
@@ -77,6 +84,8 @@
   let lastBuildSignature = null;
   // Что найдено в исходнике (draco/meshopt/ktx2) — для авто-флажков [Source].
   let lastDetection = null;
+  // Результат /api/inspect (metadata + validation) для окон Metadata/Validation.
+  let modelInspect = null;
   // Режим KTX2: 'uastc' (по умолчанию, безопасный/качественный) либо 'mixed' (ETC1S, макс. сжатие).
   let ktx2Mode = 'uastc';
   // Геометрия — взаимоисключающий выбор: 'none' | 'meshopt' | 'draco'.
@@ -423,6 +432,32 @@
       // Определяем, что уже сжато в исходнике → авто-включаем флажки с бейджем [Source].
       lastDetection = (info && info.detected) || null;
       applyDetection();
+    }
+    // Инспекция на сервере (metadata + validation) + регистрация исходника, чтобы
+    // сборка потом переиспользовала его без перезаливки.
+    inspectModel(file);
+  }
+
+  async function inspectModel(file) {
+    modelInspect = null;
+    btnMetadata.disabled = true;
+    btnValidation.disabled = true;
+    try {
+      const res = await fetch('/api/inspect', {
+        method: 'POST',
+        headers: { 'X-Filename': encodeURIComponent(file.name), 'Content-Type': 'application/octet-stream' },
+        body: file,
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      modelInspect = data;
+      if (data.sourceId) currentSourceId = data.sourceId; // сборка переиспользует исходник
+      btnMetadata.disabled = false;
+      btnValidation.disabled = false;
+      const n = (data.validation || []).length;
+      btnValidation.textContent = n ? `✓ Validation (${n})` : '✓ Validation';
+    } catch (e) {
+      /* инспекция недоступна — кнопки остаются выключенными, сборка всё равно работает */
     }
   }
 
@@ -984,6 +1019,141 @@
   }
 
   setupWindow(failBanner);
+  setupWindow(metadataWindow);
+  setupWindow(validationWindow);
+
+  btnMetadata.addEventListener('click', () => {
+    renderMetadataWindow();
+    showWindow(metadataWindow);
+  });
+  btnValidation.addEventListener('click', () => {
+    renderValidationWindow();
+    showWindow(validationWindow);
+  });
+
+  // ---------------------------------------------------------------
+  // Окна Metadata / Validation (данные из /api/inspect: fns.inspect + gltf-validator)
+  // ---------------------------------------------------------------
+
+  const SEVERITY = { 0: 'Error', 1: 'Warning', 2: 'Info', 3: 'Hint' };
+
+  function fmtCell(v) {
+    if (v == null) return '';
+    if (Array.isArray(v)) return v.join(', ');
+    if (typeof v === 'number') return Number.isInteger(v) ? fmtInt(v) : v.toFixed(2);
+    if (typeof v === 'boolean') return v ? '✓' : '';
+    return String(v);
+  }
+
+  // Таблица из массива объектов: колонки = ключи (с колонкой ID = индекс).
+  function buildTable(rows, sizeKeys = []) {
+    const table = document.createElement('table');
+    table.className = 'meta-table';
+    if (!rows.length) return table;
+    const keys = Object.keys(rows[0]);
+    const thead = document.createElement('thead');
+    const htr = document.createElement('tr');
+    for (const h of ['ID', ...keys]) {
+      const th = document.createElement('th');
+      th.textContent = h.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
+      htr.appendChild(th);
+    }
+    thead.appendChild(htr);
+    table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    rows.forEach((row, i) => {
+      const tr = document.createElement('tr');
+      const idTd = document.createElement('td');
+      idTd.textContent = i;
+      tr.appendChild(idTd);
+      for (const k of keys) {
+        const td = document.createElement('td');
+        td.textContent = sizeKeys.includes(k) && typeof row[k] === 'number' ? fmtBytes(row[k]) : fmtCell(row[k]);
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    return table;
+  }
+
+  function metaSection(title, rows, sizeKeys) {
+    if (!rows || !rows.length) return null;
+    const wrap = document.createElement('div');
+    wrap.className = 'meta-block';
+    const h = document.createElement('div');
+    h.className = 'meta-block-title';
+    h.textContent = title;
+    wrap.appendChild(h);
+    const scroll = document.createElement('div');
+    scroll.className = 'meta-table-scroll';
+    scroll.appendChild(buildTable(rows, sizeKeys));
+    wrap.appendChild(scroll);
+    return wrap;
+  }
+
+  function renderMetadataWindow() {
+    metadataBody.innerHTML = '';
+    if (!modelInspect) { metadataBody.textContent = 'No metadata.'; return; }
+    const { asset = {}, extensions = [], metadata = {} } = modelInspect;
+
+    const head = document.createElement('div');
+    head.className = 'meta-head';
+    const pairs = [
+      ['Version', asset.version || '—'],
+      ['Generator', asset.generator || '—'],
+      ['Extensions', extensions.length ? extensions.join(', ') : 'None'],
+    ];
+    for (const [k, v] of pairs) {
+      const row = document.createElement('div');
+      row.className = 'meta-kv';
+      row.innerHTML = `<span class="meta-k">${k}</span><span class="meta-v"></span>`;
+      row.querySelector('.meta-v').textContent = v;
+      head.appendChild(row);
+    }
+    metadataBody.appendChild(head);
+
+    const sections = [
+      metaSection('Scenes', metadata.scenes && metadata.scenes.properties),
+      metaSection('Meshes', metadata.meshes && metadata.meshes.properties, ['size']),
+      metaSection('Materials', metadata.materials && metadata.materials.properties),
+      metaSection('Textures', metadata.textures && metadata.textures.properties, ['size', 'gpuSize']),
+      metaSection('Animations', metadata.animations && metadata.animations.properties, ['size']),
+    ].filter(Boolean);
+    for (const s of sections) metadataBody.appendChild(s);
+    if (!sections.length) {
+      const p = document.createElement('p');
+      p.className = 'meta-empty';
+      p.textContent = 'No scene contents reported.';
+      metadataBody.appendChild(p);
+    }
+  }
+
+  function renderValidationWindow() {
+    validationBody.innerHTML = '';
+    const issues = (modelInspect && modelInspect.validation) || [];
+    if (!issues.length) {
+      const p = document.createElement('p');
+      p.className = 'meta-empty';
+      p.textContent = 'No validation issues — the file is clean.';
+      validationBody.appendChild(p);
+      return;
+    }
+    const rows = issues.map((m) => ({
+      code: m.code,
+      message: m.message,
+      severity: SEVERITY[m.severity] || String(m.severity),
+      pointer: m.pointer || '',
+    }));
+    const scroll = document.createElement('div');
+    scroll.className = 'meta-table-scroll';
+    const table = buildTable(rows);
+    // подсветка по severity
+    const trs = table.querySelectorAll('tbody tr');
+    issues.forEach((m, i) => { if (trs[i]) trs[i].classList.add(`sev-${m.severity}`); });
+    scroll.appendChild(table);
+    validationBody.appendChild(scroll);
+  }
 
   // ---------------------------------------------------------------
   // Перетаскиваемый разделитель между вьюпортами (как в референс-макете)

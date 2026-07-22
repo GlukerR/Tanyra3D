@@ -31,7 +31,7 @@ await fsp.mkdir(RESULTS_DIR, { recursive: true });
 
 // ---- Ядро (обязательный контракт §4b ARCHITECTURE.md) ----
 const core = await import('./optimize2.mjs');
-const { optimizeFile, listRules, VERSION } = core;
+const { optimizeFile, inspectFile, listRules, VERSION } = core;
 
 // ---- Ассистент (появляется параллельно; graceful-фолбэк, если модуля ещё нет) ----
 let assistant = null;
@@ -284,6 +284,43 @@ const server = http.createServer(async (req, res) => {
       req.on('close', () => {
         progressClients.delete(jobId);
       });
+      return;
+    }
+
+    // --- инспекция модели (Metadata + Validation) + регистрация исходника ---
+    // Модель загружается один раз здесь (при импорте); последующая сборка переиспользует
+    // тот же sourceId без перезаливки.
+    if (req.method === 'POST' && pathname === '/api/inspect') {
+      const rawName = req.headers['x-filename'] || 'model.glb';
+      let decodedName;
+      try { decodedName = decodeURIComponent(rawName); } catch (e) { decodedName = rawName; }
+      const fileName = sanitizeFileName(decodedName);
+      if (!/\.glb$/i.test(fileName)) {
+        sendJSON(res, 400, { error: 'Expected a .glb file' });
+        return;
+      }
+      const bytes = await readBody(req);
+      if (!bytes.length) {
+        sendJSON(res, 400, { error: 'Empty request body — no file received' });
+        return;
+      }
+      const sourceId = randomUUID();
+      const srcDir = path.join(UPLOADS_DIR, sourceId);
+      await fsp.mkdir(srcDir, { recursive: true });
+      const uploadPath = path.join(srcDir, fileName);
+      await fsp.writeFile(uploadPath, bytes);
+      sourceUploads.set(sourceId, { uploadPath, name: fileName });
+      await purgeSourcesExcept(sourceId);
+
+      let data;
+      try {
+        data = await inspectFile(uploadPath);
+      } catch (e) {
+        console.error('[inspect] failed:', e);
+        sendJSON(res, 500, { error: 'Inspection failed: ' + e.message });
+        return;
+      }
+      sendJSON(res, 200, { sourceId, ...data });
       return;
     }
 

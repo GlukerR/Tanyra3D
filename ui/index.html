@@ -33,6 +33,11 @@
       </div>
       <button id="choose-file-btn" class="icon-btn" title="Add a model" aria-label="Add a model">+</button>
     </div>
+    <!-- Инспекция ассета: окна Metadata / Validation (как на gltf.report) -->
+    <div class="outliner-tools">
+      <button id="btn-metadata" class="outliner-tool" disabled title="Asset metadata (scenes, meshes, materials…)">⊞ Metadata</button>
+      <button id="btn-validation" class="outliner-tool" disabled title="Khronos glTF validation report">✓ Validation</button>
+    </div>
     <div class="outliner-body">
       <div id="dropzone" class="dropzone">
         <input type="file" id="file-input" accept=".glb" hidden>
@@ -99,6 +104,24 @@
         <p class="fail-text">The model failed the integrity check — the source file is untouched.</p>
         <div id="fail-validation" class="fail-validation"></div>
       </div>
+    </div>
+
+    <!-- Окна Metadata / Validation (как на gltf.report): полупрозрачные, почти на всю
+         ширину, поверх вьюпортов; закрываемые/перетаскиваемые (паттерн .window). -->
+    <div id="metadata-window" class="window window--wide window--glass hidden" role="dialog" aria-label="Metadata">
+      <div class="window-titlebar">
+        <span class="window-title">Metadata</span>
+        <button type="button" class="window-close" aria-label="Close">×</button>
+      </div>
+      <div class="window-body window-scroll" id="metadata-body"></div>
+    </div>
+
+    <div id="validation-window" class="window window--wide window--glass hidden" role="dialog" aria-label="Validation">
+      <div class="window-titlebar">
+        <span class="window-title">Validation</span>
+        <button type="button" class="window-close" aria-label="Close">×</button>
+      </div>
+      <div class="window-body window-scroll" id="validation-body"></div>
     </div>
 
   </section>

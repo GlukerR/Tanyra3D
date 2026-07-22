@@ -13,6 +13,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import * as gltfCore from '@gltf-transform/core';
+import * as fns from '@gltf-transform/functions';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import draco3d from 'draco3dgltf';
 import { MeshoptDecoder, MeshoptEncoder } from 'meshoptimizer';
@@ -266,6 +267,36 @@ function writeReport({ name, result, before, after, assetWritten, opts }) {
   return reportName;
 }
 
+// -------- Инспекция ассета (Metadata + Validation, как на gltf.report) --------
+// Формат-специфично: метаданные из fns.inspect (те же таблицы, что у gltf.report) +
+// issues от Khronos gltf-validator. Ядро отдаёт это через inspectFile() формат-агностично;
+// будущий аддон другого формата реализует тот же хук со своими данными.
+async function inspect(srcPath) {
+  const io = await createIO();
+  const bytes = fs.readFileSync(srcPath);
+  const doc = await io.read(srcPath);
+  const asset = doc.getRoot().getAsset() || {};
+  const extensions = doc.getRoot().listExtensionsUsed().map((e) => e.extensionName);
+
+  let metadata = { scenes: { properties: [] }, meshes: { properties: [] }, materials: { properties: [] }, textures: { properties: [] }, animations: { properties: [] } };
+  try { metadata = fns.inspect(doc); } catch { /* экзотика — отдаём пустые таблицы */ }
+
+  let validation = [];
+  try {
+    const validator = await import('gltf-validator');
+    const res = await validator.validateBytes(new Uint8Array(bytes));
+    validation = (res && res.issues && res.issues.messages) || [];
+  } catch { /* валидатор не установлен — пустой список */ }
+
+  return {
+    format: 'gltf',
+    asset: { version: asset.version || '', generator: asset.generator || '' },
+    extensions,
+    metadata,
+    validation,
+  };
+}
+
 /** @type {import('../../core/types.mjs').Addon} */
 const gltfAddon = {
   formats: ['glb', 'gltf'],
@@ -284,6 +315,7 @@ const gltfAddon = {
   stripInputCompression,
   validate,
   writeReport,
+  inspect,
 };
 
 export default gltfAddon;

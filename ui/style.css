@@ -462,6 +462,111 @@ body.resizing { cursor: col-resize; user-select: none; }
   padding: 16px 18px;
 }
 
+/* Широкие полупрозрачные окна инспекции (Metadata / Validation) поверх вьюпортов */
+.window--wide {
+  width: 94%;
+  max-width: 1200px;
+  max-height: 84%;
+}
+
+.window--glass {
+  background: rgba(27, 27, 35, 0.86);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.window--glass .window-titlebar { background: rgba(42, 41, 45, 0.55); }
+
+.window-scroll { flex: 1; min-height: 0; overflow: auto; }
+
+.meta-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 22px;
+  padding-bottom: 12px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--outline-variant);
+}
+
+.meta-kv { display: flex; gap: 8px; align-items: baseline; }
+.meta-k {
+  color: var(--outline);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.meta-v { color: var(--on-surface); font-size: 12px; }
+
+.meta-block { margin-bottom: 18px; }
+.meta-block-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--primary-container);
+  margin-bottom: 6px;
+}
+
+.meta-table-scroll { overflow-x: auto; }
+.meta-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.meta-table th, .meta-table td {
+  text-align: left;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--outline-variant);
+  white-space: nowrap;
+}
+.meta-table th {
+  color: var(--outline);
+  font-weight: 500;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  position: sticky;
+  top: 0;
+  background: var(--surface-container);
+}
+.meta-table td { color: var(--on-surface-variant); }
+.meta-table tbody tr:hover { background: rgba(255, 255, 255, 0.03); }
+.meta-table tr.sev-0 td { color: var(--error); }
+.meta-table tr.sev-1 td { color: var(--warning); }
+
+.meta-empty { color: var(--outline); font-size: 12px; }
+
+/* Кнопки инспекции в левом сайдбаре */
+.outliner-tools {
+  flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--outline-variant);
+}
+
+.outliner-tool {
+  flex: 1;
+  padding: 6px 8px;
+  background: var(--surface-container-high);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-sm);
+  color: var(--on-surface-variant);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+}
+
+.outliner-tool:hover:not(:disabled) {
+  background: var(--surface-container-highest);
+  color: var(--on-surface);
+  border-color: var(--primary-container);
+}
+
+.outliner-tool:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .fail-text {
   margin: 0;
   color: var(--on-surface-variant);

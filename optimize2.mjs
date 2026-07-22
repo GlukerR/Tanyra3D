@@ -86,6 +86,16 @@ export async function optimizeFile(srcPath, opts = {}) {
   return runOptimize(addon, srcPath, opts);
 }
 
+// Инспекция ассета без оптимизации: метаданные + валидация (для окон Metadata/Validation).
+// Формат-агностично: ядро резолвит аддон по расширению и зовёт его хук inspect().
+export async function inspectFile(srcPath) {
+  const addon = registry.resolve(srcPath);
+  if (typeof addon.inspect !== 'function') {
+    return { format: null, asset: {}, extensions: [], metadata: null, validation: [] };
+  }
+  return addon.inspect(srcPath);
+}
+
 // ============================================================================
 // CLI: тонкая обёртка над optimizeFile (поведение — как в v0.0.6).
 // ============================================================================
