@@ -96,6 +96,13 @@ export async function inspectFile(srcPath) {
   return addon.inspect(srcPath);
 }
 
+// Экспорт ассета как самодостаточного JSON (для «Export as JSON»). Формат-агностично.
+export async function exportJson(srcPath) {
+  const addon = registry.resolve(srcPath);
+  if (typeof addon.toJSON !== 'function') throw new Error('This format does not support JSON export.');
+  return addon.toJSON(srcPath);
+}
+
 // ============================================================================
 // CLI: тонкая обёртка над optimizeFile (поведение — как в v0.0.6).
 // ============================================================================

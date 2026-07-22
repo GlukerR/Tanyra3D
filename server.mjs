@@ -31,7 +31,7 @@ await fsp.mkdir(RESULTS_DIR, { recursive: true });
 
 // ---- Ядро (обязательный контракт §4b ARCHITECTURE.md) ----
 const core = await import('./optimize2.mjs');
-const { optimizeFile, inspectFile, listRules, VERSION } = core;
+const { optimizeFile, inspectFile, exportJson, listRules, VERSION } = core;
 
 // ---- Ассистент (появляется параллельно; graceful-фолбэк, если модуля ещё нет) ----
 let assistant = null;
@@ -420,6 +420,34 @@ const server = http.createServer(async (req, res) => {
       if (jobId) sendSSE(jobId, { type: 'done', status: result.status });
 
       sendJSON(res, 200, { result, explain, plan, advancedFeatures, downloadUrl, sourceId });
+      return;
+    }
+
+    // --- экспорт результата как самодостаточного glTF JSON ---
+    if (req.method === 'GET' && pathname === '/api/export-json') {
+      const f = url.searchParams.get('f');
+      const filePath = f && safeJoin(RESULTS_DIR, f);
+      if (!filePath || !fs.existsSync(filePath)) {
+        res.writeHead(404);
+        res.end('Result file not found');
+        return;
+      }
+      let json;
+      try {
+        json = await exportJson(filePath);
+      } catch (e) {
+        sendJSON(res, 500, { error: 'JSON export failed: ' + e.message });
+        return;
+      }
+      const name = path.basename(filePath).replace(/\.glb$/i, '.gltf');
+      const body = JSON.stringify(json, null, 2);
+      const asciiFallback = name.replace(/[^\x20-\x7e]/g, '_');
+      res.writeHead(200, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Length': Buffer.byteLength(body),
+        'Content-Disposition': `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(name)}`,
+      });
+      res.end(body);
       return;
     }
 

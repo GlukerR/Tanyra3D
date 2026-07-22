@@ -301,6 +301,30 @@ async function inspect(srcPath) {
   };
 }
 
+// -------- Экспорт glTF как самодостаточного JSON (как «Export → JSON» на gltf.report) --------
+// Буферы/изображения инлайнятся data-URI, чтобы получился один JSON без внешних файлов.
+function mimeFromUri(uri) {
+  const ext = (String(uri).split('.').pop() || '').toLowerCase();
+  return {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
+    ktx2: 'image/ktx2', bin: 'application/octet-stream',
+  }[ext] || 'application/octet-stream';
+}
+
+async function toJSON(srcPath) {
+  const io = await createIO();
+  const doc = await io.read(srcPath);
+  const { json, resources } = await io.writeJSON(doc, {});
+  const inline = (uri, mime) => {
+    const bytes = resources && resources[uri];
+    if (!bytes) return uri;
+    return `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`;
+  };
+  for (const b of json.buffers || []) if (b.uri) b.uri = inline(b.uri, 'application/octet-stream');
+  for (const img of json.images || []) if (img.uri) img.uri = inline(img.uri, img.mimeType || mimeFromUri(img.uri));
+  return json;
+}
+
 /** @type {import('../../core/types.mjs').Addon} */
 const gltfAddon = {
   formats: ['glb', 'gltf'],
@@ -320,6 +344,7 @@ const gltfAddon = {
   validate,
   writeReport,
   inspect,
+  toJSON,
 };
 
 export default gltfAddon;

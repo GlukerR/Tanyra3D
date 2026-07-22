@@ -67,6 +67,7 @@
 
   const runBtn = $('run-btn');
   const downloadBtn = $('download-btn');
+  const exportJsonBtn = $('export-json-btn');
   const irreversibleWarning = $('irreversible-warning');
   const irreversibleList = $('irreversible-list');
 
@@ -534,6 +535,7 @@
     currentSourceId = null;
     lastBuildSignature = null; // новая модель ещё не собиралась — первая сборка разрешена
     downloadBtn.classList.add('hidden');
+    exportJsonBtn.classList.add('hidden');
     irreversibleWarning.classList.add('hidden');
     failBanner.classList.add('hidden');
     runBtn.textContent = 'Build Optimized Model';
@@ -735,9 +737,13 @@
       downloadBtn.href = freshUrl;
       const name = result.file && result.file.dst ? result.file.dst.split(/[\\/]/).pop() : 'model.glb';
       downloadBtn.setAttribute('download', name);
+      // Экспорт результата как самодостаточного glTF JSON (как «Export → JSON» на gltf.report).
+      exportJsonBtn.href = freshUrl.replace('/api/download', '/api/export-json');
+      exportJsonBtn.classList.remove('hidden');
       renderIrreversibleWarning(result.applied);
     } else {
       downloadBtn.classList.add('hidden');
+      exportJsonBtn.classList.add('hidden');
       irreversibleWarning.classList.add('hidden');
     }
   }
@@ -772,6 +778,7 @@
     }
 
     downloadBtn.classList.add('hidden');
+    exportJsonBtn.classList.add('hidden');
     irreversibleWarning.classList.add('hidden');
     // Кнопку оставляем; сборка не прошла — разрешаем повтор даже без смены настроек.
     lastBuildSignature = null;
