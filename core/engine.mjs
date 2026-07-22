@@ -164,7 +164,10 @@ async function runFile(addon, src, dstName, o, result) {
   const strippedCodecs = addon.stripInputCompression(ctx.document);
   if (strippedCodecs.length) {
     addFound(ENGINE_META.inputCompression, `input geometry is already compressed (${strippedCodecs.join(', ')}) — decompressed on load`);
-    addApplied(ENGINE_META.inputCompression, `Removed input compression ${strippedCodecs.join(', ')} — re-encoded from scratch (${o.codec}), no double compression or hidden re-packing`);
+    const reencodeNote = o.compress
+      ? `re-encoded from scratch (${o.codec}), no double compression or hidden re-packing`
+      : 'geometry exported uncompressed (no geometry compression option selected)';
+    addApplied(ENGINE_META.inputCompression, `Removed input compression ${strippedCodecs.join(', ')} — ${reencodeNote}`);
   }
 
   // ==========================================================================

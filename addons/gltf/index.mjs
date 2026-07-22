@@ -53,9 +53,14 @@ function createIO() {
 
 // Расширенные возможности (tier advanced): id → человекочитаемое имя для ошибок.
 // Каждая фича транслируется в конкретную опцию ядра ниже в normalizeOpts.
+// v0.1.1: ВСЁ — opt-in. По умолчанию ничего не делаем (passthrough); каждая оптимизация
+// включается своим флажком (advancedFeatures). Флажок может бандлить много правил (safe).
 const ADVANCED_FEATURES = {
+  safe: 'safe lossless cleanup: dedup, prune unused, weld, remove degenerate/orphan geometry',
+  meshopt: 'Meshopt geometry compression',
+  draco: 'Draco geometry compression (instead of Meshopt)',
+  join: 'join meshes / flatten scene — fewer draw calls (structural, irreversible)',
   ktx2: 'textures → KTX2 (needs browser/engine support)',
-  draco: 'Draco geometry compression instead of Meshopt',
   'strip-colors': 'removal of painted vertex colors (lossy)',
 };
 
@@ -68,16 +73,23 @@ function normalizeOpts(opts = {}) {
   if (unknown.length) {
     throw new Error(`Unknown advancedFeatures: ${unknown.join(', ')}. Available: ${Object.keys(ADVANCED_FEATURES).join(', ')}.`);
   }
+  // Компрессия геометрии — opt-in: флажок 'meshopt' или 'draco' (либо legacy codec/compress).
+  const draco = opts.codec === 'draco' || adv.includes('draco');
+  const compress = draco || adv.includes('meshopt') || !!opts.compress;
+
   return {
     advancedFeatures: adv,
-    // фича 'draco' переключает кодек; явный codec:'draco' (legacy) тоже работает
-    codec: opts.codec === 'draco' || adv.includes('draco') ? 'draco' : 'meshopt',
-    texMode: opts.texMode === 'uastc' ? 'uastc' : 'mixed',
+    // opt-in-флаги: по умолчанию всё выключено (passthrough).
+    safe: adv.includes('safe') || !!opts.safe, // безопасная чистка (бандл)
+    compress, // сжимать ли геометрию вообще
+    codec: draco ? 'draco' : 'meshopt', // какой кодек — если compress включён
+    join: (adv.includes('join') || !!opts.join) && !opts.keepParts, // склейка мешей — отдельный флажок
+    // KTX2-режим: UASTC по умолчанию (самый безопасный/качественный для новичков);
+    // ETC1S (максимальное сжатие) — texMode:'mixed' (ETC1S цвет + UASTC data-карты).
+    texMode: opts.texMode === 'mixed' ? 'mixed' : 'uastc',
     keepParts: !!opts.keepParts,
-    // KTX2 с v0.0.8 по умолчанию ВЫКЛЮЧЕН (advanced). Приоритет: фича 'ktx2' >
-    // явный boolean noKtx (legacy-вызовы с noKtx:false сохраняют смысл) > default true.
-    // Фича обязана побеждать: baseline-профили передают noKtx:true, а web-interface
-    // добавляет advancedFeatures поверх них — иначе KTX2 не включить вовсе.
+    // KTX2 по умолчанию ВЫКЛЮЧЕН (advanced). Приоритет: фича 'ktx2' > явный boolean noKtx
+    // (legacy) > default true.
     noKtx: adv.includes('ktx2') ? false : (typeof opts.noKtx === 'boolean' ? opts.noKtx : true),
     stripColors: !!opts.stripColors || adv.includes('strip-colors'),
     dryRun: !!opts.dryRun,

@@ -32,7 +32,7 @@ export const RULES = [
       id: 'structure/dedup', category: 'materials', title: 'Duplicate resources (dedup)',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: [], touches: ['texture', 'material', 'accessor'],
       reversible: false, dataLoss: 'none', // склеиваются только байт-в-байт идентичные копии — терять нечего
-      enabled: () => true,
+      enabled: (o) => o.safe,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
     canFix() { return { safe: true, messageId: 'dedup.safe', data: {} }; },
@@ -54,7 +54,7 @@ export const RULES = [
       id: 'structure/prune-unused', category: 'scene', title: 'Unused resources (prune)',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['structure/dedup'], touches: ['texture', 'material', 'accessor', 'node'],
       reversible: false, dataLoss: 'none', // удаляется только то, на что нет ни одной ссылки
-      enabled: () => true,
+      enabled: (o) => o.safe,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
     canFix() { return { safe: true, messageId: 'prune.safe', data: {} }; },
@@ -93,7 +93,8 @@ export const RULES = [
       // базовая ветка (белые каналы) — потери нет; strip-ветка помечает свои строки
       // через res.irreversible → dataLoss 'significant' на уровне applied-записи
       reversible: false, dataLoss: 'none',
-      enabled: () => true,
+      // белая-чистка входит в safe; удаление раскрашенных — флажок strip-colors (внутри fix)
+      enabled: (o) => o.safe || o.stripColors,
     },
     // Детекция при применении, а не в analyze: COLOR-каналы, которые снесёт prune
     // (например неиспользуемый COLOR_1), не должны попадать в находки — v2 сканировал
@@ -143,7 +144,10 @@ export const RULES = [
       id: 'geometry/weld', category: 'geometry', title: 'Vertex weld',
       severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['attributes/vertex-colors'], touches: ['geometry', 'accessor'],
       reversible: false, dataLoss: 'none', // свариваются только идентичные вершины
-      enabled: () => true,
+      // geometry-чистка идёт и при компрессии: спека Draco — «decode → run all geometry
+      // optimizations → encode». Без неё draco роняет вырожденные треугольники на записи →
+      // расхождение с checkpoint. Поэтому safe ИЛИ compress.
+      enabled: (o) => o.safe || o.compress,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
     canFix() { return { safe: true, messageId: 'weld.safe', data: {} }; },
@@ -167,7 +171,7 @@ export const RULES = [
       id: 'geometry/degenerate-triangles', category: 'geometry', title: 'Degenerate triangles',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['geometry/weld'], touches: ['geometry'],
       reversible: false, dataLoss: 'none', // нулевая площадь — не рисовались
-      enabled: () => true,
+      enabled: (o) => o.safe || o.compress, // чистка геометрии нужна и перед компрессией
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
     canFix() { return { safe: true, messageId: 'degenerate.safe', data: {} }; },
@@ -208,7 +212,7 @@ export const RULES = [
       id: 'geometry/orphan-vertices', category: 'geometry', title: 'Orphan vertices',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['geometry/degenerate-triangles'], touches: ['geometry', 'accessor'],
       reversible: false, dataLoss: 'none', // не адресованы индексами — не рисовались
-      enabled: () => true,
+      enabled: (o) => o.safe || o.compress, // чистка геометрии нужна и перед компрессией
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
     canFix() {
@@ -245,7 +249,8 @@ export const RULES = [
       severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['geometry/orphan-vertices'], touches: ['geometry', 'node'],
       reversible: false, dataLoss: 'significant', // §4d: структура узлов и имена частей теряются безвозвратно
       reversalNote: 'Node hierarchy and separate parts are merged — they cannot be restored from the result. To keep parts, use --keep-parts.',
-      enabled: (opts) => !opts.keepParts,
+      feature: 'join', // отдельный флажок (структурно, необратимо)
+      enabled: (o) => o.join,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
     canFix() { return { safe: true, messageId: 'join.safe', data: {} }; },
@@ -269,7 +274,8 @@ export const RULES = [
       id: 'structure/prune-final', category: 'scene', title: 'Cleanup of orphaned resources',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['scene/join', 'geometry/orphan-vertices'], touches: ['accessor', 'node'],
       reversible: false, dataLoss: 'none', // только осиротевшие после предыдущих фиксов ресурсы
-      enabled: () => true,
+      enabled: (o) => o.safe || o.join || o.compress, // финальная зачистка после safe/склейки/компрессии
+
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
     canFix() { return { safe: true, messageId: 'pruneFinal.safe', data: {} }; },
@@ -376,7 +382,8 @@ export const RULES = [
       severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['textures/ktx2', 'structure/prune-final'], touches: ['geometry', 'accessor'],
       reversible: true, dataLoss: 'none', // §4d: Draco/Meshopt ↔ стандартный формат в пределах точности float32
       reversalNote: 'Compressed geometry unpacks back to the standard format without data loss.',
-      enabled: () => true,
+      feature: 'meshopt', // компрессия геометрии — opt-in (флажок meshopt или draco → codec)
+      enabled: (o) => o.compress,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
     canFix() { return { safe: true, messageId: 'compress.safe', data: {} }; },

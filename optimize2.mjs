@@ -120,12 +120,25 @@ function initCliLogging(opts) {
 // выводятся из advancedFeatures в addon.normalizeOpts, здесь не дублируются.
 function parseArgv(rawArgv) {
   const argv = rawArgv.map((a) => a.toLowerCase());
+  const has = (f) => argv.includes(f);
   const advancedFeatures = [];
-  if (argv.includes('--ktx2')) advancedFeatures.push('ktx2');
-  if (argv.includes('draco') || argv.includes('--draco')) advancedFeatures.push('draco');
-  if (argv.includes('--strip-vertex-colors')) advancedFeatures.push('strip-colors');
+
+  // v0.1.1: ядро — opt-in (по умолчанию passthrough). CLI СОХРАНЯЕТ прежнее поведение
+  // пресетом (решение Александра): без флагов = безопасная чистка + склейка + meshopt.
+  // --none / --passthrough отключает пресет (только явно выбранные оптимизации).
+  const preset = !(has('--none') || has('--passthrough'));
+  const draco = has('draco') || has('--draco');
+  if (preset) {
+    advancedFeatures.push('safe', draco ? 'draco' : 'meshopt');
+    if (!has('--keep-parts')) advancedFeatures.push('join');
+  } else if (draco) {
+    advancedFeatures.push('draco');
+  }
+  if (has('--ktx2')) advancedFeatures.push('ktx2');
+  if (has('--strip-vertex-colors')) advancedFeatures.push('strip-colors');
+
   return {
-    advancedFeatures,
+    advancedFeatures: [...new Set(advancedFeatures)],
     keepParts: argv.includes('--keep-parts'),
     // --no-ktx оставлен для совместимости скриптов: с v0.0.8 KTX2 и так выключен
     // по умолчанию. При явном конфликте (--no-ktx --ktx2) побеждает расширение.

@@ -20,6 +20,33 @@
   },
   "availableExtensions": [
     {
+      "id": "safe",
+      "title": "Safe optimizations",
+      "description": "Lossless cleanup: dedup materials/textures, remove unused data, weld identical vertices, drop degenerate and orphan geometry. Shape and materials are not changed.",
+      "impact": "Smaller file with no visible change.",
+      "reversible": false,
+      "dataLoss": "none",
+      "opts": { "safe": true }
+    },
+    {
+      "id": "meshopt",
+      "title": "Meshopt geometry compression",
+      "description": "Compresses geometry with Meshopt — smaller file that unpacks quickly on the GPU. A good default for the web.",
+      "impact": "Noticeably smaller geometry; fast decode in the browser.",
+      "reversible": true,
+      "dataLoss": "none",
+      "opts": { "compress": true, "codec": "meshopt" }
+    },
+    {
+      "id": "join",
+      "title": "Join meshes",
+      "description": "Merges separate parts into one mesh — fewer draw calls. Structural: individual parts cannot be restored from the result.",
+      "impact": "Fewer draw calls; parts are merged (irreversible).",
+      "reversible": false,
+      "dataLoss": "significant",
+      "opts": { "join": true }
+    },
+    {
       "id": "ktx2",
       "title": "KTX2 texture compression",
       "description": "Converts textures to a GPU format: saves up to ~80% of video memory — spares the memory of budget phones. Requires KTX2Loader support in the browser.",

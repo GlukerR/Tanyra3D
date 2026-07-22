@@ -46,11 +46,13 @@ const FALLBACK_PLATFORMS = [
   { id: 'web', title: 'Web', description: 'Standard web preparation' },
 ];
 
+// v0.1.1: веб по умолчанию — passthrough (opt-in). Фолбэк не форсит оптимизаций:
+// codec/texMode срабатывают только если включён флажок компрессии/ktx2.
 const FALLBACK_ENGINE_OPTS = {
   codec: 'meshopt',
-  texMode: 'mixed',
+  texMode: 'uastc',
   keepParts: false,
-  noKtx: false,
+  noKtx: true,
   stripColors: false,
   dryRun: false,
 };
