@@ -74,7 +74,7 @@ class ViewportSlot {
       return null;
     }
     this._revokeBlob();
-    return viewer.getStats();
+    return { stats: viewer.getStats(), detected: viewer.getDetection() };
   }
 
   renderFrame() {
@@ -171,10 +171,10 @@ class DualViewport {
     this._unlinkCameras();
     this.right.reset();
     this.right.showHint("Run optimization to compare");
-    let stats = null;
-    if (originalFile) stats = await this.left.load(originalFile);
+    let info = null;
+    if (originalFile) info = await this.left.load(originalFile);
     this._afterLoad();
-    return stats; // базовые метрики модели для HUD ещё до оптимизации
+    return info; // { stats, detected } — метрики модели + что уже сжато в исходнике
   }
 
   /** Загрузить оптимизированную модель (URL) в правый вьюпорт. */

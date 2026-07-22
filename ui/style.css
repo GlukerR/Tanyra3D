@@ -650,6 +650,50 @@ details[open] > .collapsible-summary::before {
   color: var(--on-surface-variant) !important;
 }
 
+/* Бейдж [Source] — технология уже была в импортированной модели */
+.ext-source-badge {
+  margin-left: 6px;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(192, 193, 255, 0.12);
+  color: var(--primary-container);
+  border: 1px solid rgba(192, 193, 255, 0.3);
+  white-space: nowrap;
+}
+
+/* KTX2 — раскрывающийся селектор режима (UASTC / ETC1S) */
+.ktx2-mode {
+  margin: 8px 0 0 22px;
+  font-size: 11px;
+}
+
+.ktx2-mode > summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--on-surface-variant);
+}
+
+.ktx2-mode > summary::-webkit-details-marker { display: none; }
+.ktx2-mode > summary::before { content: '▸ '; color: var(--outline); }
+.ktx2-mode[open] > summary::before { content: '▾ '; }
+
+.ktx2-mode-current { color: var(--primary-container); font-family: var(--font-mono); }
+
+.ktx2-mode-opt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  cursor: pointer;
+  color: var(--on-surface-variant);
+}
+
+.ktx2-mode-opt input { accent-color: var(--primary-container); flex-shrink: 0; }
+
 .summary-text {
   margin: 0;
   font-size: 13px;

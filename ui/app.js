@@ -75,18 +75,29 @@
   // Подпись настроек (платформа + флажки) последней УСПЕШНОЙ сборки. Пока настройки не
   // менялись, «Rebuild with New Settings» неактивна — пересборка дала бы тот же результат.
   let lastBuildSignature = null;
+  // Что найдено в исходнике (draco/meshopt/ktx2) — для авто-флажков [Source].
+  let lastDetection = null;
+  // Режим KTX2: 'uastc' (по умолчанию, безопасный/качественный) либо 'mixed' (ETC1S, макс. сжатие).
+  let ktx2Mode = 'uastc';
   let platforms = [];
   let extensions = [];
 
-  // Текущая подпись настроек оптимизации: платформа + отсортированный набор флажков.
+  // Текущая подпись настроек оптимизации: платформа + флажки + режим KTX2.
   function currentSettingsSignature() {
-    return platformSelect.value + '|' + getSelectedFeatures().slice().sort().join(',');
+    const feats = getSelectedFeatures().slice().sort();
+    const mode = feats.includes('ktx2') ? `|ktx2:${ktx2Mode}` : '';
+    return platformSelect.value + '|' + feats.join(',') + mode;
   }
 
-  // Состояние кнопки запуска: до первой сборки — активна при выбранном файле;
-  // после сборки — активна только если настройки изменились с момента той сборки.
+  // Состояние кнопки запуска. Всё — opt-in: без выбранного флажка оптимизировать нечего,
+  // кнопка не активна. С файлом и ≥1 флажком: до сборки — активна; после сборки — активна
+  // только если настройки изменились (иначе пересборка дала бы тот же результат).
   function updateRunButtonState() {
-    if (!selectedFile) { runBtn.disabled = true; runBtn.removeAttribute('title'); return; }
+    if (!selectedFile || getSelectedFeatures().length === 0) {
+      runBtn.disabled = true;
+      runBtn.title = !selectedFile ? '' : 'Select an optimization to build';
+      return;
+    }
     if (lastBuildSignature === null) { runBtn.disabled = false; runBtn.removeAttribute('title'); return; }
     const unchanged = currentSettingsSignature() === lastBuildSignature;
     runBtn.disabled = unchanged;
@@ -190,6 +201,9 @@
       extensionsList.appendChild(buildExtensionRow(ext));
     }
     extensionsPanel.classList.remove('hidden');
+    // список пересобран → заново проставить авто-флажки [Source] и состояние кнопки
+    applyDetection();
+    updateRunButtonState();
   }
 
   function buildExtensionRow(ext) {
@@ -243,7 +257,50 @@
 
     row.appendChild(head);
     row.appendChild(desc);
+
+    // KTX2 — один флажок с раскрывающимся селектором режима (UASTC по умолчанию,
+    // ETC1S — максимальное сжатие). Отдельного чекбокса ETC1S нет (future-proof).
+    if (ext.id === 'ktx2') {
+      const mode = document.createElement('details');
+      mode.className = 'ktx2-mode hidden';
+      const summary = document.createElement('summary');
+      summary.innerHTML = 'Mode: <span class="ktx2-mode-current">UASTC</span>';
+      mode.appendChild(summary);
+      const modeOpts = [
+        { v: 'uastc', label: 'UASTC (Recommended)', short: 'UASTC' },
+        { v: 'mixed', label: 'ETC1S (Maximum Compression)', short: 'ETC1S' },
+      ];
+      for (const o of modeOpts) {
+        const optLabel = document.createElement('label');
+        optLabel.className = 'ktx2-mode-opt';
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'ktx2mode';
+        radio.value = o.v;
+        if (o.v === ktx2Mode) radio.checked = true;
+        radio.addEventListener('change', () => {
+          ktx2Mode = o.v;
+          summary.querySelector('.ktx2-mode-current').textContent = o.short;
+          updateRunButtonState();
+        });
+        optLabel.appendChild(radio);
+        optLabel.appendChild(document.createTextNode(' ' + o.label));
+        mode.appendChild(optLabel);
+      }
+      row.appendChild(mode);
+      // режим виден только когда KTX2 выбран
+      checkbox.addEventListener('change', () => mode.classList.toggle('hidden', !checkbox.checked));
+    }
+
     return row;
+  }
+
+  // Показать/скрыть селектор режима KTX2 (при авто-включении из detection).
+  function toggleKtx2Mode(show) {
+    const cb = document.getElementById('ext-ktx2');
+    const row = cb && cb.closest('.ext-row');
+    const mode = row && row.querySelector('.ktx2-mode');
+    if (mode) mode.classList.toggle('hidden', !show);
   }
 
   function getSelectedFeatures() {
@@ -271,9 +328,42 @@
     clearResults();
     // Сразу показать оригинал в левом вьюпорте + его базовые данные (ещё до сборки).
     if (window.OptiViewer) {
-      const stats = await window.OptiViewer.loadOriginal(file);
-      renderOriginalStats(file.size, stats);
+      const info = await window.OptiViewer.loadOriginal(file);
+      renderOriginalStats(file.size, info && info.stats);
+      // Определяем, что уже сжато в исходнике → авто-включаем флажки с бейджем [Source].
+      lastDetection = (info && info.detected) || null;
+      applyDetection();
     }
+  }
+
+  // Авто-включение флажков по тому, что найдено в исходнике (draco/meshopt/ktx2),
+  // и бейдж [Source] рядом. Вызывается после загрузки модели и после перестройки
+  // списка расширений (смена платформы).
+  function applyDetection() {
+    if (!lastDetection) return;
+    const map = { draco: 'draco', meshopt: 'meshopt', ktx2: 'ktx2' };
+    for (const [tech, featureId] of Object.entries(map)) {
+      const cb = document.getElementById(`ext-${featureId}`);
+      if (!cb) continue;
+      const row = cb.closest('.ext-row');
+      if (lastDetection[tech]) {
+        cb.checked = true;
+        addSourceBadge(row);
+        if (featureId === 'ktx2') toggleKtx2Mode(true);
+      }
+    }
+    updateRunButtonState();
+  }
+
+  function addSourceBadge(row) {
+    if (!row || row.querySelector('.ext-source-badge')) return;
+    const label = row.querySelector('.ext-label');
+    if (!label) return;
+    const badge = document.createElement('span');
+    badge.className = 'ext-source-badge';
+    badge.textContent = 'Source';
+    badge.title = 'This technology was already used in the imported model';
+    label.appendChild(badge);
   }
 
   // HUD слева до первой сборки: основные данные модели, посчитанные из сцены на клиенте.
@@ -375,7 +465,9 @@
     const features = getSelectedFeatures();
     const featuresParam = features.length ? `&features=${encodeURIComponent(features.join(','))}` : '';
     const sourceParam = useSource && currentSourceId ? `&source=${encodeURIComponent(currentSourceId)}` : '';
-    return `/api/optimize?platform=${encodeURIComponent(platformId)}&job=${encodeURIComponent(jobId)}${featuresParam}${sourceParam}`;
+    // режим KTX2 (UASTC/ETC1S) → texMode; актуален только когда выбран флажок ktx2
+    const texParam = features.includes('ktx2') ? `&texMode=${encodeURIComponent(ktx2Mode)}` : '';
+    return `/api/optimize?platform=${encodeURIComponent(platformId)}&job=${encodeURIComponent(jobId)}${featuresParam}${sourceParam}${texParam}`;
   }
 
   // Повтор по sourceId — без тела (модель уже на сервере); первый прогон — с телом файла.

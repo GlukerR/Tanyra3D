@@ -293,6 +293,8 @@ const server = http.createServer(async (req, res) => {
       const jobId = url.searchParams.get('job') || '';
       const featuresParam = url.searchParams.get('features') || '';
       const advancedFeatures = featuresParam.split(',').map((s) => s.trim()).filter(Boolean);
+      // режим KTX2 из UI: uastc (по умолчанию) | mixed (ETC1S). Влияет только при флажке ktx2.
+      const texModeParam = url.searchParams.get('texMode') === 'mixed' ? 'mixed' : 'uastc';
 
       // Повторная оптимизация уже загруженного исходника (без перезаливки тела).
       const sourceParam = url.searchParams.get('source') || '';
@@ -344,7 +346,7 @@ const server = http.createServer(async (req, res) => {
       }
 
       const plan = planForSafe(platformId);
-      const engineOpts = { ...FALLBACK_ENGINE_OPTS, ...(plan.engineOpts || {}) };
+      const engineOpts = { ...FALLBACK_ENGINE_OPTS, ...(plan.engineOpts || {}), texMode: texModeParam };
 
       const onProgress = (e) => {
         if (jobId) sendSSE(jobId, e);

@@ -59,6 +59,17 @@ function computeSceneStats(root) {
   };
 }
 
+// Что уже применено в исходной модели — по extensionsUsed из распарсенного glTF.
+// Draco/meshopt (геометрия), KHR_texture_basisu = KTX2 (текстуры).
+function detectSource(gltf) {
+  const used = (gltf && gltf.parser && gltf.parser.json && gltf.parser.json.extensionsUsed) || [];
+  return {
+    draco: used.includes('KHR_draco_mesh_compression'),
+    meshopt: used.includes('EXT_meshopt_compression'),
+    ktx2: used.includes('KHR_texture_basisu'),
+  };
+}
+
 /**
  * Самодостаточный просмотрщик одной модели: рендерер, сцена, студийный IBL-свет,
  * орбитальные контролы, авто-кадрирование под размер модели.
@@ -144,12 +155,18 @@ export class Viewer {
     this.scene.add(this.model);
     this.frame();
     this.stats = computeSceneStats(this.model);
+    this.detected = detectSource(gltf);
     return gltf;
   }
 
   /** Базовая статистика загруженной модели (для HUD ещё до оптимизации). */
   getStats() {
     return this.stats || null;
+  }
+
+  /** Что уже использовано в исходнике: { draco, meshopt, ktx2 } — для авто-флажков [Source]. */
+  getDetection() {
+    return this.detected || null;
   }
 
   /** Навести камеру на модель по её bounding box (3/4-ракурс, с отступом). */
