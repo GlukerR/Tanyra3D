@@ -6,18 +6,24 @@
 // addons/gltf/. GLB-аддон всегда включён и невыключаем: снаружи (CLI, server.mjs,
 // assistant.mjs, ui/, profiles/) ничего не меняется — контракты §4b/§4c те же.
 //
-// Правила делятся на два уровня (meta.tier):
-//   basic    — безопасны для всех и работают везде: Meshopt, чистка (dedup/prune/weld/
-//              degenerate/orphan), текстуры остаются PNG/WebP. Применяются всегда.
-//   advanced — опциональные расширения, явный opt-in пользователя (advancedFeatures в API
-//              или флаг CLI): KTX2, Draco, strip-colors.
+// v0.1.1: ядро — opt-in (docs/ARCHITECTURE §4b). По умолчанию (программный API,
+// advancedFeatures:[]) — passthrough, ничего не меняется. Каждое правило гейтится
+// своим флажком через meta.enabled(opts): safe (dedup/prune/weld/degenerate/orphan),
+// meshopt/draco (geometry/compress), join (scene/join), ktx2, strip-colors.
+// Двухуровневая обработка (meta.tier basic/advanced) в движке — это порядок ДВУХ
+// проходов вокруг baseline-checkpoint (структурные правки — до, кодирование — после),
+// а не признак «применяется всегда»; basic-правила тоже все opt-in.
+//
+// CLI НИЖЕ сохраняет старое поведение ПРЕСЕТОМ (см. parseArgv): без флагов — это не
+// «только базовые», это готовый набор safe+meshopt+join (как было до v0.1.1).
 //
 // Запуск:
-//   node optimize2.mjs                        только базовые (Meshopt, чистка, без KTX2)
+//   node optimize2.mjs                        пресет: safe + meshopt + join (без KTX2)
+//   node optimize2.mjs --none / --passthrough отключить пресет — явный passthrough
 //   node optimize2.mjs --ktx2                 + расширение: текстуры → KTX2
 //   node optimize2.mjs --draco  (или draco)   + расширение: Draco вместо Meshopt
 //   node optimize2.mjs --strip-vertex-colors  + расширение: удалить и раскрашенные вершинные цвета
-//   node optimize2.mjs --keep-parts           не объединять меши
+//   node optimize2.mjs --keep-parts           не объединять меши (снимает join из пресета)
 //   node optimize2.mjs --uastc                при --ktx2: ВСЕ текстуры в UASTC
 //   node optimize2.mjs --no-ktx               устарел: KTX2 и так выключен по умолчанию
 //   node optimize2.mjs --dry-run              полный анализ и отчёт, но без записи .glb

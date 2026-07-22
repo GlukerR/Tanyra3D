@@ -241,7 +241,7 @@ function writeReport({ name, result, before, after, assetWritten, opts }) {
       '',
       opts.dryRun
         ? '**Dry-run mode** — the .glb was not written; the report shows what WOULD have been done (all phases ran in memory, numbers are exact).'
-        : '**The .glb was NOT written** — there were no applied fixes or validation failed.',
+        : '**The .glb was NOT written** — validation failed (see Validation below).',
     ]),
     '',
     '## Estimated improvements',

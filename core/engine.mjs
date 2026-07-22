@@ -203,12 +203,17 @@ async function runFile(addon, src, dstName, o, result) {
     const planned = [];
     for (const { rule, finding } of findings) {
       if (!rule.meta.enabled(o)) {
-        if (rule.meta.tier === 'advanced') {
-          // расширение не выбрано пользователем — явная строка «Пропущено» с подсказкой
-          const reason = `feature "${rule.meta.feature}" is not enabled (advancedFeatures: ['${rule.meta.feature}'] or the --${rule.meta.feature} flag)`;
+        // Правило гейтится ОДНИМ конкретным opt-in флажком (meta.feature: 'ktx2'/'join'/
+        // 'meshopt') — объясняем в отчёте, почему ничего не сделано. Раньше проверялось
+        // tier==='advanced', из-за чего join/geometry-compress (tier 'basic', но тоже
+        // opt-in c v0.1.1) молча пропускались без единой строки в отчёте — meta.feature
+        // у них уже был выставлен для этого сообщения, просто условие на него не смотрело.
+        // Правила-бандлы без единого feature (например safe-чистка на много правил
+        // одновременно) остаются тихими — как и раньше.
+        if (rule.meta.feature) {
+          const reason = `feature "${rule.meta.feature}" is not enabled (advancedFeatures: ['${rule.meta.feature}'])`;
           addSkipped(rule.meta, `${rule.meta.title} — ${reason}`, reason);
         }
-        // базовое правило, выключенное опцией (например --keep-parts), — молча, как раньше
         continue;
       }
       if (!rule.fix) { addFound(rule.meta, renderLines(finding.text, locale)); continue; }
@@ -280,10 +285,16 @@ async function runFile(addon, src, dstName, o, result) {
 
   const validationOk = !result.validation.some((x) => x.level === 'fail');
 
-  // -------- ФАЗА 5 · ОТЧЁТ + запись (.glb пишем ТОЛЬКО если есть applied и валидация прошла) --------
+  // -------- ФАЗА 5 · ОТЧЁТ + запись (.glb пишем, если не dry-run и валидация прошла) --------
+  // v0.1.1: раньше писали ТОЛЬКО если result.applied непуст — при старом всегда-активном
+  // базовом наборе это не мешало (findings были почти всегда). При opt-in по умолчанию
+  // passthrough (0 флажков, чистый вход) applied закономерно пуст — «нечего чинить» не
+  // значит «не нужно записывать файл»: --none/--passthrough — легитимный запрошенный режим
+  // (в т.ч. конвертация .gltf → .glb без изменений), должен отдавать реальный файл, а не
+  // молчаливое «not written». Единственная причина не писать — провал валидации (или dry-run).
   progress({ type: 'phase', phase: 5, name: 'report' });
   log('    phase 5/5 · report');
-  const writeAsset = !o.dryRun && validationOk && result.applied.length > 0;
+  const writeAsset = !o.dryRun && validationOk;
   if (writeAsset) fs.writeFileSync(dst, glb);
   const reportName = addon.writeReport({ name: dstName, result, before, after, assetWritten: writeAsset, opts: o });
 
