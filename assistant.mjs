@@ -273,13 +273,14 @@ export function explainResult(runResult, platformId) {
     highlights.push(`Safe improvements applied: ${rr.applied.length} — each verified, shape and materials not distorted.`);
   }
 
-  // --- budgetChecks: metrics.after против бюджетов платформы ---
-  const budgetChecks = buildBudgetChecks(budgets, after);
-
+  // Budget check убран из выдачи (решение Александра): без точных целей пользователя
+  // сверять «после» с абстрактными бюджетами платформы бессмысленно. Данные бюджетов
+  // остаются в профилях как задел под будущий отдельный аддон, управляемый пользовательским
+  // пресетом (тогда цифры цели заданы явно). buildBudgetChecks сохранён, но не вызывается.
   return {
     summary,
     highlights: highlights.slice(0, 6),
-    budgetChecks,
+    budgetChecks: [],
     warnings: collectWarnings(rr),
   };
 }

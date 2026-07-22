@@ -579,6 +579,50 @@ details[open] > .collapsible-summary::before {
   gap: 4px;
 }
 
+/* Секции опций (Geometry / Structural / Textures / Cleanup) */
+.opt-section + .opt-section { margin-top: 14px; }
+
+.opt-section-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--outline);
+  padding-bottom: 5px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--outline-variant);
+}
+
+/* Геометрия — взаимоисключающий radio None/Meshopt/Draco */
+.opt-radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 2px;
+  font-size: 12.5px;
+  color: var(--on-surface);
+  cursor: pointer;
+}
+
+.opt-radio input { accent-color: var(--primary-container); flex-shrink: 0; }
+
+/* Пометка «нужен декодер на сайте» */
+.ext-decoder-note {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  border-radius: 999px;
+  background: var(--surface-container-highest);
+  color: var(--outline);
+  cursor: help;
+}
+
 .ext-row {
   border-left: 2px solid var(--outline-variant);
   background: rgba(42, 41, 45, 0.5);

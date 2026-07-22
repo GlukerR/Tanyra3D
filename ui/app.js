@@ -79,6 +79,8 @@
   let lastDetection = null;
   // Режим KTX2: 'uastc' (по умолчанию, безопасный/качественный) либо 'mixed' (ETC1S, макс. сжатие).
   let ktx2Mode = 'uastc';
+  // Геометрия — взаимоисключающий выбор: 'none' | 'meshopt' | 'draco'.
+  let geometryChoice = 'none';
   let platforms = [];
   let extensions = [];
 
@@ -181,6 +183,18 @@
   // приходят от AI Assistant через /api/extensions; здесь только рендер.
   // ---------------------------------------------------------------
 
+  // Опции сгруппированы в секции. Геометрия — взаимоисключающий выбор (radio None/Meshopt/
+  // Draco). Meshopt/Draco/KTX2 требуют подключить декодер на целевом сайте (пометка «?»);
+  // остальное (None/Join/Safe/Remove colors) работает на голом three.js.
+  const OPT_GROUPS = [
+    { title: 'Geometry', kind: 'geometry' },
+    { title: 'Structural', kind: 'checks', ids: ['join'] },
+    { title: 'Textures', kind: 'checks', ids: ['ktx2'] },
+    { title: 'Cleanup', kind: 'checks', ids: ['safe', 'strip-colors'] },
+  ];
+  const NEEDS_DECODER = new Set(['meshopt', 'draco', 'ktx2']);
+  const DECODER_NOTE = 'Requires an additional decoder on your three.js site';
+
   async function loadExtensions(platformId) {
     extensions = [];
     extensionsList.innerHTML = '';
@@ -197,13 +211,79 @@
 
     if (!extensions.length) return;
 
-    for (const ext of extensions) {
-      extensionsList.appendChild(buildExtensionRow(ext));
+    const byId = Object.fromEntries(extensions.map((e) => [e.id, e]));
+    for (const group of OPT_GROUPS) {
+      const section = group.kind === 'geometry'
+        ? renderGeometryGroup(byId)
+        : renderCheckGroup(group, byId);
+      if (section) extensionsList.appendChild(section);
     }
     extensionsPanel.classList.remove('hidden');
-    // список пересобран → заново проставить авто-флажки [Source] и состояние кнопки
+    // панель пересобрана → дефолты платформы + авто-флажки [Source] + состояние кнопки
     applyDetection();
     updateRunButtonState();
+  }
+
+  function optSection(title) {
+    const sec = document.createElement('div');
+    sec.className = 'opt-section';
+    const h = document.createElement('div');
+    h.className = 'opt-section-title';
+    h.textContent = title;
+    sec.appendChild(h);
+    return sec;
+  }
+
+  function decoderNote() {
+    const q = document.createElement('span');
+    q.className = 'ext-decoder-note';
+    q.textContent = '?';
+    q.title = DECODER_NOTE;
+    q.setAttribute('aria-label', DECODER_NOTE);
+    return q;
+  }
+
+  // Геометрия — radio None/Meshopt/Draco (взаимоисключающие; логика видна в UI).
+  function renderGeometryGroup(byId) {
+    if (!byId.meshopt && !byId.draco) return null;
+    const sec = optSection('Geometry');
+    const opts = [
+      { v: 'none', ext: null, label: 'None (uncompressed)' },
+      byId.meshopt && { v: 'meshopt', ext: byId.meshopt, label: byId.meshopt.title },
+      byId.draco && { v: 'draco', ext: byId.draco, label: byId.draco.title },
+    ].filter(Boolean);
+    for (const o of opts) {
+      const row = document.createElement('label');
+      row.className = 'opt-radio';
+      row.dataset.geom = o.v;
+      const radio = document.createElement('input');
+      radio.type = 'radio';
+      radio.name = 'geometry';
+      radio.value = o.v;
+      radio.id = `geom-${o.v}`;
+      radio.checked = (o.v === geometryChoice);
+      radio.addEventListener('change', () => {
+        if (radio.checked) geometryChoice = o.v;
+        updateRunButtonState();
+      });
+      const text = document.createElement('span');
+      text.className = 'opt-radio-text';
+      text.textContent = o.label;
+      row.appendChild(radio);
+      row.appendChild(text);
+      if (o.ext && NEEDS_DECODER.has(o.ext.id)) row.appendChild(decoderNote());
+      if (o.ext && o.ext.description) row.title = o.ext.description;
+      sec.appendChild(row);
+    }
+    return sec;
+  }
+
+  function renderCheckGroup(group, byId) {
+    const items = group.ids.map((id) => byId[id]).filter(Boolean);
+    if (!items.length) return null;
+    const sec = optSection(group.title);
+    for (const ext of items) sec.appendChild(buildExtensionRow(ext));
+    return sec;
   }
 
   function buildExtensionRow(ext) {
@@ -228,6 +308,7 @@
 
     label.appendChild(checkbox);
     label.appendChild(titleSpan);
+    if (NEEDS_DECODER.has(ext.id)) label.appendChild(decoderNote());
 
     const infoBtn = document.createElement('button');
     infoBtn.type = 'button';
@@ -304,7 +385,16 @@
   }
 
   function getSelectedFeatures() {
-    return Array.from(extensionsList.querySelectorAll('.ext-checkbox:checked')).map((cb) => cb.value);
+    const feats = [];
+    if (geometryChoice === 'meshopt') feats.push('meshopt');
+    else if (geometryChoice === 'draco') feats.push('draco');
+    for (const cb of extensionsList.querySelectorAll('.ext-checkbox:checked')) feats.push(cb.value);
+    return feats;
+  }
+
+  function setCheck(id, val) {
+    const cb = document.getElementById(`ext-${id}`);
+    if (cb) cb.checked = val;
   }
 
   // ---------------------------------------------------------------
@@ -336,34 +426,52 @@
     }
   }
 
-  // Авто-включение флажков по тому, что найдено в исходнике (draco/meshopt/ktx2),
-  // и бейдж [Source] рядом. Вызывается после загрузки модели и после перестройки
-  // списка расширений (смена платформы).
+  // Дефолты панели + авто-флажки по исходнику. Вызывается после (пере)сборки панели и
+  // после загрузки модели. Дефолт-галочки — только на том, что работает на голом three.js
+  // (Safe, Join, Remove colors); геометрия — None, если в источнике нет сжатия. Если модель
+  // уже сжата (meshopt/draco/ktx2) — выбираем соответствующее + бейдж [Source].
   function applyDetection() {
-    if (!lastDetection) return;
-    const map = { draco: 'draco', meshopt: 'meshopt', ktx2: 'ktx2' };
-    for (const [tech, featureId] of Object.entries(map)) {
-      const cb = document.getElementById(`ext-${featureId}`);
-      if (!cb) continue;
-      const row = cb.closest('.ext-row');
-      if (lastDetection[tech]) {
-        cb.checked = true;
-        addSourceBadge(row);
-        if (featureId === 'ktx2') toggleKtx2Mode(true);
-      }
+    // снять прежние бейджи [Source] (панель могла не пересобираться — новая модель)
+    extensionsList.querySelectorAll('.ext-source-badge').forEach((b) => b.remove());
+    setCheck('safe', true);
+    setCheck('join', true);
+    setCheck('strip-colors', true);
+    setCheck('ktx2', false);
+    geometryChoice = 'none';
+
+    if (lastDetection) {
+      if (lastDetection.draco) { geometryChoice = 'draco'; badgeGeometry('draco'); }
+      else if (lastDetection.meshopt) { geometryChoice = 'meshopt'; badgeGeometry('meshopt'); }
+      if (lastDetection.ktx2) { setCheck('ktx2', true); badgeCheck('ktx2'); }
     }
+
+    syncGeometryRadio();
+    toggleKtx2Mode(!!(document.getElementById('ext-ktx2') && document.getElementById('ext-ktx2').checked));
     updateRunButtonState();
   }
 
-  function addSourceBadge(row) {
-    if (!row || row.querySelector('.ext-source-badge')) return;
-    const label = row.querySelector('.ext-label');
-    if (!label) return;
+  function syncGeometryRadio() {
+    const radio = document.getElementById(`geom-${geometryChoice}`);
+    if (radio) radio.checked = true;
+  }
+
+  function badgeGeometry(v) {
+    addSourceBadge(document.querySelector(`.opt-radio[data-geom="${v}"]`), '.opt-radio-text');
+  }
+
+  function badgeCheck(id) {
+    const cb = document.getElementById(`ext-${id}`);
+    addSourceBadge(cb && cb.closest('.ext-row'), '.ext-label');
+  }
+
+  function addSourceBadge(container, anchorSel) {
+    if (!container || container.querySelector('.ext-source-badge')) return;
+    const anchor = container.querySelector(anchorSel) || container;
     const badge = document.createElement('span');
     badge.className = 'ext-source-badge';
     badge.textContent = 'Source';
     badge.title = 'This technology was already used in the imported model';
-    label.appendChild(badge);
+    anchor.appendChild(badge);
   }
 
   // HUD слева до первой сборки: основные данные модели, посчитанные из сцены на клиенте.
