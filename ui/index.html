@@ -35,8 +35,8 @@
     </div>
     <!-- Инспекция ассета: окна Metadata / Validation (как на gltf.report) -->
     <div class="outliner-tools">
-      <button id="btn-metadata" class="outliner-tool" disabled title="Asset metadata (scenes, meshes, materials…)">⊞ Metadata</button>
-      <button id="btn-validation" class="outliner-tool" disabled title="Khronos glTF validation report">✓ Validation</button>
+      <button id="btn-metadata" class="outliner-tool" data-window-trigger disabled title="Asset metadata (scenes, meshes, materials…)">⊞ Metadata</button>
+      <button id="btn-validation" class="outliner-tool" data-window-trigger disabled title="Khronos glTF validation report">✓ Validation</button>
     </div>
     <div class="outliner-body">
       <div id="dropzone" class="dropzone">
@@ -48,6 +48,12 @@
       <p id="chosen-file" class="chosen-file"></p>
       <ul id="model-list" class="model-list"></ul>
     </div>
+    <!-- Логи внизу сайдбара: ошибки уходят сюда; клик разворачивает окно логов -->
+    <button id="logs-bar" class="outliner-logs" data-window-trigger title="Open logs">
+      <span class="outliner-logs-label">Logs</span>
+      <span id="logs-last" class="outliner-logs-last">no messages</span>
+      <span id="logs-count" class="outliner-logs-count">0</span>
+    </button>
   </aside>
 
   <!-- CENTER: full-bleed split — original ⇄ optimized viewports with a draggable divider -->
@@ -122,6 +128,15 @@
         <button type="button" class="window-close" aria-label="Close">×</button>
       </div>
       <div class="window-body window-scroll" id="validation-body"></div>
+    </div>
+
+    <div id="logs-window" class="window window--wide window--glass hidden" role="dialog" aria-label="Logs">
+      <div class="window-titlebar">
+        <span class="window-title">Logs</span>
+        <button type="button" id="logs-clear" class="window-action">Clear</button>
+        <button type="button" class="window-close" aria-label="Close">×</button>
+      </div>
+      <div class="window-body window-scroll" id="logs-body"></div>
     </div>
 
   </section>

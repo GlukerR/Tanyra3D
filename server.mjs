@@ -24,10 +24,18 @@ const THREE_DIR = path.join(__dirname, 'node_modules', 'three');
 
 // Никаких накоплений: на старте чистим прежние загрузки/результаты (только текущая
 // оптимизация хранится на диске — см. purgeSourcesExcept).
-await fsp.rm(UPLOADS_DIR, { recursive: true, force: true }).catch(() => {});
-await fsp.rm(RESULTS_DIR, { recursive: true, force: true }).catch(() => {});
-await fsp.mkdir(UPLOADS_DIR, { recursive: true });
-await fsp.mkdir(RESULTS_DIR, { recursive: true });
+// Чистим СОДЕРЖИМОЕ, а не саму папку: на Windows удалённый каталог остаётся в состоянии
+// pending-delete, и немедленный mkdir того же имени падает (UNKNOWN errno -4094).
+async function ensureEmptyDir(dir) {
+  await fsp.mkdir(dir, { recursive: true });
+  let entries = [];
+  try { entries = await fsp.readdir(dir); } catch { return; }
+  for (const entry of entries) {
+    await fsp.rm(path.join(dir, entry), { recursive: true, force: true }).catch(() => {});
+  }
+}
+await ensureEmptyDir(UPLOADS_DIR);
+await ensureEmptyDir(RESULTS_DIR);
 
 // ---- Ядро (обязательный контракт §4b ARCHITECTURE.md) ----
 const core = await import('./optimize2.mjs');

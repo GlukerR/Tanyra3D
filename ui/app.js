@@ -21,6 +21,13 @@
   const metadataBody = $('metadata-body');
   const validationBody = $('validation-body');
 
+  const logsBar = $('logs-bar');
+  const logsCount = $('logs-count');
+  const logsLast = $('logs-last');
+  const logsWindow = $('logs-window');
+  const logsBody = $('logs-body');
+  const logsClear = $('logs-clear');
+
   const statsBefore = $('stats-before');
   const statsAfter = $('stats-after');
   const deltaBadge = $('delta-badge');
@@ -459,7 +466,8 @@
       const n = (data.validation || []).length;
       btnValidation.textContent = n ? `✓ Validation (${n})` : '✓ Validation';
     } catch (e) {
-      /* инспекция недоступна — кнопки остаются выключенными, сборка всё равно работает */
+      // инспекция недоступна — кнопки выключены, сборка всё равно работает
+      logMessage('warn', 'Inspection unavailable: ' + e.message);
     }
   }
 
@@ -683,6 +691,7 @@
 
   function showGenericError(message) {
     setPhase('Error', 'fail');
+    logMessage('error', message);
     showWindow(failBanner);
     failBanner.querySelector('.fail-title').textContent = 'Could not process the file';
     failBanner.querySelector('.fail-text').textContent = message;
@@ -764,6 +773,7 @@
 
   function renderFail(result, explain) {
     setPhase('File failed validation', 'fail');
+    logMessage('error', 'File not written — the model failed the integrity check.');
     showWindow(failBanner);
     failBanner.querySelector('.fail-title').textContent = 'File not written';
     failBanner.querySelector('.fail-text').textContent =
@@ -987,7 +997,7 @@
     let baseTop = 0;
 
     bar.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('.window-close')) return;
+      if (e.target.closest('.window-close, .window-action')) return;
       dragging = true;
       bar.setPointerCapture(e.pointerId);
       const rect = el.getBoundingClientRect();
@@ -1018,17 +1028,100 @@
     bar.addEventListener('pointercancel', stop);
   }
 
-  // Показать окно, вернув его в центр (сбросив позицию от прошлого перетаскивания).
+  function closeAllWindows(except) {
+    for (const w of document.querySelectorAll('.window')) {
+      if (w !== except) w.classList.add('hidden');
+    }
+  }
+
+  // Показать окно, вернув его в центр. Одновременно открыто не больше одного окна.
   function showWindow(el) {
+    closeAllWindows(el);
     el.style.left = '';
     el.style.top = '';
     el.style.transform = '';
     el.classList.remove('hidden');
   }
 
+  // Любое окно (Metadata/Validation/Logs/ошибка) закрывается кликом мыши ВНЕ окна.
+  // Клик внутри окна (в т.ч. перетаскивание за заголовок) и клик по кнопке-триггеру
+  // окно не закрывают.
+  document.addEventListener('pointerdown', (e) => {
+    if (!document.querySelector('.window:not(.hidden)')) return;
+    if (e.target.closest('.window')) return;
+    if (e.target.closest('[data-window-trigger]')) return;
+    closeAllWindows(null);
+  });
+
+  // ---------------------------------------------------------------
+  // Логи (внизу сайдбара): ошибки и заметные события. Клик по панели
+  // разворачивает отдельное окно логов.
+  // ---------------------------------------------------------------
+
+  const LOG_LIMIT = 200;
+  const logs = [];
+
+  function logMessage(level, text) {
+    if (!text) return;
+    logs.push({ time: new Date(), level, text: String(text) });
+    if (logs.length > LOG_LIMIT) logs.shift();
+    updateLogsBar();
+    if (!logsWindow.classList.contains('hidden')) renderLogsWindow();
+  }
+
+  function updateLogsBar() {
+    logsCount.textContent = String(logs.length);
+    logsBar.classList.toggle('has-error', logs.some((l) => l.level === 'error'));
+    const last = logs[logs.length - 1];
+    logsLast.textContent = last ? last.text : 'no messages';
+    logsLast.title = last ? last.text : '';
+  }
+
+  function renderLogsWindow() {
+    logsBody.innerHTML = '';
+    if (!logs.length) {
+      const p = document.createElement('p');
+      p.className = 'meta-empty';
+      p.textContent = 'No log messages yet.';
+      logsBody.appendChild(p);
+      return;
+    }
+    for (const entry of [...logs].reverse()) { // новые сверху
+      const row = document.createElement('div');
+      row.className = 'log-row log-' + entry.level;
+      const t = document.createElement('span');
+      t.className = 'log-time';
+      t.textContent = entry.time.toTimeString().slice(0, 8);
+      const lv = document.createElement('span');
+      lv.className = 'log-level';
+      lv.textContent = entry.level.toUpperCase();
+      const msg = document.createElement('span');
+      msg.className = 'log-text';
+      msg.textContent = entry.text;
+      row.appendChild(t);
+      row.appendChild(lv);
+      row.appendChild(msg);
+      logsBody.appendChild(row);
+    }
+  }
+
+  logsBar.addEventListener('click', () => {
+    renderLogsWindow();
+    showWindow(logsWindow);
+  });
+
+  logsClear.addEventListener('click', () => {
+    logs.length = 0;
+    updateLogsBar();
+    renderLogsWindow();
+  });
+
+  updateLogsBar();
+
   setupWindow(failBanner);
   setupWindow(metadataWindow);
   setupWindow(validationWindow);
+  setupWindow(logsWindow);
 
   btnMetadata.addEventListener('click', () => {
     renderMetadataWindow();

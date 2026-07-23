@@ -567,6 +567,89 @@ body.resizing { cursor: col-resize; user-select: none; }
 
 .outliner-tool:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* Панель логов внизу сайдбара (клик — разворачивает окно логов) */
+.outliner-logs {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--surface-lowest);
+  border: none;
+  border-top: 1px solid var(--outline-variant);
+  color: var(--outline);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.outliner-logs:hover { background: var(--surface-container-high); color: var(--on-surface-variant); }
+
+.outliner-logs-label {
+  flex-shrink: 0;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.outliner-logs-last {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
+.outliner-logs-count {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-container-highest);
+  color: var(--on-surface-variant);
+}
+
+.outliner-logs.has-error .outliner-logs-count {
+  background: rgba(255, 180, 171, 0.15);
+  color: var(--error);
+}
+
+/* Кнопка-действие в заголовке окна (например Clear в логах) */
+.window-action {
+  flex-shrink: 0;
+  margin-left: auto;
+  margin-right: 4px;
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-sm);
+  color: var(--outline);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.window-action:hover { color: var(--on-surface); border-color: var(--primary-container); }
+
+/* Строки логов */
+.log-row {
+  display: flex;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--outline-variant);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+
+.log-time { flex-shrink: 0; color: var(--outline); }
+.log-level { flex-shrink: 0; width: 44px; color: var(--outline); }
+.log-text { flex: 1; min-width: 0; word-break: break-word; }
+
+.log-error .log-level, .log-error .log-text { color: var(--error); }
+.log-warn .log-level, .log-warn .log-text { color: var(--warning); }
+
 .fail-text {
   margin: 0;
   color: var(--on-surface-variant);
