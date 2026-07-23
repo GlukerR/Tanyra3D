@@ -92,8 +92,10 @@
   let lastBuildSignature = null;
   // Что найдено в исходнике (draco/meshopt/ktx2) — для авто-флажков [Source].
   let lastDetection = null;
-  // Результат /api/inspect (metadata + validation) для окон Metadata/Validation.
+  // Результат /api/inspect (metadata + validation) для ЛЕВОЙ колонки окон — исходная модель.
   let modelInspect = null;
+  // То же самое для ПРАВОЙ колонки — собранная модель (/api/inspect-result после сборки).
+  let resultInspect = null;
   // Режим KTX2: 'uastc' (по умолчанию, безопасный/качественный) либо 'mixed' (ETC1S, макс. сжатие).
   let ktx2Mode = 'uastc';
   // Геометрия — взаимоисключающий выбор: 'none' | 'meshopt' | 'draco'.
@@ -111,6 +113,14 @@
   // Состояние кнопки запуска. Всё — opt-in: без выбранного флажка оптимизировать нечего,
   // кнопка не активна. С файлом и ≥1 флажком: до сборки — активна; после сборки — активна
   // только если настройки изменились (иначе пересборка дала бы тот же результат).
+  // Пользователь тронул флажок/радио — состояние кнопки + запись в логи, чтобы по логам
+  // было видно, с какими настройками собиралась каждая версия.
+  function onOptionChanged() {
+    updateRunButtonState();
+    const feats = getSelectedFeatures();
+    logMessage('debug', 'Options: ' + (feats.length ? feats.join(', ') : 'none'));
+  }
+
   function updateRunButtonState() {
     if (!selectedFile || getSelectedFeatures().length === 0) {
       runBtn.disabled = true;
@@ -193,6 +203,7 @@
     updatePlatformDescription();
     await loadExtensions(platformSelect.value);
     updateRunButtonState();
+    logMessage('info', 'Target platform: ' + platformSelect.value);
   });
 
   // ---------------------------------------------------------------
@@ -282,7 +293,7 @@
       radio.checked = (o.v === geometryChoice);
       radio.addEventListener('change', () => {
         if (radio.checked) geometryChoice = o.v;
-        updateRunButtonState();
+        onOptionChanged();
       });
       const text = document.createElement('span');
       text.className = 'opt-radio-text';
@@ -319,7 +330,7 @@
     checkbox.className = 'ext-checkbox';
     checkbox.value = ext.id;
     checkbox.id = `ext-${ext.id}`;
-    checkbox.addEventListener('change', updateRunButtonState);
+    checkbox.addEventListener('change', onOptionChanged);
 
     const titleSpan = document.createElement('span');
     titleSpan.textContent = ext.title || ext.id;
@@ -381,6 +392,7 @@
           ktx2Mode = o.v;
           summary.querySelector('.ktx2-mode-current').textContent = o.short;
           updateRunButtonState();
+          logMessage('debug', 'KTX2 mode: ' + o.short);
         });
         optLabel.appendChild(radio);
         optLabel.appendChild(document.createTextNode(' ' + o.label));
@@ -423,6 +435,7 @@
     if (!file) return;
     if (!/\.glb$/i.test(file.name)) {
       chosenFileLabel.textContent = 'A file with a .glb extension is required';
+      logMessage('warn', `Rejected "${file.name}" — only .glb files are supported`);
       selectedFile = null;
       runBtn.disabled = true;
       return;
@@ -430,6 +443,7 @@
     selectedFile = file;
     chosenFileLabel.textContent = '';
     runBtn.disabled = false;
+    logMessage('info', `Model loaded: ${file.name} (${fmtBytes(file.size)})`);
     renderModelList(file);
     if (stageHint) stageHint.classList.add('hidden');
     // Новый файл → сбросить прежний результат и серверный исходник (будет перезалит).
@@ -440,6 +454,8 @@
       renderOriginalStats(file.size, info && info.stats);
       // Определяем, что уже сжато в исходнике → авто-включаем флажки с бейджем [Source].
       lastDetection = (info && info.detected) || null;
+      const found = Object.keys(lastDetection || {}).filter((k) => lastDetection[k]);
+      if (found.length) logMessage('info', 'Compression found in source: ' + found.join(', '));
       applyDetection();
     }
     // Инспекция на сервере (metadata + validation) + регистрация исходника, чтобы
@@ -451,6 +467,7 @@
     modelInspect = null;
     btnMetadata.disabled = true;
     btnValidation.disabled = true;
+    updateInspectButtons();
     try {
       const res = await fetch('/api/inspect', {
         method: 'POST',
@@ -460,18 +477,64 @@
       // Пользователь мог выбрать другой файл, пока этот запрос летел — не затираем
       // его данные устаревшим ответом.
       if (selectedFile !== file) return;
-      if (!res.ok) return;
+      if (!res.ok) {
+        logMessage('warn', `Inspection failed (${res.status}) — Metadata and Validation are unavailable`);
+        return;
+      }
       const data = await res.json();
       if (selectedFile !== file) return;
       modelInspect = data;
       if (data.sourceId) currentSourceId = data.sourceId; // сборка переиспользует исходник
       btnMetadata.disabled = false;
       btnValidation.disabled = false;
+      updateInspectButtons();
       const n = (data.validation || []).length;
-      btnValidation.textContent = n ? `✓ Validation (${n})` : '✓ Validation';
+      logMessage('info', n
+        ? `Source inspected — ${n} validation issue${n === 1 ? '' : 's'}`
+        : 'Source inspected — no validation issues');
     } catch (e) {
       // инспекция недоступна — кнопки выключены, сборка всё равно работает
       logMessage('warn', 'Inspection unavailable: ' + e.message);
+    }
+  }
+
+  // Счётчик на кнопке Validation: пока собранной модели нет — число проблем исходника;
+  // после сборки — «было → стало», чтобы разница была видна не открывая окно.
+  function updateInspectButtons() {
+    if (!modelInspect) { btnValidation.textContent = '✓ Validation'; return; }
+    const src = (modelInspect.validation || []).length;
+    const dst = resultInspect ? (resultInspect.validation || []).length : null;
+    // Обе стороны чистые — не мусорим нулями в подписи.
+    if (!src && !dst) { btnValidation.textContent = '✓ Validation'; return; }
+    btnValidation.textContent = dst === null ? `✓ Validation (${src})` : `✓ Validation (${src} → ${dst})`;
+  }
+
+  // Инспекция собранного файла для правой колонки окон. Тот же формат, что и у исходника,
+  // поэтому окна рисуются одной и той же функцией на два столбца.
+  async function inspectResult(downloadUrl) {
+    resultInspect = null;
+    updateInspectButtons();
+    if (!downloadUrl) return;
+    const token = runToken; // ответ устарел, если за это время была новая сборка
+    try {
+      const res = await fetch(downloadUrl.replace('/api/download', '/api/inspect-result'));
+      if (token !== runToken) return;
+      if (!res.ok) {
+        logMessage('warn', `Could not inspect the optimized model (${res.status})`);
+        return;
+      }
+      const data = await res.json();
+      if (token !== runToken) return;
+      resultInspect = data;
+      updateInspectButtons();
+      if (!metadataWindow.classList.contains('hidden')) renderMetadataWindow();
+      if (!validationWindow.classList.contains('hidden')) renderValidationWindow();
+      const n = (data.validation || []).length;
+      logMessage('info', n
+        ? `Optimized model inspected — ${n} validation issue${n === 1 ? '' : 's'}`
+        : 'Optimized model inspected — no validation issues');
+    } catch (e) {
+      logMessage('warn', 'Could not inspect the optimized model: ' + e.message);
     }
   }
 
@@ -546,6 +609,8 @@
   function clearResults() {
     currentSourceId = null;
     lastBuildSignature = null; // новая модель ещё не собиралась — первая сборка разрешена
+    resultInspect = null; // окна инспекции снова показывают только исходник
+    updateInspectButtons();
     downloadBtn.classList.add('hidden');
     exportJsonBtn.classList.add('hidden');
     irreversibleWarning.classList.add('hidden');
@@ -609,8 +674,10 @@
   function onProgressEvent(e) {
     if (e.type === 'phase') {
       setPhase(`Phase ${e.phase}: ${e.name}`, 'busy');
+      logMessage('debug', `Phase ${e.phase}: ${e.name}`);
     } else if (e.type === 'rule') {
       setPhase(`Rule: ${e.title}`, 'busy');
+      logMessage('debug', `Rule: ${e.title}`);
     }
   }
 
@@ -656,6 +723,8 @@
 
     runBtn.disabled = true;
     setPhase(currentSourceId ? 'Optimizing…' : 'Uploading file…', 'busy');
+    const feats = getSelectedFeatures();
+    logMessage('info', `Build started — platform ${platformSelect.value}, options: ${feats.join(', ') || 'none'}`);
 
     const jobId = (window.crypto && window.crypto.randomUUID)
       ? window.crypto.randomUUID()
@@ -724,6 +793,15 @@
     setPhase('Ready', null);
     failBanner.classList.add('hidden');
 
+    const m = result.metrics;
+    if (m && m.before && m.after) {
+      logMessage('info', `Build finished — ${fmtBytes(m.before.fileBytes)} → ${fmtBytes(m.after.fileBytes)}`
+        + ` (${pctText(m.before.fileBytes, m.after.fileBytes)})`);
+    } else {
+      logMessage('info', 'Build finished');
+    }
+    for (const a of result.applied || []) logMessage('debug', 'Applied: ' + a.text);
+
     renderComparison(result.metrics);
     renderSummary(explain);
     renderIssues(result.findings);
@@ -754,10 +832,14 @@
       exportJsonBtn.href = freshUrl.replace('/api/download', '/api/export-json');
       exportJsonBtn.classList.remove('hidden');
       renderIrreversibleWarning(result.applied);
+      // Metadata/Validation собранной модели — правая колонка тех же окон.
+      inspectResult(freshUrl);
     } else {
       downloadBtn.classList.add('hidden');
       exportJsonBtn.classList.add('hidden');
       irreversibleWarning.classList.add('hidden');
+      resultInspect = null;
+      updateInspectButtons();
     }
   }
 
@@ -794,6 +876,8 @@
     downloadBtn.classList.add('hidden');
     exportJsonBtn.classList.add('hidden');
     irreversibleWarning.classList.add('hidden');
+    resultInspect = null; // собранного файла нет — правая колонка окон пуста
+    updateInspectButtons();
     // Кнопку оставляем; сборка не прошла — разрешаем повтор даже без смены настроек.
     lastBuildSignature = null;
     // Кнопку OPTIMIZE оставляем — пользователь может изменить флажки и повторить.
@@ -1062,7 +1146,9 @@
   // разворачивает отдельное окно логов.
   // ---------------------------------------------------------------
 
-  const LOG_LIMIT = 200;
+  // Одна сборка добавляет десятки debug-строк (фазы + правила) — держим запас, чтобы
+  // ход предыдущих сборок не вытеснялся из окна логов сразу же.
+  const LOG_LIMIT = 500;
   const logs = [];
 
   function logMessage(level, text) {
@@ -1112,6 +1198,13 @@
   logsBar.addEventListener('click', () => {
     renderLogsWindow();
     showWindow(logsWindow);
+  });
+
+  downloadBtn.addEventListener('click', () => {
+    logMessage('info', 'Downloaded ' + (downloadBtn.getAttribute('download') || 'model.glb'));
+  });
+  exportJsonBtn.addEventListener('click', () => {
+    logMessage('info', 'Exported result as glTF JSON');
   });
 
   logsClear.addEventListener('click', () => {
@@ -1197,17 +1290,44 @@
     return wrap;
   }
 
-  function renderMetadataWindow() {
-    metadataBody.innerHTML = '';
-    if (!modelInspect) { metadataBody.textContent = 'No metadata.'; return; }
-    const { asset = {}, extensions = [], metadata = {} } = modelInspect;
+  // Оба окна инспекции делятся пополам: слева исходная модель, справа собранная. Формат
+  // данных у обеих сторон один (inspectFile), поэтому столбец рисуется одной функцией.
+  function splitPanes(buildPane) {
+    const wrap = document.createElement('div');
+    wrap.className = 'window-split';
+    wrap.appendChild(inspectColumn('Original', modelInspect, buildPane, 'No model loaded yet.'));
+    wrap.appendChild(inspectColumn('Optimized', resultInspect, buildPane,
+      'No optimized model yet — run a build to compare.'));
+    return wrap;
+  }
+
+  function inspectColumn(title, data, buildPane, emptyText) {
+    const col = document.createElement('div');
+    col.className = 'split-col';
+    const h = document.createElement('div');
+    h.className = 'split-col-title';
+    h.textContent = title;
+    col.appendChild(h);
+    if (!data) {
+      const p = document.createElement('p');
+      p.className = 'meta-empty';
+      p.textContent = emptyText;
+      col.appendChild(p);
+      return col;
+    }
+    buildPane(col, data);
+    return col;
+  }
+
+  function buildMetadataPane(col, data) {
+    const { asset = {}, extensions: exts = [], metadata = {} } = data;
 
     const head = document.createElement('div');
     head.className = 'meta-head';
     const pairs = [
       ['Version', asset.version || '—'],
       ['Generator', asset.generator || '—'],
-      ['Extensions', extensions.length ? extensions.join(', ') : 'None'],
+      ['Extensions', exts.length ? exts.join(', ') : 'None'],
     ];
     for (const [k, v] of pairs) {
       const row = document.createElement('div');
@@ -1216,7 +1336,7 @@
       row.querySelector('.meta-v').textContent = v;
       head.appendChild(row);
     }
-    metadataBody.appendChild(head);
+    col.appendChild(head);
 
     const sections = [
       metaSection('Scenes', metadata.scenes && metadata.scenes.properties),
@@ -1225,23 +1345,22 @@
       metaSection('Textures', metadata.textures && metadata.textures.properties, ['size', 'gpuSize']),
       metaSection('Animations', metadata.animations && metadata.animations.properties, ['size']),
     ].filter(Boolean);
-    for (const s of sections) metadataBody.appendChild(s);
+    for (const s of sections) col.appendChild(s);
     if (!sections.length) {
       const p = document.createElement('p');
       p.className = 'meta-empty';
       p.textContent = 'No scene contents reported.';
-      metadataBody.appendChild(p);
+      col.appendChild(p);
     }
   }
 
-  function renderValidationWindow() {
-    validationBody.innerHTML = '';
-    const issues = (modelInspect && modelInspect.validation) || [];
+  function buildValidationPane(col, data) {
+    const issues = data.validation || [];
     if (!issues.length) {
       const p = document.createElement('p');
       p.className = 'meta-empty';
       p.textContent = 'No validation issues — the file is clean.';
-      validationBody.appendChild(p);
+      col.appendChild(p);
       return;
     }
     const rows = issues.map((m) => ({
@@ -1257,7 +1376,17 @@
     const trs = table.querySelectorAll('tbody tr');
     issues.forEach((m, i) => { if (trs[i]) trs[i].classList.add(`sev-${m.severity}`); });
     scroll.appendChild(table);
-    validationBody.appendChild(scroll);
+    col.appendChild(scroll);
+  }
+
+  function renderMetadataWindow() {
+    metadataBody.innerHTML = '';
+    metadataBody.appendChild(splitPanes(buildMetadataPane));
+  }
+
+  function renderValidationWindow() {
+    validationBody.innerHTML = '';
+    validationBody.appendChild(splitPanes(buildValidationPane));
   }
 
   // ---------------------------------------------------------------

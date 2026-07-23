@@ -12,7 +12,9 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = 3210;
+// 3210 по умолчанию; переопределяется PORT — чтобы можно было поднять второй экземпляр
+// (например, проверить правки, пока на 3210 работает уже запущенный).
+const PORT = Number(process.env.PORT) || 3210;
 
 const UI_DIR = path.join(__dirname, 'ui');
 const UPLOADS_DIR = path.join(__dirname, '_web', 'uploads');
@@ -428,6 +430,28 @@ const server = http.createServer(async (req, res) => {
       if (jobId) sendSSE(jobId, { type: 'done', status: result.status });
 
       sendJSON(res, 200, { result, explain, plan, advancedFeatures, downloadUrl, sourceId });
+      return;
+    }
+
+    // --- инспекция СОБРАННОГО файла (Metadata + Validation для правой колонки окон) ---
+    // Тот же inspectFile(), что и для исходника, но по готовому результату в RESULTS_DIR;
+    // путь приходит тем же параметром f, что у download/export-json (safeJoin — защита от traversal).
+    if (req.method === 'GET' && pathname === '/api/inspect-result') {
+      const f = url.searchParams.get('f');
+      const filePath = f && safeJoin(RESULTS_DIR, f);
+      if (!filePath || !fs.existsSync(filePath)) {
+        sendJSON(res, 404, { error: 'Result file not found' });
+        return;
+      }
+      let data;
+      try {
+        data = await inspectFile(filePath);
+      } catch (e) {
+        console.error('[inspect-result] failed:', e);
+        sendJSON(res, 500, { error: 'Inspection failed: ' + e.message });
+        return;
+      }
+      sendJSON(res, 200, data);
       return;
     }
 

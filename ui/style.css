@@ -463,10 +463,14 @@ body.resizing { cursor: col-resize; user-select: none; }
 }
 
 /* Широкие полупрозрачные окна инспекции (Metadata / Validation) поверх вьюпортов */
+/* Metadata/Validation/Logs делятся на две колонки (исходник ⇄ результат), поэтому меряются
+   от ЭКРАНА, а не от центральной колонки: иначе на два столбца остаётся ~300px и таблицы
+   не читаются. position:fixed — перетаскивание это учитывает (offsetParent = null → координаты
+   вьюпорта, см. setupWindow в app.js). */
 .window--wide {
-  width: 94%;
-  max-width: 1200px;
-  max-height: 84%;
+  position: fixed;
+  width: min(94vw, 1500px);
+  max-height: 84vh;
 }
 
 .window--glass {
@@ -536,6 +540,28 @@ body.resizing { cursor: col-resize; user-select: none; }
 .meta-table tr.sev-1 td { color: var(--warning); }
 
 .meta-empty { color: var(--outline); font-size: 12px; }
+
+/* Окна инспекции пополам: слева исходная модель, справа собранная */
+.window-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 22px;
+  align-items: start;
+}
+
+.split-col { min-width: 0; }
+.split-col + .split-col { border-left: 1px solid var(--outline-variant); padding-left: 22px; }
+
+.split-col-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--outline-variant);
+}
 
 /* Кнопки инспекции в левом сайдбаре */
 .outliner-tools {
@@ -649,6 +675,8 @@ body.resizing { cursor: col-resize; user-select: none; }
 
 .log-error .log-level, .log-error .log-text { color: var(--error); }
 .log-warn .log-level, .log-warn .log-text { color: var(--warning); }
+/* debug — ход сборки (фазы/правила/переключение опций): приглушён, чтобы не спорить с info */
+.log-debug .log-level, .log-debug .log-text { color: var(--outline); }
 
 .fail-text {
   margin: 0;
