@@ -86,7 +86,12 @@
   // Идентификатор загруженного исходника на сервере: пока он есть, повторная
   // оптимизация той же модели идёт без перезаливки файла (меняем только флажки).
   let currentSourceId = null;
-  let runToken = 0; // анти-кэш для перезаписываемого результата (вьюпорт + скачивание)
+  // Анти-кэш для перезаписываемого результата (вьюпорт + скачивание) и одновременно
+  // токен, по которому inspectResult() отличает свежий ответ от устаревшего — бампается
+  // при каждой успешной сборке (bust()) и везде, где resultInspect сбрасывается вручную
+  // (новый файл, fail), иначе поздний ответ старого запроса перезаписал бы уже очищенный
+  // resultInspect чужими данными.
+  let runToken = 0;
   // Подпись настроек (платформа + флажки) последней УСПЕШНОЙ сборки. Пока настройки не
   // менялись, «Rebuild with New Settings» неактивна — пересборка дала бы тот же результат.
   let lastBuildSignature = null;
@@ -110,9 +115,6 @@
     return platformSelect.value + '|' + feats.join(',') + mode;
   }
 
-  // Состояние кнопки запуска. Всё — opt-in: без выбранного флажка оптимизировать нечего,
-  // кнопка не активна. С файлом и ≥1 флажком: до сборки — активна; после сборки — активна
-  // только если настройки изменились (иначе пересборка дала бы тот же результат).
   // Пользователь тронул флажок/радио — состояние кнопки + запись в логи, чтобы по логам
   // было видно, с какими настройками собиралась каждая версия.
   function onOptionChanged() {
@@ -121,6 +123,9 @@
     logMessage('debug', 'Options: ' + (feats.length ? feats.join(', ') : 'none'));
   }
 
+  // Состояние кнопки запуска. Всё — opt-in: без выбранного флажка оптимизировать нечего,
+  // кнопка не активна. С файлом и ≥1 флажком: до сборки — активна; после сборки — активна
+  // только если настройки изменились (иначе пересборка дала бы тот же результат).
   function updateRunButtonState() {
     if (!selectedFile || getSelectedFeatures().length === 0) {
       runBtn.disabled = true;
@@ -610,6 +615,7 @@
     currentSourceId = null;
     lastBuildSignature = null; // новая модель ещё не собиралась — первая сборка разрешена
     resultInspect = null; // окна инспекции снова показывают только исходник
+    runToken++; // инвалидирует inspectResult() прежней модели, если он ещё летит
     updateInspectButtons();
     downloadBtn.classList.add('hidden');
     exportJsonBtn.classList.add('hidden');
@@ -793,6 +799,9 @@
     setPhase('Ready', null);
     failBanner.classList.add('hidden');
 
+    // Применённые правила — раньше итога, чтобы в свёрнутой панели логов (она показывает
+    // последнее сообщение) оставался итог сборки, а не случайное последнее правило.
+    for (const a of result.applied || []) logMessage('debug', 'Applied: ' + a.text);
     const m = result.metrics;
     if (m && m.before && m.after) {
       logMessage('info', `Build finished — ${fmtBytes(m.before.fileBytes)} → ${fmtBytes(m.after.fileBytes)}`
@@ -800,7 +809,6 @@
     } else {
       logMessage('info', 'Build finished');
     }
-    for (const a of result.applied || []) logMessage('debug', 'Applied: ' + a.text);
 
     renderComparison(result.metrics);
     renderSummary(explain);
@@ -839,6 +847,7 @@
       exportJsonBtn.classList.add('hidden');
       irreversibleWarning.classList.add('hidden');
       resultInspect = null;
+      runToken++; // инвалидирует inspectResult() предыдущей сборки, если он ещё летит
       updateInspectButtons();
     }
   }
@@ -877,6 +886,7 @@
     exportJsonBtn.classList.add('hidden');
     irreversibleWarning.classList.add('hidden');
     resultInspect = null; // собранного файла нет — правая колонка окон пуста
+    runToken++; // инвалидирует inspectResult() предыдущей (успешной) сборки, если он ещё летит
     updateInspectButtons();
     // Кнопку оставляем; сборка не прошла — разрешаем повтор даже без смены настроек.
     lastBuildSignature = null;
