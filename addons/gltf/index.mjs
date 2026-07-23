@@ -363,13 +363,20 @@ function explanationFor(message, refs, json, unsupported) {
   return null;
 }
 
+// Имя расширения из текста «Cannot validate an extension ... : '<name>'.» (см. ISSUES.md
+// валидатора — формат сообщения с именем в кавычках стабилен для UNSUPPORTED_EXTENSION).
+function unsupportedExtName(message) {
+  const hit = /'([^']+)'/.exec(message.message || '');
+  return hit ? hit[1] : null;
+}
+
 function explainValidatorBlindSpots(json, messages) {
   if (!json || !messages.length) return messages;
   const unsupported = new Set();
   for (const m of messages) {
     if (m.code !== 'UNSUPPORTED_EXTENSION') continue;
-    const name = /'([^']+)'/.exec(m.message || '');
-    if (name) unsupported.add(name[1]);
+    const name = unsupportedExtName(m);
+    if (name) unsupported.add(name);
   }
   if (!unsupported.size) return messages;
 
@@ -377,8 +384,8 @@ function explainValidatorBlindSpots(json, messages) {
   return messages.map((m) => {
     // сама строка «расширение не поддержано» — не дефект, а объяснение остальных; в ту же группу
     if (m.code === 'UNSUPPORTED_EXTENSION') {
-      const name = /'([^']+)'/.exec(m.message || '');
-      return name ? { ...m, explainedBy: name[1] } : m;
+      const name = unsupportedExtName(m);
+      return name ? { ...m, explainedBy: name } : m;
     }
     const by = explanationFor(m, refs, json, unsupported);
     return by ? { ...m, explainedBy: by } : m;
