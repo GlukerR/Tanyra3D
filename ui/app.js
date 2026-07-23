@@ -457,8 +457,12 @@
         headers: { 'X-Filename': encodeURIComponent(file.name), 'Content-Type': 'application/octet-stream' },
         body: file,
       });
+      // Пользователь мог выбрать другой файл, пока этот запрос летел — не затираем
+      // его данные устаревшим ответом.
+      if (selectedFile !== file) return;
       if (!res.ok) return;
       const data = await res.json();
+      if (selectedFile !== file) return;
       modelInspect = data;
       if (data.sourceId) currentSourceId = data.sourceId; // сборка переиспользует исходник
       btnMetadata.disabled = false;

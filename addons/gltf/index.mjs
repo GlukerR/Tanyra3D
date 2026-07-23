@@ -175,7 +175,13 @@ async function validate({ ctx, before, after, glbBytes, src, result, advancedPla
     const ok = [0, 1, 2].every((i) =>
       Math.abs(before.bounds.min[i] - after.bounds.min[i]) <= eps && Math.abs(before.bounds.max[i] - after.bounds.max[i]) <= eps);
     if (ok) vp('pass', 'bounding box within epsilon');
-    else vp('fail', 'bounding box changed — model shifted or collapsed');
+    // @gltf-transform/core getBounds() не умеет EXT_mesh_gpu_instancing (не учитывает
+    // per-instance трансформы) — после реального инстансинга даёт заведомо неверные
+    // числа, хотя рендер не меняется. Не блокируем запись в этом единственном известном
+    // случае — только информируем; иначе (без инстансинга) расхождение остаётся fail.
+    else if (result.applied.some((a) => a.ruleId === 'scene/instance')) {
+      vp('info', 'bounding box check skipped after GPU instancing — getBounds() does not support EXT_mesh_gpu_instancing');
+    } else vp('fail', 'bounding box changed — model shifted or collapsed');
   } else {
     vp('info', 'bounding box not computed (getBounds unavailable or no scene)');
   }

@@ -8,6 +8,20 @@ import * as fns from '@gltf-transform/functions';
 // Треугольники, draw calls и ВЕРШИНЫ считаем ПО УЗЛАМ СЦЕНЫ, а не по объектам-мешам:
 // dedup схлопывает одинаковые меши в «один меш на многих узлах», flatten разворачивает
 // обратно — счёт по мешам прыгает, хотя рендер не меняется. Счёт по сцене инвариантен.
+//
+// GPU-инстансинг (EXT_mesh_gpu_instancing, fns.instance()) сворачивает N узлов, ссылавшихся
+// на один меш, в ОДИН узел + расширение с N наборами трансформов — без поправки счёт
+// треугольников/вершин упал бы в N раз (узел обходится один раз), хотя рисуется то же
+// самое количество экземпляров. drawCalls НЕ умножаем — в этом и есть цель инстансинга
+// (один draw call на батч, сколько бы экземпляров в нём ни было).
+function instanceCountOf(node) {
+  const ext = typeof node.getExtension === 'function' ? node.getExtension('EXT_mesh_gpu_instancing') : null;
+  if (!ext) return 1;
+  const sem = ext.listSemantics && ext.listSemantics()[0];
+  const attr = sem && ext.getAttribute(sem);
+  return (attr && attr.getCount()) || 1;
+}
+
 export function sceneGeometry(doc) {
   let drawCalls = 0;
   let triangles = 0;
@@ -16,13 +30,14 @@ export function sceneGeometry(doc) {
     scene.traverse((node) => {
       const mesh = node.getMesh();
       if (!mesh) return;
+      const instances = instanceCountOf(node);
       for (const prim of mesh.listPrimitives()) {
         drawCalls += 1;
         const pos = prim.getAttribute('POSITION');
-        if (pos) vertices += pos.getCount();
+        if (pos) vertices += pos.getCount() * instances;
         if (prim.getMode() === 4) {
           const idx = prim.getIndices();
-          triangles += Math.floor((idx ? idx.getCount() : pos ? pos.getCount() : 0) / 3);
+          triangles += Math.floor((idx ? idx.getCount() : pos ? pos.getCount() : 0) / 3) * instances;
         }
       }
     });

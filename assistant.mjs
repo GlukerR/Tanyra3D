@@ -197,8 +197,7 @@ export const listExtensions = getAvailableExtensions;
 // ----------------------------------------------------------------------------
 
 export function explainResult(runResult, platformId) {
-  const profile = loadProfile(platformId);
-  const budgets = profile.budgets || {};
+  loadProfile(platformId); // валидирует platformId (throws на неизвестном) — контракт §4c; budgets больше не нужны здесь
 
   const rr = runResult || {};
   const before = rr.metrics && rr.metrics.before;

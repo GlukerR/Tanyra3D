@@ -100,6 +100,8 @@
  * @property {(doc: any) => string[]} stripInputCompression  Снять входное сжатие; вернуть имена снятых кодеков.
  * @property {(args: ValidateArgs) => void} validate  Наполнить result.validation (специфично для формата).
  * @property {(args: ReportArgs) => string} writeReport  Отрендерить и записать .report.md; вернуть имя файла.
+ * @property {(srcPath: string) => Promise<Object>} [inspect]  Опционально: метаданные + валидация без оптимизации (для inspectFile()).
+ * @property {(srcPath: string) => Promise<Object>} [toJSON]   Опционально: самодостаточный JSON-экспорт (для exportJson()).
  */
 
 /**

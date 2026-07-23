@@ -316,7 +316,7 @@ export const RULES = [
       await ctx.document.transform(fns.resample());
       const after = bytes();
       if (after < before) return { details: [`Animation keyframes resampled — accessor data ${before} → ${after} bytes`] };
-      return { details: ['Animation keyframes already minimal'] };
+      return { skipped: ['no redundant keyframes to resample — animation already minimal'] };
     },
   },
 
