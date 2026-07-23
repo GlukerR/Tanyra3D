@@ -73,8 +73,10 @@
   const validationList = $('validation-list');
 
   const runBtn = $('run-btn');
-  const downloadBtn = $('download-btn');
-  const exportJsonBtn = $('export-json-btn');
+  const downloadBtn = $('download-btn');       // открывает окно экспорта
+  const exportWindow = $('export-window');
+  const exportName = $('export-name');
+  const exportSave = $('export-save');
   const irreversibleWarning = $('irreversible-warning');
   const irreversibleList = $('irreversible-list');
 
@@ -101,6 +103,10 @@
   let modelInspect = null;
   // То же самое для ПРАВОЙ колонки — собранная модель (/api/inspect-result после сборки).
   let resultInspect = null;
+  // URL готового результата (GLB) и предлагаемое имя без расширения — для окна экспорта.
+  // Формат (glb/json) и расширение выбираются в окне; экспортёры добавляются там же.
+  let resultDownloadUrl = null;
+  let resultExportBase = 'model';
   // Режим KTX2: 'uastc' (по умолчанию, безопасный/качественный) либо 'mixed' (ETC1S, макс. сжатие).
   let ktx2Mode = 'uastc';
   // Геометрия — взаимоисключающий выбор: 'none' | 'meshopt' | 'draco'.
@@ -439,8 +445,8 @@
   async function handleFile(file) {
     if (!file) return;
     if (!/\.glb$/i.test(file.name)) {
-      chosenFileLabel.textContent = 'A file with a .glb extension is required';
-      logMessage('warn', `Rejected "${file.name}" — only .glb files are supported`);
+      chosenFileLabel.textContent = 'Only .glb is supported for now';
+      logMessage('warn', `Rejected "${file.name}" — only .glb is supported for now`);
       selectedFile = null;
       runBtn.disabled = true;
       return;
@@ -620,8 +626,9 @@
     resultInspect = null; // окна инспекции снова показывают только исходник
     runToken++; // инвалидирует inspectResult() прежней модели, если он ещё летит
     updateInspectButtons();
+    resultDownloadUrl = null;
     downloadBtn.classList.add('hidden');
-    exportJsonBtn.classList.add('hidden');
+    exportWindow.classList.add('hidden');
     irreversibleWarning.classList.add('hidden');
     failBanner.classList.add('hidden');
     runBtn.textContent = 'Build Optimized Model';
@@ -835,19 +842,16 @@
     if (window.OptiViewer) window.OptiViewer.loadOptimized(freshUrl);
 
     if (downloadUrl) {
+      resultDownloadUrl = freshUrl;
+      const dstName = result.file && result.file.dst ? result.file.dst.split(/[\\/]/).pop() : 'model.glb';
+      resultExportBase = dstName.replace(/\.[^.]+$/, '') || 'model'; // имя без расширения — предзаполнить окно
       downloadBtn.classList.remove('hidden');
-      downloadBtn.href = freshUrl;
-      const name = result.file && result.file.dst ? result.file.dst.split(/[\\/]/).pop() : 'model.glb';
-      downloadBtn.setAttribute('download', name);
-      // Экспорт результата как самодостаточного glTF JSON (как «Export → JSON» на gltf.report).
-      exportJsonBtn.href = freshUrl.replace('/api/download', '/api/export-json');
-      exportJsonBtn.classList.remove('hidden');
       renderIrreversibleWarning(result.applied);
       // Metadata/Validation собранной модели — правая колонка тех же окон.
       inspectResult(freshUrl);
     } else {
+      resultDownloadUrl = null;
       downloadBtn.classList.add('hidden');
-      exportJsonBtn.classList.add('hidden');
       irreversibleWarning.classList.add('hidden');
       resultInspect = null;
       runToken++; // инвалидирует inspectResult() предыдущей сборки, если он ещё летит
@@ -885,8 +889,9 @@
       failValidation.appendChild(row);
     }
 
+    resultDownloadUrl = null;
     downloadBtn.classList.add('hidden');
-    exportJsonBtn.classList.add('hidden');
+    exportWindow.classList.add('hidden');
     irreversibleWarning.classList.add('hidden');
     resultInspect = null; // собранного файла нет — правая колонка окон пуста
     runToken++; // инвалидирует inspectResult() предыдущей (успешной) сборки, если он ещё летит
@@ -1213,11 +1218,44 @@
     showWindow(logsWindow);
   });
 
+  // Одна кнопка Download Result → окно экспорта (формат + имя). Новые форматы = новые
+  // пункты радио, поведение кнопки и обработчик Save не меняются.
   downloadBtn.addEventListener('click', () => {
-    logMessage('info', 'Downloaded ' + (downloadBtn.getAttribute('download') || 'model.glb'));
+    if (!resultDownloadUrl) return;
+    exportName.value = resultExportBase;
+    showWindow(exportWindow);
+    exportName.focus();
+    exportName.select();
   });
-  exportJsonBtn.addEventListener('click', () => {
-    logMessage('info', 'Exported result as glTF JSON');
+
+  // Каталог форматов экспорта: формат → { расширение, как построить URL из resultDownloadUrl }.
+  // Добавить экспортёр = добавить строку сюда и пункт радио в index.html; больше ничего.
+  const EXPORT_FORMATS = {
+    glb: { ext: '.glb', url: (base) => base },
+    json: { ext: '.gltf', url: (base) => base.replace('/api/download', '/api/export-json') },
+  };
+
+  function currentExportFormat() {
+    const r = exportWindow.querySelector('input[name="export-format"]:checked');
+    return (r && r.value) || 'glb';
+  }
+
+  exportSave.addEventListener('click', () => {
+    if (!resultDownloadUrl) return;
+    const fmt = EXPORT_FORMATS[currentExportFormat()] || EXPORT_FORMATS.glb;
+    const base = (exportName.value || resultExportBase).trim() || 'model';
+    const fileName = base.replace(/\.[^.]+$/, '') + fmt.ext;
+    // ?name= → сервер ставит его в Content-Disposition (см. chosenExportName); плюс атрибут
+    // download как подстраховка. Место сохранения в браузере не выбирается — папка загрузок.
+    const url = fmt.url(resultDownloadUrl) + '&name=' + encodeURIComponent(fileName);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    exportWindow.classList.add('hidden');
+    logMessage('info', `Exported ${fileName} (${fmt === EXPORT_FORMATS.json ? 'glTF JSON' : 'GLB'})`);
   });
 
   logsClear.addEventListener('click', () => {
@@ -1232,6 +1270,7 @@
   setupWindow(metadataWindow);
   setupWindow(validationWindow);
   setupWindow(logsWindow);
+  setupWindow(exportWindow);
 
   btnMetadata.addEventListener('click', () => {
     renderMetadataWindow();

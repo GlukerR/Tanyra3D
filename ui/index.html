@@ -42,8 +42,8 @@
       <div id="dropzone" class="dropzone">
         <input type="file" id="file-input" accept=".glb" hidden>
         <div class="dropzone-icon">⤓</div>
-        <p class="dropzone-title">Drop a .glb file</p>
-        <p class="dropzone-sub">or click +</p>
+        <p class="dropzone-title">Drop a 3D model here</p>
+        <p class="dropzone-sub">or click + · .glb for now</p>
       </div>
       <p id="chosen-file" class="chosen-file"></p>
       <ul id="model-list" class="model-list"></ul>
@@ -139,6 +139,28 @@
       <div class="window-body window-scroll" id="logs-body"></div>
     </div>
 
+    <!-- Единое окно экспорта (одна кнопка Download Result → выбор формата и имени).
+         Новые экспортёры добавляются пунктами радио, интерфейс не меняется. -->
+    <div id="export-window" class="window window--glass hidden" role="dialog" aria-label="Export result">
+      <div class="window-titlebar">
+        <span class="window-title">Export result</span>
+        <button type="button" class="window-close" aria-label="Close">×</button>
+      </div>
+      <div class="window-body">
+        <label class="export-field">
+          <span class="export-label">File name</span>
+          <input type="text" id="export-name" class="export-name" autocomplete="off" spellcheck="false">
+        </label>
+        <div class="export-field">
+          <span class="export-label">Format</span>
+          <label class="export-format"><input type="radio" name="export-format" value="glb" checked> <b>GLB</b> — single binary, ready for the web</label>
+          <label class="export-format"><input type="radio" name="export-format" value="json"> <b>glTF JSON</b> — self-contained .gltf with embedded data</label>
+        </div>
+        <p class="export-hint">Saves to your browser's downloads folder.</p>
+        <button type="button" id="export-save" class="btn-primary">Save</button>
+      </div>
+    </div>
+
   </section>
 
   <!-- RIGHT INSPECTOR -->
@@ -212,8 +234,7 @@
         <ul id="irreversible-list" class="irreversible-list"></ul>
       </div>
       <button id="run-btn" class="btn-primary" disabled>Build Optimized Model</button>
-      <a id="download-btn" class="btn-primary btn-download hidden" download>DOWNLOAD RESULT</a>
-      <a id="export-json-btn" class="btn-secondary hidden" download>Export as JSON</a>
+      <button id="download-btn" class="btn-primary btn-download hidden" data-window-trigger>DOWNLOAD RESULT</button>
     </div>
   </aside>
 

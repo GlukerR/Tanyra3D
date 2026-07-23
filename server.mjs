@@ -239,6 +239,15 @@ function sanitizeFileName(name) {
   return base.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') || 'model.glb';
 }
 
+// Имя файла для скачивания: если клиент прислал ?name= (окно экспорта), берём его —
+// чистим, снимаем расширение и ставим нужное для выбранного формата; иначе fallback.
+// Расширение задаёт формат, не пользователь: экспортёр решает, что он пишет.
+function chosenExportName(reqName, fallback, ext) {
+  if (!reqName) return fallback;
+  const clean = sanitizeFileName(reqName).replace(/\.[^.]+$/, '');
+  return (clean || 'model') + ext;
+}
+
 // ---- HTTP сервер ----
 
 const server = http.createServer(async (req, res) => {
@@ -471,7 +480,7 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, 500, { error: 'JSON export failed: ' + e.message });
         return;
       }
-      const name = path.basename(filePath).replace(/\.glb$/i, '.gltf');
+      const name = chosenExportName(url.searchParams.get('name'), path.basename(filePath).replace(/\.glb$/i, '.gltf'), '.gltf');
       const body = JSON.stringify(json, null, 2);
       const asciiFallback = name.replace(/[^\x20-\x7e]/g, '_');
       res.writeHead(200, {
@@ -500,7 +509,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const data = await fsp.readFile(filePath);
-      const name = path.basename(filePath);
+      const name = chosenExportName(url.searchParams.get('name'), path.basename(filePath), '.glb');
       const asciiFallback = name.replace(/[^\x20-\x7e]/g, '_');
       res.writeHead(200, {
         'Content-Type': 'model/gltf-binary',

@@ -693,6 +693,42 @@ body.resizing { cursor: col-resize; user-select: none; }
 /* debug — ход сборки (фазы/правила/переключение опций): приглушён, чтобы не спорить с info */
 .log-debug .log-level, .log-debug .log-text { color: var(--outline); }
 
+/* Окно экспорта (единая кнопка Download Result → формат + имя) */
+#export-window { width: min(420px, 92vw); }
+.export-field { display: block; margin-bottom: 16px; }
+.export-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--outline);
+  margin-bottom: 6px;
+}
+.export-name {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--on-surface);
+  background: var(--surface-container-highest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-sm);
+}
+.export-name:focus { outline: none; border-color: var(--primary-container); }
+.export-format {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+}
+.export-format b { color: var(--on-surface); font-weight: 600; }
+.export-hint { margin: 0 0 14px; font-size: 11px; color: var(--outline); }
+#export-save { width: 100%; }
+
 .fail-text {
   margin: 0;
   color: var(--on-surface-variant);
