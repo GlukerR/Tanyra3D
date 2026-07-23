@@ -147,13 +147,16 @@ export class Viewer {
    * Загрузить модель по URL. Предыдущая модель выгружается (dispose) — просмотрщик
    * переиспользуется для перезагрузки (оригинал → оптимизированный и т.п.).
    */
-  async load(url, { onProgress } = {}) {
+  async load(url, { onProgress, camera = null } = {}) {
     this._disposeModel();
 
     const gltf = await this._loader.loadAsync(url, onProgress);
     this.model = gltf.scene;
     this.scene.add(this.model);
-    this.frame();
+    // camera передан (сборка/ребилд той же модели) → СОХРАНИТЬ ракурс: приближённая
+    // пользователем деталь остаётся на месте. Иначе (новая модель) — авто-кадрирование.
+    if (camera) this.applyCameraState(camera);
+    else this.frame();
     this.stats = computeSceneStats(this.model);
     this.detected = detectSource(gltf);
     return gltf;

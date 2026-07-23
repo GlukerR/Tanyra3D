@@ -65,8 +65,9 @@ class ViewportSlot {
     }
   }
 
-  /** Загрузить модель из URL (строка) или File (создаётся blob URL). */
-  async load(source) {
+  /** Загрузить модель из URL (строка) или File (создаётся blob URL).
+   *  opts.camera — ракурс, который надо сохранить вместо авто-кадрирования (сборка/ребилд). */
+  async load(source, opts = {}) {
     const viewer = this._ensureViewer();
     this._setStatus("Loading…");
 
@@ -78,6 +79,7 @@ class ViewportSlot {
 
     try {
       await viewer.load(url, {
+        camera: opts.camera || null,
         onProgress: (e) => {
           if (e && e.lengthComputable) {
             this._setStatus(`Loading… ${Math.round((e.loaded / e.total) * 100)}%`);
@@ -213,11 +215,18 @@ class DualViewport {
     return info; // { stats, detected } — метрики модели + что уже сжато в исходнике
   }
 
-  /** Загрузить оптимизированную модель (URL) в правый вьюпорт. */
+  /** Загрузить оптимизированную модель (URL) в правый вьюпорт.
+   *  Ракурс НЕ сбрасывается: берём текущую камеру левого вьюпорта (камеры связаны, bbox
+   *  тот же) и применяем к результату — приближённая деталь остаётся на месте после
+   *  любой сборки/ребилда. Левый (оригинал) не трогаем. */
   async loadOptimized(optimizedUrl) {
     if (!this._init()) return;
-    if (optimizedUrl) await this.right.load(optimizedUrl);
-    else this.right.showHint("No output file to preview");
+    if (optimizedUrl) {
+      const camera = this.left.viewer ? this.left.viewer.getCameraState() : null;
+      await this.right.load(optimizedUrl, { camera });
+    } else {
+      this.right.showHint("No output file to preview");
+    }
     this._afterLoad();
   }
 
@@ -236,6 +245,14 @@ class DualViewport {
   resetView() {
     if (this.left.viewer) this.left.viewer.frame();
     if (this.right.viewer) this.right.viewer.frame();
+  }
+
+  /** Текущее состояние камер обоих вьюпортов (read-only): позиция + target. */
+  cameraStates() {
+    return {
+      left: this.left && this.left.viewer ? this.left.viewer.getCameraState() : null,
+      right: this.right && this.right.viewer ? this.right.viewer.getCameraState() : null,
+    };
   }
 
   setLinked(on) {
@@ -260,4 +277,5 @@ window.OptiViewer = {
   resetView: () => dual.resetView(),
   setLinked: (on) => dual.setLinked(on),
   reset: () => dual.reset(),
+  cameraStates: () => dual.cameraStates(),
 };

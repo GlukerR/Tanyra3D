@@ -113,6 +113,11 @@
   let geometryChoice = 'none';
   let platforms = [];
   let extensions = [];
+  // Последний ВЫБОР пользователя по платформам: platformId → { geometryChoice, ktx2Mode,
+  // checked:[...] }. Заполняется только явным действием пользователя (не дефолтами). Держит
+  // настройки при загрузке новой модели и возврате на платформу. In-memory → перезагрузка
+  // страницы сбрасывает всё к рекомендуемым дефолтам (так и задумано).
+  const savedSelections = {};
 
   // Текущая подпись настроек оптимизации: платформа + флажки + режим KTX2.
   function currentSettingsSignature() {
@@ -125,6 +130,7 @@
   // было видно, с какими настройками собиралась каждая версия.
   function onOptionChanged() {
     updateRunButtonState();
+    rememberSelection(); // запомнить выбор платформы — он переживёт новую модель/смену платформы
     const feats = getSelectedFeatures();
     logMessage('debug', 'Options: ' + (feats.length ? feats.join(', ') : 'none'));
   }
@@ -403,6 +409,7 @@
           ktx2Mode = o.v;
           summary.querySelector('.ktx2-mode-current').textContent = o.short;
           updateRunButtonState();
+          rememberSelection(); // режим KTX2 — тоже часть выбора платформы
           logMessage('debug', 'KTX2 mode: ' + o.short);
         });
         optLabel.appendChild(radio);
@@ -552,35 +559,79 @@
     }
   }
 
-  // Дефолты панели + авто-флажки по исходнику. Вызывается после (пере)сборки панели и
-  // после загрузки модели. Дефолт-галочки — только на том, что работает на голом three.js
-  // (Safe, Join, Remove colors); геометрия — None, если в источнике нет сжатия. Если модель
-  // уже сжата (meshopt/draco/ktx2) — выбираем соответствующее + бейдж [Source].
+  // Состояние панели опций после (пере)сборки панели или загрузки модели.
+  // Если пользователь уже что-то выбирал на этой платформе — ВОССТАНАВЛИВАЕМ его выбор
+  // (настройки не слетают при новой модели/возврате платформы). Иначе — рекомендуемые
+  // дефолты + авто-флажки по источнику. Бейджи [Source] показываем всегда по текущей модели.
   function applyDetection() {
-    // снять прежние бейджи [Source] (панель могла не пересобираться — новая модель)
     extensionsList.querySelectorAll('.ext-source-badge').forEach((b) => b.remove());
+
+    const saved = savedSelections[platformSelect.value];
+    if (saved) restoreSelection(saved);
+    else applyDefaultSelection();
+
+    showDetectionBadges();
+    syncGeometryRadio();
+    syncKtx2ModeUI();
+    toggleKtx2Mode(!!(document.getElementById('ext-ktx2') && document.getElementById('ext-ktx2').checked));
+    updateRunButtonState();
+  }
+
+  // Рекомендуемые дефолты: Safe + Join, геометрия None; авто-выбор по тому, что уже сжато
+  // в исходнике. Remove vertex colors по умолчанию ВЫКЛ (белые каналы чистит Safe без потерь).
+  function applyDefaultSelection() {
     setCheck('safe', true);
     setCheck('join', true);
-    // Remove vertex colors по умолчанию ВЫКЛ: белые/пустые каналы и так чистит Safe без
-    // потерь; раскрашенные (лосси) убираются только явным выбором пользователя.
     setCheck('strip-colors', false);
     setCheck('ktx2', false);
     geometryChoice = 'none';
-
     if (lastDetection) {
-      if (lastDetection.draco) { geometryChoice = 'draco'; badgeGeometry('draco'); }
-      else if (lastDetection.meshopt) { geometryChoice = 'meshopt'; badgeGeometry('meshopt'); }
-      if (lastDetection.ktx2) { setCheck('ktx2', true); badgeCheck('ktx2'); }
+      if (lastDetection.draco) geometryChoice = 'draco';
+      else if (lastDetection.meshopt) geometryChoice = 'meshopt';
+      if (lastDetection.ktx2) setCheck('ktx2', true);
     }
+  }
 
-    syncGeometryRadio();
-    toggleKtx2Mode(!!(document.getElementById('ext-ktx2') && document.getElementById('ext-ktx2').checked));
-    updateRunButtonState();
+  // Восстановить последний выбор пользователя на этой платформе. Геометрия, которой на
+  // платформе нет (нет radio), откатывается к None; флажки берём по существующим чекбоксам.
+  function restoreSelection(saved) {
+    geometryChoice = saved.geometryChoice || 'none';
+    if (geometryChoice !== 'none' && !document.getElementById(`geom-${geometryChoice}`)) geometryChoice = 'none';
+    ktx2Mode = saved.ktx2Mode || 'uastc';
+    for (const cb of extensionsList.querySelectorAll('.ext-checkbox')) {
+      cb.checked = saved.checked.includes(cb.value);
+    }
+  }
+
+  // Снимок текущего выбора → память платформы. Зовётся только при ЯВНОМ действии
+  // пользователя (не из applyDefaultSelection), иначе дефолты затирали бы «последний выбор».
+  function rememberSelection() {
+    savedSelections[platformSelect.value] = {
+      geometryChoice,
+      ktx2Mode,
+      checked: [...extensionsList.querySelectorAll('.ext-checkbox:checked')].map((cb) => cb.value),
+    };
+  }
+
+  // Бейджи [Source] — по текущей модели, информационно (что уже было в импортированном файле).
+  function showDetectionBadges() {
+    if (!lastDetection) return;
+    if (lastDetection.draco) badgeGeometry('draco');
+    else if (lastDetection.meshopt) badgeGeometry('meshopt');
+    if (lastDetection.ktx2) badgeCheck('ktx2');
   }
 
   function syncGeometryRadio() {
     const radio = document.getElementById(`geom-${geometryChoice}`);
     if (radio) radio.checked = true;
+  }
+
+  // Синхронизировать UI режима KTX2 (radio + подпись) с переменной ktx2Mode при восстановлении.
+  function syncKtx2ModeUI() {
+    const radio = document.querySelector(`input[name="ktx2mode"][value="${ktx2Mode}"]`);
+    if (radio) radio.checked = true;
+    const cur = document.querySelector('.ktx2-mode-current');
+    if (cur) cur.textContent = ktx2Mode === 'mixed' ? 'ETC1S' : 'UASTC';
   }
 
   function badgeGeometry(v) {
