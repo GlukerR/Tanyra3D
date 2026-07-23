@@ -541,6 +541,21 @@ body.resizing { cursor: col-resize; user-select: none; }
 
 .meta-empty { color: var(--outline); font-size: 12px; }
 
+/* Свёрнутая группа сообщений, вызванных слепотой валидатора к расширениям (не дефекты) */
+.meta-explained { margin-top: 14px; }
+.meta-explained > summary {
+  cursor: pointer;
+  color: var(--outline);
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 6px 0;
+  border-top: 1px solid var(--outline-variant);
+}
+.meta-explained > summary:hover { color: var(--on-surface-variant); }
+/* внутри группы severity не подсвечиваем — это не проблемы модели */
+.meta-explained .meta-table tr.sev-0 td,
+.meta-explained .meta-table tr.sev-1 td { color: var(--on-surface-variant); }
+
 /* Окна инспекции пополам: слева исходная модель, справа собранная */
 .window-split {
   display: grid;

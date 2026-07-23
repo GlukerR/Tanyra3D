@@ -277,6 +277,114 @@ function writeReport({ name, result, before, after, assetWritten, opts }) {
   return reportName;
 }
 
+// -------- Слепые зоны Khronos-валидатора --------
+// Валидатор не умеет часть расширений и честно сообщает об этом (UNSUPPORTED_EXTENSION).
+// Побочный эффект: ссылки, лежащие ВНУТРИ такого расширения, он не видит — и помечает живые
+// объекты как UNUSED_OBJECT; данные в неизвестном ему контейнере — как дефект формата. Ни то,
+// ни другое не является проблемой модели: она грузится движком с нужным декодером.
+//
+// Мы знаем, где именно каждое расширение прячет ссылки, поэтому помечаем такие сообщения
+// полем `explainedBy: '<имя расширения>'`. Сообщения НЕ удаляются — данные валидатора остаются
+// полностью, а UI показывает их отдельной свёрнутой группой и не считает за проблемы.
+// Проверено на реальных сборках: draco прячет bufferViews, meshopt — buffers,
+// EXT_mesh_gpu_instancing — accessors, KHR_texture_basisu — images (+ mime image/ktx2).
+
+// JSON-чанк РОВНО тех байтов, которые проверял валидатор: пере-сериализация документа дала бы
+// другие индексы, и указатели сообщений (`/bufferViews/3`) перестали бы совпадать.
+function parseGltfJson(bytes) {
+  try {
+    const GLB_MAGIC = 0x46546c67;
+    if (bytes.length >= 20 && bytes.readUInt32LE(0) === GLB_MAGIC) {
+      const jsonLength = bytes.readUInt32LE(12);
+      return JSON.parse(bytes.slice(20, 20 + jsonLength).toString('utf8'));
+    }
+    return JSON.parse(bytes.toString('utf8'));
+  } catch {
+    return null; // не разобрали — просто не объясняем сообщения
+  }
+}
+
+// Индекс объекта → имя расширения, которое на него ссылается (и которое валидатор не читает).
+function referencesHiddenInExtensions(json, unsupported) {
+  const refs = { bufferViews: new Map(), buffers: new Map(), accessors: new Map(), images: new Map() };
+  const add = (kind, index, ext) => { if (Number.isInteger(index)) refs[kind].set(index, ext); };
+
+  if (unsupported.has('KHR_draco_mesh_compression')) {
+    // сжатая геометрия: у accessors нет bufferView, данные лежат в буфере расширения
+    for (const mesh of json.meshes || []) {
+      for (const prim of mesh.primitives || []) {
+        const d = prim.extensions && prim.extensions.KHR_draco_mesh_compression;
+        if (d) add('bufferViews', d.bufferView, 'KHR_draco_mesh_compression');
+      }
+    }
+  }
+  if (unsupported.has('EXT_meshopt_compression')) {
+    for (const bv of json.bufferViews || []) {
+      const m = bv.extensions && bv.extensions.EXT_meshopt_compression;
+      if (m) add('buffers', m.buffer, 'EXT_meshopt_compression');
+    }
+  }
+  if (unsupported.has('EXT_mesh_gpu_instancing')) {
+    // per-instance TRANSLATION/ROTATION/SCALE — обычные accessors, но видны только изнутри
+    for (const node of json.nodes || []) {
+      const i = node.extensions && node.extensions.EXT_mesh_gpu_instancing;
+      for (const idx of Object.values((i && i.attributes) || {})) add('accessors', idx, 'EXT_mesh_gpu_instancing');
+    }
+  }
+  if (unsupported.has('KHR_texture_basisu')) {
+    for (const tex of json.textures || []) {
+      const b = tex.extensions && tex.extensions.KHR_texture_basisu;
+      if (b) add('images', b.source, 'KHR_texture_basisu');
+    }
+  }
+  return refs;
+}
+
+// Какое расширение объясняет это сообщение (или null, если сообщение настоящее).
+function explanationFor(message, refs, json, unsupported) {
+  const pointer = String(message.pointer || '');
+
+  if (message.code === 'UNUSED_OBJECT') {
+    const hit = /^\/(bufferViews|buffers|accessors|images)\/(\d+)$/.exec(pointer);
+    if (hit) return refs[hit[1]].get(Number(hit[2])) || null;
+    return null;
+  }
+
+  // KTX2: базовая спека не знает mime image/ktx2 и не умеет прочитать такой контейнер —
+  // оба сообщения появляются ровно потому, что расширение не поддержано.
+  if (unsupported.has('KHR_texture_basisu')) {
+    const images = json.images || [];
+    const isKtx2 = (i) => images[i] && images[i].mimeType === 'image/ktx2';
+    const mime = /^\/images\/(\d+)\/mimeType$/.exec(pointer);
+    if (message.code === 'VALUE_NOT_IN_LIST' && mime && isKtx2(Number(mime[1]))) return 'KHR_texture_basisu';
+    const img = /^\/images\/(\d+)$/.exec(pointer);
+    if (message.code === 'IMAGE_UNRECOGNIZED_FORMAT' && img && isKtx2(Number(img[1]))) return 'KHR_texture_basisu';
+  }
+  return null;
+}
+
+function explainValidatorBlindSpots(json, messages) {
+  if (!json || !messages.length) return messages;
+  const unsupported = new Set();
+  for (const m of messages) {
+    if (m.code !== 'UNSUPPORTED_EXTENSION') continue;
+    const name = /'([^']+)'/.exec(m.message || '');
+    if (name) unsupported.add(name[1]);
+  }
+  if (!unsupported.size) return messages;
+
+  const refs = referencesHiddenInExtensions(json, unsupported);
+  return messages.map((m) => {
+    // сама строка «расширение не поддержано» — не дефект, а объяснение остальных; в ту же группу
+    if (m.code === 'UNSUPPORTED_EXTENSION') {
+      const name = /'([^']+)'/.exec(m.message || '');
+      return name ? { ...m, explainedBy: name[1] } : m;
+    }
+    const by = explanationFor(m, refs, json, unsupported);
+    return by ? { ...m, explainedBy: by } : m;
+  });
+}
+
 // -------- Инспекция ассета (Metadata + Validation, как на gltf.report) --------
 // Формат-специфично: метаданные из fns.inspect (те же таблицы, что у gltf.report) +
 // issues от Khronos gltf-validator. Ядро отдаёт это через inspectFile() формат-агностично;
@@ -296,6 +404,8 @@ async function inspect(srcPath) {
     const validator = await import('gltf-validator');
     const res = await validator.validateBytes(new Uint8Array(bytes));
     validation = (res && res.issues && res.issues.messages) || [];
+    // пометить сообщения, вызванные слепотой валидатора к расширениям (не удаляя их)
+    validation = explainValidatorBlindSpots(parseGltfJson(bytes), validation);
   } catch { /* валидатор не установлен — пустой список */ }
 
   return {

@@ -493,7 +493,7 @@
       btnMetadata.disabled = false;
       btnValidation.disabled = false;
       updateInspectButtons();
-      const n = (data.validation || []).length;
+      const n = (data.validation || []).filter((m) => !m.explainedBy).length;
       logMessage('info', n
         ? `Source inspected — ${n} validation issue${n === 1 ? '' : 's'}`
         : 'Source inspected — no validation issues');
@@ -507,8 +507,11 @@
   // после сборки — «было → стало», чтобы разница была видна не открывая окно.
   function updateInspectButtons() {
     if (!modelInspect) { btnValidation.textContent = '✓ Validation'; return; }
-    const src = (modelInspect.validation || []).length;
-    const dst = resultInspect ? (resultInspect.validation || []).length : null;
+    // считаем только настоящие проблемы: сообщения, объяснённые слепотой валидатора
+    // к расширениям, дефектами модели не являются (см. explainedBy в addons/gltf).
+    const real = (data) => (data.validation || []).filter((m) => !m.explainedBy).length;
+    const src = real(modelInspect);
+    const dst = resultInspect ? real(resultInspect) : null;
     // Обе стороны чистые — не мусорим нулями в подписи.
     if (!src && !dst) { btnValidation.textContent = '✓ Validation'; return; }
     btnValidation.textContent = dst === null ? `✓ Validation (${src})` : `✓ Validation (${src} → ${dst})`;
@@ -534,7 +537,7 @@
       updateInspectButtons();
       if (!metadataWindow.classList.contains('hidden')) renderMetadataWindow();
       if (!validationWindow.classList.contains('hidden')) renderValidationWindow();
-      const n = (data.validation || []).length;
+      const n = (data.validation || []).filter((m) => !m.explainedBy).length;
       logMessage('info', n
         ? `Optimized model inspected — ${n} validation issue${n === 1 ? '' : 's'}`
         : 'Optimized model inspected — no validation issues');
@@ -1364,15 +1367,7 @@
     }
   }
 
-  function buildValidationPane(col, data) {
-    const issues = data.validation || [];
-    if (!issues.length) {
-      const p = document.createElement('p');
-      p.className = 'meta-empty';
-      p.textContent = 'No validation issues — the file is clean.';
-      col.appendChild(p);
-      return;
-    }
+  function issuesTable(issues) {
     const rows = issues.map((m) => ({
       code: m.code,
       message: m.message,
@@ -1386,7 +1381,38 @@
     const trs = table.querySelectorAll('tbody tr');
     issues.forEach((m, i) => { if (trs[i]) trs[i].classList.add(`sev-${m.severity}`); });
     scroll.appendChild(table);
-    col.appendChild(scroll);
+    return scroll;
+  }
+
+  // Сообщения, которые валидатор выдал только потому, что не читает расширение (аддон помечает
+  // их `explainedBy`), — отдельной свёрнутой группой: это не дефекты модели, но и прятать вывод
+  // валидатора совсем неправильно, поэтому он доступен в один клик.
+  function explainedGroup(explained) {
+    const names = [...new Set(explained.map((m) => m.explainedBy))].sort();
+    const box = document.createElement('details');
+    box.className = 'meta-explained';
+    const sum = document.createElement('summary');
+    sum.textContent = `${explained.length} note${explained.length === 1 ? '' : 's'} from extensions the validator cannot read`
+      + ` (${names.join(', ')}) — not defects`;
+    box.appendChild(sum);
+    box.appendChild(issuesTable(explained));
+    return box;
+  }
+
+  function buildValidationPane(col, data) {
+    const all = data.validation || [];
+    const issues = all.filter((m) => !m.explainedBy);
+    const explained = all.filter((m) => m.explainedBy);
+
+    if (issues.length) {
+      col.appendChild(issuesTable(issues));
+    } else {
+      const p = document.createElement('p');
+      p.className = 'meta-empty';
+      p.textContent = 'No validation issues — the file is clean.';
+      col.appendChild(p);
+    }
+    if (explained.length) col.appendChild(explainedGroup(explained));
   }
 
   function renderMetadataWindow() {
