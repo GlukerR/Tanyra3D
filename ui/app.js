@@ -46,6 +46,7 @@
 
   const extensionsPanel = $('extensions-panel');
   const extensionsList = $('extensions-list');
+  const decoderLegend = $('decoder-legend');
 
   const summarySection = $('summary-section');
   const summaryText = $('summary-text');
@@ -239,12 +240,15 @@
     { title: 'Animation', kind: 'checks', ids: ['resample'] },
   ];
   const NEEDS_DECODER = new Set(['meshopt', 'draco', 'ktx2', 'instance']);
-  const DECODER_NOTE = 'Requires an additional decoder on your three.js site';
+  // ⚠ — не документация, а требование к разработчику (нужно подключить декодер на сайте).
+  // 📖 остаётся отдельным значком «пояснение, как это работает» — их нельзя путать.
+  const DECODER_NOTE = 'Requires an additional decoder in your Three.js application';
 
   async function loadExtensions(platformId) {
     extensions = [];
     extensionsList.innerHTML = '';
     extensionsPanel.classList.add('hidden');
+    if (decoderLegend) decoderLegend.classList.add('hidden');
     if (!platformId) return;
 
     try {
@@ -269,6 +273,10 @@
         : renderCheckGroup(group, byId);
       if (section) extensionsList.appendChild(section);
     }
+    // Легенда объясняет ⚠ ОДИН раз для всей панели — значок встречается в трёх разных
+    // секциях (Structural/Geometry/Textures), поэтому показываем её, только если хотя бы
+    // одна из ЭТИХ платформенных опций реально требует декодер.
+    if (decoderLegend) decoderLegend.classList.toggle('hidden', !extensions.some((e) => NEEDS_DECODER.has(e.id)));
     extensionsPanel.classList.remove('hidden');
     // панель пересобрана → дефолты платформы + авто-флажки [Source] + состояние кнопки
     applyDetection();
@@ -285,13 +293,46 @@
     return sec;
   }
 
-  function decoderNote() {
-    const q = document.createElement('span');
-    q.className = 'ext-decoder-note';
-    q.textContent = '?';
-    q.title = DECODER_NOTE;
-    q.setAttribute('aria-label', DECODER_NOTE);
-    return q;
+  // ⚠ — предупреждение «нужен доп. декодер на сайте». Один переиспользуемый индикатор
+  // вместо повторения одного и того же title у каждой опции (Meshopt/Draco/KTX2/Instance).
+  function decoderWarning() {
+    const w = document.createElement('span');
+    w.className = 'ext-decoder-warn';
+    w.textContent = '⚠';
+    w.title = DECODER_NOTE;
+    w.setAttribute('aria-label', DECODER_NOTE);
+    return w;
+  }
+
+  // Раскрывающийся блок описание+impact — общий для чекбоксов и radio геометрии.
+  function buildDescriptionBox(ext) {
+    const desc = document.createElement('div');
+    desc.className = 'ext-description hidden';
+    if (ext.description) {
+      const descText = document.createElement('p');
+      descText.textContent = ext.description;
+      desc.appendChild(descText);
+    }
+    if (ext.impact) {
+      const impactText = document.createElement('p');
+      impactText.className = 'ext-impact';
+      impactText.textContent = `Impact: ${ext.impact}`;
+      desc.appendChild(impactText);
+    }
+    return desc;
+  }
+
+  // 📖 — документация «как это работает», раскрывает `desc`. Отдельный смысл от ⚠:
+  // это пояснение, а не требование к разработчику.
+  function infoButton(ext, desc) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ext-info-btn';
+    btn.textContent = '📖';
+    btn.setAttribute('aria-label', `Details: ${ext.title || ext.id}`);
+    if (ext.description) btn.title = ext.description;
+    btn.addEventListener('click', () => desc.classList.toggle('hidden'));
+    return btn;
   }
 
   // Геометрия — radio None/Meshopt/Draco (взаимоисключающие; логика видна в UI).
@@ -304,9 +345,15 @@
       byId.draco && { v: 'draco', ext: byId.draco, label: byId.draco.title },
     ].filter(Boolean);
     for (const o of opts) {
-      const row = document.createElement('label');
-      row.className = 'opt-radio';
+      const row = document.createElement('div');
+      row.className = 'opt-radio-row';
       row.dataset.geom = o.v;
+
+      const head = document.createElement('div');
+      head.className = 'opt-radio-head';
+
+      const label = document.createElement('label');
+      label.className = 'opt-radio';
       const radio = document.createElement('input');
       radio.type = 'radio';
       radio.name = 'geometry';
@@ -320,10 +367,20 @@
       const text = document.createElement('span');
       text.className = 'opt-radio-text';
       text.textContent = o.label;
-      row.appendChild(radio);
-      row.appendChild(text);
-      if (o.ext && NEEDS_DECODER.has(o.ext.id)) row.appendChild(decoderNote());
-      if (o.ext && o.ext.description) row.title = o.ext.description;
+      label.appendChild(radio);
+      label.appendChild(text);
+      head.appendChild(label);
+
+      if (o.ext && NEEDS_DECODER.has(o.ext.id)) head.appendChild(decoderWarning());
+
+      row.appendChild(head);
+      // "None" ничего не сжимает — документировать нечего (в отличие от Meshopt/Draco,
+      // у которых теперь есть 📖, как и у опций в других секциях).
+      if (o.ext) {
+        const desc = buildDescriptionBox(o.ext);
+        head.appendChild(infoButton(o.ext, desc));
+        row.appendChild(desc);
+      }
       sec.appendChild(row);
     }
     return sec;
@@ -359,33 +416,13 @@
 
     label.appendChild(checkbox);
     label.appendChild(titleSpan);
-    if (NEEDS_DECODER.has(ext.id)) label.appendChild(decoderNote());
+    if (NEEDS_DECODER.has(ext.id)) label.appendChild(decoderWarning());
 
-    const infoBtn = document.createElement('button');
-    infoBtn.type = 'button';
-    infoBtn.className = 'ext-info-btn';
-    infoBtn.textContent = '📖';
-    infoBtn.setAttribute('aria-label', `Details: ${ext.title || ext.id}`);
-    if (ext.description) infoBtn.title = ext.description;
+    const desc = buildDescriptionBox(ext);
+    const infoBtn = infoButton(ext, desc);
 
     head.appendChild(label);
     head.appendChild(infoBtn);
-
-    const desc = document.createElement('div');
-    desc.className = 'ext-description hidden';
-    if (ext.description) {
-      const descText = document.createElement('p');
-      descText.textContent = ext.description;
-      desc.appendChild(descText);
-    }
-    if (ext.impact) {
-      const impactText = document.createElement('p');
-      impactText.className = 'ext-impact';
-      impactText.textContent = `Impact: ${ext.impact}`;
-      desc.appendChild(impactText);
-    }
-
-    infoBtn.addEventListener('click', () => desc.classList.toggle('hidden'));
 
     row.appendChild(head);
     row.appendChild(desc);
@@ -640,7 +677,7 @@
   }
 
   function badgeGeometry(v) {
-    addSourceBadge(document.querySelector(`.opt-radio[data-geom="${v}"]`), '.opt-radio-text');
+    addSourceBadge(document.querySelector(`.opt-radio-row[data-geom="${v}"]`), '.opt-radio-text');
   }
 
   function badgeCheck(id) {
@@ -1321,6 +1358,13 @@
   });
 
   updateLogsBar();
+
+  // Легенда ⚠ — построена один раз тем же decoderWarning(), что и значки в списке опций,
+  // чтобы значение символа было визуально узнаваемо одним и тем же элементом.
+  if (decoderLegend) {
+    decoderLegend.appendChild(decoderWarning());
+    decoderLegend.appendChild(document.createTextNode(' ' + DECODER_NOTE + '.'));
+  }
 
   setupWindow(failBanner);
   setupWindow(metadataWindow);

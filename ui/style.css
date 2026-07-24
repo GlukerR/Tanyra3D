@@ -860,35 +860,64 @@ details[open] > .collapsible-summary::before {
   border-bottom: 1px solid var(--outline-variant);
 }
 
-/* Геометрия — взаимоисключающий radio None/Meshopt/Draco */
+/* Геометрия — взаимоисключающий radio None/Meshopt/Draco. Строка = голова (radio+текст+
+   значки) + раскрывающееся описание снизу, тот же язык, что у чекбоксов ext-row. */
+.opt-radio-row { padding: 5px 2px; }
+
+.opt-radio-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .opt-radio {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 2px;
   font-size: 12.5px;
   color: var(--on-surface);
   cursor: pointer;
+  flex: 1;
+  min-width: 0;
 }
 
 .opt-radio input { accent-color: var(--primary-container); flex-shrink: 0; }
 
-/* Пометка «нужен декодер на сайте» */
-.ext-decoder-note {
+/* ⚠ — предупреждение «нужен декодер на сайте» (требование, не документация — поэтому
+   тревожный жёлтый var(--warning), а не нейтральный серый значок 📖 рядом). */
+.ext-decoder-warn {
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: 4px;
-  font-size: 9px;
-  font-weight: 700;
+  margin-left: 2px;
+  font-size: 11px;
+  line-height: 1;
   border-radius: 999px;
-  background: var(--surface-container-highest);
-  color: var(--outline);
+  background: rgba(251, 191, 36, 0.14);
+  color: var(--warning);
   cursor: help;
 }
+
+/* Легенда значка ⚠ — один раз для всей панели опций (значок встречается в нескольких
+   секциях: Structural/Geometry/Textures), а не повторяется в каждой из них. */
+.decoder-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: var(--radius-sm);
+}
+
+.decoder-legend .ext-decoder-warn { margin-left: 0; }
 
 .ext-row {
   border-left: 2px solid var(--outline-variant);

@@ -177,6 +177,10 @@
 
       <div class="inspector-section extensions hidden" id="extensions-panel">
         <label class="section-label">Advanced options</label>
+        <!-- Легенда для значка ⚠ (не документация — требование к разработчику). Один раз
+             для всей панели: значок встречается в Structural/Geometry/Textures. Содержимое
+             и видимость управляются из app.js (decoderWarning() задаёт тот же ⚠). -->
+        <div id="decoder-legend" class="decoder-legend hidden"></div>
         <div id="extensions-list" class="extensions-list"></div>
       </div>
 
