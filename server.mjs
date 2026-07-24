@@ -41,7 +41,7 @@ await ensureEmptyDir(RESULTS_DIR);
 
 // ---- Ядро (обязательный контракт §4b ARCHITECTURE.md) ----
 const core = await import('./optimize2.mjs');
-const { optimizeFile, inspectFile, exportJson, listRules, VERSION } = core;
+const { optimizeFile, inspectFile, exportJson, VERSION } = core;
 
 // ---- Ассистент (появляется параллельно; graceful-фолбэк, если модуля ещё нет) ----
 let assistant = null;

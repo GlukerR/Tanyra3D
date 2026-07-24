@@ -255,6 +255,11 @@
       extensions = []; // расширенные опции недоступны — базовая обработка всё равно работает
     }
 
+    // Пользователь мог переключить платформу ещё раз, пока этот fetch летел — устаревший
+    // ответ не должен перестраивать панель под другую (текущую) платформу и записывать
+    // savedSelections не в тот ключ.
+    if (platformSelect.value !== platformId) return;
+
     if (!extensions.length) return;
 
     const byId = Object.fromEntries(extensions.map((e) => [e.id, e]));

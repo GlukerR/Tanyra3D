@@ -230,12 +230,6 @@ class DualViewport {
     this._afterLoad();
   }
 
-  /** Показать обе модели сразу (оригинал слева, оптимизированную справа). */
-  async show(originalFile, optimizedUrl) {
-    await this.loadOriginal(originalFile);
-    await this.loadOptimized(optimizedUrl);
-  }
-
   _afterLoad() {
     if (this.left.viewer && this.right.viewer) this._linkCameras();
     this._startLoop();
@@ -273,7 +267,6 @@ const dual = new DualViewport();
 window.OptiViewer = {
   loadOriginal: (file) => dual.loadOriginal(file),
   loadOptimized: (url) => dual.loadOptimized(url),
-  show: (originalFile, optimizedUrl) => dual.show(originalFile, optimizedUrl),
   resetView: () => dual.resetView(),
   setLinked: (on) => dual.setLinked(on),
   reset: () => dual.reset(),
