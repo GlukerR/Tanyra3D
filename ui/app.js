@@ -242,7 +242,17 @@
   const NEEDS_DECODER = new Set(['meshopt', 'draco', 'ktx2', 'instance']);
   // ⚠ — не документация, а требование к разработчику (нужно подключить декодер на сайте).
   // 📖 остаётся отдельным значком «пояснение, как это работает» — их нельзя путать.
-  const DECODER_NOTE = 'Requires an additional decoder in your Three.js application';
+  // Текст — что именно установить, отдельно на каждую технологию (не один и тот же текст
+  // под всеми значками): разработчик должен понять, ЧТО конкретно подключить.
+  const DECODER_NOTES = {
+    meshopt: 'Install the Meshopt decoder on the target site/engine.',
+    draco: 'Install the Draco decoder on the target site/engine.',
+    ktx2: 'Install a KTX2 (Basis Universal) transcoder on the target site/engine.',
+    instance: 'Target site/engine must support EXT_mesh_gpu_instancing.',
+  };
+  // Общий смысл значка — для легенды панели (сама легенда не заменяет конкретный текст
+  // на каждом значке, только объясняет, что вообще значит ⚠).
+  const DECODER_NOTE = 'Marks options that need extra decoder/engine support to display correctly';
 
   async function loadExtensions(platformId) {
     extensions = [];
@@ -295,12 +305,13 @@
 
   // ⚠ — предупреждение «нужен доп. декодер на сайте». Один переиспользуемый индикатор
   // вместо повторения одного и того же title у каждой опции (Meshopt/Draco/KTX2/Instance).
-  function decoderWarning() {
+  function decoderWarning(id) {
     const w = document.createElement('span');
     w.className = 'ext-decoder-warn';
     w.textContent = '⚠';
-    w.title = DECODER_NOTE;
-    w.setAttribute('aria-label', DECODER_NOTE);
+    const note = (id && DECODER_NOTES[id]) || DECODER_NOTE;
+    w.title = note;
+    w.setAttribute('aria-label', note);
     return w;
   }
 
@@ -335,12 +346,13 @@
     return btn;
   }
 
-  // Геометрия — radio None/Meshopt/Draco (взаимоисключающие; логика видна в UI).
+  // Геометрия — Meshopt/Draco, взаимоисключающие. Нет отдельного пункта "None": обе
+  // технологии выключены = геометрия не сжимается. Клик по уже активному пункту гасит
+  // его (checkbox, не radio — только radio-группа не даёт снять выбор повторным кликом).
   function renderGeometryGroup(byId) {
     if (!byId.meshopt && !byId.draco) return null;
     const sec = optSection('Geometry');
     const opts = [
-      { v: 'none', ext: null, label: 'None (uncompressed)' },
       byId.meshopt && { v: 'meshopt', ext: byId.meshopt, label: byId.meshopt.title },
       byId.draco && { v: 'draco', ext: byId.draco, label: byId.draco.title },
     ].filter(Boolean);
@@ -354,28 +366,29 @@
 
       const label = document.createElement('label');
       label.className = 'opt-radio';
-      const radio = document.createElement('input');
-      radio.type = 'radio';
-      radio.name = 'geometry';
-      radio.value = o.v;
-      radio.id = `geom-${o.v}`;
-      radio.checked = (o.v === geometryChoice);
-      radio.addEventListener('change', () => {
-        if (radio.checked) geometryChoice = o.v;
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = o.v;
+      checkbox.id = `geom-${o.v}`;
+      checkbox.checked = (o.v === geometryChoice);
+      checkbox.addEventListener('change', () => {
+        // Отмечен → он становится выбором (второй гасится). Снят (повторный клик по
+        // уже активному) → выбор геометрии сбрасывается в "не сжимать".
+        if (checkbox.checked) geometryChoice = o.v;
+        else if (geometryChoice === o.v) geometryChoice = 'none';
+        syncGeometryRadio();
         onOptionChanged();
       });
       const text = document.createElement('span');
       text.className = 'opt-radio-text';
       text.textContent = o.label;
-      label.appendChild(radio);
+      label.appendChild(checkbox);
       label.appendChild(text);
       head.appendChild(label);
 
-      if (o.ext && NEEDS_DECODER.has(o.ext.id)) head.appendChild(decoderWarning());
+      if (o.ext && NEEDS_DECODER.has(o.ext.id)) head.appendChild(decoderWarning(o.ext.id));
 
       row.appendChild(head);
-      // "None" ничего не сжимает — документировать нечего (в отличие от Meshopt/Draco,
-      // у которых теперь есть 📖, как и у опций в других секциях).
       if (o.ext) {
         const desc = buildDescriptionBox(o.ext);
         head.appendChild(infoButton(o.ext, desc));
@@ -416,7 +429,7 @@
 
     label.appendChild(checkbox);
     label.appendChild(titleSpan);
-    if (NEEDS_DECODER.has(ext.id)) label.appendChild(decoderWarning());
+    if (NEEDS_DECODER.has(ext.id)) label.appendChild(decoderWarning(ext.id));
 
     const desc = buildDescriptionBox(ext);
     const infoBtn = infoButton(ext, desc);
@@ -663,9 +676,13 @@
     if (lastDetection.ktx2) badgeCheck('ktx2');
   }
 
+  // Взаимоисключение геометрии — чекбоксы, не radio-группа (нужно уметь снимать выбор
+  // повторным кликом), поэтому "снятие второго" делаем вручную при каждой смене.
   function syncGeometryRadio() {
-    const radio = document.getElementById(`geom-${geometryChoice}`);
-    if (radio) radio.checked = true;
+    for (const row of extensionsList.querySelectorAll('.opt-radio-row[data-geom]')) {
+      const cb = row.querySelector('input[type="checkbox"]');
+      if (cb) cb.checked = (row.dataset.geom === geometryChoice);
+    }
   }
 
   // Синхронизировать UI режима KTX2 (radio + подпись) с переменной ktx2Mode при восстановлении.

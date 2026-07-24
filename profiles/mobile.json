@@ -30,7 +30,7 @@
     },
     {
       "id": "meshopt",
-      "title": "Meshopt geometry compression",
+      "title": "Meshopt compression",
       "description": "Compresses geometry with Meshopt — smaller file that unpacks quickly on the GPU. A good default for the web.",
       "impact": "Noticeably smaller geometry; fast decode in the browser.",
       "reversible": true,
@@ -57,7 +57,7 @@
     },
     {
       "id": "resample",
-      "title": "Resample animations",
+      "title": "Resample",
       "description": "Removes redundant animation keyframes without changing the motion — smaller animation data.",
       "impact": "Smaller animations; no visible change.",
       "reversible": false,
@@ -66,14 +66,14 @@
     },
     {
       "id": "ktx2",
-      "title": "KTX2 texture compression",
+      "title": "KTX2 compression",
       "description": "Converts textures to a GPU format: saves up to ~80% of video memory — spares the memory of budget phones. Requires KTX2Loader support in the browser.",
       "impact": "The file may grow 5–10%, but texture video memory drops several-fold.",
       "opts": { "noKtx": false }
     },
     {
       "id": "draco",
-      "title": "Draco geometry compression",
+      "title": "Draco compression",
       "description": "Minimal file weight (often −50% on geometry) — faster loading over mobile internet. Decodes slower than Meshopt but is supported everywhere.",
       "impact": "The file is noticeably lighter; decoding on open is slower.",
       "opts": { "codec": "draco" }

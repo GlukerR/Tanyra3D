@@ -61,12 +61,19 @@ function computeSceneStats(root) {
 
 // Что уже применено в исходной модели — по extensionsUsed из распарсенного glTF.
 // Draco/meshopt (геометрия), KHR_texture_basisu = KTX2 (текстуры).
+// KTX2 дополнительно проверяем и по mimeType картинок: некоторые экспортёры кладут
+// image/ktx2, не объявляя KHR_texture_basisu корректно (та же "слепота" валидатора,
+// что разбирается в addons/gltf/index.mjs) — без этой проверки такие модели не помечались
+// бы как источник KTX2, хотя KTX2 в них фактически есть.
 function detectSource(gltf) {
-  const used = (gltf && gltf.parser && gltf.parser.json && gltf.parser.json.extensionsUsed) || [];
+  const json = (gltf && gltf.parser && gltf.parser.json) || {};
+  const used = json.extensionsUsed || [];
+  const images = json.images || [];
+  const hasKtx2Mime = images.some((img) => img.mimeType === 'image/ktx2');
   return {
     draco: used.includes('KHR_draco_mesh_compression'),
     meshopt: used.includes('EXT_meshopt_compression'),
-    ktx2: used.includes('KHR_texture_basisu'),
+    ktx2: used.includes('KHR_texture_basisu') || hasKtx2Mime,
   };
 }
 
