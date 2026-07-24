@@ -860,8 +860,9 @@ details[open] > .collapsible-summary::before {
   border-bottom: 1px solid var(--outline-variant);
 }
 
-/* Геометрия — взаимоисключающий radio None/Meshopt/Draco. Строка = голова (radio+текст+
-   значки) + раскрывающееся описание снизу, тот же язык, что у чекбоксов ext-row. */
+/* Геометрия — взаимоисключающий тумблер Meshopt/Draco (checkbox, не radio-группа — нужно
+   уметь снять выбор повторным кликом). Строка = голова (чекбокс+текст+значки) +
+   раскрывающееся описание снизу, тот же язык, что у чекбоксов ext-row. */
 .opt-radio-row { padding: 5px 2px; }
 
 .opt-radio-head {

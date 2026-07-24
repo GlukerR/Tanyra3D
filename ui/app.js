@@ -229,9 +229,10 @@
   // приходят от AI Assistant через /api/extensions; здесь только рендер.
   // ---------------------------------------------------------------
 
-  // Опции сгруппированы в секции. Геометрия — взаимоисключающий выбор (radio None/Meshopt/
-  // Draco). Meshopt/Draco/KTX2 требуют подключить декодер на целевом сайте (пометка «?»);
-  // остальное (None/Join/Safe/Remove colors) работает на голом three.js.
+  // Опции сгруппированы в секции. Геометрия — взаимоисключающий выбор (checkbox-тумблер
+  // Meshopt/Draco, обе выключены = не сжимать). Meshopt/Draco/KTX2/Instance требуют
+  // подключить декодер на целевом сайте (пометка ⚠); остальное (Join/Safe/Remove colors)
+  // работает на голом three.js.
   const OPT_GROUPS = [
     { title: 'Cleanup', kind: 'checks', ids: ['safe', 'strip-colors'] },
     { title: 'Structural', kind: 'checks', ids: ['join', 'instance'] },
