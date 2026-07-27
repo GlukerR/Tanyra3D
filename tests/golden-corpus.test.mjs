@@ -2,9 +2,9 @@
 // через разные комбинации оптимизаций. Все тесты используют dryRun: true,
 // чтобы не оставлять .glb файлы на диске.
 //
-// ВАЖНО: базовый пайплайн (dedup, prune, weld, join, meshopt) запускается
-// автоматически БЕЗ advancedFeatures. Поле advancedFeatures только для
-// опциональных расширений: 'ktx2', 'draco', 'strip-colors'.
+// ВАЖНО: модель opt-in. Пустой advancedFeatures — это passthrough: файл
+// перезаписывается без изменений, applied пуст. Любая оптимизация включается
+// своим флагом; актуальный список — ADVANCED_FEATURES в addons/gltf/index.mjs.
 //
 // Золотой корпус (16 моделей):
 //   ABeautifulGame, AnimationPointerUVs, AnisotropyBarnLamp, CarConcept,
@@ -46,11 +46,10 @@ const GOLDEN_MODELS = [
   'ToyCar.glb',
 ];
 
-// Модели с известными проблемами (KHR_animation_pointer)
-const KNOWN_FAILING = new Set([
-  'AnimationPointerUVs.glb',
-  'PotOfCoalsAnimationPointer.glb',
-]);
+// Модели с известными проблемами. Пусто: KHR_animation_pointer больше не валит
+// пайплайн (проверено 2026-07-27 на слитом main) — валидатор пишет предупреждение
+// «Missing optional extension» в stderr, статус остаётся ok.
+const KNOWN_FAILING = new Set([]);
 
 // Проверка: все sidecar-файлы лицензий существуют
 describe('Golden Corpus — license sidecars', () => {
@@ -93,14 +92,9 @@ describe('Golden Corpus — passthrough (default pipeline)', () => {
       dryRun: true,
     });
 
-    if (KNOWN_FAILING.has(modelName)) {
-      // KHR_animation_pointer — известная проблема: расширение не поддерживается
-      // Примечание: result.error может быть undefined — баг в обработке ошибок
-      expect(result.status).toBe('fail');
-      return;
-    }
-
     expect(result.status).toBe('ok');
+    // passthrough ничего не применяет — это и есть контракт opt-in
+    expect(result.applied.length).toBe(0);
     expect(result.metrics.before).not.toBeNull();
     expect(result.metrics.after).not.toBeNull();
     expect(result.metrics.before.fileBytes).toBeGreaterThan(0);
@@ -113,15 +107,15 @@ describe('Golden Corpus — basic pipeline produces findings', () => {
   const TIMEOUT = 15000;
 
   it.each(GOLDEN_MODELS.filter((m) => !KNOWN_FAILING.has(m)))(
-    '%s — has findings or applied rules after basic pipeline',
+    '%s — has findings or applied rules after safe cleanup',
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
-        advancedFeatures: [],
+        advancedFeatures: ['safe'],
         dryRun: true,
       });
       expect(result.status).toBe('ok');
       expect(result.file.written).toBe(false);
-      // У healthy модели всегда есть applied правила (хотя бы prune)
+      // safe = dedup + prune + weld: у любой модели найдётся что почистить
       expect(result.applied.length).toBeGreaterThan(0);
     },
     TIMEOUT,
@@ -136,7 +130,7 @@ describe('Golden Corpus — core invariant: triangles ± small delta', () => {
     '%s — triangles delta ≤ 10 (degenerate removal is normal)',
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
-        advancedFeatures: [],
+        advancedFeatures: ['safe'],
         dryRun: true,
       });
       expect(result.status).toBe('ok');
@@ -155,14 +149,14 @@ describe('Golden Corpus — join invariant', () => {
   const TIMEOUT = 15000;
 
   it.each(GOLDEN_MODELS.filter((m) => !KNOWN_FAILING.has(m)))(
-    '%s — meshes ≤ before after join (flatten+join runs by default)',
+    '%s — meshes ≤ before after join (flatten+join)',
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
-        advancedFeatures: [],
+        advancedFeatures: ['safe', 'join'],
         dryRun: true,
       });
       expect(result.status).toBe('ok');
-      // join (flatten+join) выполняется по умолчанию в базовом пайплайне
+      // join (flatten+join) — opt-in, включается своим флагом
       expect(result.metrics.after.meshes).toBeLessThanOrEqual(result.metrics.before.meshes);
       expect(result.metrics.after.drawCalls).toBeLessThanOrEqual(result.metrics.before.drawCalls);
       expect(result.applied.length).toBeGreaterThan(0);
