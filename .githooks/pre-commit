@@ -1,0 +1,16 @@
+#!/bin/sh
+# Pre-commit hook: запускает тесты перед коммитом.
+# Установка: git config core.hooksPath .githooks
+
+echo "🔍 Running tests before commit..."
+
+npx vitest run tests/optimize.test.mjs
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -ne 0 ]; then
+  echo "❌ Tests failed. Commit aborted. Fix the tests and try again."
+  exit 1
+fi
+
+echo "✅ All tests passed. Proceeding with commit."
+exit 0
