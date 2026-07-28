@@ -9,15 +9,16 @@ import { optimizeFile, listRules, VERSION } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import { modelPath, describeIfModels } from './helpers/model-files.mjs';
 
 // ---- helpers ----
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
-function modelPath(name) {
-  return path.resolve(PROJECT_ROOT, 'fixtures/models', name);
-}
+// modelPath импортирован из helpers/model-files.mjs. Не определять локальный
+// shadow этого имени — кроме рисков затенения, он ещё и ломает гомогенность
+// (один тест-файл должен иметь один источник истины для путей к fixtures).
 
 const MODEL = modelPath('CarConcept.glb');
 const MISSING = modelPath('does_not_exist.glb');
@@ -74,7 +75,7 @@ describe('API', () => {
 
 // ---- optimizeFile ----
 
-describe('optimizeFile', () => {
+describeIfModels(['CarConcept.glb'], 'optimizeFile', () => {
   it('passthrough (no advancedFeatures) returns status ok with metrics', async () => {
     const result = await optimizeFile(MODEL, {
       advancedFeatures: [],
@@ -101,7 +102,7 @@ describe('optimizeFile', () => {
 
 // ---- meshopt ----
 
-describe('meshopt', () => {
+describeIfModels(['CarConcept.glb'], 'meshopt', () => {
   it('safe + meshopt preserves triangle count (core invariant)', async () => {
     const result = await optimizeFile(MODEL, {
       advancedFeatures: ['safe', 'meshopt'],
@@ -116,7 +117,7 @@ describe('meshopt', () => {
 
 // ---- join ----
 
-describe('join', () => {
+describeIfModels(['CarConcept.glb'], 'join', () => {
   it('safe + join returns ok and does not increase meshes or draw calls', async () => {
     const result = await optimizeFile(MODEL, {
       advancedFeatures: ['safe', 'join'],
@@ -135,7 +136,7 @@ describe('join', () => {
 
 // ---- dryRun ----
 
-describe('dryRun', () => {
+describeIfModels(['CarConcept.glb'], 'dryRun', () => {
   afterAll(() => cleanDryRunReports()); // clean any dry-run reports left by this and earlier describe blocks
 
   it('dryRun=true does not write glb but produces a report file', async () => {
@@ -178,7 +179,7 @@ describe('dryRun', () => {
 
 // ---- errors ----
 
-describe('errors', () => {
+describeIfModels(['CarConcept.glb'], 'errors', () => {
   it('unknown advancedFeature returns status fail with descriptive message', async () => {
     const result = await optimizeFile(MODEL, {
       advancedFeatures: ['nonexistent_feature'],
@@ -200,7 +201,7 @@ describe('errors', () => {
 
 // ---- additional scenarios ----
 
-describe('additional scenarios', () => {
+describeIfModels(['CarConcept.glb'], 'additional scenarios', () => {
   it('full pipeline: safe + meshopt + join returns ok preserving triangles', async () => {
     const result = await optimizeFile(MODEL, {
       advancedFeatures: ['safe', 'meshopt', 'join'],

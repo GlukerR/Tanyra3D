@@ -32,15 +32,13 @@ import { describe, it, expect } from 'vitest';
 import { optimizeFile, VERSION } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import fs from 'node:fs';
+import { modelPath, describeIfModels, eachModel } from './helpers/model-files.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
-function modelPath(name) {
-  return path.resolve(PROJECT_ROOT, 'fixtures/models', name);
-}
-
-describe('TESTBUG-* — regression documentation (currently empty)', () => {
+describeIfModels(['CarConcept.glb'], 'TESTBUG-* — regression documentation (currently empty)', () => {
   it('skeleton — registry file present, vitest accepts an empty describe', async () => {
     expect(VERSION).toBeDefined();
     expect(typeof VERSION).toBe('string');
@@ -54,7 +52,56 @@ describe('TESTBUG-* — regression documentation (currently empty)', () => {
   });
 });
 
-describe('TESTBUG-006 — KHR_animation_pointer models fail under safe-cleanup', () => {
+// TESTBUG-007 — parkergirl + safe+meshopt: status='fail'
+//   Проверено на коммите dbf6513 (2026-07-28). Причина (по заданию):
+//   quantize() внутри meshopt-пути на скинованной модели с морфами; validation
+//   выдаёт два fail-события:
+//     - "skins lost: was 1, now 14"
+//     - "bounding box changed — model shifted or collapsed"
+//   Не зависит от GAP-005: до и после правки GAP-005 поведение одинаково
+//   (задание 2026-07-29-корпус2 § «Работа 2c»).
+//   parkergirl.glb — локальная модель (CC-BY-4.0, в git НЕ коммитится);
+//   собственные тесты на parkergirl — в tests/post-gap005-corpus.test.mjs
+//   («heavy morph stress» + skipIf-проверки). Этот describe — sentinel
+//   product-contract: пока он красный, дефект воспроизводится. Когда
+//   quantize() научится работать со скинами+морфами — этот тест надо либо
+//   закрыть, либо переписать под новое поведение.
+describeIfModels(['parkergirl.glb'], 'TESTBUG-007 — parkergirl fails under safe+meshopt (quantize + skinned mesh + heavy morphs)', () => {
+  const isParkergirlLocal = fs.existsSync(modelPath('parkergirl.glb'));
+  const targetModel = 'parkergirl.glb';
+  const expectedMode = ['safe', 'meshopt'];
+
+  // Sentinel: пока красный — дефект ещё воспроизводится. Закрытие — это
+  // не «тест протух», а либо фикс quantize() в продукте, либо больше нет смысла
+  // считать дефектом. В любом случае — пересмотр, а не удаление втихую.
+  const fn = isParkergirlLocal ? it : it.skip;
+  fn(`${targetModel} ${JSON.stringify(expectedMode)} — status='fail' с маркерами про скины и bound box`, async () => {
+    const result = await optimizeFile(modelPath(targetModel), {
+      advancedFeatures: expectedMode,
+      dryRun: true,
+    });
+    if (result.status !== 'fail') {
+      throw new Error(
+        `TESTBUG-007 may be FIXED for ${targetModel}: status=${result.status}. ` +
+        `error=${result.error || '(none)'}. ` +
+        `validation=${JSON.stringify(result.validation)}. ` +
+        `Update TESTBUG-007 to reflect new behavior or close.`,
+      );
+    }
+    // Sentinel на конкретный корень: если fail вдруг перестал сопровождаться
+    // обоими валидационными маркерами, дефект переродился — а не исчез.
+    const failedTexts = (result.validation || [])
+      .filter((v) => v.level === 'fail')
+      .map((v) => v.text);
+    const skinsRoot = failedTexts.some((t) => /skins lost/.test(t));
+    const bboxRoot = failedTexts.some((t) => /bounding box changed/.test(t));
+    expect(skinsRoot).toBe(true);
+    expect(bboxRoot).toBe(true);
+  });
+});
+
+// requireAnimationPointer LOCAL — обе модели на disk.
+describeIfModels(['AnimationPointerUVs.glb', 'PotOfCoalsAnimationPointer.glb'], 'TESTBUG-006 — KHR_animation_pointer models fail under safe-cleanup', () => {
   // Отличается от audit-BUG-002 (тот был исключительно про passthrough):
   //   на passthrough (advancedFeatures:[]) ОБЕ модели возвращают 'ok'
   //   (валидатор пишет warning "Missing optional extension" в stderr, ловушка 3);
@@ -68,7 +115,10 @@ describe('TESTBUG-006 — KHR_animation_pointer models fail under safe-cleanup',
   // сломается по ДРУГОЙ причине (напр. всегда-fail из-за config), этот тест упадёт
   // и мы узнаем, что дефект или ушёл, или переродился в другую форму.
   const affectedModels = ['AnimationPointerUVs.glb', 'PotOfCoalsAnimationPointer.glb'];
-  it.each(affectedModels)('%s — safe-cleanup ...', async (name) => {
+  // it.each → eachModel: при отсутствии модели её тест пропускается индивидуально,
+  // а не 'весь describe' целиком. Это полезно для случая, когда только часть
+  // аффекторных моделей локально недоступна.
+  eachModel('safe-cleanup fail (baseline-checkpoint)', affectedModels, async (name) => {
     const result = await optimizeFile(modelPath(name), {
       advancedFeatures: ['safe'],
       dryRun: true,

@@ -18,19 +18,22 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import { modelPath, describeIfModels } from './helpers/model-files.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
-function modelPath(name) {
-  return path.resolve(PROJECT_ROOT, 'fixtures/models', name);
-}
-
 const TIMEOUT_PARALLEL = 120000; // параллельные запуски могут быть дольше
+
+// Все тесты ниже используют 3 LOCAL-модели; после свежего git clone их нет — каждый
+// describe-блок пропускается как единое целое. Только 'App upstream' манифесты
+// пройдут (= 10 коммитимых REPO_MODELS).
+
+const THREE_LOCAL = ['CarConcept.glb', 'ToyCar.glb', 'SpecularSilkPouf.glb'];
 
 // ---- 3 разные модели параллельно ----
 
-describe('Parallel — 3 different models', () => {
+describeIfModels(THREE_LOCAL, 'Parallel — 3 different models', () => {
   it('Promise.all with safe+meshopt+join — all return ok with applied rules', async () => {
     const models = ['CarConcept.glb', 'ToyCar.glb', 'SpecularSilkPouf.glb'];
 
@@ -170,7 +173,7 @@ describe('Parallel — 3 different models', () => {
 
 // ---- Одна модель × 3 параллельно — все результаты идентичны ----
 
-describe('Parallel — same model x3', () => {
+describeIfModels(THREE_LOCAL, 'Parallel — same model x3', () => {
   it('3 parallel calls to CarConcept return identical metrics', async () => {
     const results = await Promise.all([
       optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: [], dryRun: true }),
@@ -218,7 +221,7 @@ describe('Parallel — same model x3', () => {
 
 // ---- Разные advancedFeatures параллельно ----
 
-describe('Parallel — different features', () => {
+describeIfModels(['CarConcept.glb'], 'Parallel — different features', () => {
   it('meshopt, draco, and strip-colors in parallel — all ok', async () => {
     const results = await Promise.all([
       // 'baseline' = явный meshopt (opt-in: никаких скрытых default-правил)
@@ -270,7 +273,7 @@ describe('Parallel — different features', () => {
 // но здесь мы СПЕЦИАЛЬНО тестируем dryRun:false (force/skip). outDir — в tmpdir(),
 // не в PROJECT_ROOT, чтобы не загрязнять репозиторий экспортами.
 
-describe('Parallel — dryRun:false (write to tmpdir)', () => {
+describeIfModels(THREE_LOCAL, 'Parallel — dryRun:false (write to tmpdir)', () => {
   // OUT_DIR создаётся в beforeEach (а не на suite-уровне) — чтобы afterEach
   // rmSync(..., recursive: true) не убивал директорию ДО следующего теста в этом же describe.
   // Math.random добивает коллизию при двух worker'ах vitest с одинаковыми pid+ms.

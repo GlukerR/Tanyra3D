@@ -9,19 +9,16 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import { modelPath, describeIfModels } from './helpers/model-files.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
-
-function modelPath(name) {
-  return path.resolve(PROJECT_ROOT, 'fixtures/models', name);
-}
 
 // ================================================================
 // strip-colors — удаление раскрашенных вершинных цветов (lossy)
 // ================================================================
 
-describe('strip-colors', () => {
+describeIfModels(['CarConcept.glb'], 'strip-colors', () => {
   it('advancedFeatures:["strip-colors"] returns status ok', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
       advancedFeatures: ['strip-colors'],
@@ -70,7 +67,7 @@ describe('strip-colors', () => {
 // keepParts — отключение join (flatten + join не выполняются)
 // ================================================================
 
-describe('keepParts', () => {
+describeIfModels(['CarConcept.glb'], 'keepParts', () => {
   it('keepParts:true keeps meshes separate (no join)', async () => {
     const withoutKeep = await optimizeFile(modelPath('CarConcept.glb'), {
       advancedFeatures: ['safe', 'join'],
@@ -127,7 +124,7 @@ describe('keepParts', () => {
 // validation — структура массива валидации
 // ================================================================
 
-describe('validation', () => {
+describeIfModels(['CarConcept.glb'], 'validation', () => {
   it('validation is an array with ok status', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
       advancedFeatures: [],
@@ -177,7 +174,7 @@ describe('validation', () => {
 // force — принудительная перезапись выходного файла
 // ================================================================
 
-describe('force', () => {
+describeIfModels(['CarConcept.glb'], 'force', () => {
   // Уникальная tmpdir per-test: предотвращает конфликты с parallel.test.mjs
   // и не даёт afterEach rmSync(..., recursive: true) убить директорию ДО следующего теста.
   // Правило TEST_AGENT_PROMPT rule 9 + «не в PROJECT_ROOT».

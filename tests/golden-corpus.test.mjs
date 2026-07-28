@@ -91,6 +91,94 @@ const APPLY_ON_PASSTHROUGH = new Set([
   'Meshopt Compressed Input 01.glb',
 ]);
 
+// === SPLIT (задание 2026-07-29-корпус2, Работа 3): REPO × LOCAL ===
+//
+// До коммита `docs(context): GAP-005, API-002, корпус в репозитории` модели в
+// git НЕ коммитились вовсе. Теперь 10 собственных моделей автора версионируются
+// через .gitignore `!`-правила. Остальные 14 — проприетарные Khronos-эталоны,
+// CC-BY-4.0 или клиентские — в репозиторий не попадают.
+//
+// Контракт прогонов:
+//   - После свежего `git clone` `npx vitest run` обязан быть зелёным.
+//   - 10 REPO-моделей — fail-fast: отсутствие файла валит прогон с понятным
+//     диагностическим сообщением ещё ДО старта тестов (на этапе загрузки модуля).
+//   - 14 LOCAL-моделей — graceful skip: тесты пропускаются явно с маркером
+//     «model not present locally», видны в отчёте как skipped.
+//
+// vitest-ный it.skipIf на списке массивов массивов хрупкий (см. notes
+// в tests/gap-005-regression.test.mjs), поэтому используем явный цикл с
+// `it` / `it.skip`. Параметризация eachModel: для REPO — только `it`;
+// для LOCAL — `it` если файл есть, иначе `it.skip` с осмысленным именем.
+
+const REPO_MODELS = new Set([
+  'Dirty Cube 01.glb',
+  'Instance Grid 01.glb',
+  'Morph Cube 01.glb',
+  'Vertex Colors 01.glb',
+  'Draco Compressed Input 01.glb',
+  'Meshopt Compressed Input 01.glb',
+  'Linked Duplicates Grid 01.glb',
+  'Orphan Texture Cube 01.glb',
+  'Preinstanced Grid 01.glb',
+  'Truncated Broken 01.glb',
+]);
+
+const LOCAL_ONLY_MODELS = new Set([
+  // 16 Khronos-эталонов (CC-BY / проприетарные — тяжёлые, не коммитятся)
+  'ABeautifulGame.glb',
+  'AnimationPointerUVs.glb',
+  'AnisotropyBarnLamp.glb',
+  'CarConcept.glb',
+  'ChronographWatch.glb',
+  'CommercialRefrigerator.glb',
+  'DiffuseTransmissionPlant.glb',
+  'DiffuseTransmissionTeacup.glb',
+  'IridescenceLamp.glb',
+  'IridescentDishWithOlives.glb',
+  'MosquitoInAmber.glb',
+  'PotOfCoalsAnimationPointer.glb',
+  'SheenWoodLeatherSofa.glb',
+  'SpecularSilkPouf.glb',
+  'SunglassesKhronos.glb',
+  'ToyCar.glb',
+  // 2 доп. локальных (модели Александра — тоже CC-BY лицензии или подобное)
+  'Cthulhu Stone 01.glb',
+  'Lilith Character 01.glb',
+  // 2 CC-BY-4.0 персонажа (см. fixtures/models/*license.md)
+  'chibi_zenitsu.glb',
+  'parkergirl.glb',
+  // 3 клиентские модели: тяжёлые текстуры, EXT_texture_webp; не в git
+  'Е300.glb',
+  'r 250.glb',
+  'L-330.glb',
+]);
+
+// Fail-fast на этапе загрузки модуля: REPO-модели обязан быть.
+for (const m of REPO_MODELS) {
+  if (!fs.existsSync(modelPath(m))) {
+    throw new Error(
+      `Golden Corpus: отсутствует коммитимая fixtures/models/${m}. После ` +
+      `git clone все 10 моделей из fixtures/.gitignore (!models/...) должны ` +
+      `быть на диске. Если файл потерян — git checkout fixtures/models/${m}.`,
+    );
+  }
+}
+
+// eachModel: для модели в REPO всегда `it`; для LOCAL — `it` если файл есть,
+// иначе `it.skip` с осмысленным маркером. Не используем vitest it.skipIf —
+// он на массиве массивов схлопывает имена (зафиксировано в
+// tests/gap-005-regression.test.mjs, см. комментарий перед PRESERVE_MODES).
+function eachModel(prefix, models, body, timeout) {
+  for (const m of models) {
+    const pth = modelPath(m);
+    if (REPO_MODELS.has(m) || fs.existsSync(pth)) {
+      it(`${m} — ${prefix}`, () => body(m), timeout);
+    } else {
+      it.skip(`${m} — ${prefix} [skipped: ${m} missing locally]`, () => {}, timeout);
+    }
+  }
+}
+
 // Helper-фильтр для describe с safe / safe+join: исключает KHR_animation_pointer и known-failing.
 // Используется во всех 3 safe-using describe вместо повторного .filter(...).
 const isSafeEligible = (m) => !KNOWN_FAILING.has(m) && !KNOWN_FAILING_UNDER_SAFE.has(m);
@@ -107,19 +195,18 @@ const SAFE_RULE_IDS = new Set(
 
 // Проверка: все sidecar-файлы лицензий существуют
 describe('Golden Corpus — license sidecars', () => {
-  it.each(GOLDEN_MODELS)('%s has a license.md sidecar', (modelName) => {
+  eachModel('has a license.md sidecar', GOLDEN_MODELS, (modelName) => {
     const licensePath = modelPath(modelName.replace(/\.glb$/i, '.license.md'));
     expect(fs.existsSync(licensePath)).toBe(true);
   });
 
-  it.each(GOLDEN_MODELS)('%s license.md has required fields', (modelName) => {
+  eachModel('license.md has required fields', GOLDEN_MODELS, (modelName) => {
     const licensePath = modelPath(modelName.replace(/\.glb$/i, '.license.md'));
     const content = fs.readFileSync(licensePath, 'utf-8');
-    // Обязательные поля: автор, тип лицензии, источник. Проверка на источник
-    // была временно снята тестировщиком — в десяти новых sidecar'ах поля просто
-    // не было. Правильное направление обратное: дополнены данные, а не ослаблен
-    // тест. Поле «Источник / URL» добавлено во все десять; для моделей, сделанных
-    // с нуля, там сказано это прямым текстом.
+    // Поле «Источник / URL» добавлено во все 10 REPO-моделей; для локальных
+    // моделей может отсутствовать, но этот тест выполняется только при
+    // наличии файла .glb (проверка в eachModel), а license.md коммитится
+    // всегда — она появится и в zip к модели в случае модели без исходника.
     expect(content).toMatch(/copyright|author|Copyright|Author|Автор/i);
     expect(content).toMatch(/license|License|Лицензия/i);
     expect(content).toMatch(/source|Source|Источник/i);
@@ -144,8 +231,9 @@ describe('Golden Corpus — API smoke test', () => {
 describe('Golden Corpus — passthrough (default pipeline)', () => {
   const TIMEOUT = 30000; // ABeautifulGame — большая модель
 
-  it.each(GOLDEN_MODELS.filter((m) => !APPLY_ON_PASSTHROUGH.has(m)))(
-    '%s — passthrough returns status ok, applied empty',
+  eachModel(
+    'passthrough returns status ok, applied empty',
+    GOLDEN_MODELS.filter((m) => !APPLY_ON_PASSTHROUGH.has(m)),
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
         advancedFeatures: [],
@@ -167,8 +255,9 @@ describe('Golden Corpus — passthrough (default pipeline)', () => {
   // Отдельный мини-тест для моделей с уже-сжатым входом: даже на пустом
   // advancedFeatures движок применяет stripInputCompression (одна строка applied).
   // Контракт opt-in не нарушен — это гигиена входа, а не «правило».
-  it.each([...APPLY_ON_PASSTHROUGH])(
-    '%s — passthrough still applies exactly one engine/entry line (strip input compression)',
+  eachModel(
+    'passthrough still applies exactly one engine/entry line (strip input compression)',
+    [...APPLY_ON_PASSTHROUGH],
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
         advancedFeatures: [],
@@ -187,8 +276,9 @@ describe('Golden Corpus — passthrough (default pipeline)', () => {
 describe('Golden Corpus — safe cleanup preserves structure', () => {
   const TIMEOUT = 60000; // ABeautifulGame — большая модель (~145 MB)
 
-  it.each(GOLDEN_MODELS.filter(isSafeEligible))(
-    '%s — safe cleanup preserves structure (no validation fails)',
+  eachModel(
+    'safe cleanup preserves structure (no validation fails)',
+    GOLDEN_MODELS.filter(isSafeEligible),
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
         advancedFeatures: ['safe'],
@@ -208,8 +298,9 @@ describe('Golden Corpus — safe cleanup preserves structure', () => {
 describe('Golden Corpus — core invariant: triangles ± small delta', () => {
   const TIMEOUT = 60000; // ABeautifulGame — большая модель
 
-  it.each(GOLDEN_MODELS.filter(isSafeEligible))(
-    '%s — triangles delta ≤ 10 (degenerate removal is normal)',
+  eachModel(
+    'triangles delta ≤ 10 (degenerate removal is normal)',
+    GOLDEN_MODELS.filter(isSafeEligible),
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
         advancedFeatures: ['safe'],
@@ -230,8 +321,9 @@ describe('Golden Corpus — core invariant: triangles ± small delta', () => {
 describe('Golden Corpus — join invariant', () => {
   const TIMEOUT = 60000; // ABeautifulGame — большая модель, safe+join дольше
 
-  it.each(GOLDEN_MODELS.filter(isSafeEligible))(
-    '%s — meshes ≤ before after join (flatten+join)',
+  eachModel(
+    'meshes ≤ before after join (flatten+join)',
+    GOLDEN_MODELS.filter(isSafeEligible),
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
         advancedFeatures: ['safe', 'join'],
@@ -267,7 +359,7 @@ describe('Golden Corpus — safe is NOT silent no-op', () => {
   // тест это покажет, а инвариант "applied.length > 0" на пустом file не сработает.
   const DIRTY_SAFE_MODELS = ['CarConcept.glb', 'Dirty Cube 01.glb'];
 
-  it.each(DIRTY_SAFE_MODELS)('%s — safe cleanup applies AT LEAST one rule', async (modelName) => {
+  eachModel('safe cleanup applies AT LEAST one rule', DIRTY_SAFE_MODELS, async (modelName) => {
     const result = await optimizeFile(modelPath(modelName), {
       advancedFeatures: ['safe'],
       dryRun: true,
@@ -286,8 +378,9 @@ describe('Golden Corpus — safe is NOT silent no-op', () => {
 describe('Golden Corpus — metrics structure', () => {
   const TIMEOUT = 60000; // ABeautifulGame — большая модель (~145 MB), нужен буфер
 
-  it.each(GOLDEN_MODELS.filter((m) => !KNOWN_FAILING.has(m)))(
-    '%s — metrics have all required fields',
+  eachModel(
+    'metrics have all required fields',
+    GOLDEN_MODELS.filter((m) => !KNOWN_FAILING.has(m)),
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
         advancedFeatures: [],
@@ -613,7 +706,7 @@ describe('Golden Corpus — Morph Cube 01: morph targets survive', () => {
 // 4. Cthulhu Stone 01.glb — скиннинг + анимации (skin damage не видно по метрикам)
 // ============================================================================
 
-describe('Golden Corpus — Cthulhu Stone 01: skins + animations preserved', () => {
+(fs.existsSync(modelPath('Cthulhu Stone 01.glb')) ? describe : describe.skip)('Golden Corpus — Cthulhu Stone 01: skins + animations preserved', () => {
   const TIMEOUT = 30000; // модель 18 МБ, нужен буфер
 
   it('safe: скин и анимации сохранены по количеству', async () => {
@@ -646,7 +739,7 @@ describe('Golden Corpus — Cthulhu Stone 01: skins + animations preserved', () 
 // 5. Lilith Character 01.glb — три клипа анимации
 // ============================================================================
 
-describe('Golden Corpus — Lilith Character 01: three named animations + 1 skin', () => {
+(fs.existsSync(modelPath('Lilith Character 01.glb')) ? describe : describe.skip)('Golden Corpus — Lilith Character 01: three named animations + 1 skin', () => {
   const TIMEOUT = 30000;
 
   // Расчётное время прогонов с большим количеством нод (281); safe с weld/orphan

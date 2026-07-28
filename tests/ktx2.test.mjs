@@ -22,13 +22,10 @@ import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import { modelPath, describeIfModels, eachModel } from './helpers/model-files.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
-
-function modelPath(name) {
-  return path.resolve(PROJECT_ROOT, 'fixtures/models', name);
-}
 
 // ---- TIMEOUTS ----
 // KTX2 с текстурами дольше из-за lazy-import sharp и конвертации JPEG→PNG
@@ -38,7 +35,7 @@ const TIMEOUT_INPUT = 120000;
 
 // ---- KTX2: базовая проверка на CarConcept.glb ----
 
-describe('KTX2 — basic', () => {
+describeIfModels(['CarConcept.glb'], 'KTX2 — basic', () => {
   it('advancedFeatures:["ktx2"] is a valid feature (no unknown error)', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
       advancedFeatures: ['ktx2'],
@@ -118,7 +115,7 @@ describe('KTX2 — basic', () => {
 
 // ---- KTX2: сравнение с default (без ktx2) на CarConcept ----
 
-describe('KTX2 — vs default pipeline', () => {
+describeIfModels(['CarConcept.glb'], 'KTX2 — vs default pipeline', () => {
   it('both modes pass baseline validation', async () => {
     const [ktx2Result, defaultResult] = await Promise.all([
       optimizeFile(modelPath('CarConcept.glb'), {
@@ -177,7 +174,8 @@ describe('KTX2 — golden corpus', () => {
   // Модели без KTX2-бага — status строго ok
   const HEALTHY_MODELS = GOLDEN_HEALTHY.filter((m) => !KTX2_FAILING.has(m));
 
-  it.each(HEALTHY_MODELS)('%s — ktx2 returns ok, triangles preserved', async (name) => {
+  // it.each → eachModel: пропуск LOCALS, которых нет на диске.
+  eachModel('ktx2 returns ok, triangles preserved', HEALTHY_MODELS, async (name) => {
     const result = await optimizeFile(modelPath(name), {
       advancedFeatures: ['ktx2'],
       dryRun: true,
@@ -191,16 +189,14 @@ describe('KTX2 — golden corpus', () => {
     expect(result.applied.length).toBeGreaterThan(0);
   }, TIMEOUT_GOLDEN);
 
-  it(`${
-    GOLDEN_HEALTHY.length
-  } models tested with ktx2 (${KTX2_FAILING.size} known-failing; см. TESTBUG-005 в tests/bugs-found.test.mjs)`, () => {
+  it(`${GOLDEN_HEALTHY.length} models tested with ktx2 (${KTX2_FAILING.size} known-failing; см. TESTBUG-005 в tests/bugs-found.test.mjs)`, () => {
     expect(GOLDEN_HEALTHY.length).toBeGreaterThan(0);
   });
 });
 
 // ---- KTX2 + Draco: комбинированные расширения на CarConcept ----
 
-describe('KTX2 + Draco — combined features', () => {
+describeIfModels(['CarConcept.glb'], 'KTX2 + Draco — combined features', () => {
   it('advancedFeatures:["ktx2","draco"] is valid (no unknown error)', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
       advancedFeatures: ['ktx2', 'draco'],
@@ -316,7 +312,7 @@ describe('KTX2 + Draco — combined features', () => {
 
 const ALL_THREE = ['ktx2', 'draco', 'strip-colors'];
 
-describe('KTX2 + Draco + strip-colors — all three', () => {
+describeIfModels(['CarConcept.glb'], 'KTX2 + Draco + strip-colors — all three', () => {
   it('advancedFeatures:["ktx2","draco","strip-colors"] is valid', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
       advancedFeatures: ALL_THREE,

@@ -15,17 +15,14 @@ import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import { modelPath, describeIfModels, eachModel } from './helpers/model-files.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
-function modelPath(name) {
-  return path.resolve(PROJECT_ROOT, 'fixtures/models', name);
-}
-
 // ---- Draco: базовая проверка на CarConcept.glb ----
 
-describe('Draco — basic', () => {
+describeIfModels(['CarConcept.glb'], 'Draco — basic', () => {
   it('advancedFeatures:["draco"] returns status ok on CarConcept.glb', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
       advancedFeatures: ['draco'],
@@ -80,7 +77,7 @@ describe('Draco — basic', () => {
 
 // ---- Draco: сравнение с meshopt (дефолтный кодек) ----
 
-describe('Draco — vs meshopt', () => {
+describeIfModels(['CarConcept.glb'], 'Draco — vs meshopt', () => {
   it('draco produces different file size than meshopt', async () => {
     // Запускаем с meshopt (дефолт)
     const meshoptResult = await optimizeFile(modelPath('CarConcept.glb'), {
@@ -139,7 +136,8 @@ describe('Draco — golden corpus', () => {
 
   const TIMEOUT = 30000;
 
-  it.each(GOLDEN)('%s — draco returns ok, triangles preserved', async (name) => {
+  // it.each → eachModel: пропуск LOCALS, которых нет на диске.
+  eachModel('draco returns ok, triangles preserved', GOLDEN, async (name) => {
     const result = await optimizeFile(modelPath(name), {
       advancedFeatures: ['draco'],
       dryRun: true,
