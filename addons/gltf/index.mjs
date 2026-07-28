@@ -18,7 +18,9 @@ import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import draco3d from 'draco3dgltf';
 import { MeshoptDecoder, MeshoptEncoder } from 'meshoptimizer';
 
-import { AUTOFIX_MAX_TIER, ENGINE_META, compareBaseline } from '../../core/engine.mjs';
+// Общий словарь, а не внутренности движка: аддон не должен зависеть от того, кто его
+// вызывает (ARCH-001). core/contract.mjs не зависит ни от кого.
+import { AUTOFIX_MAX_TIER, ENGINE_META, compareBaseline } from '../../core/contract.mjs';
 import { register } from '../../core/i18n.mjs';
 import {
   BASELINE_METRICS, BASELINE_SOFT, MB, collectMetrics, baselineSnapshot,
