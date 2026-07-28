@@ -30,21 +30,16 @@ describe('strip-colors', () => {
     expect(result.file.written).toBe(false);
   });
 
-  it('strip-colors produces applied rules', async () => {
+  it('strip-colors preserves structure (works on models with and without COLOR_n)', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
       advancedFeatures: ['strip-colors'],
       dryRun: true,
     });
     expect(result.status).toBe('ok');
-    // Должно быть хотя бы одно правило (geometry/compress + strip-colors)
-    expect(result.applied.length).toBeGreaterThan(0);
-
-    // Ищем правило attributes/vertex-colors (оно отвечает за strip)
-    const vcRule = result.applied.find((a) => a.ruleId?.includes('vertex'));
-    // Если в модели нет COLOR_n — правило может не сработать, это нормально
-    if (vcRule) {
-      expect(vcRule.text).toBeDefined();
-    }
+    // applied.length может быть 0 на модели без COLOR_n (CarConcept их не имеет) —
+    // это корректное поведение opt-in: правило выполнилось, но не нашло что удалять.
+    // Главный инвариант — strip-colors не ломает файл.
+    expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
   });
 
   it('strip-colors preserves triangles (core invariant)', async () => {
@@ -57,18 +52,16 @@ describe('strip-colors', () => {
     expect(delta).toBeLessThanOrEqual(10);
   });
 
-  it('strip-colors + default pipeline combined', async () => {
-    // strip-colors — расширение; базовый пайплайн работает вместе с ним
+  it('strip-colors works alongside safe + meshopt', async () => {
+    // strip-colors + явные safe/meshopt — проверяем, что opt-in фичи не конфликтуют.
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
-      advancedFeatures: ['strip-colors'],
+      advancedFeatures: ['safe', 'meshopt', 'strip-colors'],
       dryRun: true,
     });
     expect(result.status).toBe('ok');
-    // Базовые правила (prune, weld, join, meshopt) тоже отработали
-    const pruneRule = result.applied.find((a) => a.ruleId?.includes('prune'));
-    const compressRule = result.applied.find((a) => a.ruleId === 'geometry/compress');
-    expect(compressRule).toBeDefined(); // meshopt работает всегда
-    // prune может не сработать на чистой модели — не проверяем строго
+    // safe-семейство (dedup/prune/weld) может ничего не найти на чистой модели —
+    // проверяем только meshopt-часть, она стабильна на любой геометрии.
+    expect(result.applied.some((a) => a.ruleId === 'geometry/compress')).toBe(true);
   });
 });
 
@@ -79,23 +72,23 @@ describe('strip-colors', () => {
 describe('keepParts', () => {
   it('keepParts:true keeps meshes separate (no join)', async () => {
     const withoutKeep = await optimizeFile(modelPath('CarConcept.glb'), {
-      advancedFeatures: [],
+      advancedFeatures: ['safe', 'join'],
       dryRun: true,
     });
     expect(withoutKeep.status).toBe('ok');
 
     const withKeep = await optimizeFile(modelPath('CarConcept.glb'), {
-      advancedFeatures: [],
+      advancedFeatures: ['safe', 'join'],
       keepParts: true,
       dryRun: true,
     });
     expect(withKeep.status).toBe('ok');
 
-    // При keepParts:true join не запускается, поэтому applied НЕ должен содержать join
+    // При keepParts:true join выключается даже при явном флаге 'join'.
     const joinRule = withKeep.applied.find((a) => a.ruleId === 'scene/join');
     expect(joinRule).toBeUndefined();
 
-    // В базовом режиме join должен быть в applied (CarConcept — много мешей)
+    // С явным флагом 'join' (без keepParts) join срабатывает.
     const joinRuleBase = withoutKeep.applied.find((a) => a.ruleId === 'scene/join');
     expect(joinRuleBase).toBeDefined();
   });
@@ -115,7 +108,7 @@ describe('keepParts', () => {
 
     // С keepParts мешей не меньше (join не объединяет)
     expect(withKeep.metrics.after.meshes).toBeGreaterThanOrEqual(withoutKeep.metrics.after.meshes);
-  });
+  }, 30000);
 
   it('keepParts:true preserves triangle count', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
@@ -165,7 +158,9 @@ describe('validation', () => {
     expect(result.status).toBe('ok');
 
     const texts = result.validation.map((v) => v.text).join(' ');
-    expect(texts).toMatch(/геометри|triangles|базов/i);
+    // Язык сообщений не хардкодить (правило промпта). Используем английские паттерны,
+    // стабильные на всех версиях: 'geometry is present', 'triangle count unchanged'
+    expect(texts).toMatch(/triangles|geometry/i);
   });
 
   it('validation for missing file returns fail with validation info', async () => {

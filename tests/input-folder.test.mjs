@@ -31,11 +31,11 @@ if (inputExists) {
 
 const inputModelCount = inputModels.length;
 
-// Известные проблемные модели (см. BUG-006 в assistants/review/findings/)
-const KNOWN_FAILING = new Set([
-  'decepticon_fighter.glb',
-  'uttvm_core_guard.glb',
-]);
+// Известные проблемные модели — set пуст после audit-фикса BUG-006:
+// decepticon_fighter.glb и uttvm_core_guard.glb теперь возвращают 'ok'
+// (bounding-box false positive на passthrough больше не блокирует запись).
+// Если кто-то снова начнёт валиться — добавить сюда с комментарием.
+const KNOWN_FAILING = new Set([]);
 
 // ---- Smoke: check that input folder has models ----
 describe('Input folder — basic checks', () => {
@@ -75,16 +75,16 @@ describe('Input folder — batch passthrough (default pipeline)', () => {
   }, longTimeout);
 });
 
-// ---- Базовый пайплайн + core invariant ----
-describe('Input folder — default pipeline (core invariant)', () => {
+// ---- Safe cleanup + core invariant ----
+describe('Input folder — safe cleanup (core invariant)', () => {
   const longTimeout = 120000;
 
   it.each(inputModels.filter((m) => !KNOWN_FAILING.has(m)))(
-    `basic: %s`,
+    `safe cleanup: %s`,
     async (modelName) => {
       const modelFullPath = path.join(INPUT_DIR, modelName);
       const result = await optimizeFile(modelFullPath, {
-        advancedFeatures: [],
+        advancedFeatures: ['safe'],
         dryRun: true,
       });
 
@@ -94,8 +94,9 @@ describe('Input folder — default pipeline (core invariant)', () => {
         // Допуск 5000: input-модели могут иметь много вырожденных треугольников
         // (напр. Ноутбук.glb удаляет 2264, 2 (3).glb — 1546)
         expect(delta).toBeLessThanOrEqual(5000);
-        // Хотя бы что-то применено (healthy model)
-        expect(result.applied.length).toBeGreaterThan(0);
+        // applied.length может быть 0 на уже-чистых моделях (safe нашёл нечего чистить) —
+        // это корректное поведение opt-in. Главный инвариант — safe НЕ ломает валидацию.
+        expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
       } else if (result.status === 'skip') {
         expect(result.file.written).toBe(false);
       } else {

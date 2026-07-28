@@ -1,17 +1,37 @@
-// Bug documentation tests — тесты, документирующие найденные дефекты и несоответствия.
-// По правилам TEST_AGENT_PROMPT.md: баги не исправляются, а фиксируются тестами.
+// bugs-found.test.mjs — реестр дефектов продукта (TESTBUG-*).
 //
-// Найденные проблемы:
-// 1. advancedFeatures:['safe'] не существует — 'safe' нет в ADVANCED_FEATURES
-// 2. KHR_animation_pointer вызывает status:'fail' у моделей, которые его используют
-// 3. decepticon_fighter.glb и uttvm_core_guard.glb падают с неизвестной ошибкой (BUG-006)
-// 4. Ошибки о неизвестных advancedFeatures на русском, тест ожидает английский
+// Состояние на main @ ed0936c (2026-07-27): все 5 ранее задокументированных находок
+// аудита (BUG-001..BUG-005) НЕ воспроизводятся на актуальной архитектуре.
+//
+//   TESTBUG-001 (бывший BUG-001): advancedFeatures:['safe'] unknown.
+//     Заявлялось: 'safe' нет в ADVANCED_FEATURES. Сейчас: 'safe' — валидная фича.
+//
+//   TESTBUG-002 (бывший BUG-002): KHR_animation_pointer → fail.
+//     Заявлялось: AnimationPointerUVs/PotOfCoalsAnimationPointer валятся на fail.
+//     Сейчас: возвращают ok, валидатор печатает warning в stderr (ловушка 3 промпта).
+//
+//   TESTBUG-003 (бывший BUG-003): decepticon_fighter / uttvm_core_guard → fail.
+//     Заявлялось: модели валятся на fail. Сейчас: возвращают ok после audit-фикса
+//     BUG-006 (bounding-box false positive на passthrough больше не блокирует).
+//
+//   TESTBUG-004 (бывший BUG-004): язык ошибок русский/английский.
+//     Заявлялось: ошибка на русском (`Неизвестные`), тест ждал русского. Сейчас:
+//     сообщение английское (`Unknown advancedFeatures: ...`), тест был ложным.
+//     Правильная проверка контракта: подстроки `advancedFeatures` и имя фичи, не язык.
+//
+//   TESTBUG-005 (бывший BUG-005): KTX2 temp-file round-trip меняет nodes.
+//     Заявлялось: KTX2-кодирование с 3 моделями даёт status:fail на baseline-mismatch.
+//     Сейчас: не воспроизводится на актуальном коде.
+//
+// Файл оставлен как скелет для будущих regression-тестов. Если найдена новая
+// невоспроизводимая находка, не закрытая основным набором — добавляется здесь.
+// Учти: BUG-001..BUG-006 в `assistants/review/findings/` — это **другие** проблемы,
+// из аудита; твой префикс `TESTBUG-*` — отдельный namespace (правило промпта).
 
 import { describe, it, expect } from 'vitest';
-import { optimizeFile } from '../optimize2.mjs';
+import { optimizeFile, VERSION } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import fs from 'node:fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -20,139 +40,37 @@ function modelPath(name) {
   return path.resolve(PROJECT_ROOT, 'fixtures/models', name);
 }
 
-// ---- БАГ №1: advancedFeatures:['safe'] не существует ----
-describe('BUG-001: advancedFeatures:safe is not a valid feature', () => {
-  it('passing advancedFeatures:["safe"] returns status fail', async () => {
-    const result = await optimizeFile(modelPath('CarConcept.glb'), {
+describe('TESTBUG-* — regression documentation (currently empty)', () => {
+  it('skeleton — registry file present, vitest accepts an empty describe', async () => {
+    expect(VERSION).toBeDefined();
+    expect(typeof VERSION).toBe('string');
+
+    // Sanity: TESTBUG-тест ниже зависит от публичного API.
+    const r = await optimizeFile(modelPath('CarConcept.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(['ok', 'fail']).toContain(r.status);
+  });
+});
+
+describe('TESTBUG-006 — KHR_animation_pointer models fail under safe-cleanup', () => {
+  // Отличается от audit-BUG-002 (тот был исключительно про passthrough):
+  //   на passthrough (advancedFeatures:[]) ОБЕ модели возвращают 'ok'
+  //   (валидатор пишет warning "Missing optional extension" в stderr, ловушка 3);
+  //   НО на ['safe'] (и ['safe','join']) обе возвращают 'fail' — safe-cleanup
+  //   ломает baseline-checkpoint валидации, вероятно из-за bufferView'ов,
+  //   скрытых внутри KHR_animation_pointer.
+  // Продокументировано на main @ ed0936c (2026-07-27).
+  // Тест EXPECTS fail-статус → проходит, документируя дефект.
+  // Покрытие: tests/golden-corpus.test.mjs ИСКЛЮЧАЕТ эти модели из safe-using
+  // describe (KNOWN_FAILING_UNDER_SAFE) — нельзя тестировать «safe безопасен» на них.
+  const affectedModels = ['AnimationPointerUVs.glb', 'PotOfCoalsAnimationPointer.glb'];
+  it.each(affectedModels)('%s — safe-cleanup returns status fail (documented defect)', async (name) => {
+    const result = await optimizeFile(modelPath(name), {
       advancedFeatures: ['safe'],
       dryRun: true,
     });
     expect(result.status).toBe('fail');
-    expect(result.error).toBeDefined();
-    // Сообщение об ошибке — на русском, упоминает 'safe' как неизвестную фичу
-    expect(result.error).toContain('safe');
-    expect(result.error).toContain('Неизвестные');
-  });
-
-  it('passing advancedFeatures:["safe","meshopt"] also fails', async () => {
-    const result = await optimizeFile(modelPath('CarConcept.glb'), {
-      advancedFeatures: ['safe', 'meshopt'],
-      dryRun: true,
-    });
-    expect(result.status).toBe('fail');
-    expect(result.error).toContain('safe');
-    // 'meshopt' тоже не в ADVANCED_FEATURES
-    expect(result.error).toContain('meshopt');
-  });
-});
-
-// ---- БАГ №2: KHR_animation_pointer вызывает fail ----
-describe('BUG-002: KHR_animation_pointer models fail on passthrough', () => {
-  const affectedModels = [
-    { name: 'AnimationPointerUVs.glb', ext: 'KHR_animation_pointer' },
-    { name: 'PotOfCoalsAnimationPointer.glb', ext: 'KHR_animation_pointer' },
-  ];
-
-  it.each(affectedModels)('$name fails with known extension error', async ({ name }) => {
-    const result = await optimizeFile(modelPath(name), {
-      advancedFeatures: [],
-      dryRun: true,
-    });
-    expect(result.status).toBe('fail');
-    // БАГ: result.error не задан — код выставляет status:'fail' без сообщения
-    // Ожидалось бы сообщение вроде "Missing extension: KHR_animation_pointer"
-    if (result.error) {
-      console.log(`  🔍 ${name} error: ${result.error.slice(0, 200)}`);
-    } else {
-      console.log(`  🔍 ${name}: status=fail, error=undefined (BUG: no error message)`);
-    }
-  });
-});
-
-// ---- БАГ №3: decepticon_fighter и uttvm_core_guard (BUG-006) ----
-describe('BUG-003: decepticon_fighter / uttvm_core_guard fail on passthrough', () => {
-  const inputDir = path.resolve(PROJECT_ROOT, 'input');
-  const failingModels = [
-    { name: 'decepticon_fighter.glb', bugRef: 'BUG-006' },
-    { name: 'uttvm_core_guard.glb', bugRef: 'BUG-006' },
-  ];
-
-  it.each(failingModels)('$name (ref: $bugRef) returns fail on passthrough', async ({ name }) => {
-    const p = path.join(inputDir, name);
-    if (!fs.existsSync(p)) {
-      console.warn(`  ⚠️  Модель ${name} не найдена в input/ — пропуск`);
-      return;
-    }
-    const result = await optimizeFile(p, {
-      advancedFeatures: [],
-      dryRun: true,
-    });
-    expect(result.status).toBe('fail');
-    // БАГ: result.error не задан — код выставляет status:'fail' без сообщения
-    // См. BUG-006 в assistants/review/findings/
-    if (result.error) {
-      console.log(`  🔍 ${name} error: ${result.error.slice(0, 200)}`);
-    } else {
-      console.log(`  🔍 ${name}: status=fail, error=undefined (BUG: no error message)`);
-    }
-  });
-});
-
-// ---- БАГ №5: KTX2 temp-файловый round-trip меняет nodes ----
-describe('BUG-005: KTX2 temp-file round-trip changes node count', () => {
-  const KTX2_FAILING = [
-    { name: 'ChronographWatch.glb', bug: 'nodes 11→12' },
-    { name: 'CommercialRefrigerator.glb', bug: 'nodes 6→8' },
-    { name: 'DiffuseTransmissionPlant.glb', bug: 'nodes 14→20' },
-  ];
-
-  const TIMEOUT = 60000; // KTX2 с текстурами дольше
-
-  it.each(KTX2_FAILING)('$name fails with ktx2 ($bug)', async ({ name }) => {
-    const result = await optimizeFile(modelPath(name), {
-      advancedFeatures: ['ktx2'],
-      dryRun: true,
-    });
-    expect(result.status).toBe('fail');
-
-    // Баг: после KTX2-кодирования (io.write→io.read через temp-файл)
-    // количество nodes расходится с baseline-checkpoint.
-    // Ошибка в validation, не в result.error (который undefined).
-    const nodeValidation = result.validation.find(
-      (v) => v.level === 'fail' && v.text.includes('nodes'),
-    );
-    expect(nodeValidation).toBeDefined();
-    console.log(`  🔍 ${name}: ${nodeValidation.text.slice(0, 120)}`);
-
-    // Коренная причина: textures/ktx2.fix() пишет temp-файл в outDir,
-    // вызывает gltf-transform CLI (если toktx найден), читает результат
-    // обратно. Даже ПРИ ОТСУТСТВИИ toktx (fail) конвертация JPEG→PNG и
-    // повторная запись/чтение меняет node-иерархию (структура IO).
-    // Временный файл удаляется в finally, но структура документа уже изменена.
-  }, TIMEOUT);
-
-  it('all 3 known KTX2-failing models have textures', () => {
-    for (const { name } of KTX2_FAILING) {
-      const p = modelPath(name);
-      expect(fs.existsSync(p)).toBe(true);
-    }
-  });
-});
-
-// ---- БАГ №4: Несоответствие языка ошибок ----
-describe('BUG-004: Error message language mismatch', () => {
-  it('unknown advancedFeature error is in Russian, not English', async () => {
-    const result = await optimizeFile(modelPath('CarConcept.glb'), {
-      advancedFeatures: ['nonexistent_feature'],
-    });
-    expect(result.status).toBe('fail');
-    expect(result.error).toBeDefined();
-    // Сообщение на русском — тест проверяет, что это не английский
-    expect(result.error).toContain('Неизвестные');
-    expect(result.error).toContain('nonexistent_feature');
-    // Доступные фичи в сообщении
-    expect(result.error).toContain('ktx2');
-    expect(result.error).toContain('draco');
-    expect(result.error).toContain('strip-colors');
   });
 });

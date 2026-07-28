@@ -30,13 +30,15 @@ const TIMEOUT_PARALLEL = 120000; // параллельные запуски мо
 // ---- 3 разные модели параллельно ----
 
 describe('Parallel — 3 different models', () => {
-  it('Promise.all with CarConcept, ToyCar, SpecularSilkPouf — all return ok', async () => {
+  it('Promise.all with safe+meshopt+join — all return ok with applied rules', async () => {
     const models = ['CarConcept.glb', 'ToyCar.glb', 'SpecularSilkPouf.glb'];
 
     const results = await Promise.all(
       models.map((name) =>
         optimizeFile(modelPath(name), {
-          advancedFeatures: [],
+          // Явные safe+meshopt+join — дают applied.length > 0 на любой модели
+          // (даже на уже-чистых). Это «baseline», используемый для теста параллельности.
+          advancedFeatures: ['safe', 'meshopt', 'join'],
           dryRun: true,
         }),
       ),
@@ -101,12 +103,12 @@ describe('Parallel — 3 different models', () => {
 
   it('each model has its own applied rules (counts differ)', async () => {
     const results = await Promise.all([
-      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: [], dryRun: true }),
-      optimizeFile(modelPath('ToyCar.glb'), { advancedFeatures: [], dryRun: true }),
-      optimizeFile(modelPath('SpecularSilkPouf.glb'), { advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: ['safe', 'meshopt', 'join'], dryRun: true }),
+      optimizeFile(modelPath('ToyCar.glb'), { advancedFeatures: ['safe', 'meshopt', 'join'], dryRun: true }),
+      optimizeFile(modelPath('SpecularSilkPouf.glb'), { advancedFeatures: ['safe', 'meshopt', 'join'], dryRun: true }),
     ]);
 
-    // CarConcept — много мешей → больше applied правил (join, dedup, prune итд)
+    // CarConcept — много мешей → больше applied правил (join, dedup, weld, meshopt)
     // ToyCar — меньше мешей → меньше правил
     // SpecularSilkPouf — совсем простая → минимум правил
     const carRules = results[0].applied.length;
@@ -117,12 +119,11 @@ describe('Parallel — 3 different models', () => {
     expect(carRules).toBeGreaterThan(toyRules);
     expect(carRules).toBeGreaterThan(poufRules);
 
-    // CarConcept — сложная модель: join, prune, compress — все срабатывают
-    expect(results[0].applied.length).toBeGreaterThan(results[1].applied.length);
+    // CarConcept — сложная модель: join + meshopt срабатывают (явные флаги в features)
     expect(results[0].applied.some((a) => a.ruleId === 'scene/join')).toBe(true);
     expect(results[0].applied.some((a) => a.ruleId === 'geometry/compress')).toBe(true);
 
-    // У всех есть geometry/compress (всегда включено)
+    // У всех есть geometry/compress (явный флаг meshopt во всех трёх)
     for (const r of results) {
       expect(r.applied.some((a) => a.ruleId === 'geometry/compress')).toBe(true);
     }
@@ -217,10 +218,12 @@ describe('Parallel — same model x3', () => {
 // ---- Разные advancedFeatures параллельно ----
 
 describe('Parallel — different features', () => {
-  it('default, draco, and strip-colors in parallel — all ok', async () => {
+  it('meshopt, draco, and strip-colors in parallel — all ok', async () => {
     const results = await Promise.all([
-      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: [], dryRun: true }),
+      // 'baseline' = явный meshopt (opt-in: никаких скрытых default-правил)
+      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: ['meshopt'], dryRun: true }),
       optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: ['draco'], dryRun: true }),
+      // strip-colors alone: geometry/compress НЕ включается (opt-in!)
       optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: ['strip-colors'], dryRun: true }),
     ]);
 
@@ -229,16 +232,15 @@ describe('Parallel — different features', () => {
 
     // Разные кодеки → разный fileBytes
     const sizes = results.map((r) => r.metrics.after.fileBytes);
-    // Draco != meshopt (default)
+    // Draco != meshopt
     expect(sizes[1]).not.toBe(sizes[0]);
-    // strip-colors может изменить размер если есть vertex colors
-    // но не обязано — просто проверяем что не краш
+    // strip-colors не меняет размер на CarConcept (нет COLOR_n) — просто regression-чек.
 
-    // geometry/compress должен быть в default и draco
+    // geometry/compress присутствует на meshopt и draco, но НЕ на strip-colors alone
+    // (opt-in инвариант промпта: каждый кодек включается своим флагом).
     expect(results[0].applied.some((a) => a.ruleId === 'geometry/compress')).toBe(true);
     expect(results[1].applied.some((a) => a.ruleId === 'geometry/compress')).toBe(true);
-    // strip-colors не переключает кодек — geometry/compress должен быть с meshopt
-    expect(results[2].applied.some((a) => a.ruleId === 'geometry/compress')).toBe(true);
+    expect(results[2].applied.some((a) => a.ruleId === 'geometry/compress')).toBe(false);
   }, TIMEOUT_PARALLEL);
 
   it('default and ktx2 in parallel — ktx2 may fail gracefully, default always ok', async () => {
