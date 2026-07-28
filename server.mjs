@@ -25,7 +25,7 @@ const RESULTS_DIR = path.join(__dirname, '_web', 'results');
 const THREE_DIR = path.join(__dirname, 'node_modules', 'three');
 
 // Никаких накоплений: на старте чистим прежние загрузки/результаты (только текущая
-// оптимизация хранится на диске — см. purgeSourcesExcept).
+// оптимизация хранится на диске — см. purgeSourcesOlderThan).
 // Чистим СОДЕРЖИМОЕ, а не саму папку: на Windows удалённый каталог остаётся в состоянии
 // pending-delete, и немедленный mkdir того же имени падает (UNKNOWN errno -4094).
 async function ensureEmptyDir(dir) {
@@ -135,14 +135,21 @@ const progressClients = new Map();
 // Ядро — чистая функция (исходник не мутируется, см. §4d), поэтому одну и ту же модель
 // можно гонять с разными опциями сколько угодно раз. Сервер держит исходник, чтобы
 // десятки/сотни вариантов не перекачивали файл: клиент шлёт sourceId вместо тела.
-/** @type {Map<string, { uploadPath: string, name: string }>} */
+/** @type {Map<string, { uploadPath: string, name: string, seq: number }>} */
 const sourceUploads = new Map();
+
+// Порядковый номер загрузки. Нужен, чтобы «стереть всё, кроме текущего» не превращалось
+// в гонку: при двух одновременных загрузках каждая видела в Map чужую запись и удаляла её,
+// так что обе вкладки теряли исходник. Теперь чистится только то, что СТАРШЕ текущей.
+let uploadSeq = 0;
 
 // Держим на диске только текущий исходник: при загрузке новой модели стираем все прежние
 // (папки uploads/<id> и results/<id>) — записи не копятся, живёт лишь последняя оптимизация.
-async function purgeSourcesExcept(keepId) {
-  for (const id of [...sourceUploads.keys()]) {
-    if (id === keepId) continue;
+async function purgeSourcesOlderThan(keepId) {
+  const keep = sourceUploads.get(keepId);
+  if (!keep) return;
+  for (const [id, entry] of [...sourceUploads.entries()]) {
+    if (id === keepId || entry.seq >= keep.seq) continue;
     sourceUploads.delete(id);
     await fsp.rm(path.join(UPLOADS_DIR, id), { recursive: true, force: true }).catch(() => {});
     await fsp.rm(path.join(RESULTS_DIR, id), { recursive: true, force: true }).catch(() => {});
@@ -233,10 +240,20 @@ function sendJSON(res, status, obj) {
   res.end(body);
 }
 
+// Зарезервированные Windows имена устройств. Резервируются в ЛЮБОЙ папке и вместе с
+// расширением: запись в `uploads/<id>/con.glb` уходит в консоль, а не в файл, и модель
+// пропадает без внятной ошибки. Точку с расширением Windows при сопоставлении отбрасывает.
+const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
+
 function sanitizeFileName(name) {
   const base = path.basename(name || 'model.glb');
   // убираем управляющие/запрещённые для файловой системы Windows символы, оставляем юникод (кириллицу)
-  return base.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') || 'model.glb';
+  let clean = base.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_');
+  // Хвостовые точки и пробелы Windows молча срезает: "model.glb." станет "model.glb",
+  // а "..." — пустой строкой, то есть попыткой записи в саму папку.
+  clean = clean.replace(/[. ]+$/, '');
+  if (WINDOWS_RESERVED.test(clean)) clean = '_' + clean;
+  return clean || 'model.glb';
 }
 
 // Имя файла для скачивания: если клиент прислал ?name= (окно экспорта), берём его —
@@ -246,6 +263,16 @@ function chosenExportName(reqName, fallback, ext) {
   if (!reqName) return fallback;
   const clean = sanitizeFileName(reqName).replace(/\.[^.]+$/, '');
   return (clean || 'model') + ext;
+}
+
+// ASCII-имя для параметра filename="..." в Content-Disposition. Юникод уезжает
+// в filename*=UTF-8'' рядом, здесь остаётся только запасной вариант для старых клиентов.
+// Кавычка и обратный слэш закрыли бы параметр раньше времени, и хвост имени стал бы
+// отдельным параметром заголовка — поэтому вычищаются отдельно от не-ASCII.
+// Сейчас сюда и так приходит результат sanitizeFileName(), но фолбэк-ветка
+// chosenExportName() берёт имя с диска: страховка на случай, если правила разойдутся.
+function asciiHeaderName(name) {
+  return name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
 }
 
 // ---- HTTP сервер ----
@@ -328,8 +355,8 @@ const server = http.createServer(async (req, res) => {
       await fsp.mkdir(srcDir, { recursive: true });
       const uploadPath = path.join(srcDir, fileName);
       await fsp.writeFile(uploadPath, bytes);
-      sourceUploads.set(sourceId, { uploadPath, name: fileName });
-      await purgeSourcesExcept(sourceId);
+      sourceUploads.set(sourceId, { uploadPath, name: fileName, seq: ++uploadSeq });
+      await purgeSourcesOlderThan(sourceId);
 
       let data;
       try {
@@ -396,9 +423,9 @@ const server = http.createServer(async (req, res) => {
         await fsp.mkdir(srcDir, { recursive: true });
         uploadPath = path.join(srcDir, fileName);
         await fsp.writeFile(uploadPath, bytes);
-        sourceUploads.set(sourceId, { uploadPath, name: fileName });
+        sourceUploads.set(sourceId, { uploadPath, name: fileName, seq: ++uploadSeq });
         // новая модель → стереть данные предыдущих (не копим лишнее)
-        await purgeSourcesExcept(sourceId);
+        await purgeSourcesOlderThan(sourceId);
       }
 
       const plan = planForSafe(platformId);
@@ -482,7 +509,7 @@ const server = http.createServer(async (req, res) => {
       }
       const name = chosenExportName(url.searchParams.get('name'), path.basename(filePath).replace(/\.glb$/i, '.gltf'), '.gltf');
       const body = JSON.stringify(json, null, 2);
-      const asciiFallback = name.replace(/[^\x20-\x7e]/g, '_');
+      const asciiFallback = asciiHeaderName(name);
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
         'Content-Length': Buffer.byteLength(body),
@@ -510,7 +537,7 @@ const server = http.createServer(async (req, res) => {
       }
       const data = await fsp.readFile(filePath);
       const name = chosenExportName(url.searchParams.get('name'), path.basename(filePath), '.glb');
-      const asciiFallback = name.replace(/[^\x20-\x7e]/g, '_');
+      const asciiFallback = asciiHeaderName(name);
       res.writeHead(200, {
         'Content-Type': 'model/gltf-binary',
         'Content-Length': data.length,
