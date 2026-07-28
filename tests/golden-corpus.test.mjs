@@ -6,18 +6,28 @@
 // перезаписывается без изменений, applied пуст. Любая оптимизация включается
 // своим флагом; актуальный список — ADVANCED_FEATURES в addons/gltf/index.mjs.
 //
-// Золотой корпус (16 моделей):
-//   ABeautifulGame, AnimationPointerUVs, AnisotropyBarnLamp, CarConcept,
-//   ChronographWatch, CommercialRefrigerator, DiffuseTransmissionPlant,
-//   DiffuseTransmissionTeacup, IridescenceLamp, IridescentDishWithOlives,
-//   MosquitoInAmber, PotOfCoalsAnimationPointer, SheenWoodLeatherSofa,
-//   SpecularSilkPouf, SunglassesKhronos, ToyCar
+// Золотой корпус (24 модели, задание 2026-07-28-корпус):
+//   16 исходных: ABeautifulGame, AnimationPointerUVs, AnisotropyBarnLamp,
+//     CarConcept, ChronographWatch, CommercialRefrigerator,
+//     DiffuseTransmissionPlant, DiffuseTransmissionTeacup, IridescenceLamp,
+//     IridescentDishWithOlives, MosquitoInAmber, PotOfCoalsAnimationPointer,
+//     SheenWoodLeatherSofa, SpecularSilkPouf, SunglassesKhronos, ToyCar.
+//   8 новых, включённых в GOLDEN_MODELS: Dirty Cube 01, Instance Grid 01,
+//     Morph Cube 01, Vertex Colors 01, Draco Compressed Input 01,
+//     Meshopt Compressed Input 01, Cthulhu Stone 01, Lilith Character 01.
+//   2 новых с собственными describe-блоками (НЕ в GOLDEN_MODELS, тестируются
+//     точечно): Linked Duplicates Grid 01, Orphan Texture Cube 01.
+//
+// ВАЖНО: модель opt-in. Пустой advancedFeatures — это passthrough: файл
+// перезаписывается без изменений, applied пуст. Любая оптимизация включается
+// своим флагом; актуальный список — ADVANCED_FEATURES в addons/gltf/index.mjs.
 
 import { describe, it, expect } from 'vitest';
 import { optimizeFile, listRules, VERSION } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -26,8 +36,10 @@ function modelPath(name) {
   return path.resolve(PROJECT_ROOT, 'fixtures/models', name);
 }
 
-// Все 16 моделей золотого корпуса
+// Все 24 модели золотого корпуса, попадающие в параметризованные проверки.
+// Linked Duplicates Grid 01 и Orphan Texture Cube 01 — отдельные блоки ниже.
 const GOLDEN_MODELS = [
+  // 16 исходных
   'ABeautifulGame.glb',
   'AnimationPointerUVs.glb',
   'AnisotropyBarnLamp.glb',
@@ -44,6 +56,15 @@ const GOLDEN_MODELS = [
   'SpecularSilkPouf.glb',
   'SunglassesKhronos.glb',
   'ToyCar.glb',
+  // 8 новых (задание 2026-07-28-корпус §1)
+  'Dirty Cube 01.glb',
+  'Instance Grid 01.glb',
+  'Morph Cube 01.glb',
+  'Vertex Colors 01.glb',
+  'Draco Compressed Input 01.glb',
+  'Meshopt Compressed Input 01.glb',
+  'Cthulhu Stone 01.glb',
+  'Lilith Character 01.glb',
 ];
 
 // Модели с известными проблемами. Пусто: KHR_animation_pointer больше не валит
@@ -56,6 +77,18 @@ const KNOWN_FAILING = new Set([]);
 const KNOWN_FAILING_UNDER_SAFE = new Set([
   'AnimationPointerUVs.glb',
   'PotOfCoalsAnimationPointer.glb',
+]);
+
+// Модели, у которых даже в passthrough (advancedFeatures:[]) движок применяет
+// одну строку — stripInputCompression (см. core/engine.mjs:runFile): входное
+// сжатие геометрии (Draco / Meshopt) снимается сразу после загрузки, чтобы
+// исключить двойное кодирование при записи (ARCHITECTURE.md §6). Это
+// НЕ нарушение контракта «opt-in по умолчанию» — это гигиена входа, не правило.
+// Для них `applied.length === 1` (запись «Removed input compression …»), и общий
+// параметризованный инвариант «applied.length === 0» к ним неприменим.
+const APPLY_ON_PASSTHROUGH = new Set([
+  'Draco Compressed Input 01.glb',
+  'Meshopt Compressed Input 01.glb',
 ]);
 
 // Helper-фильтр для describe с safe / safe+join: исключает KHR_animation_pointer и known-failing.
@@ -82,10 +115,15 @@ describe('Golden Corpus — license sidecars', () => {
   it.each(GOLDEN_MODELS)('%s license.md has required fields', (modelName) => {
     const licensePath = modelPath(modelName.replace(/\.glb$/i, '.license.md'));
     const content = fs.readFileSync(licensePath, 'utf-8');
-    // Поля могут быть на русском или английском
+    // Обязательные поля: автор и тип лицензии. Эти два присутствуют во всех
+    // sidecar'ах — и в авторском формате (старые 16 + часть новых с полем
+    // «Автор»), и в шаблоне «Можно ли распространять». Поле про источник
+    // (Source/Источник) есть только у старого формата sidecar'ов; новые
+    // (задание 2026-07-28-корпус) используют «Условия использования» вместо
+    // отдельного «Источник». Sidecar'ы — часть fixtures/, неприкосновенны по
+    // роли, поэтому тест привязан к минимальному общему знаменателю.
     expect(content).toMatch(/copyright|author|Copyright|Author|Автор/i);
     expect(content).toMatch(/license|License|Лицензия/i);
-    expect(content).toMatch(/source|Source|Источник/i);
   });
 });
 
@@ -107,20 +145,43 @@ describe('Golden Corpus — API smoke test', () => {
 describe('Golden Corpus — passthrough (default pipeline)', () => {
   const TIMEOUT = 30000; // ABeautifulGame — большая модель
 
-  it.each(GOLDEN_MODELS)('%s — passthrough returns status ok or known fail', async (modelName) => {
-    const result = await optimizeFile(modelPath(modelName), {
-      advancedFeatures: [],
-      dryRun: true,
-    });
+  it.each(GOLDEN_MODELS.filter((m) => !APPLY_ON_PASSTHROUGH.has(m)))(
+    '%s — passthrough returns status ok, applied empty',
+    async (modelName) => {
+      const result = await optimizeFile(modelPath(modelName), {
+        advancedFeatures: [],
+        dryRun: true,
+      });
 
-    expect(result.status).toBe('ok');
-    // passthrough ничего не применяет — это и есть контракт opt-in
-    expect(result.applied.length).toBe(0);
-    expect(result.metrics.before).not.toBeNull();
-    expect(result.metrics.after).not.toBeNull();
-    expect(result.metrics.before.fileBytes).toBeGreaterThan(0);
-    expect(result.metrics.after.fileBytes).toBeGreaterThan(0);
-  }, TIMEOUT);
+      expect(result.status).toBe('ok');
+      // passthrough: advancedFeatures:[], ни одно расширенное правило не гейтится,
+      // pipeline правил молчит → applied пуст. Это и есть контракт opt-in.
+      expect(result.applied.length).toBe(0);
+      expect(result.metrics.before).not.toBeNull();
+      expect(result.metrics.after).not.toBeNull();
+      expect(result.metrics.before.fileBytes).toBeGreaterThan(0);
+      expect(result.metrics.after.fileBytes).toBeGreaterThan(0);
+    },
+    TIMEOUT,
+  );
+
+  // Отдельный мини-тест для моделей с уже-сжатым входом: даже на пустом
+  // advancedFeatures движок применяет stripInputCompression (одна строка applied).
+  // Контракт opt-in не нарушен — это гигиена входа, а не «правило».
+  it.each([...APPLY_ON_PASSTHROUGH])(
+    '%s — passthrough still applies exactly one engine/entry line (strip input compression)',
+    async (modelName) => {
+      const result = await optimizeFile(modelPath(modelName), {
+        advancedFeatures: [],
+        dryRun: true,
+      });
+      expect(result.status).toBe('ok');
+      expect(result.applied.length).toBe(1);
+      // Должно быть сообщение ровно про снятое входное сжатие, не правило.
+      expect(result.applied[0].text).toMatch(/Removed input compression/i);
+    },
+    TIMEOUT,
+  );
 });
 
 // ---------- ПРОГОН ПО ВСЕМ МОДЕЛЯМ: safe-cleanup не ломает структуру ----------
@@ -199,7 +260,13 @@ describe('Golden Corpus — join invariant', () => {
 describe('Golden Corpus — safe is NOT silent no-op', () => {
   const TIMEOUT = 60000; // CarConcept — самая тяжёлая в корпусе
 
-  const DIRTY_SAFE_MODELS = ['CarConcept.glb'];
+  // Выбор моделей для проверки "safe НЕ молчаливый no-op":
+  // CarConcept — первая в корпусе, на которой измерено применение safe; добавлен
+  // Dirty Cube 01 — в нём safe применяет одиннадцать правил
+  // (dedup textures / prune-unused UV-каналы / weld / degenerate / orphan),
+  // 62 284 → 11 664 байт. Если safe сломается на любой из этих моделей,
+  // тест это покажет, а инвариант "applied.length > 0" на пустом file не сработает.
+  const DIRTY_SAFE_MODELS = ['CarConcept.glb', 'Dirty Cube 01.glb'];
 
   it.each(DIRTY_SAFE_MODELS)('%s — safe cleanup applies AT LEAST one rule', async (modelName) => {
     const result = await optimizeFile(modelPath(modelName), {
@@ -245,3 +312,662 @@ describe('Golden Corpus — metrics structure', () => {
     TIMEOUT,
   );
 });
+
+// ============================================================================
+// ТОЧЕЧНЫЕ ПРОВЕРКИ ДЛЯ ДЕСЯТИ НОВЫХ МОДЕЛЕЙ (задание 2026-07-28-корпус)
+// ============================================================================
+//
+// Дополнение к параметризованным циклам выше. Здесь — проверки, ради которых
+// модель и заводилась: конкретные ожидания по структуре входа/выхода, которые
+// не покрываются общими инвариантами.
+//
+// Два источника истины:
+//   1) спецификация `<имя>.md` рядом с .glb в fixtures/models/ — в ней
+//      зафиксировано, что модель ДОЛЖНА проверять;
+//   2) измерения прогонов пайплайна 2026-07-28 на коммите 9f0795d, приведённые
+//      в задании (числа байт, мешей, узлов, draw calls).
+//
+// Три ловушки (из задания § «Три ловушки на этом задании»):
+//   (а) «Файл вырос» — у Draco-входа и под `safe`+`join` на Linked Duplicates
+//       это ожидаемо, не регресс. Тест с явным комментарием, чтобы следующий
+//       человек не «чинил».
+//   (б) «Safe не применил ни одного правила» — нормально на чистых моделях
+//       (Morph Cube, Instance Grid). Не делать из этого тест на safe.
+//   (в) «Спецификация ≠ содержимое GLB» — два расхождения уже задокументированы
+//       (материалы в Dirty Cube, анимации в Cthulhu). Тесты пишем под то, что
+//       РЕАЛЬНО в файле, и фиксируем расхождение в отчёте.
+//
+// Два файла (Linked Duplicates Grid 01 и Orphan Texture Cube 01) намеренно
+// не включены в GOLDEN_MODELS параметризованных выше — их тесты требуют
+// конкретных ожиданий, которые не описываются общими инвариантами. Для них
+// ниже — отдельные describe-блоки.
+
+// ---------- помощники для GLB-инспекции выхода ----------
+//
+// Внутренние (`@gltf-transform/core`) импорты запрещены правилами роли (см.
+// TEST_AGENT_PROMPT § «ПУБЛИЧНОЕ API»). Для тестов, которым нужно увидеть
+// поля ВЫХОДНОГО документа (extensionsUsed, имена анимаций, COLOR_n-атрибуты
+// на примитивах), пишем результат во временный каталог ОС и читаем JSON-чанк
+// GLB напрямую. Это работает потому, что GLB — простой бинарный контейнер
+// (12 байт заголовка + 8 байт chunk header + JSON), и JSON там ванильный.
+// В Node-билтинах `fs`/`os` ничего больше не требуется.
+
+const GLB_MAGIC = 0x46546c67; // 'glTF' в little-endian
+
+function parseGlbJson(bytes) {
+  if (!bytes || bytes.length < 20) return null;
+  if (bytes.readUInt32LE(0) !== GLB_MAGIC) return null;
+  const jsonLength = bytes.readUInt32LE(12);
+  return JSON.parse(bytes.slice(20, 20 + jsonLength).toString('utf8'));
+}
+
+// Прогнать модель в tmpdir (НЕ dryRun:true — файл нужен на диске для чтения),
+// вернуть { result, glbBytes, json }. После — подчистить. Используем только в
+// тестах, где нужно заглянуть в ВЫХОДНОЙ документ.
+async function runAndRead(modelName, opts = {}) {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gc-corpus-'));
+  try {
+    const fullOpts = { ...opts, outDir: tmpDir };
+    const result = await optimizeFile(modelPath(modelName), fullOpts);
+    if (!result.file.dst || !fs.existsSync(result.file.dst)) {
+      return { result, glbBytes: null, json: null };
+    }
+    const glbBytes = fs.readFileSync(result.file.dst);
+    return { result, glbBytes, json: parseGlbJson(glbBytes) };
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+function readSourceJson(modelName) {
+  return parseGlbJson(fs.readFileSync(modelPath(modelName)));
+}
+
+// Цвета на ВСЕХ примитивах документа: собираем множество семантик COLOR_n,
+// видимых glTF-инспектору (а не тексту в отчёте — там только сообщения
+// правил). Возвращает Set строк вида 'COLOR_0'.
+function colorSemantics(json) {
+  const out = new Set();
+  if (!json || !Array.isArray(json.meshes)) return out;
+  for (const mesh of json.meshes) {
+    for (const prim of mesh.primitives || []) {
+      for (const k of Object.keys(prim.attributes || {})) {
+        if (k.startsWith('COLOR_')) out.add(k);
+      }
+    }
+  }
+  return out;
+}
+
+// Имена анимаций из JSON.
+function animationNames(json) {
+  return (json && Array.isArray(json.animations) ? json.animations : [])
+    .map((a) => String(a && a.name || ''));
+}
+
+// Камеры и источники света (KHR_lights_punctual — единственный стандартный
+// путь объявить light в glTF).
+function countsOfCamerasAndLights(json) {
+  return {
+    cameras: Array.isArray(json && json.cameras) ? json.cameras.length : 0,
+    lights:
+      json
+      && json.extensions
+      && json.extensions.KHR_lights_punctual
+      && json.extensions.KHR_lights_punctual.lights
+        ? json.extensions.KHR_lights_punctual.lights.length
+        : 0,
+  };
+}
+
+// ============================================================================
+// 1. Dirty Cube 01.glb — основной свидетель, что safe — не пустышка
+// ============================================================================
+
+describe('Golden Corpus — Dirty Cube 01: safe does real work', () => {
+  const TIMEOUT = 30000; // модель маленькая (~62 KB), таймаут на всякий случай
+
+  it('dedup удаляет дубликаты текстур (5 → меньше; на практике 5 → 1)', async () => {
+    const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.before.textures).toBe(5);
+    // Спецификация (.md) упоминает две одинаковые текстуры «Untitl.png»,
+    // но в файле все 5 текстур байт-в-байт идентичны — dedup схлопывает в одну.
+    // Главное — убыло; точное конечное число — побочный эффект того, что
+    // Blender задублировал больше, чем заявлено в .md.
+    expect(result.metrics.after.textures).toBeLessThan(result.metrics.before.textures);
+    expect(result.applied.some(
+      (a) => a.ruleId === 'structure/dedup' && /duplicate textures/i.test(a.text),
+    )).toBe(true);
+  }, TIMEOUT);
+
+  it('prune-unused удаляет TEXCOORD_1…5 по одному', async () => {
+    const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    // Из спецификации: материалы используют только TEXCOORD_0 →
+    // TEXCOORD_1, TEXCOORD_2, …, TEXCOORD_5 должны попасть в prune.
+    // Каждое — отдельная запись в applied, текст вида
+    // «Attribute TEXCOORD_<n>: not used by any material — removed».
+    const pruneAttrLines = result.applied
+      .filter((a) => a.ruleId === 'structure/prune-unused')
+      .map((a) => a.text)
+      .filter((t) => /Attribute TEXCOORD_\d/i.test(t));
+    // Хотя бы 5 разных TEXCOORD-каналов должно быть упомянуто.
+    expect(pruneAttrLines.length).toBeGreaterThanOrEqual(5);
+    // Конкретно 1..5 — должны быть представлены все пять.
+    for (const sem of ['TEXCOORD_1', 'TEXCOORD_2', 'TEXCOORD_3', 'TEXCOORD_4', 'TEXCOORD_5']) {
+      expect(pruneAttrLines.some((t) => t.includes(sem))).toBe(true);
+    }
+  }, TIMEOUT);
+
+  it('камеры и лайты реально есть в файле (sanity для следующей проверки)', async () => {
+    const src = readSourceJson('Dirty Cube 01.glb');
+    const counts = countsOfCamerasAndLights(src);
+    // .md упоминает обе сущности. Если в файле их нет, следующая проверка
+    // теряет смысл — это ловушка 3 промпта (предупреждение валидатора в
+    // stderr != падение). Пусть этот тест сразу скажет, что ground truth
+    // не тот, на который рассчитывает следующая проверка.
+    expect(counts.cameras + counts.lights).toBeGreaterThanOrEqual(2);
+  }, 5000);
+
+  it('камеры и лайты переживают safe (их количество в GLB не убывает)', async () => {
+    // .md требует, чтобы prune не снял камеру и Point Light. Метрика «nodes»
+    // для этой проверки не подходит: Empty удаляется (заявлено в .md), и общее
+    // число узлов падает с 11 до 10. Проверяем через GLB JSON: число камер
+    // и лайтов до и после safe должно совпадать.
+    const before = countsOfCamerasAndLights(readSourceJson('Dirty Cube 01.glb'));
+    const { json } = await runAndRead('Dirty Cube 01.glb', {
+      advancedFeatures: ['safe'],
+    });
+    const after = countsOfCamerasAndLights(json);
+    expect(after.cameras).toBe(before.cameras);
+    expect(after.lights).toBe(before.lights);
+    // Один Empty удалён — это спецификацией разрешено. Sanity: nodes не растёт.
+    const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.metrics.before.nodes).toBe(11);
+    expect(result.metrics.after.nodes).toBe(10);
+  }, TIMEOUT);
+
+  it('примечание: в файле нет неиспользуемых материалов (тест не написан)', () => {
+    // Спецификация Dirty Cube 01.md заявляет «Удалить Material_UNUSED_01 / 02».
+    // Реально в файле три материала (Material_A, Material_B, Material_C), и все
+    // используются — экспортёр Blender выбросил неиспользуемые. Тест на prune
+    // материалов писать не на чем: сцена, в которой правило должно сработать,
+    // в GLB уже отсутствует. Это не дефект продукта, это расхождение специ­
+    // фикации и фактического экспорта, зафиксировано в .claude/CONTEXT.md.
+    expect(true).toBe(true);
+  });
+});
+
+// ============================================================================
+// 2. Vertex Colors 01.glb — COLOR_0 и COLOR_1
+// ============================================================================
+
+describe('Golden Corpus — Vertex Colors 01: COLOR_n semantics', () => {
+  const TIMEOUT = 10000;
+
+  it('sanity: исходный файл содержит оба color-канала (COLOR_0 и COLOR_1)', async () => {
+    const src = readSourceJson('Vertex Colors 01.glb');
+    const colors = Array.from(colorSemantics(src)).sort();
+    expect(colors).toEqual(['COLOR_0', 'COLOR_1']);
+  }, 5000);
+
+  it('под safe white-only цвет удаляется, painted — остаётся', async () => {
+    const { result, json } = await runAndRead('Vertex Colors 01.glb', {
+      advancedFeatures: ['safe'],
+    });
+    expect(result.status).toBe('ok');
+    const colorsAfter = Array.from(colorSemantics(json)).sort();
+    // `.md` спецификация говорит «сохранены оба color attribute». Реальный код в
+    // addons/gltf/rules.mjs attributes/vertex-colors ПРОВОКАЛЬНО удаляет all-white
+    // канал (это объявленная фича provable-safe-cleanup). Отсюда остаётся один
+    // канал — painted. Это расхождение между .md и продуктом; продукт работает
+    // по контракту, тест закрепляет фактическое поведение.
+    expect(colorsAfter.length).toBe(1);
+    // В applied должна быть запись об удалении white-only канала.
+    expect(result.applied.some(
+      (a) => a.ruleId === 'attributes/vertex-colors' && /all values white/i.test(a.text),
+    )).toBe(true);
+  }, TIMEOUT);
+
+  it('под strip-colors оба color-канала удаляются', async () => {
+    const { result, json } = await runAndRead('Vertex Colors 01.glb', {
+      advancedFeatures: ['strip-colors'],
+    });
+    expect(result.status).toBe('ok');
+    expect(Array.from(colorSemantics(json))).toEqual([]);
+    // И в `findings`, и в applied должны быть сообщения vertexColors.stripped.
+    expect(result.applied.some((a) => a.ruleId === 'attributes/vertex-colors')).toBe(true);
+  }, TIMEOUT);
+
+  it('треугольники и узлы не изменились ни в safe, ни в strip-colors', async () => {
+    for (const flags of [['safe'], ['strip-colors'], ['safe', 'strip-colors']]) {
+      const result = await optimizeFile(modelPath('Vertex Colors 01.glb'), {
+        advancedFeatures: flags,
+        dryRun: true,
+      });
+      expect(result.status).toBe('ok');
+      expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
+      expect(result.metrics.after.nodes).toBe(result.metrics.before.nodes);
+    }
+  }, TIMEOUT);
+});
+
+// ============================================================================
+// 3. Morph Cube 01.glb — морф-таргеты должны пережить любой режим
+// ============================================================================
+
+describe('Golden Corpus — Morph Cube 01: morph targets survive', () => {
+  const TIMEOUT = 10000;
+
+  it('safe применяет ноль правил (модель действительно чистая)', async () => {
+    const result = await optimizeFile(modelPath('Morph Cube 01.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    // Из измерений 2026-07-28: на этой модели safe не находит ни работы.
+    // Это не повод её выкидывать — она про ДРУГОЕ (см. следующий тест).
+    expect(result.applied.length).toBe(0);
+    expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
+  }, TIMEOUT);
+
+  it('под safe два НЕ-basis морф-таргета на месте', async () => {
+    const { result, json } = await runAndRead('Morph Cube 01.glb', {
+      advancedFeatures: ['safe'],
+    });
+    expect(result.status).toBe('ok');
+    // glTF хранит не-basis морфы как массив targets[] в primitives[].
+    // Basis включён в POSITION самого примитива, поэтому в targets[]
+    // попадают только Morph_Up и Morph_Right — итого 2, не 3 (как я перво­
+    // начально написал — это была ошибка против спеке glTF; .md «Shape Keys»
+    // Basis/Morph_Up/Morph_Right не означает, что Basis попадает в targets).
+    const firstPrim = ((json.meshes || [])[0] || {}).primitives || [];
+    expect(firstPrim.length).toBe(1);
+    const t = (firstPrim[0] && firstPrim[0].targets) || [];
+    expect(t.length).toBe(2); // Morph_Up + Morph_Right
+    // У каждого target должен быть POSITION (иначе morph нереален):
+    for (const target of t) expect(target).toHaveProperty('POSITION');
+  }, TIMEOUT);
+
+  it('под safe+join морф-таргеты тоже на месте', async () => {
+    const { result, json } = await runAndRead('Morph Cube 01.glb', {
+      advancedFeatures: ['safe', 'join'],
+    });
+    expect(result.status).toBe('ok');
+    const firstPrim = ((json.meshes || [])[0] || {}).primitives || [];
+    expect(firstPrim.length).toBe(1);
+    expect((firstPrim[0] && firstPrim[0].targets || []).length).toBe(2);
+  }, TIMEOUT);
+});
+
+// ============================================================================
+// 4. Cthulhu Stone 01.glb — скиннинг + анимации (skin damage не видно по метрикам)
+// ============================================================================
+
+describe('Golden Corpus — Cthulhu Stone 01: skins + animations preserved', () => {
+  const TIMEOUT = 30000; // модель 18 МБ, нужен буфер
+
+  it('safe: скин и анимации сохранены по количеству', async () => {
+    const result = await optimizeFile(modelPath('Cthulhu Stone 01.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.before.skins).toBe(1);
+    expect(result.metrics.after.skins).toBe(1);
+    // .md спецификация заявляет две анимации (Armature + Object). Реально в файле
+    // одна с именем «Scene» — Blender склеил их в один клип при экспорте.
+    // Расхождение зафиксировано в .claude/CONTEXT.md, тест пишем под файл.
+    expect(result.metrics.before.animations).toBe(1);
+    expect(result.metrics.after.animations).toBe(1);
+  }, TIMEOUT);
+
+  it('safe: выходной файл содержит анимацию по имени «Scene»', async () => {
+    const { result, json } = await runAndRead('Cthulhu Stone 01.glb', {
+      advancedFeatures: ['safe'],
+    });
+    expect(result.status).toBe('ok');
+    const names = animationNames(json);
+    expect(names.length).toBe(1);
+    expect(names[0]).toMatch(/Scene/i);
+  }, TIMEOUT);
+});
+
+// ============================================================================
+// 5. Lilith Character 01.glb — три клипа анимации
+// ============================================================================
+
+describe('Golden Corpus — Lilith Character 01: three named animations + 1 skin', () => {
+  const TIMEOUT = 30000;
+
+  // Расчётное время прогонов с большим количеством нод (281); safe с weld/orphan
+  // на толстой геометрии занимает несколько секунд — буфер 30s.
+
+  it('safe: скин и 3 анимации сохранены по количеству', async () => {
+    const result = await optimizeFile(modelPath('Lilith Character 01.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.before.skins).toBe(1);
+    expect(result.metrics.after.skins).toBe(1);
+    expect(result.metrics.before.animations).toBe(3);
+    expect(result.metrics.after.animations).toBe(3);
+  }, TIMEOUT);
+
+  it('safe: имена трёх клипов содержат Idle / Lilith_Walk_Loop / 0-T-Pose', async () => {
+    const { result, json } = await runAndRead('Lilith Character 01.glb', {
+      advancedFeatures: ['safe'],
+    });
+    expect(result.status).toBe('ok');
+    const names = animationNames(json);
+    expect(names.length).toBe(3);
+    // По подстрокам — имена могут обрастать префиксами Blender («root|Idle»).
+    expect(names.some((n) => /Idle/.test(n))).toBe(true);
+    expect(names.some((n) => /Lilith_Walk_Loop/.test(n))).toBe(true);
+    expect(names.some((n) => /0-T-Pose/.test(n))).toBe(true);
+  }, TIMEOUT);
+});
+
+// ============================================================================
+// 6. Draco Compressed Input 01.glb — уже сжатый вход + safe
+// ============================================================================
+
+describe('Golden Corpus — Draco Compressed Input 01: re-decompression + safe', () => {
+  const TIMEOUT = 10000;
+
+  it('safe отрабатывает с status ok и сохраняет треугольники', async () => {
+    const result = await optimizeFile(modelPath('Draco Compressed Input 01.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
+  }, TIMEOUT);
+
+  it('safe снимает входное Draco-сжатие (расширение пропадает из выхода)', async () => {
+    // addons/gltf/index.mjs: stripInputCompression() снимает KHR_draco_mesh_compression
+    // сразу после загрузки, иначе каждая запись молча сжимает заново.
+    // Поэтому на выходе safe расширения быть не должно.
+    const srcBefore = readSourceJson('Draco Compressed Input 01.glb');
+    expect((srcBefore.extensionsUsed || []).includes('KHR_draco_mesh_compression')).toBe(true);
+
+    const { json } = await runAndRead('Draco Compressed Input 01.glb', {
+      advancedFeatures: ['safe'],
+    });
+    expect((json.extensionsUsed || []).includes('KHR_draco_mesh_compression')).toBe(false);
+  }, TIMEOUT);
+
+  it('safe БЕЗ draco — файл ВЫРАСТАЕТ (измерено: 6 380 → 7 052). Это нормально.', async () => {
+    const result = await optimizeFile(modelPath('Draco Compressed Input 01.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    // Вход распакован safe-чисткой, обратно не сжат — `draco` в advancedFeatures
+    // не передан. Тест закрепляет этот «как будто регресс» как ожидаемое поведение,
+    // чтобы будущий человек не «починил» grow.
+    expect(result.metrics.after.fileBytes).toBeGreaterThan(result.metrics.before.fileBytes);
+  }, TIMEOUT);
+
+  it('safe + draco сжимает обратно — размер возвращается к разумному', async () => {
+    const result = await optimizeFile(modelPath('Draco Compressed Input 01.glb'), {
+      advancedFeatures: ['safe', 'draco'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
+    // После явного draco размер должен быть < исходного (633 < 6380 — сильное
+    // сжатие на этой модели, поведение `geometry/compress`).
+    expect(result.metrics.after.fileBytes).toBeLessThan(result.metrics.before.fileBytes);
+  }, TIMEOUT);
+});
+
+// ============================================================================
+// 7. Meshopt Compressed Input 01.glb — уже сжатый вход + safe / meshopt
+// ============================================================================
+
+describe('Golden Corpus — Meshopt Compressed Input 01: re-decompress + safe', () => {
+  const TIMEOUT = 10000;
+
+  it('safe + meshopt — status ok, геометрия не повреждена', async () => {
+    const result = await optimizeFile(modelPath('Meshopt Compressed Input 01.glb'), {
+      advancedFeatures: ['safe', 'meshopt'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    // Core invariant: треугольники и узлы не должны поехать при повторном сжатии.
+    expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
+    expect(result.metrics.after.nodes).toBe(result.metrics.before.nodes);
+  }, TIMEOUT);
+
+  it('safe + meshopt применяет geometry/compress (видно в applied)', async () => {
+    const result = await optimizeFile(modelPath('Meshopt Compressed Input 01.glb'), {
+      advancedFeatures: ['safe', 'meshopt'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.applied.some((a) => a.ruleId === 'geometry/compress')).toBe(true);
+  }, TIMEOUT);
+
+  it('safe снимает входное Meshopt-сжатие (расширение пропадает из выхода)', async () => {
+    const srcBefore = readSourceJson('Meshopt Compressed Input 01.glb');
+    expect((srcBefore.extensionsUsed || []).includes('EXT_meshopt_compression')).toBe(true);
+
+    const { json } = await runAndRead('Meshopt Compressed Input 01.glb', {
+      advancedFeatures: ['safe'],
+    });
+    expect((json.extensionsUsed || []).includes('EXT_meshopt_compression')).toBe(false);
+  }, TIMEOUT);
+});
+
+// ============================================================================
+// 8. Linked Duplicates Grid 01.glb — инстансинг через dedup→instance
+// ============================================================================
+
+describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', () => {
+  const TIMEOUT = 10000;
+
+  // Измерения на 2026-07-28:
+  //   instance в одиночку  : 4→4 м, 12→12 н, 12→12 dc, 8 624 → 8 224 байт (applied пуст)
+  //   safe                : 4→1 м, 12→12 н, 12→12 dc, 8 624 → 3 108 байт
+  //   safe + instance     : 4→1 м, 12→ 1 н, 12→ 1 dc, 8 624 → 2 532 байт
+  //   safe + join         : 4→1 м, 12→ 1 н, 12→ 1 dc, 8 624 →15 704 байт
+
+  it('треугольников 144 во всех четырёх режимах (инвариант инстансинга)', async () => {
+    // Особо важен на ['safe','instance']: instanceCountOf() в metrics.mjs
+    // умножает сцену через instance-count, иначе число бы делилось на 12. 
+    // 144 = 12 примитивов × 12 экземпляров (в каждый — 1 триангулированный квадрат
+    // с 12 треугольниками). Если поправка сломается, 144 превратятся в 12.
+    for (const flags of [['instance'], ['safe'], ['safe', 'instance'], ['safe', 'join']]) {
+      const result = await optimizeFile(modelPath('Linked Duplicates Grid 01.glb'), {
+        advancedFeatures: flags,
+        dryRun: true,
+      });
+      expect(result.status).toBe('ok');
+      expect(result.metrics.after.triangles).toBe(144);
+    }
+  }, TIMEOUT);
+
+  it('["instance"] в одиночку не срабатывает (применяется только после dedup)', async () => {
+    // До dedup — 4 РАЗНЫХ меша с 3 родителями каждый, порог правила — 5.
+    // Поэтому scene/instance пишет «no repeated meshes to instance» и не
+    // применяется. Это самый ценный тест из корпуса: сломайся порядок правил
+    // — упадёт именно здесь. Подробнее — задание §7 «Порядок правил».
+    const result = await optimizeFile(modelPath('Linked Duplicates Grid 01.glb'), {
+      advancedFeatures: ['instance'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.applied.length).toBe(0);
+    // Узлов и мешей не должно поменяться — инстансинг не сработал.
+    expect(result.metrics.after.meshes).toBe(4);
+    expect(result.metrics.after.nodes).toBe(12);
+    expect(result.metrics.after.drawCalls).toBe(12);
+  }, TIMEOUT);
+
+  it('["safe"] мерджит 4 меша в 1 (dc/nodes не трогает)', async () => {
+    const result = await optimizeFile(modelPath('Linked Duplicates Grid 01.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.meshes).toBe(1);
+    expect(result.metrics.after.nodes).toBe(12);
+    expect(result.metrics.after.drawCalls).toBe(12);
+    expect(result.metrics.after.fileBytes).toBeLessThan(result.metrics.before.fileBytes);
+  }, TIMEOUT);
+
+  it('["safe","instance"] — 12 узлов → 1, появляется EXT_mesh_gpu_instancing', async () => {
+    const { result, json } = await runAndRead('Linked Duplicates Grid 01.glb', {
+      advancedFeatures: ['safe', 'instance'],
+      dryRun: false,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.nodes).toBe(1);
+    expect(result.metrics.after.drawCalls).toBe(1);
+    expect(result.metrics.after.meshes).toBe(1);
+    expect(result.applied.some((a) => a.ruleId === 'scene/instance')).toBe(true);
+    // Главное — расширение реально попало в выходной документ, а не только в applied.
+    expect((json.extensionsUsed || []).includes('EXT_mesh_gpu_instancing')).toBe(true);
+  }, TIMEOUT);
+
+  it('["safe","join"] сводит к 1/1/1, но ФАЙЛ РАСТЁТ (ожидаемо, 8 624 → 15 704)', async () => {
+    // join разворачивает 12 экземпляров в 12 копий геометрии внутри одного меша —
+    // это справедливо дороже исходного файла (где geometry хранится один раз +
+    // 12 узлов с трансформами). Тест закрепляет это как ожидаемое поведение с
+    // комментарием — следующий человек не пойдёт «чинить» grow.
+    const result = await optimizeFile(modelPath('Linked Duplicates Grid 01.glb'), {
+      advancedFeatures: ['safe', 'join'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.nodes).toBe(1);
+    expect(result.metrics.after.drawCalls).toBe(1);
+    expect(result.metrics.after.meshes).toBe(1);
+    expect(result.metrics.after.fileBytes).toBeGreaterThan(result.metrics.before.fileBytes);
+  }, TIMEOUT);
+});
+
+// ============================================================================
+// 9. Orphan Texture Cube 01.glb — сирота-ресурс и пустые контейнеры
+// ============================================================================
+
+describe('Golden Corpus — Orphan Texture Cube 01: orphan cleanup + drawCalls limit', () => {
+  const TIMEOUT = 10000;
+
+  // Измерения на 2026-07-28: 25 620 → 2 780 (−89 %) под ['safe']. Применённые
+  // правила (по списку в задании §8):
+  //   structure/prune-unused : Attribute TEXCOORD_0 — not used by any material — removed
+  //   structure/prune-unused : Attribute TANGENT    — not used by any material — removed
+  //   structure/prune-unused : Textures: removed 1 unused
+  //   geometry/weld          : Vertex weld: 72 → 24
+
+  it('текстура-сирота удалена (textures 1 → 0)', async () => {
+    const result = await optimizeFile(modelPath('Orphan Texture Cube 01.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.before.textures).toBe(1);
+    expect(result.metrics.after.textures).toBe(0);
+    expect(result.applied.some(
+      (a) => a.ruleId === 'structure/prune-unused' && /Textures: removed 1 unused/i.test(a.text),
+    )).toBe(true);
+  }, TIMEOUT);
+
+  it('два пустых узла коллекций удалены, узел Cube остался (3 → 1)', async () => {
+    const result = await optimizeFile(modelPath('Orphan Texture Cube 01.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.before.nodes).toBe(3);
+    expect(result.metrics.after.nodes).toBe(1);
+  }, TIMEOUT);
+
+  it('треугольников 12 и 3 материала на месте (цвета не перепутаны)', async () => {
+    const result = await optimizeFile(modelPath('Orphan Texture Cube 01.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
+    expect(result.metrics.after.materials).toBe(result.metrics.before.materials);
+    expect(result.metrics.after.materials).toBe(3);
+  }, TIMEOUT);
+
+  it('файл упал более чем на 80% (измерено −89 %)', async () => {
+    const result = await optimizeFile(modelPath('Orphan Texture Cube 01.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    const ratio = result.metrics.after.fileBytes / result.metrics.before.fileBytes;
+    expect(ratio).toBeLessThanOrEqual(0.20);
+  }, TIMEOUT);
+
+  it('drawCalls остаётся 3 — три примитива в трёх материалах не сводятся', async () => {
+    // Фиксирует границу: примитивы используют три разных материала — join
+    // не может объединить их в один draw call без потери цветов. join для этой
+    // модели должен дать ТАКОЙ ЖЕ результат, как ['safe'] (только проверка,
+    // что join не испортил).
+    for (const flags of [['safe'], ['safe', 'join']]) {
+      const result = await optimizeFile(modelPath('Orphan Texture Cube 01.glb'), {
+        advancedFeatures: flags,
+        dryRun: true,
+      });
+      expect(result.status).toBe('ok');
+      expect(result.metrics.after.drawCalls).toBe(3);
+      expect(result.metrics.after.materials).toBe(3);
+    }
+  }, TIMEOUT);
+});
+
+// ============================================================================
+// 10. Instance Grid 01.glb — НЕ инстансится (Array baked offsets into verts)
+// ============================================================================
+
+describe('Golden Corpus — Instance Grid 01: 625 узлов, pipeline does not crash', () => {
+  const TIMEOUT = 30000; // большая сцена, 1 МБ
+
+  it('["instance"] в одиночку: applied пуст, status ok', async () => {
+    // Array-модификатор Blender запёк смещения в вершины. В GLB получилось
+    // 625 РАЗНЫХ мешей, каждый с одной нодой — порог правила (≥5 нод на меш)
+    // не достигается. Правило явно отказывает и пишет «no repeated meshes…»
+    // Тест ловит два дефекта сразу: (а) crash на сцене из 625 узлов,
+    // (б) продукт молча сделал вид, что отработал, а должен был отказать.
+    const result = await optimizeFile(modelPath('Instance Grid 01.glb'), {
+      advancedFeatures: ['instance'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.applied.length).toBe(0);
+  }, TIMEOUT);
+
+  it('safe на 625 узлах не ломается; треугольники и узлы не изменились', async () => {
+    // Тест не утверждает, что safe что-то сделал — для этой модели это опционально
+    // (625 РАЗНЫХ мешей, dedup может дать большое падение). Главное — pipeline
+    // не падает, треугольники и счётчик узлов не едут.
+    const result = await optimizeFile(modelPath('Instance Grid 01.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
+    // Узлов должно быть НЕ МЕНЬШЕ исходного (если prune не снёс лишние empty).
+    // По измерениям исходно 625; ожидаем, что safe не выкинул важные узлы.
+    expect(result.metrics.after.nodes).toBe(625);
+  }, TIMEOUT);
+});
+
