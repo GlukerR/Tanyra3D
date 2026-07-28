@@ -12,7 +12,7 @@
 // 4. Разные advancedFeatures параллельно — ktx2, draco, empty — не влияют друг на друга
 // 5. dryRun:false параллельно — записи не конфликтуют в output/
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';

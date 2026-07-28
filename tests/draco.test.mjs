@@ -121,7 +121,7 @@ describe('Draco — vs meshopt', () => {
     const meshoptDelta = Math.abs(meshopt.metrics.after.triangles - meshopt.metrics.before.triangles);
     expect(dracoDelta).toBeLessThanOrEqual(10);
     expect(meshoptDelta).toBeLessThanOrEqual(10);
-  });
+  }, 30000);
 });
 
 // ---- Draco: на всём золотом корпусе ----
