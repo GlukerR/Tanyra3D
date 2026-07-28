@@ -8,6 +8,7 @@ import { optimizeFile, listRules } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -177,18 +178,20 @@ describe('validation', () => {
 // ================================================================
 
 describe('force', () => {
-  const outDir = path.resolve(PROJECT_ROOT, 'output');
+  // Уникальная tmpdir per-test: предотвращает конфликты с parallel.test.mjs
+  // и не даёт afterEach rmSync(..., recursive: true) убить директорию ДО следующего теста.
+  // Правило TEST_AGENT_PROMPT rule 9 + «не в PROJECT_ROOT».
+  let outDir;
+
+  beforeEach(() => {
+    outDir = path.resolve(os.tmpdir(),
+      `glb_optimize_force_${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
+  });
 
   afterEach(() => {
-    // Чистим output после каждого теста
-    try {
-      const files = fs.readdirSync(outDir);
-      for (const f of files) {
-        if (f.startsWith('CarConcept') || f.endsWith('.glb') || f.endsWith('.report.md')) {
-          fs.rmSync(path.join(outDir, f), { force: true });
-        }
-      }
-    } catch { /* output/ может не существовать */ }
+    if (outDir && fs.existsSync(outDir)) {
+      try { fs.rmSync(outDir, { force: true, recursive: true }); } catch { /* занят — не критично */ }
+    }
   });
 
   it('without force: skips when output exists (status: skip)', async () => {

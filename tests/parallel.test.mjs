@@ -17,6 +17,7 @@ import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -264,23 +265,29 @@ describe('Parallel — different features', () => {
   }, TIMEOUT_PARALLEL);
 });
 
-// ---- dryRun:false параллельно (запись в output/) ----
+// ---- dryRun:false параллельно (запись в os.tmpdir()) ----
+// Правило TEST_AGENT_PROMPT rule 9 «Временные файлы. Использовать dryRun: true» —
+// но здесь мы СПЕЦИАЛЬНО тестируем dryRun:false (force/skip). outDir — в tmpdir(),
+// не в PROJECT_ROOT, чтобы не загрязнять репозиторий экспортами.
 
-describe('Parallel — dryRun:false (write to output/)', () => {
-  const OUT_DIR = path.resolve(PROJECT_ROOT, 'output');
+describe('Parallel — dryRun:false (write to tmpdir)', () => {
+  // OUT_DIR создаётся в beforeEach (а не на suite-уровне) — чтобы afterEach
+  // rmSync(..., recursive: true) не убивал директорию ДО следующего теста в этом же describe.
+  // Math.random добивает коллизию при двух worker'ах vitest с одинаковыми pid+ms.
+  let OUT_DIR;
 
-  // Очищаем output/ после тестов
+  beforeEach(() => {
+    OUT_DIR = path.resolve(os.tmpdir(),
+      `glb_optimize_parallel_${process.pid}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`);
+  });
+
   afterEach(() => {
-    if (fs.existsSync(OUT_DIR)) {
-      for (const f of fs.readdirSync(OUT_DIR)) {
-        if (f.endsWith('.glb') || f.endsWith('.report.md')) {
-          try { fs.rmSync(path.join(OUT_DIR, f)); } catch { /* занят — не критично */ }
-        }
-      }
+    if (OUT_DIR && fs.existsSync(OUT_DIR)) {
+      try { fs.rmSync(OUT_DIR, { force: true, recursive: true }); } catch { /* занят — не критично */ }
     }
   });
 
-  it('3 models write to output/ in parallel without file conflicts', async () => {
+  it('3 models write to tmpdir in parallel without file conflicts', async () => {
     const models = ['CarConcept.glb', 'ToyCar.glb', 'SpecularSilkPouf.glb'];
 
     const results = await Promise.all(
@@ -289,6 +296,7 @@ describe('Parallel — dryRun:false (write to output/)', () => {
           advancedFeatures: [],
           dryRun: false,
           force: true,
+          outDir: OUT_DIR,
         }),
       ),
     );
@@ -297,7 +305,7 @@ describe('Parallel — dryRun:false (write to output/)', () => {
     for (let i = 0; i < models.length; i++) {
       expect(results[i].status).toBe('ok');
       expect(results[i].file.written).toBe(true);
-      expect(results[i].file.dst).toContain('output');
+      expect(results[i].file.dst).toContain('glb_optimize_parallel');
     }
 
     // Файлы реально существуют на диске
@@ -318,8 +326,8 @@ describe('Parallel — dryRun:false (write to output/)', () => {
   it('same model written twice in parallel — force:true avoids skip conflict', async () => {
     // Два параллельных вызова одной модели — оба с force:true
     const results = await Promise.all([
-      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: [], dryRun: false, force: true }),
-      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: [], dryRun: false, force: true }),
+      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: [], dryRun: false, force: true, outDir: OUT_DIR }),
+      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: [], dryRun: false, force: true, outDir: OUT_DIR }),
     ]);
 
     // Оба должны быть ok (force перезаписывает)

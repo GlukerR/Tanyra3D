@@ -108,9 +108,17 @@ beforeAll(async () => {
       console.log(`  • ${label}: ${width}×${height} → raw ${noiseMb} MB, PNG ${pngMb} MB, GLB ${glbMb} MB`);
     }
   } catch (e) {
-    // Если генерация прервалась посередине — чистим частичные файлы
-    if (fs.existsSync(FIXTURE_DIR)) {
-      fs.rmSync(FIXTURE_DIR, { force: true, recursive: true });
+    // Если генерация прервалась посередине — чистим частичные файлы.
+    // ВАЖНО: rmSync обёрнут в свой try, иначе если он упадёт (EBUSY на Windows
+    // всё ещё открытым файлом от sharp / @gltf-transform), он замаскирует
+    // ОРИГИНАЛЬНУЮ ошибку при `throw e`. cleanup — best-effort, не должен блокировать диагностику.
+    try {
+      if (fs.existsSync(FIXTURE_DIR)) {
+        fs.rmSync(FIXTURE_DIR, { force: true, recursive: true });
+      }
+    } catch (cleanupError) {
+      // eslint-disable-next-line no-console
+      console.warn(`cleanup: cannot remove ${FIXTURE_DIR} (${cleanupError.message}); оригинальная ошибка ниже`);
     }
     throw e;
   }

@@ -58,6 +58,20 @@ const KNOWN_FAILING_UNDER_SAFE = new Set([
   'PotOfCoalsAnimationPointer.glb',
 ]);
 
+// Helper-фильтр для describe с safe / safe+join: исключает KHR_animation_pointer и known-failing.
+// Используется во всех 3 safe-using describe вместо повторного .filter(...).
+const isSafeEligible = (m) => !KNOWN_FAILING.has(m) && !KNOWN_FAILING_UNDER_SAFE.has(m);
+
+// Whitelist ruleIds из семейства safe — НЕЛЬЗЯ хардкодить (TEST_AGENT_PROMPT rule 11:
+// «Сверять с кодом, а не с этим файлом»). Source of truth — listRules(), который читает
+// актуальный registry из addons/gltf/index.mjs. Если кто-то переименует ruleId или
+// добавит новый в safe-семейство, этот whitelist обновится автоматически.
+const SAFE_RULE_IDS = new Set(
+  listRules()
+    .filter((r) => r.tier === 'basic' || r.feature === 'safe')
+    .map((r) => r.id),
+);
+
 // Проверка: все sidecar-файлы лицензий существуют
 describe('Golden Corpus — license sidecars', () => {
   it.each(GOLDEN_MODELS)('%s has a license.md sidecar', (modelName) => {
@@ -113,7 +127,7 @@ describe('Golden Corpus — passthrough (default pipeline)', () => {
 describe('Golden Corpus — safe cleanup preserves structure', () => {
   const TIMEOUT = 60000; // ABeautifulGame — большая модель (~145 MB)
 
-  it.each(GOLDEN_MODELS.filter((m) => !KNOWN_FAILING.has(m) && !KNOWN_FAILING_UNDER_SAFE.has(m)))(
+  it.each(GOLDEN_MODELS.filter(isSafeEligible))(
     '%s — safe cleanup preserves structure (no validation fails)',
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
@@ -134,7 +148,7 @@ describe('Golden Corpus — safe cleanup preserves structure', () => {
 describe('Golden Corpus — core invariant: triangles ± small delta', () => {
   const TIMEOUT = 60000; // ABeautifulGame — большая модель
 
-  it.each(GOLDEN_MODELS.filter((m) => !KNOWN_FAILING.has(m) && !KNOWN_FAILING_UNDER_SAFE.has(m)))(
+  it.each(GOLDEN_MODELS.filter(isSafeEligible))(
     '%s — triangles delta ≤ 10 (degenerate removal is normal)',
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
@@ -156,7 +170,7 @@ describe('Golden Corpus — core invariant: triangles ± small delta', () => {
 describe('Golden Corpus — join invariant', () => {
   const TIMEOUT = 60000; // ABeautifulGame — большая модель, safe+join дольше
 
-  it.each(GOLDEN_MODELS.filter((m) => !KNOWN_FAILING.has(m) && !KNOWN_FAILING_UNDER_SAFE.has(m)))(
+  it.each(GOLDEN_MODELS.filter(isSafeEligible))(
     '%s — meshes ≤ before after join (flatten+join)',
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
@@ -175,6 +189,31 @@ describe('Golden Corpus — join invariant', () => {
     },
     TIMEOUT,
   );
+});
+
+// ---------- DEFENSE-IN-DEPTH: safe ЯВНО что-то делает на грязных моделях ----------
+// Ловушка 2 TEST_AGENT_PROMPT: инвариант «validation без fail» на чистках,
+// которые могут быть silent no-op, проходит тривиально. Поэтому отдельный describe
+// на «грязной» модели проверяет, что safe pipeline ЯВНО что-то сделал — `applied.length > 0`,
+// `validation` без fail И хотя бы одно правило с правильным ruleId.
+describe('Golden Corpus — safe is NOT silent no-op', () => {
+  const TIMEOUT = 60000; // CarConcept — самая тяжёлая в корпусе
+
+  const DIRTY_SAFE_MODELS = ['CarConcept.glb'];
+
+  it.each(DIRTY_SAFE_MODELS)('%s — safe cleanup applies AT LEAST one rule', async (modelName) => {
+    const result = await optimizeFile(modelPath(modelName), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    // Если safe тихо ничего не делает — applied.length === 0, этот expect падает.
+    // Проверяем и что base-rule из safe-семейства сработал (dedup/prune),
+    // и что валидация не зафиксировала fail (не маскирует broken pipeline).
+    expect(result.applied.length).toBeGreaterThan(0);
+    expect(result.applied.some((a) => SAFE_RULE_IDS.has(a.ruleId))).toBe(true);
+    expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
+  }, TIMEOUT);
 });
 
 // ---------- МЕТРИКИ ----------
