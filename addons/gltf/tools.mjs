@@ -64,15 +64,32 @@ if (TOKTX) {
   if (!(childEnv[pathKey] || '').includes(dir)) childEnv[pathKey] = dir + path.delimiter + (childEnv[pathKey] || '');
 }
 
+// Потолок на внешний CLI (BUG-007). `execFileSync` синхронный, а сервер зовёт
+// optimizeFile прямо в обработчике запроса — зависший toktx (битая текстура, нехватка
+// памяти, драйверный баг) вешает не одну задачу, а весь event loop: ни SSE, ни другие
+// запросы. Без timeout ждать нечего — процесс не вернётся никогда.
+// Оговорка: в ветке с shell:true убивается .cmd-обёртка, сам toktx может пережить её;
+// но пайплайн уже не ждёт его, а temp-каталог сносится в finally у правила.
+const CLI_TIMEOUT_MS = 10 * 60_000;
+// Дефолтный maxBuffer у execFileSync — 1 МБ. Болтливый вывод CLI на модели с сотней
+// текстур упирается в него и падает с ENOBUFS, что выглядит как сбой кодирования.
+const CLI_MAX_BUFFER = 32 * 1024 * 1024;
+
 export function runCli(args) {
   // gltf-transform CLI для фазы KTX2 (кодирование через toktx)
+  const base = { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'], timeout: CLI_TIMEOUT_MS, maxBuffer: CLI_MAX_BUFFER };
   try {
     if (GLTF_CLI_JS) {
-      execFileSync(process.execPath, [GLTF_CLI_JS, ...args], { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+      execFileSync(process.execPath, [GLTF_CLI_JS, ...args], base);
     } else {
-      execFileSync(GLTF_CLI, args, { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'], shell: GLTF_CLI.endsWith('.cmd') });
+      execFileSync(GLTF_CLI, args, { ...base, shell: GLTF_CLI.endsWith('.cmd') });
     }
   } catch (e) {
+    // при таймауте stderr пуст, а e.message — про сигнал: без отдельной ветки
+    // пользователь увидел бы невнятное «failed» вместо причины
+    if (e.killed && e.signal) {
+      throw new Error(`gltf-transform ${args[0]} превысил ${Math.round(CLI_TIMEOUT_MS / 60_000)} мин и был остановлен`);
+    }
     const raw = ((e.stderr || '') + '\n' + (e.stdout || '')).toString().trim();
     const tail = raw ? raw.split('\n').slice(-10).join('\n    ') : e.message;
     throw new Error(`gltf-transform ${args[0]} failed:\n    ${tail}`);
