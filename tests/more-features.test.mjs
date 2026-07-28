@@ -3,7 +3,7 @@
 // Все тесты используют dryRun: true (кроме force-теста, который пишет и чистит).
 // Только публичное API: { optimizeFile, listRules, VERSION } из optimize2.mjs.
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach } from 'vitest';
 import { optimizeFile, listRules } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
