@@ -9,6 +9,7 @@
 - **Автор:** Mirra (Sketchfab)
 - **Лицензия:** CC BY 4.0 — https://creativecommons.org/licenses/by/4.0/
 - **Copyright (asset.copyright):** _(в файле отсутствует)_
+- **Источник / URL:** Sketchfab — «3D Fanart Lilith – White-Blue Hair Ver», автор Mirra
 - **Generator:** glTF-Transform v4.4.1
 
 ## Условия использования
