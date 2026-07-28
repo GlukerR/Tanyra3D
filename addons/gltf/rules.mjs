@@ -433,11 +433,16 @@ export const RULES = [
 
   {
     meta: {
-      // tier basic: сжатие как таковое базовое (Meshopt работает везде и всегда полезно).
-      // Advanced-часть — ВЫБОР кодека Draco: advancedFeatures:['draco'] / --draco
-      // переключает opts.codec в normalizeOpts; само правило остаётся в базовом плане.
+      // tier advanced — обязательно. Сжатие геометрии должно идти ПОСЛЕ снимка
+      // baseline-checkpoint, иначе снимок берётся с уже сжатой модели и сверка фазы 4
+      // сравнивает Draco сам с собой: повреждение кодеком становится ненаблюдаемым.
+      // Раньше стояло tier:'basic' с рассуждением «Meshopt базовый, advanced — только
+      // выбор кодека». Практический эффект: правило попадало во второй проход лишь
+      // косвенно, через runAfter ['textures/ktx2'] — и только когда KTX2 включён.
+      // Без KTX2 (обычный случай `['safe','draco']`) сжатие уезжало в первый проход,
+      // и checkpoint фиксировался уже после него.
       id: 'geometry/compress', category: 'geometry', title: 'Geometry compression',
-      severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['textures/ktx2', 'structure/prune-final'], touches: ['geometry', 'accessor'],
+      severity: 'info', fixSafety: 'numeric', tier: 'advanced', runAfter: ['textures/ktx2', 'structure/prune-final'], touches: ['geometry', 'accessor'],
       reversible: true, dataLoss: 'none', // §4d: Draco/Meshopt ↔ стандартный формат в пределах точности float32
       reversalNote: 'Compressed geometry unpacks back to the standard format without data loss.',
       feature: 'meshopt', // компрессия геометрии — opt-in (флажок meshopt или draco → codec)

@@ -314,15 +314,37 @@ the engine can order and de-conflict fixes.
 import { optimizeFile, listRules, VERSION } from './optimize2.mjs';
 
 const result = await optimizeFile(srcPath, {
-  // все флаги CLI, camelCase; значения по умолчанию — как у CLI:
-  codec: 'meshopt' | 'draco',        // 'meshopt'
-  texMode: 'mixed' | 'uastc',        // 'mixed'
-  keepParts: false, noKtx: false, stripColors: false, dryRun: false,
+  // ГЛАВНОЕ: всё — opt-in. Пустой объект `{}` — это passthrough: файл читается,
+  // валидируется и переписывается без единой оптимизации. Оптимизации включаются
+  // поимённо через advancedFeatures.
+  advancedFeatures: [],              // [] по умолчанию. Значения:
+                                     //   'safe'          — чистка без потерь (dedup, prune, weld, вырожденные)
+                                     //   'meshopt' | 'draco' — сжатие геометрии (выбор кодека)
+                                     //   'join'          — flatten + объединение мешей
+                                     //   'instance'      — EXT_mesh_gpu_instancing
+                                     //   'resample'      — прореживание ключей анимации
+                                     //   'ktx2'          — текстуры в KTX2/UASTC
+                                     //   'strip-colors'  — удалить все COLOR_n
+
+  // Остальные флаги — уточнения к включённым фичам, camelCase (совпадают с CLI):
+  codec: 'meshopt' | 'draco',        // по умолчанию 'meshopt'
+  texMode: 'mixed' | 'uastc',        // по умолчанию 'uastc' — самый безопасный для новичка;
+                                     // 'mixed' (ETC1S для цвета, UASTC для данных) — явным указанием
+  keepParts: false,                  // не объединять части даже при 'join'
+  noKtx: true,                       // KTX2 выключён, пока в advancedFeatures нет 'ktx2'
+  stripColors: false, dryRun: false,
   outDir: 'output',                  // куда писать .glb и отчёт
   force: false,                      // true → обрабатывать, даже если output/имя.glb существует
   onProgress: (e) => {},             // см. события ниже; опционально
+  locale: 'en',                      // язык сообщений правил; сейчас только 'en'
+  log: (line) => {},                 // построчный трейс пайплайна; опционально
 });
 ```
+
+**Legacy-путь.** Булевы поля `safe`, `join`, `instance`, `resample`, `compress` принимаются
+и напрямую — `{ safe: true }` работает так же, как `advancedFeatures: ['safe']`. Это остаток
+от доopt-in версии; для новых интеграций используйте `advancedFeatures`, он единственный
+описывает включённое одним списком.
 
 **Повторная оптимизация — первоклассная операция ядра.** `optimizeFile(srcPath, opts)` —
 **чистая функция от (исходник, опции)**: исходный файл никогда не мутируется (результат
@@ -341,8 +363,8 @@ const result = await optimizeFile(srcPath, {
 
 **Двухуровневая обработка (v0.0.9, внутренняя механика ядра):** фазы 1–3 идут двумя
 проходами — сначала базовые правила (tier basic), затем checkpoint структурных метрик
-`BASELINE_METRICS = ['triangles', 'vertices', 'drawCalls', 'skins', 'nodes', 'animations']`
-(`vertices` — мягкий ключ, ℹ без блокировки; см. §5), затем
+`BASELINE_METRICS = ['triangles', 'vertices', 'drawCalls', 'skins', 'nodes', 'animations',
+'morphTargets', 'attributes']` (`vertices` — мягкий ключ, ℹ без блокировки; см. §5), затем
 расширения (tier advanced; базовое правило с `runAfter` на включённое расширение уходит
 во второй проход вместе с ним — порядок пайплайна сохраняется). Фаза 4 строго сверяет
 метрики итоговых байтов с checkpoint: расхождение → `validation` получает `level:'fail'`
@@ -464,19 +486,24 @@ explainResult(runResult, platformId)
     "vramMB": 100,
     "fileMB": 15
   },
-  "engineOpts": {
+  "baselineOpts": {
     "codec": "meshopt",
-    "texMode": "mixed",
+    "texMode": "uastc",
     "keepParts": false,
-    "noKtx": false,
+    "noKtx": true,
     "stripColors": false
   },
   "notes": [ "источник/обоснование каждого бюджета" ]
 }
 ```
 
-- `engineOpts` — ровно поля `opts` из §4b (camelCase), передаются в `optimizeFile` без
-  преобразования.
+- `baselineOpts` — ровно поля `opts` из §4b (camelCase), передаются в `optimizeFile` без
+  преобразования. Это БАЗОВЫЙ план платформы: KTX2 и Draco в него не входят, они
+  включаются пользователем через `advancedFeatures`.
+- Поле `engineOpts` в файле профиля — **устаревшее имя**. `assistant.mjs:122` читает его
+  как фолбэк (`profile.baselineOpts || profile.engineOpts`), но новые профили должны
+  использовать `baselineOpts`. Не путать с полем `engineOpts` в **ответе** `planFor()` —
+  там имя осталось прежним и менять его незачем.
 - `budgets` в человеческих единицах: `textureMaxSize` — пиксели, `vramMB`/`fileMB` — МБ,
   `triangles`/`drawCalls` — штуки. Ассистент сам переводит МБ бюджета в байты при сверке.
 - `notes` — обоснование каждого бюджета (источник: рекомендации Khronos 3D Commerce,

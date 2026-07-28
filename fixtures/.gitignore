@@ -13,3 +13,23 @@
 *.webp
 *.ktx2
 *.basis
+
+# ---------------------------------------------------------------------------
+# Исключения: модели, сделанные автором проекта с нуля и распространяемые
+# свободно. Они версионируются, чтобы базовый набор тестов проходил сразу после
+# `git clone`, без просьбы «достаньте где-нибудь 3D-модели». Суммарно ~1.1 МБ.
+# Решение Александра, 2026-07-28.
+#
+# Добавлять сюда ТОЛЬКО модель, у которой в sidecar `.license.md` стоит
+# «Можно ли распространять: да». Сторонние (Sketchfab, Khronos) — никогда.
+# ---------------------------------------------------------------------------
+!models/Dirty Cube 01.glb
+!models/Instance Grid 01.glb
+!models/Morph Cube 01.glb
+!models/Vertex Colors 01.glb
+!models/Draco Compressed Input 01.glb
+!models/Meshopt Compressed Input 01.glb
+!models/Linked Duplicates Grid 01.glb
+!models/Orphan Texture Cube 01.glb
+!models/Preinstanced Grid 01.glb
+!models/Truncated Broken 01.glb

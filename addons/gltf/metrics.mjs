@@ -26,6 +26,11 @@ export function sceneGeometry(doc) {
   let drawCalls = 0;
   let triangles = 0;
   let vertices = 0;
+  // morph-таргеты и набор семантик — тоже по сцене, чтобы попасть в baseline-checkpoint
+  // (GAP-005): их потеря не меняет ни треугольники, ни вершины, ни узлы, ни счётчик
+  // анимаций — сверка шести старых ключей такую поломку не видела вовсе.
+  let morphTargets = 0;
+  const semantics = new Set();
   for (const scene of doc.getRoot().listScenes()) {
     scene.traverse((node) => {
       const mesh = node.getMesh();
@@ -33,6 +38,10 @@ export function sceneGeometry(doc) {
       const instances = instanceCountOf(node);
       for (const prim of mesh.listPrimitives()) {
         drawCalls += 1;
+        // Число таргетов на примитив, БЕЗ умножения на экземпляры: инстансинг
+        // повторяет геометрию, а не создаёт новые наборы деформации.
+        morphTargets += prim.listTargets().length;
+        for (const s of prim.listSemantics()) semantics.add(s);
         const pos = prim.getAttribute('POSITION');
         if (pos) vertices += pos.getCount() * instances;
         if (prim.getMode() === 4) {
@@ -42,12 +51,14 @@ export function sceneGeometry(doc) {
       }
     });
   }
-  return { drawCalls, triangles, vertices };
+  // Строка, а не число: «было POSITION,NORMAL,TEXCOORD_0 — стало POSITION,NORMAL»
+  // читается в отчёте, счётчик «3 → 2» не сказал бы, какой канал потерян.
+  return { drawCalls, triangles, vertices, morphTargets, attributes: [...semantics].sort().join(',') };
 }
 
 export function collectMetrics(doc, fileBytes) {
   const root = doc.getRoot();
-  const { drawCalls, triangles, vertices } = sceneGeometry(doc);
+  const { drawCalls, triangles, vertices, morphTargets, attributes } = sceneGeometry(doc);
   let textureBytes = 0;
   let gpuBytes = 0;
   try {
@@ -64,6 +75,8 @@ export function collectMetrics(doc, fileBytes) {
     drawCalls,
     triangles,
     vertices,
+    morphTargets,
+    attributes,
     textureBytes,
     gpuBytes,
     meshes: root.listMeshes().length,
@@ -123,18 +136,32 @@ export function countTriangles(doc) {
 // Следствие: расхождение baseline после второго прохода — ВСЕГДА ошибка
 // (неправильное применение компонента, баг в библиотеке или недочищенный вход),
 // а не «допустимая погрешность». Поэтому сверка STRICT, без допусков.
-export const BASELINE_METRICS = ['triangles', 'vertices', 'drawCalls', 'skins', 'nodes', 'animations'];
+// GAP-005: к шести исходным ключам добавлены morphTargets и attributes. Потеря
+// morph-таргета или UV/COLOR-канала во втором проходе не меняла ни один из шести —
+// файл записывался, а отчёт говорил «все проверки пройдены». Пример из корпуса:
+// parkergirl несёт 456 morph-таргетов на восьми примитивах при skins=1; повреждение
+// такой модели ловится только этими двумя ключами.
+export const BASELINE_METRICS = ['triangles', 'vertices', 'drawCalls', 'skins', 'nodes', 'animations', 'morphTargets', 'attributes'];
 
 // Мягкие ключи checkpoint: их расхождение информирует, но НЕ блокирует запись (см.
-// compareBaseline в core/engine.mjs). vertices — кодек (Draco) сваривает вершины при
+// compareBaseline в core/contract.mjs). vertices — кодек (Draco) сваривает вершины при
 // сериализации; число вершин меняется, топология/треугольники — нет.
-export const BASELINE_SOFT = new Set(['vertices']);
+// `nodes` стал мягким вместе с переносом geometry/compress во второй проход. Meshopt
+// работает через KHR_mesh_quantization: квантование запекает масштаб/смещение, и
+// gltf-transform добавляет узлы-обёртки, чтобы нести эту трансформацию. На CarConcept
+// это 101 → 107 узлов при неизменных треугольниках, draw calls и картинке. Официальная
+// гарантия компонентов (§0a) говорит про топологию меша, а не про число узлов сцены, —
+// держать `nodes` жёстким значило бы блокировать запись на законном поведении кодека.
+// Структуру продолжают защищать triangles/drawCalls/skins/animations/morphTargets/attributes.
+export const BASELINE_SOFT = new Set(['vertices', 'nodes']);
 
 export function baselineSnapshot(doc) {
-  const { drawCalls, triangles, vertices } = sceneGeometry(doc);
+  const { drawCalls, triangles, vertices, morphTargets, attributes } = sceneGeometry(doc);
   return {
     triangles,
     vertices,
+    morphTargets,
+    attributes,
     drawCalls,
     skins: effectiveSkins(doc),
     nodes: doc.getRoot().listNodes().length,
