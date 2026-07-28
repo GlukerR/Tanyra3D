@@ -14,6 +14,7 @@
 // с цифрами приходит из fix — ровно те же измерения, что делал v2.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import * as fns from '@gltf-transform/functions';
@@ -394,9 +395,17 @@ export const RULES = [
       out.found.push({ messageId: 'ktx2.found', data: { n: needKtx } });
       const mixed = ctx.opts.texMode === 'mixed';
       ctx.log(render('ktx2.log.encoding', { n: needKtx, mixed }, ctx.opts.locale));
-      const tmpA = path.join(ctx.outDir, `_tmp_${ctx.dstName}`);
-      const tmpB = path.join(ctx.outDir, `_tmp2_${ctx.dstName}`);
-      const tmpC = path.join(ctx.outDir, `_tmp3_${ctx.dstName}`);
+      // Промежуточные файлы KTX2-конвейера. Раньше лежали в ctx.outDir под именами
+      // `_tmp_<имя модели>` — два параллельных вызова с одинаковым именем модели писали
+      // в один и тот же файл, и модель получала чужие текстуры. Отдельный каталог в
+      // системной temp снимает и это, и второй случай: модель, которую УЖЕ зовут
+      // `_tmp_model.glb`, совпадала по имени с temp-файлом соседней `model.glb`.
+      // Побочно: аварийно завершённый процесс больше не оставляет мусор в output/ —
+      // недобранное подчистит ОС.
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'glb-ktx2-'));
+      const tmpA = path.join(tmpDir, `_tmp_${ctx.dstName}`);
+      const tmpB = path.join(tmpDir, `_tmp2_${ctx.dstName}`);
+      const tmpC = path.join(tmpDir, `_tmp3_${ctx.dstName}`);
       try {
         await ctx.io.write(tmpA, ctx.document);
         let cur = tmpA;
@@ -409,10 +418,8 @@ export const RULES = [
         }
         ctx.document = await ctx.io.read(cur); // дальше пайплайн работает с KTX2-версией
       } finally {
-        // временные файлы не должны оставаться в output даже при ошибке
-        for (const t of [tmpA, tmpB, tmpC]) {
-          try { if (fs.existsSync(t)) fs.rmSync(t); } catch { /* занят — уберётся при следующем запуске */ }
-        }
+        // каталог целиком — вместе с тем, что мог дописать сам toktx
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* занят — подчистит ОС */ }
       }
       if (mixed) {
         if (colorTex.length) out.details.push({ messageId: 'ktx2.done.color', data: { n: colorTex.length, list: colorTex.join(', ') } });

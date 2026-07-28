@@ -131,6 +131,13 @@ function explainResultSafe(runResult, platformId) {
 /** @type {Map<string, import('node:http').ServerResponse>} */
 const progressClients = new Map();
 
+// Пределы для SSE. Инструмент локальный, одновременных сборок у одного человека
+// единицы — потолок нужен не от злоумышленника, а чтобы забытые вкладки не копили
+// дескрипторы бесконечно (SECURITY-001, пункт 3).
+const MAX_SSE_CLIENTS = 32;
+const SSE_PING_MS = 30_000;
+const SSE_MAX_LIFETIME_MS = 30 * 60_000;
+
 // ---- Загруженные исходники (для повторной оптимизации без перезаливки) ----
 // Ядро — чистая функция (исходник не мутируется, см. §4d), поэтому одну и ту же модель
 // можно гонять с разными опциями сколько угодно раз. Сервер держит исходник, чтобы
@@ -320,6 +327,18 @@ const server = http.createServer(async (req, res) => {
         res.end('job parameter required');
         return;
       }
+      // Повторное подключение с тем же job (перезагрузили вкладку) — прежний ответ
+      // просто вытеснялся из Map и оставался висеть открытым. Закрываем явно.
+      const previous = progressClients.get(jobId);
+      if (previous && previous !== res) {
+        try { previous.end(); } catch { /* уже закрыт */ }
+        progressClients.delete(jobId);
+      }
+      if (progressClients.size >= MAX_SSE_CLIENTS) {
+        res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Too many progress subscriptions');
+        return;
+      }
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
         'Cache-Control': 'no-cache',
@@ -327,9 +346,24 @@ const server = http.createServer(async (req, res) => {
       });
       res.write('\n');
       progressClients.set(jobId, res);
-      req.on('close', () => {
-        progressClients.delete(jobId);
-      });
+
+      // Соединение живёт, пока идёт сборка. Клиент, который «ушёл», не всегда рвёт
+      // TCP — вкладка может висеть в фоне часами. Пинг раз в полминуты даёт ошибку
+      // записи на мёртвом сокете, а жёсткий предел закрывает то, что пережило и пинг.
+      const ping = setInterval(() => {
+        try { res.write(': ping\n\n'); } catch { closeStream(); }
+      }, SSE_PING_MS);
+      const deadline = setTimeout(closeStream, SSE_MAX_LIFETIME_MS);
+      // Таймеры не должны сами по себе держать процесс живым — сервер и так держит.
+      ping.unref?.();
+      deadline.unref?.();
+      function closeStream() {
+        clearInterval(ping);
+        clearTimeout(deadline);
+        if (progressClients.get(jobId) === res) progressClients.delete(jobId);
+        try { res.end(); } catch { /* уже закрыт */ }
+      }
+      req.on('close', closeStream);
       return;
     }
 
