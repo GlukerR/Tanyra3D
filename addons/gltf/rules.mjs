@@ -369,11 +369,14 @@ export const RULES = [
       const DATA_SLOT_GLOB = '*{normal,Normal,occlusion,Occlusion,metallicRoughness,Roughness}*';
       const dataTex = [];
       const colorTex = [];
+      // Перекодированные в PNG копим и отчитываемся ОДНОЙ строкой в конце: строка
+      // на каждую текстуру давала тринадцать одинаковых записей подряд.
+      const toPng = new Map(); // исходный mime → сколько штук
       for (const tex of ctx.document.getRoot().listTextures()) {
         const mime = tex.getMimeType();
-        const name = tex.getName() || '—';
+        const name = tex.getName() || '';
         if (mime === 'image/ktx2') {
-          out.skipped.push({ messageId: 'ktx2.skipped.already', data: { name } });
+          out.skipped.push({ messageId: 'ktx2.skipped.already', data: { name: name || '—' } });
           continue;
         }
         if (mime === 'image/webp' || mime === 'image/jpeg') {
@@ -381,11 +384,14 @@ export const RULES = [
           const png = await sharp(Buffer.from(tex.getImage())).png().toBuffer();
           tex.setImage(png);
           tex.setMimeType('image/png');
-          out.details.push({ messageId: 'ktx2.done.toPng', data: { name, mime } });
+          toPng.set(mime, (toPng.get(mime) || 0) + 1);
         }
         const slots = fns.listTextureSlots(tex).join(' ');
         if (DATA_SLOT_RE.test(slots)) dataTex.push(name);
         else colorTex.push(name);
+      }
+      for (const [mime, n] of toPng) {
+        out.details.push({ messageId: 'ktx2.done.toPng', data: { n, from: mime.replace('image/', '') } });
       }
       const needKtx = dataTex.length + colorTex.length;
       if (needKtx === 0) {
@@ -422,8 +428,11 @@ export const RULES = [
         try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* занят — подчистит ОС */ }
       }
       if (mixed) {
-        if (colorTex.length) out.details.push({ messageId: 'ktx2.done.color', data: { n: colorTex.length, list: colorTex.join(', ') } });
-        if (dataTex.length) out.details.push({ messageId: 'ktx2.done.data', data: { n: dataTex.length, list: dataTex.join(', ') } });
+        // Имена перечисляем, только если они есть: у безымянных текстур список
+        // выродился бы в «—, —, —, —, —».
+        const named = (list) => list.filter(Boolean).join(', ');
+        if (colorTex.length) out.details.push({ messageId: 'ktx2.done.color', data: { n: colorTex.length, list: named(colorTex) } });
+        if (dataTex.length) out.details.push({ messageId: 'ktx2.done.data', data: { n: dataTex.length, list: named(dataTex) } });
       } else {
         out.details.push({ messageId: 'ktx2.done.uastc', data: { n: needKtx } });
       }

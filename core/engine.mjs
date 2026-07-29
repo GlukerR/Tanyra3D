@@ -87,7 +87,17 @@ async function runFile(addon, src, dstName, o, result) {
   const log = o.log;
   const locale = o.locale;
   const addFound = (meta, v) => { for (const text of asLines(v)) result.findings.push({ ruleId: meta.id, category: meta.category, severity: meta.severity, fixSafety: meta.fixSafety, text }); };
-  const addSkipped = (meta, v, reason) => { for (const text of asLines(v)) result.skipped.push({ ruleId: meta.id, text, reason: reason ?? text }); };
+  // kind — почему пропущено. Нужен потребителю отчёта, чтобы отличать «пользователь
+  // не включал» и «включено, но делать было нечего» от «отказались по безопасности».
+  // Первые два для человека — не предупреждение, а тишина: показывать их наравне с
+  // отказом значит топить единственную важную строку в перечислении небытия.
+  //   'disabled' — фича не включена флажком
+  //   'nothing'  — правило отработало, менять было нечего
+  //   'unsafe'   — правило отказалось: небезопасно на этой модели
+  //   'policy'   — уровень риска выше того, что применяется автоматически
+  const addSkipped = (meta, v, reason, kind = 'nothing') => {
+    for (const text of asLines(v)) result.skipped.push({ ruleId: meta.id, text, reason: reason ?? text, kind });
+  };
   // over — переопределение полей обратимости для отдельных строк (lossy-ветки правил,
   // см. res.irreversible): базовое поведение правила может быть без потерь, а форсированное — нет
   const addApplied = (meta, v, over = {}) => {
@@ -172,7 +182,7 @@ async function runFile(addon, src, dstName, o, result) {
         // одновременно) остаются тихими — как и раньше.
         if (rule.meta.feature) {
           const reason = `feature "${rule.meta.feature}" is not enabled (advancedFeatures: ['${rule.meta.feature}'])`;
-          addSkipped(rule.meta, `${rule.meta.title} — ${reason}`, reason);
+          addSkipped(rule.meta, `${rule.meta.title} — ${reason}`, reason, 'disabled');
         }
         continue;
       }
@@ -180,13 +190,13 @@ async function runFile(addon, src, dstName, o, result) {
       const decision = rule.canFix ? rule.canFix(finding, ctx) : { safe: true };
       if (!decision.safe) {
         const reason = decision.messageId ? render(decision.messageId, decision.data, locale) : (decision.reason || '');
-        addSkipped(rule.meta, `${rule.meta.title} — ${reason}`, reason);
+        addSkipped(rule.meta, `${rule.meta.title} — ${reason}`, reason, 'unsafe');
         continue;
       }
       const tier = finding.fixSafety || rule.meta.fixSafety;
       if (TIER_RANK[tier] > TIER_RANK[AUTOFIX_MAX_TIER] && !decision.force) {
         const reason = `safety level "${tier}" is not applied automatically`;
-        addSkipped(rule.meta, `${rule.meta.title} — ${reason}`, reason);
+        addSkipped(rule.meta, `${rule.meta.title} — ${reason}`, reason, 'policy');
         continue;
       }
       planned.push({ rule, finding });

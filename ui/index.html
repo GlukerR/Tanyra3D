@@ -209,6 +209,23 @@
         <ul id="highlights-list" class="highlights-list"></ul>
       </div>
 
+      <!-- Порядок блоков = порядок вопросов, которые задаёт человек после сборки.
+           1. Что вообще получилось (Summary — уже выше).
+           2. Цела ли модель (Integrity check). Это главный вопрос: всё остальное
+              не имеет значения, если модель испорчена. Раньше блок стоял последним,
+              под двумя раскрывающимися списками.
+           3. Что нашли и что при этом потеряно безвозвратно (Analysis).
+           4. Проходим ли требования платформы (Budget check).
+           5. Что помешало (Warnings) — только настоящие отказы.
+           6. Подробности сделанного и пропущенного — в самом низу, они нужны реже. -->
+
+      <div class="inspector-section hidden" id="validation-section">
+        <details class="report-accordion">
+          <summary class="section-label collapsible-summary">Integrity check <span id="validation-count"></span></summary>
+          <ul id="validation-list" class="detail-list"></ul>
+        </details>
+      </div>
+
       <div class="inspector-section hidden" id="analysis-section">
         <div class="section-head">
           <label class="section-label">Analysis</label>
@@ -228,33 +245,29 @@
       </div>
 
       <div class="inspector-section hidden" id="applied-section">
-        <details>
+        <details class="report-accordion">
           <summary class="section-label collapsible-summary">What was done <span id="applied-count"></span></summary>
           <ul id="applied-list" class="detail-list"></ul>
         </details>
       </div>
 
       <div class="inspector-section hidden" id="skipped-section">
-        <details>
+        <details class="report-accordion">
           <summary class="section-label collapsible-summary">What was skipped <span id="skipped-count"></span></summary>
           <ul id="skipped-list" class="detail-list"></ul>
-        </details>
-      </div>
-
-      <div class="inspector-section hidden" id="validation-section">
-        <details>
-          <summary class="section-label collapsible-summary">Integrity check</summary>
-          <ul id="validation-list" class="detail-list"></ul>
         </details>
       </div>
 
     </div>
 
     <div class="inspector-footer">
+      <!-- Закреплено над кнопкой скачивания намеренно: относится к файлу целиком и
+           не должно уезжать из вида при прокрутке. Перечень конкретных правок сюда
+           НЕ выводится — он в «Анализе», иначе закреплённый блок разрастался и
+           закрывал панель. -->
       <div id="irreversible-warning" class="irreversible-warning hidden">
         <p class="irreversible-title">Irreversible changes applied</p>
-        <p class="irreversible-text">Keep the source file — this data cannot be restored from the result:</p>
-        <ul id="irreversible-list" class="irreversible-list"></ul>
+        <p class="irreversible-text">Keep the source file — this data cannot be restored from the result. See Analysis for the list.</p>
       </div>
       <button id="run-btn" class="btn-primary" disabled>Build Optimized Model</button>
       <button id="download-btn" class="btn-primary btn-download hidden" data-window-trigger>DOWNLOAD RESULT</button>

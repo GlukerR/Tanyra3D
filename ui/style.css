@@ -1146,6 +1146,43 @@ details[open] > .collapsible-summary::before {
   line-height: 1.45;
 }
 
+/* Необратимые изменения — карточка внутри «Анализа». Перечень живёт здесь, а не
+   в закреплённом блоке над кнопкой: там он рос вместе с числом правок и закрывал
+   панель. Закреплённым осталось только само предупреждение. */
+.issue-sublist {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.issue-sublist li {
+  position: relative;
+  padding-left: 12px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--on-surface-variant);
+}
+
+.issue-sublist li::before {
+  content: "−";
+  position: absolute;
+  left: 0;
+  color: var(--outline);
+}
+
+/* Вердикт проверки целостности прямо в заголовке свёрнутого раздела: главный
+   вопрос после сборки — цела ли модель, и ответ не должен требовать раскрытия. */
+.check-verdict {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.check-verdict.is-ok { color: var(--success, #8fd18f); }
+.check-verdict.is-fail { color: var(--error, #ff8a80); }
+
 .budget-row {
   border-left: 2px solid var(--outline-variant);
   background: rgba(42, 41, 45, 0.5);

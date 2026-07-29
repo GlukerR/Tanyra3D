@@ -86,7 +86,7 @@
   const exportName = $('export-name');
   const exportSave = $('export-save');
   const irreversibleWarning = $('irreversible-warning');
-  const irreversibleList = $('irreversible-list');
+  const validationCount = $('validation-count');
 
   const statusDot = $('status-dot');
   const phaseStatus = $('phase-status');
@@ -139,6 +139,9 @@
   function onOptionChanged() {
     updateRunButtonState();
     rememberSelection(); // запомнить выбор платформы — он переживёт новую модель/смену платформы
+    // Раскрытые разделы описывают ПРОШЛУЮ сборку. Тронули флажок — они устарели,
+    // и держать их открытыми значит показывать неверное как текущее.
+    closeAllDetails();
     const feats = getSelectedFeatures();
     logMessage('debug', 'Options: ' + (feats.length ? feats.join(', ') : 'none'));
   }
@@ -940,11 +943,11 @@
 
     renderComparison(result.metrics);
     renderSummary(explain);
-    renderIssues(result.findings);
+    renderValidation(result.validation);
+    renderIssues(result.findings, result.applied);
     renderBudgets(explain && explain.budgetChecks);
     renderWarnings(explain && explain.warnings);
     renderAppliedSkipped(result.applied, result.skipped);
-    renderValidation(result.validation);
 
     // Кнопку не прячем — можно менять флажки и пересобирать результат сколько угодно раз.
     // Запоминаем настройки этой сборки: пока их не изменят, пересборка неактивна.
@@ -977,18 +980,14 @@
     }
   }
 
-  // §4d ARCHITECTURE.md: перед скачиванием предупреждаем о применённых изменениях,
-  // при которых данные потеряны безвозвратно (join структуры, strip раскрашенных цветов и т.п.)
+  // §4d ARCHITECTURE.md: перед скачиванием предупреждаем, что часть данных потеряна
+  // безвозвратно. Здесь остаётся ТОЛЬКО эта строка — перечень конкретных правок
+  // переехал в «Анализ» отдельной карточкой (см. renderIssues). Причина простая:
+  // закреплённый над кнопкой блок не прокручивается, и на модели с десятком
+  // необратимых изменений он занимал половину панели, пряча всё остальное.
   function renderIrreversibleWarning(applied) {
     const lossy = (applied || []).filter((a) => a.reversible === false && a.dataLoss === 'significant');
     irreversibleWarning.classList.toggle('hidden', !lossy.length);
-    if (!lossy.length) return;
-    irreversibleList.innerHTML = '';
-    for (const a of lossy) {
-      const li = document.createElement('li');
-      li.textContent = a.text;
-      irreversibleList.appendChild(li);
-    }
   }
 
   function renderFail(result, explain) {
@@ -1085,31 +1084,74 @@
     }
   }
 
-  function renderIssues(findings) {
-    const list = (findings || []).filter((f) => f && f.severity !== 'info' || true); // показываем все находки
-    analysisSection.classList.toggle('hidden', !findings || !findings.length);
-    if (!findings || !findings.length) return;
+  function renderIssues(findings, applied) {
+    // Необратимые изменения — одной карточкой внутри анализа, а не списком,
+    // закреплённым над кнопкой. Закреплённым остаётся только предупреждение
+    // «сохраните исходник»: оно короткое, всегда одинаковое и относится к файлу
+    // целиком. Перечень же растёт с числом правок и на большой модели закрывал
+    // собой окно просмотра — то самое, ради которого пользователь и пришёл.
+    const lossy = (applied || []).filter((a) => a.reversible === false && a.dataLoss === 'significant');
+    const lossyLines = condense(lossy);
 
-    const notableCount = findings.filter((f) => f.severity === 'error' || f.severity === 'warn').length;
-    issuesCount.textContent = notableCount ? `${notableCount} important` : `${findings.length}`;
+    const hasAny = (findings && findings.length) || lossyLines.length;
+    analysisSection.classList.toggle('hidden', !hasAny);
+    if (!hasAny) return;
+
+    const notableCount = (findings || []).filter((f) => f.severity === 'error' || f.severity === 'warn').length;
+    issuesCount.textContent = notableCount ? `${notableCount} important` : `${(findings || []).length}`;
 
     issuesList.innerHTML = '';
-    for (const f of findings) {
-      const card = document.createElement('div');
-      const sev = f.severity === 'error' ? 'sev-error' : f.severity === 'warn' ? 'sev-warn' : 'sev-info';
-      card.className = `issue-card ${sev}`;
 
+    if (lossyLines.length) {
+      const card = document.createElement('div');
+      card.className = 'issue-card sev-error issue-card--lossy';
       const title = document.createElement('p');
       title.className = 'issue-title';
-      title.textContent = CATEGORY_LABELS[f.category] || f.category || 'Finding';
-
-      const text = document.createElement('p');
-      text.className = 'issue-text';
-      text.textContent = f.text;
-
+      title.textContent = `Irreversible changes (${lossyLines.length})`;
+      const hint = document.createElement('p');
+      hint.className = 'issue-text';
+      hint.textContent = 'This data cannot be restored from the result — keep the source file.';
+      const ul = document.createElement('ul');
+      ul.className = 'issue-sublist';
+      for (const text of lossyLines) {
+        const li = document.createElement('li');
+        li.textContent = text;
+        ul.appendChild(li);
+      }
       card.appendChild(title);
-      card.appendChild(text);
+      card.appendChild(hint);
+      card.appendChild(ul);
       issuesList.appendChild(card);
+    }
+
+    // Находки схлопываем так же, как применённые правила: пять мешей с вершинной
+    // раскраской давали пять одинаковых карточек, между которыми терялись остальные.
+    // Группируем внутри пары «категория + важность», чтобы не смешать разное.
+    const buckets = new Map();
+    for (const f of findings || []) {
+      const key = `${f.category}|${f.severity}`;
+      if (!buckets.has(key)) buckets.set(key, { category: f.category, severity: f.severity, items: [] });
+      buckets.get(key).items.push({ ruleId: f.ruleId, text: f.text });
+    }
+
+    for (const b of buckets.values()) {
+      const sev = b.severity === 'error' ? 'sev-error' : b.severity === 'warn' ? 'sev-warn' : 'sev-info';
+      for (const line of condense(b.items)) {
+        const card = document.createElement('div');
+        card.className = `issue-card ${sev}`;
+
+        const title = document.createElement('p');
+        title.className = 'issue-title';
+        title.textContent = CATEGORY_LABELS[b.category] || b.category || 'Finding';
+
+        const text = document.createElement('p');
+        text.className = 'issue-text';
+        text.textContent = line;
+
+        card.appendChild(title);
+        card.appendChild(text);
+        issuesList.appendChild(card);
+      }
     }
   }
 
@@ -1164,25 +1206,89 @@
     }
   }
 
+  // ---------------------------------------------------------------
+  // Схлопывание повторов
+  //
+  // Правила отчитываются по одному объекту: пять мешей потеряли вершинные цвета —
+  // пять строк, тринадцать текстур перекодированы — тринадцать строк. По отдельности
+  // каждая верна, вместе они превращают панель в простыню, где ничего не найти.
+  //
+  // Схлопываем ЗДЕСЬ, а не в правилах: правило не знает, сколько таких же строк
+  // напишут соседи, и не должно знать. Разное между строками — почти всегда имя
+  // в кавычках, поэтому группируем по тексту с вырезанными кавычками, а имена
+  // собираем в список.
+  // ---------------------------------------------------------------
+
+  const NAME_SLOT = ' ';
+  const MAX_NAMES = 4; // дальше список сам становится простынёй
+
+  function condense(items) {
+    const groups = new Map();
+    for (const it of items) {
+      const text = String(it.text || '');
+      const names = [];
+      const template = text.replace(/"([^"]*)"/g, (_, n) => { names.push(n); return NAME_SLOT; });
+      const key = (it.ruleId || '') + '|' + template;
+      if (!groups.has(key)) groups.set(key, { template, names: [], count: 0 });
+      const g = groups.get(key);
+      g.count += 1;
+      for (const n of names) if (n && n !== '—' && !g.names.includes(n)) g.names.push(n);
+    }
+
+    const out = [];
+    for (const g of groups.values()) {
+      if (g.count === 1) {
+        // Одна строка — возвращаем как есть, вместе с именами на своих местах.
+        let i = 0;
+        out.push(g.template.replace(new RegExp(NAME_SLOT, 'g'), () => `"${g.names[i++] ?? '—'}"`));
+        continue;
+      }
+      // Количество — префиксом, имена — на месте того самого имени. Читается как
+      // обычная фраза: «5× COLOR_0 (mesh Fringe, Paisley, …): PAINTED, removed…».
+      // Складывать количество внутрь скобок пробовали — получалось «mesh 5: Fringe»,
+      // что похоже на номер меша, а не на их число.
+      const shown = g.names.slice(0, MAX_NAMES).join(', ');
+      const rest = g.names.length - MAX_NAMES;
+      const list = g.names.length ? `${shown}${rest > 0 ? ` and ${rest} more` : ''}` : '—';
+      let first = true;
+      const body = g.template.replace(new RegExp(NAME_SLOT, 'g'), () => {
+        if (first) { first = false; return list; }
+        return '—';
+      });
+      out.push(`${g.count}× ${body}`);
+    }
+    return out;
+  }
+
   function renderAppliedSkipped(applied, skipped) {
-    appliedSection.classList.toggle('hidden', !applied || !applied.length);
+    const appliedLines = condense(applied || []);
+    appliedSection.classList.toggle('hidden', !appliedLines.length);
     appliedList.innerHTML = '';
-    if (applied && applied.length) {
-      appliedCount.textContent = `(${applied.length})`;
-      for (const a of applied) {
+    if (appliedLines.length) {
+      appliedCount.textContent = `(${appliedLines.length})`;
+      for (const text of appliedLines) {
         const li = document.createElement('li');
-        li.textContent = a.text;
+        li.textContent = text;
         appliedList.appendChild(li);
       }
     }
 
-    skippedSection.classList.toggle('hidden', !skipped || !skipped.length);
+    // Показываем только те пропуски, которые что-то значат: отказ по безопасности
+    // и превышение уровня риска. «Фича не включена» — выбор пользователя, а
+    // «делать было нечего» — нормальный исход; раздел из таких строк сообщал
+    // читателю о несуществующем и занимал место наравне с настоящими находками.
+    const meaningful = (skipped || []).filter((s) => s && (s.kind === 'unsafe' || s.kind === 'policy'));
+    const skippedLines = condense(meaningful.map((s) => ({
+      ruleId: s.ruleId,
+      text: (s.reason && s.reason !== s.text) ? `${s.text} — ${s.reason}` : s.text,
+    })));
+    skippedSection.classList.toggle('hidden', !skippedLines.length);
     skippedList.innerHTML = '';
-    if (skipped && skipped.length) {
-      skippedCount.textContent = `(${skipped.length})`;
-      for (const s of skipped) {
+    if (skippedLines.length) {
+      skippedCount.textContent = `(${skippedLines.length})`;
+      for (const text of skippedLines) {
         const li = document.createElement('li');
-        li.textContent = (s.reason && s.reason !== s.text) ? `${s.text} — ${s.reason}` : s.text;
+        li.textContent = text;
         li.classList.add('skip-reason');
         skippedList.appendChild(li);
       }
@@ -1193,6 +1299,17 @@
     const has = validation && validation.length;
     validationSection.classList.toggle('hidden', !has);
     if (!has) return;
+
+    // Вердикт выносим в заголовок: раздел свёрнут, и без него человеку пришлось бы
+    // раскрывать список, чтобы узнать ответ на главный вопрос — цела ли модель.
+    const failed = validation.filter((v) => v.level === 'fail').length;
+    if (validationCount) {
+      validationCount.textContent = failed
+        ? `— ${failed} failed`
+        : `— all ${validation.length} passed`;
+      validationCount.className = failed ? 'check-verdict is-fail' : 'check-verdict is-ok';
+    }
+
     validationList.innerHTML = '';
     for (const v of validation) {
       const li = document.createElement('li');
@@ -1621,6 +1738,31 @@
     viewportSplitter.addEventListener('pointerup', stop);
     viewportSplitter.addEventListener('pointercancel', stop);
   })();
+
+  // ---------------------------------------------------------------
+  // Раскрывающиеся разделы: открыт всегда ровно один
+  //
+  // Разделы длинные, и три открытых сразу выталкивают всё остальное за нижний
+  // край панели. Открытие любого закрывает прочие; смена настроек тоже закрывает —
+  // содержимое относится к прошлой сборке и после правки флажков устаревает.
+  // ---------------------------------------------------------------
+
+  // Только разделы ОТЧЁТА. Раскрывашка «Mode: UASTC» в панели опций — настройка,
+  // а не отчёт: закрывать её, когда человек открыл «Что сделано», нельзя, он может
+  // быть в середине настройки.
+  const inspectorDetails = () => Array.from(document.querySelectorAll('details.report-accordion'));
+
+  function closeOtherDetails(except) {
+    for (const d of inspectorDetails()) if (d !== except) d.open = false;
+  }
+
+  function closeAllDetails() {
+    closeOtherDetails(null);
+  }
+
+  for (const d of inspectorDetails()) {
+    d.addEventListener('toggle', () => { if (d.open) closeOtherDetails(d); });
+  }
 
   // ---------------------------------------------------------------
   // Мини-панель управления вьюпортом

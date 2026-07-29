@@ -373,7 +373,16 @@ function collectWarnings(rr) {
   if (Array.isArray(rr.skipped)) {
     for (const s of rr.skipped) {
       if (!s || !s.text) continue;
-      const reason = s.reason && s.reason !== s.text ? ` — ${s.reason}` : '';
+      // Предупреждение — это когда мы ХОТЕЛИ сделать, но не стали. «Фича не включена»
+      // и «делать было нечего» предупреждениями не являются: первое — выбор
+      // пользователя, второе — нормальный исход. Раньше они шли сюда наравне с
+      // настоящими отказами, и панель заполнялась строками вида «Not applied: no
+      // animations to resample» — перечислением того, чего в модели нет. Настоящий
+      // отказ («небезопасно на этой модели») тонул среди них.
+      if (s.kind === 'disabled' || s.kind === 'nothing') continue;
+      // Причина часто уже вписана в текст («Правило — потому что…»), и приклеивать
+      // её вторым хвостом значило печатать одно и то же дважды в одной строке.
+      const reason = s.reason && s.reason !== s.text && !s.text.includes(s.reason) ? ` — ${s.reason}` : '';
       warnings.push(`Not applied: ${s.text}${reason}`);
     }
   }
