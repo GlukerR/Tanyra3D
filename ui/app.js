@@ -45,6 +45,8 @@
   const animClipSel = $('anim-clip');
   const animSeek = $('anim-seek');
   const animTimeEl = $('anim-time');
+  const exposureSlider = $('exposure-slider');
+  const exposureValue = $('exposure-value');
 
   const platformSelect = $('platform-select');
   const platformDescription = $('platform-description');
@@ -1702,14 +1704,13 @@
     }
   }
 
+  // В цикле кадров — только бегущее время: оно и правда меняется каждый кадр.
+  // Состав модели (есть ли клипы, какие) обновляется по уведомлению setOnLoaded,
+  // а не опросом. Опрос здесь был ошибкой: в фоновой вкладке requestAnimationFrame
+  // замораживается, и панель анимации не появлялась вовсе.
   function startAnimPolling() {
     if (animPollId != null) return;
     const tick = () => {
-      // refreshAnimUI дёргается тут же, а не по событию загрузки: моделей
-      // грузится две (оригинал и результат), плюс сброс и перезагрузка — точек
-      // вызова набралось бы пять, и одну из них однажды забыли бы. Пересборка
-      // списка внутри защищена сигнатурой и происходит только при смене модели.
-      refreshAnimUI();
       syncAnimProgress();
       animPollId = requestAnimationFrame(tick);
     };
@@ -1745,7 +1746,35 @@
     animSeek.addEventListener('input', applySeek);
   }
 
+  // Объявляем ДО того, как модуль вьюера выполнится: app.js — обычный скрипт и
+  // отрабатывает раньше type="module". Подписаться через window.OptiViewer здесь
+  // ещё нельзя — его не существует.
+  window.onOptiViewerModelLoaded = refreshAnimUI;
+  refreshAnimUI(); // стартовое состояние: моделей нет — панели нет
   startAnimPolling();
+
+  // ---------------------------------------------------------------
+  // Экспозиция
+  //
+  // Ползунок целочисленный 10…300 — это сотые доли экспозиции (100 = 1.0).
+  // Так же, как с перемоткой: range с дробным шагом ведёт себя по-разному
+  // в разных браузерах, поэтому дроби держим на нашей стороне.
+  // ---------------------------------------------------------------
+
+  if (exposureSlider) {
+    const applyExposure = () => {
+      const v = Number(exposureSlider.value) / 100;
+      if (exposureValue) exposureValue.textContent = v.toFixed(1);
+      if (window.OptiViewer && window.OptiViewer.setExposure) window.OptiViewer.setExposure(v);
+    };
+    exposureSlider.addEventListener('input', applyExposure);
+    // Двойной клик по ползунку — вернуть 1.0. Прицелиться в единицу мышью трудно,
+    // а вернуться к «как было» нужно постоянно: это точка отсчёта при сравнении.
+    exposureSlider.addEventListener('dblclick', () => {
+      exposureSlider.value = '100';
+      applyExposure();
+    });
+  }
 
   // ---------------------------------------------------------------
 

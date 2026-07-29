@@ -95,6 +95,14 @@
       <button id="reset-view-btn" class="vp-tool" title="Reset view" aria-label="Reset view">⤢</button>
       <button id="link-toggle-btn" class="vp-tool is-on" title="Link cameras" aria-pressed="true" aria-label="Link cameras">⇄</button>
 
+      <!-- Экспозиция. Всегда доступна: пересвеченная модель встречается чаще, чем
+           анимированная, и рассмотреть её иначе нельзя. Одна на оба вьюпорта —
+           разная яркость слева и справа читалась бы как разница обработки. -->
+      <span class="vp-sep" aria-hidden="true"></span>
+      <span class="vp-ctl-label" title="Exposure">☀</span>
+      <input id="exposure-slider" class="vp-slider" type="range" min="10" max="300" value="100" step="5" aria-label="Exposure">
+      <span id="exposure-value" class="vp-ctl-value">1.0</span>
+
       <!-- Анимация. Скрыта целиком, пока в модели нет клипов: пустой проигрыватель
            под статичной моделью только сбивает с толку. Оба вьюпорта идут по одному
            времени, поэтому ползунок и выбор клипа общие, а не по одному на панель. -->
@@ -102,8 +110,8 @@
         <span class="vp-sep" aria-hidden="true"></span>
         <button id="anim-play-btn" class="vp-tool is-on" title="Pause animation" aria-label="Pause animation" aria-pressed="true">⏸</button>
         <select id="anim-clip" class="vp-anim-clip" aria-label="Animation clip"></select>
-        <input id="anim-seek" class="vp-anim-seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Animation time">
-        <span id="anim-time" class="vp-anim-time">0.0s</span>
+        <input id="anim-seek" class="vp-slider" type="range" min="0" max="1000" value="0" step="1" aria-label="Animation time">
+        <span id="anim-time" class="vp-ctl-value">0.0s</span>
       </div>
     </div>
 

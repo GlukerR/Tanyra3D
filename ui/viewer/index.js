@@ -152,6 +152,8 @@ class DualViewport {
     // включить движение.
     this._animPlaying = true;
     this._animTime = 0;
+    this._animClipIndex = 0; // выбранный клип переживает загрузку новой модели
+    this._exposure = 1;      // 1.0 — как отдаёт three.js без поправки
   }
 
   _init() {
@@ -235,7 +237,16 @@ class DualViewport {
   /** Есть ли что проигрывать и что именно — для панели управления в app.js. */
   getAnimation() {
     const info = this.left?.viewer?.getAnimationInfo?.() || { count: 0, names: [], index: -1, duration: 0 };
-    return { ...info, playing: !!this._animPlaying, time: this._animTime || 0 };
+    return {
+      ...info,
+      playing: !!this._animPlaying,
+      time: this._animTime || 0,
+      // Индекс клипа по сторонам — чтобы рассинхрон был видимой величиной, а не
+      // ощущением «дёргается не в такт». Именно он и был дефектом: правый вьюпорт
+      // после сборки оставался на клипе 0, пока не переключишь вручную.
+      leftIndex: this.left?.viewer?.getAnimationInfo?.().index ?? -1,
+      rightIndex: this.right?.viewer?.getAnimationInfo?.().index ?? -1,
+    };
   }
 
   setAnimationPlaying(playing) {
@@ -250,10 +261,38 @@ class DualViewport {
 
   /** Переключить клип в обоих вьюпортах и начать с нуля. */
   selectAnimationClip(index) {
-    this.left?.viewer?.playClip?.(index);
-    this.right?.viewer?.playClip?.(index);
+    // Запоминаем выбор: следующая загруженная модель должна прийти на этот же
+    // клип, иначе она начнёт с нулевого и разойдётся со второй (см. _applyAnimSelection).
+    this._animClipIndex = Math.max(0, Number(index) || 0);
+    this.left?.viewer?.playClip?.(this._animClipIndex);
+    this.right?.viewer?.playClip?.(this._animClipIndex);
     this._animTime = 0;
     this._advanceAnimation(0);
+  }
+
+  // -----------------------------------------------------------------------
+  // Экспозиция
+  //
+  // Одна на оба вьюпорта — иначе сравнение «до и после» врёт: разная яркость
+  // читается глазом как разница обработки. Пересвеченные модели встречаются
+  // часто (материалы под другое окружение), и без этого регулятора они
+  // выглядят испорченными ещё до всякой оптимизации.
+  // -----------------------------------------------------------------------
+
+  setExposure(value) {
+    const v = Number(value);
+    this._exposure = Number.isFinite(v) ? Math.max(0.05, Math.min(v, 4)) : 1;
+    this._applyExposure();
+  }
+
+  getExposure() {
+    return this._exposure ?? 1;
+  }
+
+  _applyExposure() {
+    const v = this._exposure ?? 1;
+    this.left?.viewer?.setExposure?.(v);
+    this.right?.viewer?.setExposure?.(v);
   }
 
   _stopLoop() {
@@ -293,13 +332,66 @@ class DualViewport {
 
   _afterLoad() {
     if (this.left.viewer && this.right.viewer) this._linkCameras();
+    this._applyAnimSelection();
+    this._applyExposure();
     this._startLoop();
+    // Состав модели изменился — панели управления надо перестроить СЕЙЧАС, а не
+    // когда до них дойдёт очередь кадра. Сначала это делалось опросом в цикле
+    // отрисовки, и в фоновой вкладке (где requestAnimationFrame заморожен)
+    // панель анимации не появлялась вовсе.
+    this._notifyLoaded();
   }
 
-  /** Заново навести камеры на модели (кнопка «сбросить ракурс»). */
+  /** Подписка UI на «модель загружена/сменилась». Один слушатель — больше не нужно. */
+  setOnLoaded(fn) {
+    this._onLoaded = typeof fn === 'function' ? fn : null;
+  }
+
+  /**
+   * Уведомить UI. Запасной путь через глобальную функцию — не украшение:
+   * app.js подключён обычным скриптом, а этот модуль — type="module", то есть
+   * отложен и выполняется ПОСЛЕ него. На момент своего запуска app.js ещё не
+   * видит window.OptiViewer и подписаться не может. Глобальную функцию он
+   * объявляет заранее, и порядок перестаёт иметь значение.
+   */
+  _notifyLoaded() {
+    const fn = this._onLoaded || window.onOptiViewerModelLoaded;
+    if (typeof fn === 'function') fn();
+  }
+
+  /**
+   * Привести только что загруженную модель к тому, что уже выбрано на панели.
+   *
+   * Без этого свежезагруженный вьюпорт начинал с клипа №0, а второй продолжал
+   * играть выбранный пользователем. Симптом: собрал модель, смотря второй клип —
+   * результат справа дёргается не в такт, и «чинится» только переключением клипа
+   * (оно единственное задавало индекс обоим сразу).
+   */
+  _applyAnimSelection() {
+    const idx = this._animClipIndex || 0;
+    if (idx > 0) {
+      this.left?.viewer?.playClip?.(idx);
+      this.right?.viewer?.playClip?.(idx);
+    }
+    this._advanceAnimation(0);
+  }
+
+  /**
+   * Заново навести камеры на модели (кнопка «сбросить ракурс»).
+   *
+   * Кадрируем ОДИН вьюпорт и копируем результат во второй, а не наводим каждый
+   * по своей модели. Оптимизация может едва заметно менять габарит (сварка вершин,
+   * удаление вырожденных треугольников), и раздельное кадрирование давало двум
+   * окнам разные дистанцию, near/far и пределы приближения — то есть ровно тот
+   * рассинхрон, ради отсутствия которого сравнение и делается.
+   */
   resetView() {
-    if (this.left.viewer) this.left.viewer.frame();
-    if (this.right.viewer) this.right.viewer.frame();
+    const source = this.left?.viewer || this.right?.viewer;
+    if (!source) return;
+    source.frame();
+    const state = source.getCameraState();
+    if (this.left?.viewer && this.left.viewer !== source) this.left.viewer.applyCameraState(state);
+    if (this.right?.viewer && this.right.viewer !== source) this.right.viewer.applyCameraState(state);
   }
 
   /** Текущее состояние камер обоих вьюпортов (read-only): позиция + target. */
@@ -319,6 +411,8 @@ class DualViewport {
     this._unlinkCameras();
     if (this.left) this.left.reset();
     if (this.right) this.right.reset();
+    // Моделей больше нет — панель анимации обязана убраться вместе с ними.
+    this._notifyLoaded();
   }
 }
 
@@ -337,4 +431,10 @@ window.OptiViewer = {
   setAnimationPlaying: (on) => dual.setAnimationPlaying(on),
   seekAnimation: (sec) => dual.seekAnimation(sec),
   selectAnimationClip: (i) => dual.selectAnimationClip(i),
+  // Экспозиция — одна на оба вьюпорта, см. _applyExposure.
+  setExposure: (v) => dual.setExposure(v),
+  getExposure: () => dual.getExposure(),
+  // Уведомление «модель загрузилась/сменилась/сброшена» — по нему UI перестраивает
+  // панели, вместо того чтобы опрашивать состав модели каждый кадр.
+  setOnLoaded: (fn) => dual.setOnLoaded(fn),
 };

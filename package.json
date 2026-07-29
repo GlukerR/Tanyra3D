@@ -1,6 +1,6 @@
 {
   "name": "glb-web-optimize",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "private": true,
   "license": "Apache-2.0",
   "description": "Умный оптимизатор GLB/glTF для веба — анализ, безопасная оптимизация, отчёты",

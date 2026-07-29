@@ -255,6 +255,17 @@ export class Viewer {
     this._mixer.setTime(dur > 0 ? seconds % dur : seconds);
   }
 
+  /**
+   * Экспозиция тонмаппинга. Модели часто приходят пересвеченными — материалы
+   * настраивались под другое окружение, а у нас своё студийное IBL. Это не
+   * дефект модели и не дефект оптимизации, но рассмотреть в таком виде ничего
+   * нельзя. Регулятор ничего не меняет в самом файле — только в показе.
+   */
+  setExposure(value) {
+    const v = Number(value);
+    this.renderer.toneMappingExposure = Number.isFinite(v) ? v : 1;
+  }
+
   /** Что за анимации в модели — для панели управления. */
   getAnimationInfo() {
     if (!this.clips || !this.clips.length) return { count: 0, names: [], index: -1, duration: 0 };
@@ -283,11 +294,28 @@ export class Viewer {
     this.renderer.render(this.scene, this.camera);
   }
 
-  /** Абсолютное состояние камеры — для синхронизации двух вьюпортов. */
+  /**
+   * Полное состояние камеры — для синхронизации двух вьюпортов.
+   *
+   * Сюда входят near/far, а не только позиция с целью. Раньше их не было, и это
+   * ломало главное свойство сравнения: правый вьюпорт грузился с чужой позицией,
+   * но со СВОИМИ near/far — а их выставляет только frame(), которого при загрузке
+   * с готовой камерой не происходит. Оставались значения из конструктора
+   * (0.01 / 1000), тогда как слева стояло dist/100. При наезде камеры детали
+   * начинали срезаться в одном окне раньше, чем в другом, и разница выглядела
+   * как последствие оптимизации, хотя была разницей настроек показа.
+   *
+   * Пределы приближения тоже здесь: иначе колесо мыши упирается в разных точках
+   * и связанные камеры расходятся на краях диапазона.
+   */
   getCameraState() {
     return {
       position: this.camera.position.clone(),
       target: this.controls.target.clone(),
+      near: this.camera.near,
+      far: this.camera.far,
+      minDistance: this.controls.minDistance,
+      maxDistance: this.controls.maxDistance,
     };
   }
 
@@ -296,6 +324,13 @@ export class Viewer {
     if (!state) return;
     this.camera.position.copy(state.position);
     this.controls.target.copy(state.target);
+    if (Number.isFinite(state.near) && Number.isFinite(state.far)) {
+      this.camera.near = state.near;
+      this.camera.far = state.far;
+      this.camera.updateProjectionMatrix(); // без этого near/far не вступят в силу
+    }
+    if (Number.isFinite(state.minDistance)) this.controls.minDistance = state.minDistance;
+    if (Number.isFinite(state.maxDistance)) this.controls.maxDistance = state.maxDistance;
     this.controls.update();
   }
 

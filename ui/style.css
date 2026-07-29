@@ -315,8 +315,9 @@ body.resizing { cursor: col-resize; user-select: none; }
   transform: translateX(-50%);
   z-index: 7;
   display: flex;
+  align-items: center;
   gap: 4px;
-  padding: 4px;
+  padding: 4px 8px;
   background: var(--surface-low);
   border: 1px solid var(--outline-variant);
   border-radius: var(--radius-md);
@@ -371,17 +372,23 @@ body.resizing { cursor: col-resize; user-select: none; }
 /* Один клип — выбирать не из чего, показывать нечего. */
 .vp-anim-clip.hidden { display: none; }
 
-.vp-anim-seek {
-  width: 120px;
+.vp-slider {
+  width: 110px;
   height: 18px;
   cursor: pointer;
   accent-color: var(--primary-container);
 }
 
-.vp-anim-time {
-  min-width: 38px;
+.vp-ctl-label {
+  font-size: 13px;
+  color: var(--on-surface-variant);
+  cursor: default;
+}
+
+.vp-ctl-value {
+  min-width: 34px;
   font-size: 11px;
-  font-variant-numeric: tabular-nums; /* цифры не прыгают при перемотке */
+  font-variant-numeric: tabular-nums; /* цифры не прыгают при перетаскивании */
   color: var(--on-surface-variant);
 }
 
