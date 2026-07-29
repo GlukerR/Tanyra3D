@@ -159,7 +159,14 @@ export function listPlatforms(lang = DEFAULT_LANG) {
       const p = JSON.parse(fs.readFileSync(path.join(PROFILES_DIR, f), 'utf8'));
       // v0.1.0: показываем только включённые платформы (enabled: true или не указано = true)
       if (p && p.id && p.enabled !== false) {
-        out.push({ id: p.id, title: pick(p.title, lang) || p.id, description: pick(p.description, lang) });
+        out.push({
+          id: p.id,
+          title: pick(p.title, lang) || p.id,
+          description: pick(p.description, lang),
+          // аддитивное поле (правила стабильности §4c): интерфейсу нужны пороги ДО сборки,
+          // чтобы оценить исходную модель, а не только результат
+          budgets: p.budgets || {},
+        });
       }
     } catch {
       /* повреждённый профиль просто не показываем в списке */
@@ -201,10 +208,11 @@ export function planFor(platformId, lang = DEFAULT_LANG) {
   if (opts.stripColors) explanation.push(t('plan.stripColors'));
 
   // цель по бюджету платформы
+  const warnOf = (id) => (budgetEntry(b[id]) || {}).warn;
   const targetBits = [];
-  if (b.triangles) targetBits.push(t('plan.goal.triangles', { n: fmtInt(b.triangles) }));
-  if (b.textureMaxSize) targetBits.push(t('plan.goal.textureSize', { px: b.textureMaxSize }));
-  if (b.vramMB) targetBits.push(t('plan.goal.vram', { mb: b.vramMB }));
+  if (warnOf('triangles')) targetBits.push(t('plan.goal.triangles', { n: fmtInt(warnOf('triangles')) }));
+  if (warnOf('textureMaxSize')) targetBits.push(t('plan.goal.textureSize', { px: warnOf('textureMaxSize') }));
+  if (warnOf('vramMB')) targetBits.push(t('plan.goal.vram', { mb: warnOf('vramMB') }));
   if (targetBits.length) {
     explanation.push(t('plan.goal', { title: pick(profile.title, lang), bits: targetBits.join(', ') }));
   }
@@ -250,7 +258,8 @@ export const listExtensions = getAvailableExtensions;
 export function explainResult(runResult, platformId, lang = DEFAULT_LANG) {
   const t = messages(lang);
   const { fmtMB, fmtInt } = formatters(lang);
-  loadProfile(platformId); // валидирует platformId (throws на неизвестном) — контракт §4c; budgets больше не нужны здесь
+  // валидирует platformId (throws на неизвестном) — контракт §4c; budgets нужны для сверки
+  const profile = loadProfile(platformId);
 
   const rr = runResult || {};
   const before = rr.metrics && rr.metrics.before;
@@ -329,92 +338,85 @@ export function explainResult(runResult, platformId, lang = DEFAULT_LANG) {
     highlights.push(t('hi.applied', { n: rr.applied.length }));
   }
 
-  // Budget check убран из выдачи (решение Александра): без точных целей пользователя
-  // сверять «после» с абстрактными бюджетами платформы бессмысленно. Данные бюджетов
-  // остаются в профилях как задел под будущий отдельный аддон, управляемый пользовательским
-  // пресетом (тогда цифры цели заданы явно). buildBudgetChecks сохранён, но не вызывается.
+  // Раньше здесь стоял пустой массив: сверять результат с абстрактными бюджетами
+  // платформы без явной цели пользователя было бессмысленно. Теперь бюджет говорит не
+  // «не проходишь», а «измерено столько, документация платформы рекомендует столько» —
+  // и только там, где документация действительно есть.
   return {
     summary,
     highlights: highlights.slice(0, 6),
-    budgetChecks: [],
+    budgetChecks: buildBudgetChecks(profile.budgets || {}, after, lang),
     warnings: collectWarnings(rr, t),
   };
 }
 
 // ----------------------------------------------------------------------------
-// budgetChecks — сверяем измеримые метрики after с бюджетами
-// (textureMaxSize не проверяем: ядро не отдаёт размерность текстур в metrics)
+// budgetChecks — измеренное значение и, если для него есть документированный порог,
+// оценка относительно этого порога.
+//
+// Три уровня, и разница между ними принципиальная:
+//   ok    — порог есть, укладываемся;
+//   warn  — превышена документированная РЕКОМЕНДАЦИЯ платформы. Жёлтый. Это совет;
+//   over  — превышен документированный ЖЁСТКИЙ ПРЕДЕЛ площадки: файл отклонят или
+//           пережмут без спроса. Красный. Только там, где такой предел объявлен
+//           (магазины), — у Three.js его нет и быть не может, это не витрина.
+//
+// Метрика без порогов НЕ исчезает: значение показывается, оценка не выносится. Придуманный
+// порог пользователь примет за требование платформы — а мы не отличим на глаз выверенное
+// число от выдуманного через месяц. Поэтому в профилях порога без source быть не должно.
 // ----------------------------------------------------------------------------
 
-function buildBudgetChecks(budgets, after) {
+// метрика профиля → откуда брать значение результата и в чём измеряются пороги
+const BUDGET_SPEC = {
+  triangles: { nameKey: 'budget.triangles', adviceKey: 'advice.triangles', value: (a) => a.triangles, unit: 'int' },
+  materials: { nameKey: 'budget.materials', adviceKey: 'advice.materials', value: (a) => a.materials, unit: 'int' },
+  drawCalls: { nameKey: 'budget.drawCalls', adviceKey: 'advice.drawCalls', value: (a) => a.drawCalls, unit: 'int' },
+  vramMB: { nameKey: 'budget.vram', adviceKey: 'advice.vram', value: (a) => a.gpuBytes, unit: 'mb' },
+  fileMB: { nameKey: 'budget.file', adviceKey: 'advice.file', value: (a) => a.fileBytes, unit: 'mb' },
+};
+
+// Голое число в профиле = рекомендация без ссылки. Так пишут сторонние профили, и это
+// допустимо: автор отвечает за своё число сам. В наших профилях так быть не должно.
+function budgetEntry(raw) {
+  if (raw == null) return null;
+  if (typeof raw === 'number') return { warn: raw };
+  if (typeof raw === 'object') return raw;
+  return null;
+}
+
+function buildBudgetChecks(budgets, after, lang = DEFAULT_LANG) {
+  const t = messages(lang);
+  const { fmtMB, fmtInt } = formatters(lang);
   const checks = [];
 
-  // Треугольники
-  if (budgets.triangles != null) {
-    const actual = after.triangles;
-    const ok = actual <= budgets.triangles;
-    const c = {
-      name: 'Triangles',
-      limitText: `up to ${fmtInt(budgets.triangles)}`,
-      actualText: fmtInt(actual),
-      ok,
-    };
-    if (!ok) {
-      const over = actual - budgets.triangles;
-      c.advice = `${fmtInt(actual)} triangles against a budget of ${fmtInt(budgets.triangles)} — ${fmtInt(over)} over. Simplify the model (decimation) on export or lower the source detail.`;
-    }
-    checks.push(c);
-  }
+  for (const [id, spec] of Object.entries(BUDGET_SPEC)) {
+    const entry = budgetEntry(budgets[id]);
+    if (!entry) continue;
+    const raw = spec.value(after);
+    if (raw == null) continue;
 
-  // Draw calls
-  if (budgets.drawCalls != null) {
-    const actual = after.drawCalls;
-    const ok = actual <= budgets.drawCalls;
-    const c = {
-      name: 'Draw calls',
-      limitText: `up to ${fmtInt(budgets.drawCalls)}`,
-      actualText: fmtInt(actual),
-      ok,
-    };
-    if (!ok) {
-      const over = actual - budgets.drawCalls;
-      c.advice = `${fmtInt(actual)} draw calls against a budget of ${fmtInt(budgets.drawCalls)} — ${fmtInt(over)} over. Join parts and reduce the number of materials on export.`;
-    }
-    checks.push(c);
-  }
+    // пороги профиля заданы в МБ, метрика приходит в байтах — сравниваем в единицах порога
+    const actual = spec.unit === 'mb' ? MB(raw) : raw;
+    const show = spec.unit === 'mb' ? fmtMB(raw) : fmtInt(raw);
+    const fmt = (v) => (spec.unit === 'mb' ? `${v} ${t('unit.mb')}` : fmtInt(v));
 
-  // Видеопамять под текстуры (gpuBytes vs vramMB)
-  if (budgets.vramMB != null) {
-    const limitBytes = budgets.vramMB * 1024 * 1024;
-    const actual = after.gpuBytes;
-    const ok = actual <= limitBytes;
-    const c = {
-      name: 'Texture video memory',
-      limitText: `up to ${budgets.vramMB} MB`,
-      actualText: fmtMB(actual),
-      ok,
-    };
-    if (!ok) {
-      c.advice = `Textures take ${fmtMB(actual)} of video memory against a recommended ${budgets.vramMB} MB — ${Math.round((MB(actual) - budgets.vramMB))} MB over. Lower the texture resolution on export or use fewer texture maps.`;
-    }
-    checks.push(c);
-  }
+    const check = { id, name: t(spec.nameKey), actualText: show, level: 'none' };
+    if (entry.source) check.source = entry.source;
 
-  // Размер файла (fileBytes vs fileMB)
-  if (budgets.fileMB != null) {
-    const limitBytes = budgets.fileMB * 1024 * 1024;
-    const actual = after.fileBytes;
-    const ok = actual <= limitBytes;
-    const c = {
-      name: 'File size',
-      limitText: `up to ${budgets.fileMB} MB`,
-      actualText: fmtMB(actual),
-      ok,
-    };
-    if (!ok) {
-      c.advice = `The ${fmtMB(actual)} file exceeds the recommended ${budgets.fileMB} MB by ${(MB(actual) - budgets.fileMB).toFixed(1)} MB. Lower the texture resolution or simplify the geometry on export.`;
+    if (entry.limit != null) check.limitText = t('budget.limit', { v: fmt(entry.limit) });
+    if (entry.warn != null) check.warnText = t('budget.recommended', { v: fmt(entry.warn) });
+
+    if (entry.limit != null && actual > entry.limit) {
+      check.level = 'over';
+      check.advice = t('advice.overLimit', { name: check.name, actual: show, limit: fmt(entry.limit) });
+    } else if (entry.warn != null && actual > entry.warn) {
+      check.level = 'warn';
+      check.advice = t(spec.adviceKey, { actual: show, warn: fmt(entry.warn) });
+    } else if (entry.warn != null || entry.limit != null) {
+      check.level = 'ok';
     }
-    checks.push(c);
+
+    checks.push(check);
   }
 
   return checks;

@@ -45,6 +45,28 @@ export default {
   'hi.trianglesRemoved': ({ before, after }) => `Extra triangles removed: ${before} → ${after}.`,
   'hi.applied': ({ n }) => `Safe improvements applied: ${n} — each verified, shape and materials not distorted.`,
 
+  // --- бюджет платформы ---
+  'unit.mb': () => 'MB',
+  'budget.triangles': () => 'Triangles',
+  'budget.materials': () => 'Materials',
+  'budget.drawCalls': () => 'Draw calls',
+  'budget.vram': () => 'Texture video memory',
+  'budget.file': () => 'File size',
+  'budget.recommended': ({ v }) => `recommended up to ${v}`,
+  'budget.limit': ({ v }) => `platform limit ${v}`,
+  'advice.overLimit': ({ name, actual, limit }) =>
+    `${name}: ${actual} against the platform limit of ${limit}. Files above the limit are rejected or re-compressed by the platform without asking.`,
+  'advice.triangles': ({ actual, warn }) =>
+    `${actual} triangles against a recommended ${warn}. Not an error — heavy scenes just load and render slower. Simplify the model on export if that matters here.`,
+  'advice.materials': ({ actual, warn }) =>
+    `${actual} materials against a recommended ${warn}. Each material is a separate draw call; merging them on export lowers GPU load.`,
+  'advice.drawCalls': ({ actual, warn }) =>
+    `${actual} draw calls against a recommended ${warn}. Join parts and reduce the number of materials on export.`,
+  'advice.vram': ({ actual, warn }) =>
+    `Textures take ${actual} of video memory against a recommended ${warn}. Lower the texture resolution or use fewer maps.`,
+  'advice.file': ({ actual, warn }) =>
+    `The file is ${actual} against a recommended ${warn}. Not a limit — just slower to load on a weak connection.`,
+
   // --- предупреждения ---
   'warn.notApplied': ({ text, reason }) => `Not applied: ${text}${reason}`,
 };

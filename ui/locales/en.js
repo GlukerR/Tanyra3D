@@ -129,6 +129,7 @@ window.I18N_CATALOGS.en = {
   'inspect.noResult': 'No optimized model yet — run a build to compare.',
   'inspect.noScene': 'No scene contents reported.',
   'inspect.clean': 'No validation issues — the file is clean.',
+  'budget.source': 'source',
   'col.id': 'ID',
   'col.code': 'CODE',
   'col.message': 'MESSAGE',

@@ -4,11 +4,31 @@
   "title": "Shopify",
   "description": "A product for a Shopify store card: rotates in 3D and opens in augmented reality. What matters most is fast loading in the storefront and a clean product look.",
   "budgets": {
-    "triangles": 150000,
-    "drawCalls": 25,
-    "textureMaxSize": 2048,
-    "vramMB": 100,
-    "fileMB": 15
+    "fileMB": {
+      "warn": 4,
+      "limit": 15,
+      "source": "https://help.shopify.com/en/partners/resources/creating-3d-models/3d-model-standards-checklist",
+      "note": "Рекомендация «about 4 MB» — 3D model standards checklist. Потолок 15 МБ: выше Shopify оптимизирует файл сам, не спрашивая"
+    },
+    "materials": {
+      "warn": 1,
+      "source": "https://help.shopify.com/en/partners/resources/creating-3d-models/3d-model-standards-checklist",
+      "note": "«There is only one material assigned to the model, unless otherwise necessary»"
+    },
+    "textureMaxSize": {
+      "warn": 2048,
+      "source": "https://help.shopify.com/en/partners/resources/creating-3d-models/3d-model-standards-checklist",
+      "note": "Текстуры «shouldn’t be larger than 2048 x 2048 px». Ядро пока не отдаёт размерность текстур — не проверяется"
+    },
+    "triangles": {
+      "note": "источника нет: Shopify числа треугольников не называет, только «как можно меньше»"
+    },
+    "drawCalls": {
+      "note": "источника нет: Shopify об отрисовках не пишет"
+    },
+    "vramMB": {
+      "note": "источника нет"
+    }
   },
   "baselineOpts": {
     "codec": "meshopt",
@@ -26,7 +46,9 @@
       "impact": "Smaller file with no visible change.",
       "reversible": false,
       "dataLoss": "none",
-      "opts": { "safe": true }
+      "opts": {
+        "safe": true
+      }
     },
     {
       "id": "meshopt",
@@ -35,7 +57,10 @@
       "impact": "Noticeably smaller geometry; fast decode in the browser.",
       "reversible": true,
       "dataLoss": "none",
-      "opts": { "compress": true, "codec": "meshopt" }
+      "opts": {
+        "compress": true,
+        "codec": "meshopt"
+      }
     },
     {
       "id": "join",
@@ -44,7 +69,9 @@
       "impact": "Fewer draw calls; parts are merged (irreversible).",
       "reversible": false,
       "dataLoss": "significant",
-      "opts": { "join": true }
+      "opts": {
+        "join": true
+      }
     },
     {
       "id": "instance",
@@ -53,7 +80,9 @@
       "impact": "Fewer draw calls when the scene repeats meshes.",
       "reversible": true,
       "dataLoss": "none",
-      "opts": { "instance": true }
+      "opts": {
+        "instance": true
+      }
     },
     {
       "id": "resample",
@@ -62,38 +91,43 @@
       "impact": "Smaller animations; no visible change.",
       "reversible": false,
       "dataLoss": "none",
-      "opts": { "resample": true }
+      "opts": {
+        "resample": true
+      }
     },
     {
       "id": "ktx2",
       "title": "KTX2 compression",
       "description": "Converts textures to a GPU format: saves up to ~80% of video memory. Requires the platform's viewer to support KTX2 (basisu).",
       "impact": "The file may grow 5–10%, but texture video memory drops several-fold.",
-      "opts": { "noKtx": false }
+      "opts": {
+        "noKtx": false
+      }
     },
     {
       "id": "draco",
       "title": "Draco compression",
       "description": "Minimal file weight (often −50% on geometry). Decodes slower than Meshopt in the browser but is supported everywhere.",
       "impact": "The file is noticeably lighter; decoding on open is slower.",
-      "opts": { "codec": "draco" }
+      "opts": {
+        "codec": "draco"
+      }
     },
     {
       "id": "strip-colors",
       "title": "Remove vertex colors",
       "description": "Removes painted vertex colors. Enable only if vertex colors are not visible in the model (white channels are removed without this option too).",
       "impact": "Saves 5–20% of size if colors exist; may change the look if they were used.",
-      "opts": { "stripColors": true }
+      "opts": {
+        "stripColors": true
+      }
     }
   ],
   "notes": [
-    "triangles 150000 — Khronos 3D Commerce recommendation (Shopify relies on this e-commerce standard); more is allowed for hero products, but this is a reasonable limit.",
-    "textureMaxSize 2048 — Khronos 3D Commerce recommendation: 2K; Shopify accepts 4K too but advises optimizing.",
-    "drawCalls 25 — guideline: a product card is usually a single object, so keep the primitive count low for a fast display.",
-    "vramMB 100 — guideline: storefronts are opened from phones too, so we save video memory.",
-    "fileMB 15 — Shopify's recommendation to keep the model compact for fast product-card loading.",
-    "noKtx true — v0.0.8: baseline plan without KTX2 (textures stay PNG/WebP); KTX2 is an extension enabled by explicit user choice.",
-    "texMode mixed — if the user enables the ktx2 extension: priority is storefront loading speed — color textures in a light format, detail maps in a more precise one.",
-    "extension id = core feature name: web-interface passes the selected ids to optimizeFile as advancedFeatures; the opts field is the equivalent for the legacy path."
+    "Числа сверены с документацией Shopify 2026-07-29. Подтверждены размер файла, материалы и текстуры.",
+    "fileMB: warn 4 (рекомендация Shopify), limit 15 (жёсткий предел — выше площадка пережимает файл сама). Это единственный профиль, где есть limit: витрина действительно отклоняет, в отличие от голого Three.js.",
+    "triangles, drawCalls, vramMB порогов не имеют — Shopify их не называет. Значения показываются без оценки.",
+    "Источники: https://help.shopify.com/en/partners/resources/creating-3d-models/3d-model-standards-checklist и https://help.shopify.com/en/partners/resources/creating-media/3d-models/creating-3d-models/3d-modeling-checklist",
+    "Полная сверка — docs/БЮДЖЕТЫ_источники.md."
   ]
 }

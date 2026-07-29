@@ -10,11 +10,32 @@
     "ru": "Модель для сайта: открывается прямо в браузере на компьютере или ноутбуке. Баланс между качеством картинки и быстрой загрузкой."
   },
   "budgets": {
-    "triangles": 100000,
-    "drawCalls": 50,
-    "textureMaxSize": 2048,
-    "vramMB": 128,
-    "fileMB": 10
+    "triangles": {
+      "warn": 100000,
+      "source": "https://github.com/KhronosGroup/3DC-Validator",
+      "note": "glTF Asset Auditor, значение по умолчанию triangles.maximum"
+    },
+    "materials": {
+      "warn": 5,
+      "source": "https://github.com/KhronosGroup/3DC-Validator",
+      "note": "glTF Asset Auditor, значение по умолчанию materials.maximum"
+    },
+    "fileMB": {
+      "warn": 5,
+      "source": "https://github.com/KhronosGroup/3DC-Validator",
+      "note": "glTF Asset Auditor, fileSizeInKb.maximum = 5120 КБ"
+    },
+    "textureMaxSize": {
+      "warn": 2048,
+      "source": "https://github.com/KhronosGroup/3DC-Validator",
+      "note": "glTF Asset Auditor, textures.width/height.maximum. Ядро пока не отдаёт размерность текстур — не проверяется"
+    },
+    "drawCalls": {
+      "note": "источника нет: у Khronos параметра draw calls не существует, three.js чисел не даёт"
+    },
+    "vramMB": {
+      "note": "источника нет"
+    }
   },
   "baselineOpts": {
     "codec": "meshopt",
@@ -188,13 +209,12 @@
     }
   ],
   "notes": [
-    "triangles 100000 — target value from the Khronos 3D Commerce (real-time) recommendations for a single object in the scene.",
-    "textureMaxSize 2048 — Khronos 3D Commerce recommendation: 2K as a reasonable maximum for the web.",
-    "drawCalls 50 — guideline: keep the primitive count low for stable 60 fps on mid-range hardware.",
-    "vramMB 128 — guideline for a desktop/laptop GPU when viewing in the browser.",
-    "fileMB 10 — guideline: a file this size loads in the browser within a few seconds on ordinary internet.",
-    "noKtx true — v0.0.8: baseline plan without KTX2 (textures stay PNG/WebP, work in any browser); KTX2 is an extension enabled by explicit user choice.",
-    "texMode uastc — if the user enables the ktx2 extension: on desktop there is headroom for traffic, so we pick the more precise GPU texture format for image quality.",
-    "extension id = core feature name: web-interface passes the selected ids to optimizeFile as advancedFeatures; the opts field is the equivalent for the legacy path."
+    "Пороги бюджетов — из glTF Asset Auditor (Khronos 3D Commerce): значения по умолчанию triangles.maximum 100000, materials.maximum 5, fileSizeInKb.maximum 5120, textures width/height.maximum 2048. Это единственный первоисточник Khronos с числами: руководство Asset Creation Guidelines 2.0 намеренно чисел не публикует и отсылает к аудитору.",
+    "drawCalls и vramMB порогов не имеют — источника нет. Значения измеряются и показываются, но не оцениваются: придуманный порог пользователь примет за требование платформы.",
+    "limit (жёсткий предел площадки) у Three.js отсутствует: это не витрина, файл никто не отклонит. limit появляется у профилей магазинов — например, Shopify пережимает всё, что больше 15 МБ.",
+    "noKtx true — базовый план без KTX2 (текстуры остаются PNG/WebP и работают в любом браузере); KTX2 включается пользователем как расширение.",
+    "texMode uastc — если пользователь включил ktx2: на настольном компьютере есть запас по трафику, поэтому берём более точный формат текстур ради качества картинки.",
+    "id расширения = имя фичи ядра: web-interface передаёт выбранные id в optimizeFile как advancedFeatures; поле opts — эквивалент для legacy-пути.",
+    "Полная сверка всех чисел со ссылками — docs/БЮДЖЕТЫ_источники.md."
   ]
 }

@@ -291,8 +291,14 @@ body {
 .vp-hud-right .hud-line { justify-content: flex-end; }
 .hud-key { color: var(--outline); }
 .hud-val { color: var(--on-surface); }
+/* правый вьюпорт — сравнение с исходником */
 .hud-val.better { color: var(--success); }
 .hud-val.worse { color: var(--warning); }
+/* левый вьюпорт — оценка исходной модели по бюджету платформы. Зелёного здесь нет:
+   «уложились» не заслуга исходника. Нейтральный цвет означает «порога нет или он не
+   превышен» — и то и другое одинаково не требует внимания. */
+.hud-val.warn { color: var(--warning); }
+.hud-val.over { color: var(--error); }
 
 .delta-badge {
   display: inline-block;
@@ -1223,8 +1229,29 @@ details[open] > .collapsible-summary::before {
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
+/* Цвет строки бюджета = степень утверждения, которое мы делаем.
+   ok/warn — есть документированная рекомендация платформы.
+   over — превышен документированный жёсткий предел площадки: файл отклонят.
+   none — порога нет, значение просто измерено. Нейтральный цвет обязателен:
+   любой другой был бы оценкой, которой у нас нет оснований выносить. */
 .budget-row.ok { border-left-color: var(--success); }
 .budget-row.warn { border-left-color: var(--warning); }
+.budget-row.over { border-left-color: var(--error); }
+.budget-row.none { border-left-color: var(--outline-variant); }
+.budget-row.over .budget-icon { color: var(--error); }
+.budget-row.warn .budget-icon { color: var(--warning); }
+.budget-row.ok .budget-icon { color: var(--success); }
+.budget-row.none .budget-icon { color: var(--outline); }
+
+.budget-source {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--outline);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--outline-variant);
+}
+.budget-source:hover { color: var(--primary-container); }
 
 .budget-row-head {
   display: flex;

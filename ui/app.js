@@ -864,14 +864,32 @@
     statsBefore.innerHTML = '';
     if (!stats) return;
     const rows = [
-      ['FILE', fmtBytes(fileSize)],
-      ['TRIS', fmtInt(stats.triangles)],
-      ['VERT', fmtInt(stats.vertices)],
-      ['DRAWS', fmtInt(stats.drawCalls)],
-      ['MATS', fmtInt(stats.materials)],
-      ['TEX', fmtInt(stats.textures)],
+      ['FILE', fmtBytes(fileSize), budgetLevel('fileMB', fileSize / (1024 * 1024))],
+      ['TRIS', fmtInt(stats.triangles), budgetLevel('triangles', stats.triangles)],
+      ['VERT', fmtInt(stats.vertices), null],
+      ['DRAWS', fmtInt(stats.drawCalls), budgetLevel('drawCalls', stats.drawCalls)],
+      ['MATS', fmtInt(stats.materials), budgetLevel('materials', stats.materials)],
+      ['TEX', fmtInt(stats.textures), null],
     ];
-    for (const [k, v] of rows) statsBefore.appendChild(hudLine(k, v, null));
+    for (const [k, v, cls] of rows) statsBefore.appendChild(hudLine(k, v, cls));
+  }
+
+  // Оценка показателя ИСХОДНОЙ модели относительно порогов выбранной платформы.
+  //
+  // Возвращает класс подсветки или null. null — это не «всё хорошо», а «мы не знаем»:
+  // порога для этой метрики в профиле нет, и красить нечем. Зелёным не красим вообще —
+  // «уложились» не заслуга исходной модели и не то, что человек пришёл узнать.
+  //
+  // Правый вьюпорт этим не пользуется: там сравнение до/после, и оно важнее — иначе две
+  // системы цвета в одном ряду означали бы разное одним и тем же жёлтым.
+  function budgetLevel(id, actual) {
+    const p = platforms.find((x) => x.id === platformSelect.value);
+    const raw = p && p.budgets && p.budgets[id];
+    if (raw == null || actual == null) return null;
+    const entry = typeof raw === 'number' ? { warn: raw } : raw;
+    if (entry.limit != null && actual > entry.limit) return 'over';
+    if (entry.warn != null && actual > entry.warn) return 'warn';
+    return null;
   }
 
   // Сбросить всё, что относится к предыдущему результату оптимизации (при загрузке
@@ -1190,8 +1208,14 @@
       ['VRAM', before.gpuBytes, after.gpuBytes, fmtBytes],
     );
 
+    // Метка HUD → id бюджета в профиле. VERT и TEX порогов не имеют ни у кого.
+    const BUDGET_OF = { FILE: 'fileMB', TRIS: 'triangles', DRAWS: 'drawCalls', MATS: 'materials', VRAM: 'vramMB' };
+    const inMB = (label) => label === 'FILE' || label === 'VRAM';
+
     for (const [label, beforeVal, afterVal, fmt] of rows) {
-      statsBefore.appendChild(hudLine(label, fmt(beforeVal), null));
+      const id = BUDGET_OF[label];
+      const toBudgetUnit = (v) => (v == null ? null : (inMB(label) ? v / (1024 * 1024) : v));
+      statsBefore.appendChild(hudLine(label, fmt(beforeVal), id ? budgetLevel(id, toBudgetUnit(beforeVal)) : null));
       let cls = null;
       if (beforeVal != null && afterVal != null && afterVal !== beforeVal) {
         cls = afterVal < beforeVal ? 'better' : 'worse';
@@ -1310,9 +1334,12 @@
     if (!has) return;
 
     budgetsList.innerHTML = '';
+    // Четыре состояния строки. 'none' — порога нет: показываем измеренное и молчим.
+    // Значок тоже молчит: галочка означала бы «проверено и хорошо», а мы не проверяли.
+    const ICON = { ok: '✓', warn: '⚠', over: '✕', none: '·' };
     for (const b of budgetChecks) {
       const row = document.createElement('div');
-      row.className = `budget-row ${b.ok ? 'ok' : 'warn'}`;
+      row.className = `budget-row ${b.level || 'none'}`;
 
       const head = document.createElement('div');
       head.className = 'budget-row-head';
@@ -1321,22 +1348,35 @@
       name.textContent = b.name;
       const icon = document.createElement('span');
       icon.className = 'budget-icon';
-      icon.textContent = b.ok ? '✅' : '⚠️';
+      icon.textContent = ICON[b.level] || ICON.none;
       head.appendChild(name);
       head.appendChild(icon);
 
       const values = document.createElement('div');
       values.className = 'budget-values';
-      values.textContent = `${b.actualText} / ${b.limitText}`;
+      const thresholds = [b.warnText, b.limitText].filter(Boolean).join(' · ');
+      values.textContent = thresholds ? `${b.actualText} — ${thresholds}` : b.actualText;
 
       row.appendChild(head);
       row.appendChild(values);
 
-      if (!b.ok && b.advice) {
+      if (b.advice) {
         const advice = document.createElement('p');
         advice.className = 'budget-advice';
         advice.textContent = b.advice;
         row.appendChild(advice);
+      }
+
+      // Ссылка на документ, из которого взят порог. Число без проверяемого источника
+      // пользователь принимает на веру — пусть у него будет способ не принимать.
+      if (b.source) {
+        const src = document.createElement('a');
+        src.className = 'budget-source';
+        src.href = b.source;
+        src.target = '_blank';
+        src.rel = 'noopener noreferrer';
+        src.textContent = t('budget.source');
+        row.appendChild(src);
       }
 
       budgetsList.appendChild(row);

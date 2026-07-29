@@ -128,6 +128,7 @@ window.I18N_CATALOGS.ru = {
   'inspect.noResult': 'Оптимизированной модели пока нет — соберите её, чтобы сравнить.',
   'inspect.noScene': 'Содержимое сцены не сообщается.',
   'inspect.clean': 'Замечаний нет — файл чистый.',
+  'budget.source': 'источник',
   'col.id': '№',
   'col.code': 'КОД',
   'col.message': 'СООБЩЕНИЕ',
