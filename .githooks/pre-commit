@@ -2,9 +2,28 @@
 # Pre-commit hook: запускает тесты перед коммитом.
 # Установка: git config core.hooksPath .githooks
 
+# Два файла, а не один. Почему:
+#
+#   tests/optimize.test.mjs целиком обёрнут в describeIfModels(['CarConcept.glb']),
+#   а CarConcept — модель Khronos, в репозиторий она не коммитится. На машине
+#   Александра файл есть и хук работает; после свежего `git clone` файла нет,
+#   весь набор пропускается, vitest возвращает 0 — и хук пропускает коммит,
+#   не проверив ни строчки. Страховка, которая молча выключается у нового
+#   участника, хуже отсутствующей: про отсутствующую хотя бы знают.
+#
+#   tests/gap-005-regression.test.mjs работает на Morph Cube 01 — одной из
+#   десяти моделей, которые лежат в git (см. исключения в fixtures/.gitignore).
+#   Она есть всегда, поэтому этот файл выполняется и после чистого клона.
+#   Идёт меньше секунды и держит baseline-checkpoint — то, что ломается тише
+#   всего остального.
+#
+# Полный набор (npx vitest run) в хук не ставим сознательно: он идёт четыре-пять
+# минут, и хук такой длины начнут обходить через --no-verify. Это Правило 7
+# CLAUDE.md — прогон перед релизом, а не перед каждым коммитом.
+
 echo "🔍 Running tests before commit..."
 
-npx vitest run tests/optimize.test.mjs
+npx vitest run tests/optimize.test.mjs tests/gap-005-regression.test.mjs
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -ne 0 ]; then

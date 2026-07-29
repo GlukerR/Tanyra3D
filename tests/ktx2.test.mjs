@@ -28,10 +28,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
 // ---- TIMEOUTS ----
-// KTX2 с текстурами дольше из-за lazy-import sharp и конвертации JPEG→PNG
-const TIMEOUT_BASIC = 60000;
-const TIMEOUT_GOLDEN = 60000;
-const TIMEOUT_INPUT = 120000;
+// KTX2 с текстурами дольше из-за lazy-import sharp и конвертации JPEG→PNG.
+//
+// Подняты втрое после 2026-07-29. Причина: правило `textures/ktx2` запускает
+// ВНЕШНИЙ процесс `toktx` через execFileSync, и время его работы зависит не от
+// теста, а от загрузки машины. В одиночку `['ktx2','draco']` на CarConcept идёт
+// 15 секунд, а в полном прогоне vitest поднимает воркеры на все ядра, toktx
+// конкурирует сам с собой — и те же тесты выбивали 60-секундный потолок.
+// Наблюдалось 4 падения из 549 на одном прогоне и 0 на следующем при том же коде.
+//
+// Таймаут здесь — страховка от зависания, а не утверждение о скорости. Ловить им
+// деградацию производительности бессмысленно: цифра всё равно зависит от того,
+// что ещё крутится на машине. От настоящего зависания toktx защищает
+// CLI_TIMEOUT_MS в addons/gltf/tools.mjs (BUG-007), и он куда точнее.
+const TIMEOUT_BASIC = 180000;
+const TIMEOUT_GOLDEN = 180000;
+const TIMEOUT_INPUT = 300000;
 
 // ---- KTX2: базовая проверка на CarConcept.glb ----
 
