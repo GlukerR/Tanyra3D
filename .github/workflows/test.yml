@@ -26,5 +26,28 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Весь набор, а не один файл. tests/optimize.test.mjs обёрнут в
+      # describeIfModels(['CarConcept.glb']), а CarConcept — модель Khronos, в
+      # репозиторий она не коммитится. На CI файла нет → набор пропускается →
+      # vitest возвращает 0 → бейдж зелёный, притом что не выполнено ни одного
+      # теста. Зелёный бейдж, ничего не проверяющий, хуже отсутствующего.
+      #
+      # `npx vitest run` работает на десяти моделях, которые лежат в git (см.
+      # исключения в fixtures/.gitignore). Тесты на локальные модели помечаются
+      # skipped с указанием причины — это видно в логе, а не растворяется.
+      # Проверено на чистом состоянии: 316 passed, 230 skipped, 0 failed.
       - name: Run tests
-        run: npx vitest run tests/optimize.test.mjs
+        run: npx vitest run --reporter=default --reporter=json --outputFile=vitest-report.json
+
+      # Страховка от повторения истории выше: если однажды все файлы окажутся
+      # за guard'ом, шаг упадёт вместо того, чтобы молча позеленеть. Читает
+      # отчёт предыдущего шага, второй прогон не делает.
+      # Порог 100: на чистом клоне реально выполняется 316 тестов.
+      - name: Fail if nothing actually ran
+        run: |
+          PASSED=$(node -e "console.log(require('./vitest-report.json').numPassedTests || 0)")
+          echo "Выполнено тестов: $PASSED"
+          if [ "$PASSED" -lt 100 ]; then
+            echo "::error::Выполнено всего $PASSED тестов — набор почти целиком пропущен, это не зелёный прогон"
+            exit 1
+          fi
