@@ -291,14 +291,10 @@ body {
 .vp-hud-right .hud-line { justify-content: flex-end; }
 .hud-key { color: var(--outline); }
 .hud-val { color: var(--on-surface); }
-/* правый вьюпорт — сравнение с исходником */
+/* Цвет есть только справа и означает ровно одно: сравнение с исходником. Левая колонка
+   всегда нейтральная — там показания, а не оценка. */
 .hud-val.better { color: var(--success); }
 .hud-val.worse { color: var(--warning); }
-/* левый вьюпорт — оценка исходной модели по бюджету платформы. Зелёного здесь нет:
-   «уложились» не заслуга исходника. Нейтральный цвет означает «порога нет или он не
-   превышен» — и то и другое одинаково не требует внимания. */
-.hud-val.warn { color: var(--warning); }
-.hud-val.over { color: var(--error); }
 
 .delta-badge {
   display: inline-block;

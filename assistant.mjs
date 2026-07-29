@@ -159,14 +159,7 @@ export function listPlatforms(lang = DEFAULT_LANG) {
       const p = JSON.parse(fs.readFileSync(path.join(PROFILES_DIR, f), 'utf8'));
       // v0.1.0: показываем только включённые платформы (enabled: true или не указано = true)
       if (p && p.id && p.enabled !== false) {
-        out.push({
-          id: p.id,
-          title: pick(p.title, lang) || p.id,
-          description: pick(p.description, lang),
-          // аддитивное поле (правила стабильности §4c): интерфейсу нужны пороги ДО сборки,
-          // чтобы оценить исходную модель, а не только результат
-          budgets: p.budgets || {},
-        });
+        out.push({ id: p.id, title: pick(p.title, lang) || p.id, description: pick(p.description, lang) });
       }
     } catch {
       /* повреждённый профиль просто не показываем в списке */

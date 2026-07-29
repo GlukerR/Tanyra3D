@@ -864,32 +864,14 @@
     statsBefore.innerHTML = '';
     if (!stats) return;
     const rows = [
-      ['FILE', fmtBytes(fileSize), budgetLevel('fileMB', fileSize / (1024 * 1024))],
-      ['TRIS', fmtInt(stats.triangles), budgetLevel('triangles', stats.triangles)],
-      ['VERT', fmtInt(stats.vertices), null],
-      ['DRAWS', fmtInt(stats.drawCalls), budgetLevel('drawCalls', stats.drawCalls)],
-      ['MATS', fmtInt(stats.materials), budgetLevel('materials', stats.materials)],
-      ['TEX', fmtInt(stats.textures), null],
+      ['FILE', fmtBytes(fileSize)],
+      ['TRIS', fmtInt(stats.triangles)],
+      ['VERT', fmtInt(stats.vertices)],
+      ['DRAWS', fmtInt(stats.drawCalls)],
+      ['MATS', fmtInt(stats.materials)],
+      ['TEX', fmtInt(stats.textures)],
     ];
-    for (const [k, v, cls] of rows) statsBefore.appendChild(hudLine(k, v, cls));
-  }
-
-  // Оценка показателя ИСХОДНОЙ модели относительно порогов выбранной платформы.
-  //
-  // Возвращает класс подсветки или null. null — это не «всё хорошо», а «мы не знаем»:
-  // порога для этой метрики в профиле нет, и красить нечем. Зелёным не красим вообще —
-  // «уложились» не заслуга исходной модели и не то, что человек пришёл узнать.
-  //
-  // Правый вьюпорт этим не пользуется: там сравнение до/после, и оно важнее — иначе две
-  // системы цвета в одном ряду означали бы разное одним и тем же жёлтым.
-  function budgetLevel(id, actual) {
-    const p = platforms.find((x) => x.id === platformSelect.value);
-    const raw = p && p.budgets && p.budgets[id];
-    if (raw == null || actual == null) return null;
-    const entry = typeof raw === 'number' ? { warn: raw } : raw;
-    if (entry.limit != null && actual > entry.limit) return 'over';
-    if (entry.warn != null && actual > entry.warn) return 'warn';
-    return null;
+    for (const [k, v] of rows) statsBefore.appendChild(hudLine(k, v, null));
   }
 
   // Сбросить всё, что относится к предыдущему результату оптимизации (при загрузке
@@ -1208,14 +1190,12 @@
       ['VRAM', before.gpuBytes, after.gpuBytes, fmtBytes],
     );
 
-    // Метка HUD → id бюджета в профиле. VERT и TEX порогов не имеют ни у кого.
-    const BUDGET_OF = { FILE: 'fileMB', TRIS: 'triangles', DRAWS: 'drawCalls', MATS: 'materials', VRAM: 'vramMB' };
-    const inMB = (label) => label === 'FILE' || label === 'VRAM';
-
+    // Левая колонка — всегда нейтральная. Оценивать исходную модель по бюджету платформы
+    // пробовали: почти всё уходило в жёлтый (пороги Khronos рассчитаны на витрину товара,
+    // а не на любую модель), и цвет переставал что-либо значить. Оценка по бюджету осталась
+    // там, где к ней есть пояснение и ссылка на источник, — в разделе «Бюджет платформы».
     for (const [label, beforeVal, afterVal, fmt] of rows) {
-      const id = BUDGET_OF[label];
-      const toBudgetUnit = (v) => (v == null ? null : (inMB(label) ? v / (1024 * 1024) : v));
-      statsBefore.appendChild(hudLine(label, fmt(beforeVal), id ? budgetLevel(id, toBudgetUnit(beforeVal)) : null));
+      statsBefore.appendChild(hudLine(label, fmt(beforeVal), null));
       let cls = null;
       if (beforeVal != null && afterVal != null && afterVal !== beforeVal) {
         cls = afterVal < beforeVal ? 'better' : 'worse';
