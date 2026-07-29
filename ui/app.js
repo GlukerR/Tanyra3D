@@ -268,6 +268,9 @@
   async function loadExtensions(platformId) {
     extensions = [];
     extensionsList.innerHTML = '';
+    // Подсказка живёт в <body> и переживает пересборку панели — но кнопка, к которой
+    // она привязана, нет. Осталась бы висеть у пустого места.
+    infoTip.hide();
     extensionsPanel.classList.add('hidden');
     if (decoderLegend) decoderLegend.classList.add('hidden');
     if (!platformId) return;
@@ -326,34 +329,115 @@
     return w;
   }
 
-  // Раскрывающийся блок описание+impact — общий для чекбоксов и radio геометрии.
-  function buildDescriptionBox(ext) {
-    const desc = document.createElement('div');
-    desc.className = 'ext-description hidden';
-    if (ext.description) {
-      const descText = document.createElement('p');
-      descText.textContent = ext.description;
-      desc.appendChild(descText);
-    }
-    if (ext.impact) {
-      const impactText = document.createElement('p');
-      impactText.className = 'ext-impact';
-      impactText.textContent = `Impact: ${ext.impact}`;
-      desc.appendChild(impactText);
-    }
-    return desc;
-  }
+  // Подсказка 📖 — ОДНА на всю панель. Раньше каждая иконка раскрывала свой блок прямо
+  // в строке: описания копились одно под другим и выдавливали список опций вниз.
+  // Один общий элемент в <body> решает и накопление (открыт ровно один — больше просто
+  // нечему), и обрезание: .inspector-scroll имеет overflow-y, вложенная подсказка резалась
+  // бы по краю панели, поэтому position: fixed и координаты от кнопки.
+  const infoTip = (() => {
+    const SHOW_DELAY_MS = 220; // заметно быстрее нативного title (~800 мс)
+    const GAP = 6;
+    const EDGE = 8;
+    let el = null;
+    let owner = null;
+    let timer = 0;
 
-  // 📖 — документация «как это работает», раскрывает `desc`. Отдельный смысл от ⚠:
-  // это пояснение, а не требование к разработчику.
-  function infoButton(ext, desc) {
+    function node() {
+      if (el) return el;
+      el = document.createElement('div');
+      el.className = 'ext-tip hidden';
+      el.setAttribute('role', 'tooltip');
+      document.body.appendChild(el);
+      return el;
+    }
+
+    function fill(tip, ext) {
+      tip.textContent = '';
+      if (ext.description) {
+        const p = document.createElement('p');
+        p.textContent = ext.description;
+        tip.appendChild(p);
+      }
+      if (ext.impact) {
+        const p = document.createElement('p');
+        p.className = 'ext-impact';
+        p.textContent = `Impact: ${ext.impact}`;
+        tip.appendChild(p);
+      }
+      return tip.childNodes.length > 0;
+    }
+
+    // Ширина — по панели, положение — от кнопки, но с зажимом в её границы: подсказка
+    // не должна уезжать ни влево за панель, ни вниз за экран.
+    function place(tip, btn) {
+      const panel = btn.closest('.inspector') || document.documentElement;
+      const p = panel.getBoundingClientRect();
+      const b = btn.getBoundingClientRect();
+      tip.style.maxWidth = `${Math.max(180, p.width - EDGE * 2)}px`;
+      tip.classList.remove('hidden'); // сначала показать — иначе размеры нулевые
+      const t = tip.getBoundingClientRect();
+      const left = Math.min(Math.max(p.left + EDGE, b.right - t.width), p.right - t.width - EDGE);
+      const below = b.bottom + GAP;
+      const fitsBelow = below + t.height <= window.innerHeight - EDGE;
+      tip.style.left = `${Math.round(left)}px`;
+      tip.style.top = `${Math.round(fitsBelow ? below : Math.max(EDGE, b.top - t.height - GAP))}px`;
+    }
+
+    function show(btn, ext) {
+      const tip = node();
+      if (!fill(tip, ext)) return; // нечего показывать — не мигаем пустой карточкой
+      owner = btn;
+      place(tip, btn);
+    }
+
+    return {
+      isOpenFor: (btn) => owner === btn,
+      hide() {
+        clearTimeout(timer);
+        timer = 0;
+        owner = null;
+        if (el) el.classList.add('hidden');
+      },
+      showNow(btn, ext) {
+        clearTimeout(timer);
+        timer = 0;
+        show(btn, ext);
+      },
+      showDelayed(btn, ext) {
+        clearTimeout(timer);
+        timer = setTimeout(() => show(btn, ext), SHOW_DELAY_MS);
+      },
+    };
+  })();
+
+  // Подсказка привязана к экранным координатам кнопки — любое их смещение делает её
+  // враньём, поэтому прокрутка и ресайз просто гасят её, а не пересчитывают.
+  window.addEventListener('scroll', () => infoTip.hide(), true);
+  window.addEventListener('resize', () => infoTip.hide());
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') infoTip.hide(); });
+  document.addEventListener('pointerdown', (e) => {
+    if (!e.target.closest('.ext-info-btn')) infoTip.hide();
+  });
+
+  // 📖 — документация «как это работает». Отдельный смысл от ⚠: это пояснение,
+  // а не требование к разработчику. Нативный title не ставим — он дублировал бы
+  // кастомную подсказку вторым всплывающим окном поверх неё.
+  function infoButton(ext) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'ext-info-btn';
     btn.textContent = '📖';
     btn.setAttribute('aria-label', `Details: ${ext.title || ext.id}`);
-    if (ext.description) btn.title = ext.description;
-    btn.addEventListener('click', () => desc.classList.toggle('hidden'));
+    btn.addEventListener('mouseenter', () => infoTip.showDelayed(btn, ext));
+    btn.addEventListener('mouseleave', () => infoTip.hide());
+    btn.addEventListener('focus', () => infoTip.showNow(btn, ext));
+    btn.addEventListener('blur', () => infoTip.hide());
+    // На тач-экранах hover не существует — там клик единственный способ прочитать
+    // описание. Показывает ту же одну подсказку, так что накопиться по-прежнему нечему.
+    btn.addEventListener('click', () => {
+      if (infoTip.isOpenFor(btn)) infoTip.hide();
+      else infoTip.showNow(btn, ext);
+    });
     return btn;
   }
 
@@ -400,11 +484,7 @@
       if (o.ext && NEEDS_DECODER.has(o.ext.id)) head.appendChild(decoderWarning(o.ext.id));
 
       row.appendChild(head);
-      if (o.ext) {
-        const desc = buildDescriptionBox(o.ext);
-        head.appendChild(infoButton(o.ext, desc));
-        row.appendChild(desc);
-      }
+      if (o.ext) head.appendChild(infoButton(o.ext));
       sec.appendChild(row);
     }
     return sec;
@@ -442,14 +522,10 @@
     label.appendChild(titleSpan);
     if (NEEDS_DECODER.has(ext.id)) label.appendChild(decoderWarning(ext.id));
 
-    const desc = buildDescriptionBox(ext);
-    const infoBtn = infoButton(ext, desc);
-
     head.appendChild(label);
-    head.appendChild(infoBtn);
+    head.appendChild(infoButton(ext));
 
     row.appendChild(head);
-    row.appendChild(desc);
 
     // KTX2 — один флажок с раскрывающимся селектором режима (UASTC по умолчанию,
     // ETC1S — максимальное сжатие). Отдельного чекбокса ETC1S нет (future-proof).
