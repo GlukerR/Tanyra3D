@@ -129,6 +129,13 @@ window.I18N_CATALOGS.en = {
   'inspect.noResult': 'No optimized model yet — run a build to compare.',
   'inspect.noScene': 'No scene contents reported.',
   'inspect.clean': 'No validation issues — the file is clean.',
+  'col.id': 'ID',
+  'col.code': 'CODE',
+  'col.message': 'MESSAGE',
+  'col.severity': 'SEVERITY',
+  'col.pointer': 'POINTER',
+  'validator.blindSpots': ({ n, names }) =>
+    `${n} note${n === 1 ? '' : 's'} the validator produced only because it cannot read ${names} — not defects of the model`,
   'sev.0': 'Error',
   'sev.1': 'Warning',
   'sev.2': 'Info',

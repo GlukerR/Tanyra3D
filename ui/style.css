@@ -636,7 +636,10 @@ body.resizing { cursor: col-resize; user-select: none; }
   border-top: 1px solid var(--outline-variant);
 }
 .meta-explained > summary:hover { color: var(--on-surface-variant); }
-/* внутри группы severity не подсвечиваем — это не проблемы модели */
+/* Внутри группы «не дефекты» severity не подсвечиваем: тревожный цвет спорил бы с
+   подписью прямо над таблицей. Классы sev-* сюда и не проставляются (issuesTable
+   вызывается с muted) — правило страхует на случай, если проставят. */
+.meta-table--muted td,
 .meta-explained .meta-table tr.sev-0 td,
 .meta-explained .meta-table tr.sev-1 td { color: var(--on-surface-variant); }
 

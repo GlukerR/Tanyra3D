@@ -538,6 +538,8 @@ const server = http.createServer(async (req, res) => {
           outDir,
           force: true,
           onProgress,
+          // строки правил («что сделано», находки анализа) рендерит ядро — язык нужен ему
+          locale: langOf(url),
         });
       } catch (e) {
         console.error('[optimize] exception during processing:', e);

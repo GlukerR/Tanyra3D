@@ -15,6 +15,9 @@
 /** @type {Map<string, Record<string, string | ((data: object) => string)>>} locale → каталог */
 const catalogs = new Map();
 
+// Язык-основа: на него откатывается любой другой каталог при нехватке ключа.
+const BASE_LOCALE = 'en';
+
 /**
  * Зарегистрировать (или дополнить) каталог сообщений для локали. Аддоны регистрируют
  * свои словари при импорте; ключи разных аддонов сливаются в один каталог локали.
@@ -34,11 +37,18 @@ export function register(locale, messages) {
  * @param {string} [locale]
  * @returns {string}
  */
-export function render(messageId, data = {}, locale = 'en') {
+export function render(messageId, data = {}, locale = BASE_LOCALE) {
+  // Каталог другого языка может быть неполным — тогда берём английский. Сторонний аддон
+  // не обязан переводиться на все языки, и его английская строка в отчёте лучше, чем
+  // упавшая сборка. Строгость сохраняется там, где она ловит ошибку разработчика:
+  // отсутствие ключа в САМОМ английском каталоге по-прежнему кидает.
   const cat = catalogs.get(locale);
-  if (!cat) throw new Error(`i18n: no catalog for locale '${locale}'`);
-  const tpl = cat[messageId];
-  if (tpl == null) throw new Error(`i18n: missing message '${messageId}' for locale '${locale}'`);
+  const tpl = cat ? cat[messageId] : undefined;
+  if (tpl == null) {
+    if (locale !== BASE_LOCALE) return render(messageId, data, BASE_LOCALE);
+    const why = cat ? `missing message '${messageId}'` : `no catalog for locale '${locale}'`;
+    throw new Error(`i18n: ${why} for locale '${locale}'`);
+  }
   if (typeof tpl === 'function') return tpl(data);
   return String(tpl).replace(/\{(\w+)\}/g, (_, k) => (k in data ? String(data[k]) : `{${k}}`));
 }

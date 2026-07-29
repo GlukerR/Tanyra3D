@@ -1700,9 +1700,13 @@
     const keys = Object.keys(rows[0]);
     const thead = document.createElement('thead');
     const htr = document.createElement('tr');
-    for (const h of ['ID', ...keys]) {
+    for (const h of ['id', ...keys]) {
       const th = document.createElement('th');
-      th.textContent = h.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase();
+      // Заголовки колонок берутся из каталога по ключу col.<имя поля>. Метаданные приносят
+      // произвольные поля (их называет gltf-transform), для них перевода нет и не будет —
+      // такие остаются как есть, в верхнем регистре.
+      const label = t(`col.${h}`);
+      th.textContent = label === `col.${h}` ? h.replace(/([a-z])([A-Z])/g, '$1 $2').toUpperCase() : label;
       htr.appendChild(th);
     }
     thead.appendChild(htr);
@@ -1803,7 +1807,10 @@
     }
   }
 
-  function issuesTable(issues) {
+  // muted — таблица внутри группы «не дефекты». Там подсветка по severity не просто
+  // лишняя, а противоречит подписи над ней: строка, помеченная как не-дефект, не должна
+  // светиться тревожным цветом «Предупреждение».
+  function issuesTable(issues, muted) {
     const rows = issues.map((m) => ({
       code: m.code,
       message: m.message,
@@ -1813,9 +1820,11 @@
     const scroll = document.createElement('div');
     scroll.className = 'meta-table-scroll';
     const table = buildTable(rows);
-    // подсветка по severity
-    const trs = table.querySelectorAll('tbody tr');
-    issues.forEach((m, i) => { if (trs[i]) trs[i].classList.add(`sev-${m.severity}`); });
+    if (muted) table.classList.add('meta-table--muted');
+    else issues.forEach((m, i) => {
+      const tr = table.querySelectorAll('tbody tr')[i];
+      if (tr) tr.classList.add(`sev-${m.severity}`);
+    });
     scroll.appendChild(table);
     return scroll;
   }
@@ -1828,10 +1837,9 @@
     const box = document.createElement('details');
     box.className = 'meta-explained';
     const sum = document.createElement('summary');
-    sum.textContent = `${explained.length} note${explained.length === 1 ? '' : 's'} from extensions the validator cannot read`
-      + ` (${names.join(', ')}) — not defects`;
+    sum.textContent = t('validator.blindSpots', { n: explained.length, names: names.join(', ') });
     box.appendChild(sum);
-    box.appendChild(issuesTable(explained));
+    box.appendChild(issuesTable(explained, true));
     return box;
   }
 

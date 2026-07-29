@@ -26,11 +26,14 @@ import {
   BASELINE_METRICS, BASELINE_SOFT, MB, collectMetrics, baselineSnapshot,
 } from './metrics.mjs';
 import enMessages from './messages/en.mjs';
+import ruMessages from './messages/ru.mjs';
 import { RULES } from './rules.mjs';
 import { TOKTX } from './tools.mjs';
 
-// Регистрируем английский каталог правил при импорте аддона (единственный сейчас язык).
+// Каталоги правил регистрируются при импорте аддона. Английский обязателен — на него
+// core/i18n.mjs откатывается, когда в другом каталоге не хватает ключа.
 register('en', enMessages);
+register('ru', ruMessages);
 
 const { NodeIO } = gltfCore;
 
