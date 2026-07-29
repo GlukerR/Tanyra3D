@@ -40,6 +40,11 @@
   const originalPane = $('preview-original');
   const resetViewBtn = $('reset-view-btn');
   const linkToggleBtn = $('link-toggle-btn');
+  const animControls = $('anim-controls');
+  const animPlayBtn = $('anim-play-btn');
+  const animClipSel = $('anim-clip');
+  const animSeek = $('anim-seek');
+  const animTimeEl = $('anim-time');
 
   const platformSelect = $('platform-select');
   const platformDescription = $('platform-description');
@@ -1633,6 +1638,114 @@
       if (window.OptiViewer) window.OptiViewer.setLinked(on);
     });
   }
+
+  // ---------------------------------------------------------------
+  // Управление анимацией
+  //
+  // Панель появляется только у моделей с клипами. Оба вьюпорта идут по одному
+  // времени (см. _advanceAnimation в ui/viewer/index.js), поэтому и ползунок, и
+  // выбор клипа — общие: раздельные развели бы позы и сделали сравнение
+  // «до и после» бессмысленным.
+  //
+  // Ползунок целочисленный 0…1000 — это доля клипа, а не секунды: длительность
+  // у каждого клипа своя, а range с дробным шагом ведёт себя по-разному в разных
+  // браузерах. Перевод в секунды — в одном месте, ниже.
+  // ---------------------------------------------------------------
+
+  const SEEK_STEPS = 1000;
+  let animPollId = null;
+  let seekDragging = false;
+
+  function fmtTime(sec) {
+    return `${(Number(sec) || 0).toFixed(1)}s`;
+  }
+
+  /** Показать/скрыть панель и наполнить список клипов под текущую модель. */
+  function refreshAnimUI() {
+    if (!animControls || !window.OptiViewer || !window.OptiViewer.getAnimation) return;
+    const info = window.OptiViewer.getAnimation();
+    const has = info.count > 0;
+    animControls.classList.toggle('hidden', !has);
+    if (!has) return;
+
+    // Список пересобираем, только если модель сменилась — иначе выпадающий
+    // список схлопывался бы под курсором на каждом опросе.
+    const signature = info.names.join(' ');
+    if (animClipSel && animClipSel.dataset.signature !== signature) {
+      animClipSel.dataset.signature = signature;
+      animClipSel.innerHTML = '';
+      info.names.forEach((name, i) => {
+        const opt = document.createElement('option');
+        opt.value = String(i);
+        opt.textContent = name;
+        animClipSel.appendChild(opt);
+      });
+      // Один клип — выбирать не из чего.
+      animClipSel.classList.toggle('hidden', info.count < 2);
+    }
+    if (animClipSel && Number(animClipSel.value) !== info.index) {
+      animClipSel.value = String(info.index);
+    }
+  }
+
+  /** Раз в кадр подтягивать положение ползунка и время под играющую анимацию. */
+  function syncAnimProgress() {
+    if (!window.OptiViewer || !window.OptiViewer.getAnimation) return;
+    const info = window.OptiViewer.getAnimation();
+    if (!info.count) return;
+    const dur = info.duration || 0;
+    const t = dur > 0 ? (info.time % dur) : 0;
+    if (animTimeEl) animTimeEl.textContent = fmtTime(t);
+    // Пока пользователь тянет ползунок — не перебиваем его позицию.
+    if (animSeek && !seekDragging && dur > 0) {
+      animSeek.value = String(Math.round((t / dur) * SEEK_STEPS));
+    }
+  }
+
+  function startAnimPolling() {
+    if (animPollId != null) return;
+    const tick = () => {
+      // refreshAnimUI дёргается тут же, а не по событию загрузки: моделей
+      // грузится две (оригинал и результат), плюс сброс и перезагрузка — точек
+      // вызова набралось бы пять, и одну из них однажды забыли бы. Пересборка
+      // списка внутри защищена сигнатурой и происходит только при смене модели.
+      refreshAnimUI();
+      syncAnimProgress();
+      animPollId = requestAnimationFrame(tick);
+    };
+    animPollId = requestAnimationFrame(tick);
+  }
+
+  if (animPlayBtn) {
+    animPlayBtn.addEventListener('click', () => {
+      const playing = !animPlayBtn.classList.contains('is-on');
+      animPlayBtn.classList.toggle('is-on', playing);
+      animPlayBtn.setAttribute('aria-pressed', String(playing));
+      animPlayBtn.textContent = playing ? '⏸' : '▶';
+      animPlayBtn.title = playing ? 'Pause animation' : 'Play animation';
+      animPlayBtn.setAttribute('aria-label', animPlayBtn.title);
+      if (window.OptiViewer) window.OptiViewer.setAnimationPlaying(playing);
+    });
+  }
+
+  if (animClipSel) {
+    animClipSel.addEventListener('change', () => {
+      if (window.OptiViewer) window.OptiViewer.selectAnimationClip(Number(animClipSel.value) || 0);
+    });
+  }
+
+  if (animSeek) {
+    const applySeek = () => {
+      if (!window.OptiViewer || !window.OptiViewer.getAnimation) return;
+      const dur = window.OptiViewer.getAnimation().duration || 0;
+      if (dur > 0) window.OptiViewer.seekAnimation((Number(animSeek.value) / SEEK_STEPS) * dur);
+    };
+    animSeek.addEventListener('pointerdown', () => { seekDragging = true; });
+    animSeek.addEventListener('pointerup', () => { seekDragging = false; });
+    animSeek.addEventListener('input', applySeek);
+  }
+
+  startAnimPolling();
 
   // ---------------------------------------------------------------
 

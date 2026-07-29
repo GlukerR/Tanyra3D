@@ -339,6 +339,52 @@ body.resizing { cursor: col-resize; user-select: none; }
 .vp-tool:hover { background: var(--surface-container-high); color: var(--on-surface); }
 .vp-tool.is-on { color: var(--primary-container); background: rgba(192, 193, 255, 0.10); }
 
+/* ---------- Управление анимацией ----------
+   Живёт в той же панели, что «сброс вида» и «связать камеры», и появляется только
+   у моделей с анимацией. Ползунок общий на оба вьюпорта: время у них одно. */
+
+.vp-anim {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vp-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--outline-variant);
+}
+
+.vp-anim-clip {
+  max-width: 130px;
+  height: 24px;
+  padding: 0 4px;
+  background: var(--surface-container-high);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-sm);
+  color: var(--on-surface-variant);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/* Один клип — выбирать не из чего, показывать нечего. */
+.vp-anim-clip.hidden { display: none; }
+
+.vp-anim-seek {
+  width: 120px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--primary-container);
+}
+
+.vp-anim-time {
+  min-width: 38px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums; /* цифры не прыгают при перемотке */
+  color: var(--on-surface-variant);
+}
+
 .stage-hint {
   position: absolute;
   top: 50%;

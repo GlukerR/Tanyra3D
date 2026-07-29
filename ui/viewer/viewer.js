@@ -160,6 +160,7 @@ export class Viewer {
     const gltf = await this._loader.loadAsync(url, onProgress);
     this.model = gltf.scene;
     this.scene.add(this.model);
+    this._setupAnimations(gltf.animations);
     // camera передан (сборка/ребилд той же модели) → СОХРАНИТЬ ракурс: приближённая
     // пользователем деталь остаётся на месте. Иначе (новая модель) — авто-кадрирование.
     if (camera) this.applyCameraState(camera);
@@ -206,6 +207,76 @@ export class Viewer {
     this.controls.update();
   }
 
+  // ---------------------------------------------------------------------
+  // Анимация
+  //
+  // Проигрывание нужно не для красоты. Скиннинг и morph-таргеты — единственное,
+  // что оптимизация может испортить незаметно: метрики сойдутся, валидатор
+  // промолчит, а персонаж в движении сложится пополам. Увидеть это можно только
+  // в движении, и лучше — сразу рядом с оригиналом.
+  //
+  // Время анимации хранится снаружи (dual-viewport задаёт его обоим вьюпортам
+  // через setAnimationTime), а не тикает внутри каждого. Иначе два вьюпорта
+  // разъезжаются по фазе за первые же секунды, и сравнивать «до и после»
+  // становится невозможно — глаз ловит разницу поз, а не разницу оптимизации.
+  // ---------------------------------------------------------------------
+
+  /** Подготовить микшер под клипы загруженной модели. Клипов нет — тихо ничего. */
+  _setupAnimations(clips) {
+    this._disposeMixer();
+    this.clips = Array.isArray(clips) ? clips : [];
+    if (!this.clips.length || !this.model) return;
+    this._mixer = new THREE.AnimationMixer(this.model);
+    this.playClip(0);
+  }
+
+  /** Включить клип по индексу. Прежнее действие останавливается. */
+  playClip(index) {
+    if (!this._mixer || !this.clips.length) return;
+    const i = Math.max(0, Math.min(index, this.clips.length - 1));
+    this._mixer.stopAllAction();
+    this._action = this._mixer.clipAction(this.clips[i]);
+    this._action.reset();
+    this._action.play();
+    this.clipIndex = i;
+    // Кадр под нулевым временем — иначе до первого setAnimationTime модель
+    // висит в bind pose, а это не то же самое, что первый кадр анимации.
+    this._mixer.setTime(0);
+  }
+
+  /**
+   * Поставить анимацию в абсолютное время (секунды от начала клипа).
+   * Абсолютное, а не приращение: только так два вьюпорта гарантированно
+   * показывают один и тот же момент, сколько бы кадров ни пропустил любой из них.
+   */
+  setAnimationTime(seconds) {
+    if (!this._mixer || !this._action) return;
+    const dur = this._action.getClip().duration || 0;
+    this._mixer.setTime(dur > 0 ? seconds % dur : seconds);
+  }
+
+  /** Что за анимации в модели — для панели управления. */
+  getAnimationInfo() {
+    if (!this.clips || !this.clips.length) return { count: 0, names: [], index: -1, duration: 0 };
+    return {
+      count: this.clips.length,
+      names: this.clips.map((c, i) => c.name || `Clip ${i + 1}`),
+      index: this.clipIndex ?? 0,
+      duration: this.clips[this.clipIndex ?? 0]?.duration || 0,
+    };
+  }
+
+  _disposeMixer() {
+    if (this._mixer) {
+      this._mixer.stopAllAction();
+      if (this.model) this._mixer.uncacheRoot(this.model);
+      this._mixer = null;
+    }
+    this._action = null;
+    this.clips = [];
+    this.clipIndex = 0;
+  }
+
   /** Обновить контролы и отрисовать один кадр (цикл гонит dual-viewport.js). */
   renderFrame() {
     this.controls.update();
@@ -230,6 +301,9 @@ export class Viewer {
 
   _disposeModel() {
     if (!this.model) return;
+    // Микшер держит ссылки на кости и треки этой модели — снимать до dispose,
+    // иначе освобождённая геометрия остаётся живой через кэш AnimationMixer.
+    this._disposeMixer();
     this.scene.remove(this.model);
     this.model.traverse((obj) => {
       if (obj.geometry) obj.geometry.dispose();

@@ -23,7 +23,14 @@ import { Viewer } from "./viewer.js";
  *   frame()                             — навести камеру на модель
  *   getCameraState() / applyCameraState(state) — для связанных камер
  *   controls                            — источник события 'change' (камера двигалась)
+ *   setAnimationTime(sec)               — поставить анимацию в абсолютное время
+ *   playClip(index)                     — переключить клип
+ *   getAnimationInfo() → { count, names, index, duration }
  *   dispose()                           — освободить СВОИ ресурсы
+ *
+ * Время анимации задаётся СНАРУЖИ и абсолютным значением, а не приращением. Это
+ * обязательное требование к любой реализации: два вьюпорта показывают одну модель
+ * до и после, и разъехавшаяся на полкадра поза делает сравнение бессмысленным.
  *
  * Движок отвечает только за свои ресурсы. Пустое состояние слота (очистка полотна при
  * сбросе) — забота обвязки, одинаковая для всех движков: см. ViewportSlot.reset().
@@ -140,6 +147,11 @@ class DualViewport {
     this.linked = true; // связанные камеры: крутишь один — синхронно второй
     this._syncing = false;
     this._rafId = null;
+    // Анимация проигрывается сразу: модель, у которой она есть, должна двигаться
+    // без нажатий. Пауза нужна, чтобы РАССМОТРЕТЬ конкретный кадр, а не чтобы
+    // включить движение.
+    this._animPlaying = true;
+    this._animTime = 0;
   }
 
   _init() {
@@ -187,12 +199,61 @@ class DualViewport {
 
   _startLoop() {
     if (this._rafId != null) return;
-    const tick = () => {
+    let prev = performance.now();
+    const tick = (now) => {
+      const dt = Math.min((now - prev) / 1000, 0.1); // клип времени: вкладка была свёрнута
+      prev = now;
+      this._advanceAnimation(dt);
       this.left.renderFrame();
       this.right.renderFrame();
       this._rafId = requestAnimationFrame(tick);
     };
+    prev = performance.now();
     this._rafId = requestAnimationFrame(tick);
+  }
+
+  // -----------------------------------------------------------------------
+  // Анимация: одно время на оба вьюпорта.
+  //
+  // Часы живут здесь, а не внутри вьюпортов. Оба получают ОДНО И ТО ЖЕ абсолютное
+  // время каждый кадр — поэтому оригинал и результат всегда в одной позе. Если бы
+  // каждый вьюпорт тикал сам, они разъехались бы по фазе за первые секунды: правый
+  // грузится позже, кадры пропускаются неравномерно. Сравнивать «до и после» стало
+  // бы нельзя — глаз ловил бы разницу поз, а не разницу оптимизации.
+  // -----------------------------------------------------------------------
+
+  // Слоты создаются лениво, в _init() при первой загрузке модели: до неё
+  // this.left и this.right — null. app.js опрашивает getAnimation() с первого
+  // кадра страницы, поэтому все методы ниже обязаны переживать пустое состояние.
+  _advanceAnimation(dt) {
+    if (this._animPlaying) this._animTime = (this._animTime || 0) + dt;
+    const t = this._animTime || 0;
+    this.left?.viewer?.setAnimationTime(t);
+    this.right?.viewer?.setAnimationTime(t);
+  }
+
+  /** Есть ли что проигрывать и что именно — для панели управления в app.js. */
+  getAnimation() {
+    const info = this.left?.viewer?.getAnimationInfo?.() || { count: 0, names: [], index: -1, duration: 0 };
+    return { ...info, playing: !!this._animPlaying, time: this._animTime || 0 };
+  }
+
+  setAnimationPlaying(playing) {
+    this._animPlaying = !!playing;
+  }
+
+  /** Перемотка в абсолютное время (секунды). */
+  seekAnimation(seconds) {
+    this._animTime = Math.max(0, Number(seconds) || 0);
+    this._advanceAnimation(0);
+  }
+
+  /** Переключить клип в обоих вьюпортах и начать с нуля. */
+  selectAnimationClip(index) {
+    this.left?.viewer?.playClip?.(index);
+    this.right?.viewer?.playClip?.(index);
+    this._animTime = 0;
+    this._advanceAnimation(0);
   }
 
   _stopLoop() {
@@ -271,4 +332,9 @@ window.OptiViewer = {
   setLinked: (on) => dual.setLinked(on),
   reset: () => dual.reset(),
   cameraStates: () => dual.cameraStates(),
+  // Анимация. Одно время на оба вьюпорта — см. _advanceAnimation.
+  getAnimation: () => dual.getAnimation(),
+  setAnimationPlaying: (on) => dual.setAnimationPlaying(on),
+  seekAnimation: (sec) => dual.seekAnimation(sec),
+  selectAnimationClip: (i) => dual.selectAnimationClip(i),
 };
