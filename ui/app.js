@@ -709,6 +709,7 @@
       logMessage('info', n
         ? t('log.sourceInspected', { n })
         : t('log.sourceInspected', { n: 0 }));
+      logBlindSpots(data.validation);
     } catch (e) {
       // инспекция недоступна — кнопки выключены, сборка всё равно работает
       logMessage('warn', t('log.inspectUnavailable', { error: e.message }));
@@ -753,6 +754,7 @@
       logMessage('info', n
         ? t('log.resultInspected', { n })
         : t('log.resultInspected', { n: 0 }));
+      logBlindSpots(data.validation);
     } catch (e) {
       logMessage('warn', t('log.resultInspectError', { error: e.message }));
     }
@@ -1807,10 +1809,7 @@
     }
   }
 
-  // muted — таблица внутри группы «не дефекты». Там подсветка по severity не просто
-  // лишняя, а противоречит подписи над ней: строка, помеченная как не-дефект, не должна
-  // светиться тревожным цветом «Предупреждение».
-  function issuesTable(issues, muted) {
+  function issuesTable(issues) {
     const rows = issues.map((m) => ({
       code: m.code,
       message: m.message,
@@ -1820,43 +1819,44 @@
     const scroll = document.createElement('div');
     scroll.className = 'meta-table-scroll';
     const table = buildTable(rows);
-    if (muted) table.classList.add('meta-table--muted');
-    else issues.forEach((m, i) => {
-      const tr = table.querySelectorAll('tbody tr')[i];
-      if (tr) tr.classList.add(`sev-${m.severity}`);
-    });
+    const trs = table.querySelectorAll('tbody tr');
+    issues.forEach((m, i) => { if (trs[i]) trs[i].classList.add(`sev-${m.severity}`); });
     scroll.appendChild(table);
     return scroll;
   }
 
-  // Сообщения, которые валидатор выдал только потому, что не читает расширение (аддон помечает
-  // их `explainedBy`), — отдельной свёрнутой группой: это не дефекты модели, но и прятать вывод
-  // валидатора совсем неправильно, поэтому он доступен в один клик.
-  function explainedGroup(explained) {
-    const names = [...new Set(explained.map((m) => m.explainedBy))].sort();
-    const box = document.createElement('details');
-    box.className = 'meta-explained';
-    const sum = document.createElement('summary');
-    sum.textContent = t('validator.blindSpots', { n: explained.length, names: names.join(', ') });
-    box.appendChild(sum);
-    box.appendChild(issuesTable(explained, true));
-    return box;
+  // Сообщения, которые валидатор выдал только потому, что не читает расширение (аддон
+  // помечает их `explainedBy`), пользователю не показываются вовсе.
+  //
+  // Раньше они висели свёрнутой группой с подписью «это не дефекты». Не помогало: человек
+  // видел число «26 замечаний» и открывал таблицу, где в колонке важности стояло
+  // «Предупреждение». Объяснять пользователю, чего именно не умеет сторонний валидатор, —
+  // не его работа и не его забота: он спрашивает «цела ли модель», а не «что не понял
+  // валидатор». Данные никуда не делись — они в ответе /api/inspect и в журнале (debug).
+  //
+  // Настоящая цель — научиться проверять сжатые расширения самим, тогда этих сообщений
+  // не будет вовсе (см. ROADMAP §5b).
+  // Слепые пятна валидатора — в журнал уровнем debug, не в окно проверки. Если модель
+  // однажды окажется сломанной, а мы спишем это на «валидатор не читает расширение»,
+  // след должен остаться где-то, кроме нашей памяти.
+  function logBlindSpots(validation) {
+    const explained = (validation || []).filter((m) => m.explainedBy);
+    if (!explained.length) return;
+    const names = [...new Set(explained.map((m) => m.explainedBy))].sort().join(', ');
+    logMessage('debug', t('log.blindSpots', { n: explained.length, names }));
   }
 
   function buildValidationPane(col, data) {
-    const all = data.validation || [];
-    const issues = all.filter((m) => !m.explainedBy);
-    const explained = all.filter((m) => m.explainedBy);
+    const issues = (data.validation || []).filter((m) => !m.explainedBy);
 
     if (issues.length) {
       col.appendChild(issuesTable(issues));
-    } else {
-      const p = document.createElement('p');
-      p.className = 'meta-empty';
-      p.textContent = t('inspect.clean');
-      col.appendChild(p);
+      return;
     }
-    if (explained.length) col.appendChild(explainedGroup(explained));
+    const p = document.createElement('p');
+    p.className = 'meta-empty';
+    p.textContent = t('inspect.clean');
+    col.appendChild(p);
   }
 
   function renderMetadataWindow() {

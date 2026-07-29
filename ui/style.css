@@ -625,23 +625,8 @@ body.resizing { cursor: col-resize; user-select: none; }
 
 .meta-empty { color: var(--outline); font-size: 12px; }
 
-/* Свёрнутая группа сообщений, вызванных слепотой валидатора к расширениям (не дефекты) */
-.meta-explained { margin-top: 14px; }
-.meta-explained > summary {
-  cursor: pointer;
-  color: var(--outline);
-  font-size: 11px;
-  line-height: 1.5;
-  padding: 6px 0;
-  border-top: 1px solid var(--outline-variant);
-}
-.meta-explained > summary:hover { color: var(--on-surface-variant); }
-/* Внутри группы «не дефекты» severity не подсвечиваем: тревожный цвет спорил бы с
-   подписью прямо над таблицей. Классы sev-* сюда и не проставляются (issuesTable
-   вызывается с muted) — правило страхует на случай, если проставят. */
-.meta-table--muted td,
-.meta-explained .meta-table tr.sev-0 td,
-.meta-explained .meta-table tr.sev-1 td { color: var(--on-surface-variant); }
+/* Стили свёрнутой группы «замечания от слепоты валидатора» удалены вместе с самой
+   группой: пользователю она не показывается (см. buildValidationPane в app.js). */
 
 /* Окна инспекции пополам: слева исходная модель, справа собранная */
 .window-split {

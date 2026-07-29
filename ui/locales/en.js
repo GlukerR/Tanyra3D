@@ -134,8 +134,8 @@ window.I18N_CATALOGS.en = {
   'col.message': 'MESSAGE',
   'col.severity': 'SEVERITY',
   'col.pointer': 'POINTER',
-  'validator.blindSpots': ({ n, names }) =>
-    `${n} note${n === 1 ? '' : 's'} the validator produced only because it cannot read ${names} — not defects of the model`,
+  'log.blindSpots': ({ n, names }) =>
+    `Validator notes hidden: ${n} — caused by extensions it cannot read (${names}), not by the model`,
   'sev.0': 'Error',
   'sev.1': 'Warning',
   'sev.2': 'Info',
