@@ -99,6 +99,7 @@ export default {
   'check.scenesLost': ({ before, after }) => `scenes lost: was ${before}, now ${after}`,
   'check.boundsUnchanged': () => 'bounding box within epsilon',
   'check.boundsSkippedAfterInstance': () => 'bounding box check skipped after GPU instancing — getBounds() does not support EXT_mesh_gpu_instancing',
+  'check.boundsSkinnedQuantized': () => 'bounding box check skipped: the model is skinned and geometry is quantized — the compensation lives in the skin matrices, which getBounds() does not read. Shape and topology are verified by the other checks',
   'check.boundsChanged': () => 'bounding box changed — model shifted or collapsed',
   'check.boundsNotComputed': () => 'bounding box not computed (getBounds unavailable or no scene)',
   'check.materialsResolve': () => 'every material resolves',

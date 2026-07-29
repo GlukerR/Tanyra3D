@@ -52,51 +52,49 @@ describeIfModels(['CarConcept.glb'], 'TESTBUG-* — regression documentation (cu
   });
 });
 
-// TESTBUG-007 — parkergirl + safe+meshopt: status='fail'
-//   Проверено на коммите dbf6513 (2026-07-28). Причина (по заданию):
-//   quantize() внутри meshopt-пути на скинованной модели с морфами; validation
-//   выдаёт два fail-события:
-//     - "skins lost: was 1, now 14"
-//     - "bounding box changed — model shifted or collapsed"
-//   Не зависит от GAP-005: до и после правки GAP-005 поведение одинаково
-//   (задание 2026-07-29-корпус2 § «Работа 2c»).
-//   parkergirl.glb — локальная модель (CC-BY-4.0, в git НЕ коммитится);
-//   собственные тесты на parkergirl — в tests/post-gap005-corpus.test.mjs
-//   («heavy morph stress» + skipIf-проверки). Этот describe — sentinel
-//   product-contract: пока он красный, дефект воспроизводится. Когда
-//   quantize() научится работать со скинами+морфами — этот тест надо либо
-//   закрыть, либо переписать под новое поведение.
-describeIfModels(['parkergirl.glb'], 'TESTBUG-007 — parkergirl fails under safe+meshopt (quantize + skinned mesh + heavy morphs)', () => {
+// TESTBUG-007 — ЗАКРЫТ 2026-07-29. Был: parkergirl + safe+meshopt → status='fail'
+//   с «skins lost: was 1, now 14» и «bounding box changed».
+//
+//   Причина оказалась не в морфах и не в скинах как таковых, а в параметре
+//   quantizationVolume, который у @gltf-transform/functions по умолчанию равен 'mesh':
+//   своя область квантования на каждый меш → своё компенсирующее преобразование. Для
+//   скинованного меша трансформация узла по спецификации glTF ИГНОРИРУЕТСЯ, поэтому
+//   компенсация обязана лежать в inverseBindMatrices — а они принадлежат скину. Четырнадцать
+//   мешей с разными областями потребовали четырнадцати наборов IBM, и общий скин расщепился.
+//
+//   Починено в addons/gltf/rules.mjs (geometry/compress): при наличии скинов передаём
+//   quantizationVolume: 'scene' — одна область на сцену, один набор IBM, скин остаётся общим.
+//
+//   Второй маркер (bounding box) дефектом не был: getBounds() читает POSITION и трансформации
+//   узлов и не читает IBM, поэтому на квантованной скинованной модели показывает
+//   непозированную геометрию. Проверено на parkergirl: узел остаётся scale [1,1,1], а IBM
+//   меняется 1 → 0.8099. Проверка bbox для этого случая переведена в info (см. index.mjs).
+//
+//   Теперь это регресс: если quantizationVolume снова уедет в 'mesh' либо gltf-transform
+//   поменяет поведение — тест покраснеет.
+describeIfModels(['parkergirl.glb'], 'TESTBUG-007 (закрыт) — parkergirl под safe+meshopt сохраняет скин', () => {
   const isParkergirlLocal = fs.existsSync(modelPath('parkergirl.glb'));
   const targetModel = 'parkergirl.glb';
   const expectedMode = ['safe', 'meshopt'];
 
-  // Sentinel: пока красный — дефект ещё воспроизводится. Закрытие — это
-  // не «тест протух», а либо фикс quantize() в продукте, либо больше нет смысла
-  // считать дефектом. В любом случае — пересмотр, а не удаление втихую.
   const fn = isParkergirlLocal ? it : it.skip;
-  fn(`${targetModel} ${JSON.stringify(expectedMode)} — status='fail' с маркерами про скины и bound box`, async () => {
+  fn(`${targetModel} ${JSON.stringify(expectedMode)} — status='ok', скин один, морфы целы`, async () => {
     const result = await optimizeFile(modelPath(targetModel), {
       advancedFeatures: expectedMode,
       dryRun: true,
     });
-    if (result.status !== 'fail') {
-      throw new Error(
-        `TESTBUG-007 may be FIXED for ${targetModel}: status=${result.status}. ` +
-        `error=${result.error || '(none)'}. ` +
-        `validation=${JSON.stringify(result.validation)}. ` +
-        `Update TESTBUG-007 to reflect new behavior or close.`,
-      );
-    }
-    // Sentinel на конкретный корень: если fail вдруг перестал сопровождаться
-    // обоими валидационными маркерами, дефект переродился — а не исчез.
-    const failedTexts = (result.validation || [])
-      .filter((v) => v.level === 'fail')
-      .map((v) => v.text);
-    const skinsRoot = failedTexts.some((t) => /skins lost/.test(t));
-    const bboxRoot = failedTexts.some((t) => /bounding box changed/.test(t));
-    expect(skinsRoot).toBe(true);
-    expect(bboxRoot).toBe(true);
+    expect(result.status).toBe('ok');
+
+    const { before, after } = result.metrics;
+    // Корень дефекта: скин обязан остаться общим, а не расщепиться по мешам.
+    expect(after.skins).toBe(before.skins);
+    // То, ради чего модель вообще брали в корпус, — 456 морф-таргетов должны пережить сжатие.
+    expect(after.morphTargets).toBe(before.morphTargets);
+    expect(after.triangles).toBe(before.triangles);
+
+    // Ни одного fail: раньше их было два.
+    const failed = (result.validation || []).filter((v) => v.level === 'fail');
+    expect(failed).toEqual([]);
   });
 });
 

@@ -96,6 +96,7 @@ export default {
   'check.scenesLost': ({ before, after }) => `сцены потеряны: было ${before}, стало ${after}`,
   'check.boundsUnchanged': () => 'bounding box в пределах допуска',
   'check.boundsSkippedAfterInstance': () => 'проверка bounding box пропущена после GPU-инстансинга — getBounds() не поддерживает EXT_mesh_gpu_instancing',
+  'check.boundsSkinnedQuantized': () => 'проверка bounding box пропущена: модель скинованная и геометрия квантована — компенсация лежит в матрицах скина, а getBounds() их не читает. Форму и топологию подтверждают остальные проверки',
   'check.boundsChanged': () => 'bounding box изменился — модель смещена или разрушена',
   'check.boundsNotComputed': () => 'bounding box не вычислен (getBounds недоступна или нет сцены)',
   'check.materialsResolve': () => 'все материалы разрешаются',

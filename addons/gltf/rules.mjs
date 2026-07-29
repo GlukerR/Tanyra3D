@@ -463,7 +463,21 @@ export const RULES = [
       if (ctx.opts.codec === 'draco') {
         await ctx.document.transform(fns.draco());
       } else {
-        await ctx.document.transform(fns.meshopt({ encoder: MeshoptEncoder }));
+        // quantizationVolume по умолчанию — 'mesh': своя область квантования на каждый меш,
+        // а значит своё компенсирующее преобразование. Для скинованной модели это тупик:
+        // по спецификации glTF трансформация узла со скином ИГНОРИРУЕТСЯ, поэтому компенсацию
+        // приходится вносить в inverseBindMatrices — а они принадлежат скину, не мешу. Четырнадцать
+        // мешей с разными областями требуют четырнадцати разных наборов IBM, и общий скин
+        // расщепляется: 1 → 14. Это и есть TESTBUG-007.
+        //
+        // 'scene' даёт одну область на всю сцену → одно преобразование → один набор IBM.
+        // Скин остаётся общим. Сжатие чуть слабее (область шире фактической у мелких мешей),
+        // и платим этим только там, где иначе ломается структура.
+        const hasSkins = ctx.document.getRoot().listSkins().length > 0;
+        await ctx.document.transform(fns.meshopt({
+          encoder: MeshoptEncoder,
+          ...(hasSkins ? { quantizationVolume: 'scene' } : {}),
+        }));
       }
       return { details: [{ messageId: 'compress.done', data: { codec: ctx.opts.codec } }] };
     },

@@ -199,6 +199,18 @@ async function validate({ ctx, before, after, glbBytes, src, result, advancedPla
     // случае — только информируем; иначе (без инстансинга) расхождение остаётся fail.
     else if (result.applied.some((a) => a.ruleId === 'scene/instance')) {
       vp('info', 'check.boundsSkippedAfterInstance');
+    // Второй случай, где инструмент меряет не то. У скинованной модели трансформация узла
+    // по спецификации glTF ИГНОРИРУЕТСЯ — форму задают матрицы скина (inverseBindMatrices).
+    // Квантование это учитывает и вносит компенсацию именно в IBM (проверено на parkergirl:
+    // узел остаётся scale [1,1,1], а IBM меняется 1 → 0.8099). getBounds() читает POSITION и
+    // трансформации узлов, до IBM не добирается — и после квантования показывает
+    // непозированную геометрию, а не то, что увидит зритель.
+    //
+    // Условие узкое: только когда скины есть И геометрия действительно квантована. Модель
+    // без скинов и модель без квантования по-прежнему обязаны сойтись по bbox.
+    } else if (after.skins > 0 && ctx.document.getRoot().listExtensionsUsed()
+      .some((e) => e.extensionName === 'KHR_mesh_quantization')) {
+      vp('info', 'check.boundsSkinnedQuantized');
     } else vp('fail', 'check.boundsChanged');
   } else {
     vp('info', 'check.boundsNotComputed');
