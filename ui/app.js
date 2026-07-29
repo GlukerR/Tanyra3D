@@ -1377,6 +1377,13 @@
         src.rel = 'noopener noreferrer';
         src.textContent = t('budget.source');
         row.appendChild(src);
+      } else if (b.by === 'project') {
+        // Наш собственный порог. Показываем как есть, без ссылки: ссылаться не на что,
+        // и делать вид, что это требование платформы, нельзя.
+        const own = document.createElement('span');
+        own.className = 'budget-source budget-source--own';
+        own.textContent = t('budget.ourChoice');
+        row.appendChild(own);
       }
 
       budgetsList.appendChild(row);
@@ -1849,12 +1856,17 @@
     }
   }
 
+  // Аддон схлопывает сообщения валидатора по виду нарушения и приносит count. Показываем
+  // число повторений: «нарушение в 79 398 местах» и «нарушение в одном» — разные новости,
+  // а раньше это были 79 398 одинаковых строк, по которым не пролистать.
   function issuesTable(issues) {
     const rows = issues.map((m) => ({
       code: m.code,
+      count: fmtInt(m.count || 1),
       message: m.message,
       severity: severityName(m.severity),
-      pointer: m.pointer || '',
+      // указатель у схлопнутой группы — пример, а не полный адрес; многоточие об этом говорит
+      pointer: (m.pointer || '') + ((m.count || 1) > 1 ? ' …' : ''),
     }));
     const scroll = document.createElement('div');
     scroll.className = 'meta-table-scroll';

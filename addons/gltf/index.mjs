@@ -404,6 +404,33 @@ function explainValidatorBlindSpots(json, messages) {
   });
 }
 
+// Валидатор Khronos пишет по сообщению на КАЖДОЕ нарушение, а не на каждый вид нарушения.
+// На `Lilith Character 01.glb` это 81 050 сообщений, из них 79 398 — один и тот же
+// ACCESSOR_JOINTS_USED_ZERO_WEIGHT: по строке на вершину. В JSON это 18 МБ, которые
+// сервер отдаёт, браузер разбирает, а человек всё равно не прочтёт.
+//
+// Схлопываем по (код + важность + причина): одна запись на вид нарушения, с числом
+// повторений и несколькими примерами указателей. Количество сохраняется — оно и есть
+// главное, что говорит эта груда: не «есть проблема», а «проблема в 79 398 местах».
+const VALIDATION_EXAMPLES = 5;
+
+function groupValidation(messages, examples = VALIDATION_EXAMPLES) {
+  const groups = new Map();
+  for (const m of messages) {
+    if (!m) continue;
+    const key = `${m.code}|${m.severity}|${m.explainedBy || ''}`;
+    let g = groups.get(key);
+    if (!g) {
+      // первое сообщение вида задаёт текст и указатель — остальные к нему добавляют счёт
+      g = { ...m, count: 0, pointers: [] };
+      groups.set(key, g);
+    }
+    g.count += 1;
+    if (g.pointers.length < examples && m.pointer) g.pointers.push(m.pointer);
+  }
+  return [...groups.values()];
+}
+
 // -------- Инспекция ассета (Metadata + Validation, как на gltf.report) --------
 // Формат-специфично: метаданные из fns.inspect (те же таблицы, что у gltf.report) +
 // issues от Khronos gltf-validator. Ядро отдаёт это через inspectFile() формат-агностично;
@@ -425,6 +452,7 @@ async function inspect(srcPath) {
     validation = (res && res.issues && res.issues.messages) || [];
     // пометить сообщения, вызванные слепотой валидатора к расширениям (не удаляя их)
     validation = explainValidatorBlindSpots(parseGltfJson(bytes), validation);
+    validation = groupValidation(validation);
   } catch { /* валидатор не установлен — пустой список */ }
 
   return {

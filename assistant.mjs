@@ -401,7 +401,11 @@ function buildBudgetChecks(budgets, after, lang = DEFAULT_LANG) {
     const fmt = (v) => (spec.unit === 'mb' ? `${v} ${t('unit.mb')}` : fmtInt(v));
 
     const check = { id, name: t(spec.nameKey), actualText: show, level: 'none' };
+    // Откуда порог: ссылка на документ платформы либо наше собственное решение. Второе
+    // тоже законно, но обязано выглядеть иначе — выдавать решение проекта за требование
+    // платформы значит ровно то же враньё, ради борьбы с которым всё это затевалось.
     if (entry.source) check.source = entry.source;
+    else if (entry.by) check.by = entry.by;
 
     if (entry.limit != null) check.limitText = t('budget.limit', { v: fmt(entry.limit) });
     if (entry.warn != null) check.warnText = t('budget.recommended', { v: fmt(entry.warn) });
