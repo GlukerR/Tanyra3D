@@ -9,6 +9,9 @@
   // Короткий доступ к каталогу строк (ui/i18n.js). Тексты интерфейса берутся ТОЛЬКО
   // отсюда — иначе смена языка оставляет островки английского.
   const t = (key, params) => window.I18n.t(key, params);
+  // Язык отчёта запрашивается у сервера явно: тексты итога, планов и описаний опций
+  // живут в assistant.mjs и profiles/*.json, клиент их не хранит.
+  const langParam = () => `lang=${encodeURIComponent(window.I18n.lang)}`;
 
   const dropzone = $('dropzone');
   const fileInput = $('file-input');
@@ -173,21 +176,23 @@
   // Форматирование (байты → человекочитаемый вид) — зона web-interface
   // ---------------------------------------------------------------
 
+  // Единицы и разделитель разрядов — часть языка: «11.4 MB» и «500,000» посреди
+  // русского интерфейса читаются как недоделка.
   function fmtBytes(bytes) {
     if (bytes == null) return '—';
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} ${t('unit.kb')}`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} ${t('unit.mb')}`;
   }
 
   function fmtInt(n) {
     if (n == null) return '—';
-    return Number(n).toLocaleString('en-US');
+    return Number(n).toLocaleString(t('unit.locale'));
   }
 
   function pctText(before, after) {
     if (!before) return '';
     const p = Math.round(((after - before) / before) * 100);
-    if (p === 0) return 'no change';
+    if (p === 0) return t('pct.noChange');
     return p < 0 ? `−${Math.abs(p)}%` : `+${p}%`;
   }
 
@@ -211,7 +216,7 @@
 
   async function loadPlatforms() {
     try {
-      const res = await fetch('/api/platforms');
+      const res = await fetch(`/api/platforms?${langParam()}`);
       const data = await res.json();
       platforms = data.platforms || [];
       versionLabel.textContent = data.engineVersion ? `core v${data.engineVersion}` : '';
@@ -229,6 +234,45 @@
       platformSelect.innerHTML = '<option value="web">Web</option>';
       platforms = [{ id: 'web', title: 'Web', description: '' }];
     }
+  }
+
+  // Названия и описания платформ приходят из профилей — на другом языке они другие.
+  // Выбранная платформа сохраняется: меняется подпись, не выбор.
+  async function reloadPlatformTitles() {
+    const chosen = platformSelect.value;
+    try {
+      const res = await fetch(`/api/platforms?${langParam()}`);
+      const data = await res.json();
+      if (!data || !Array.isArray(data.platforms) || !data.platforms.length) return;
+      platforms = data.platforms;
+      for (const opt of platformSelect.options) {
+        const p = platforms.find((x) => x.id === opt.value);
+        if (p) opt.textContent = p.title || p.id;
+      }
+      if ([...platformSelect.options].some((o) => o.value === chosen)) platformSelect.value = chosen;
+      updatePlatformDescription();
+    } catch (e) {
+      /* язык подписей платформ остался прежним — не повод рушить интерфейс */
+    }
+  }
+
+  // Отчёт пересказывается на сервере из того же результата: explainResult() — чистая
+  // функция, файлы ей не нужны, поэтому пересобирать модель не требуется.
+  async function reexplainLastResult() {
+    if (!lastResult) return;
+    try {
+      const res = await fetch(
+        `/api/explain?platform=${encodeURIComponent(platformSelect.value)}&${langParam()}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ result: lastResult }) },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.explain) lastExplain = data.explain;
+      }
+    } catch (e) {
+      /* отчёт останется на прежнем языке — лучше, чем пустая панель */
+    }
+    renderReport(lastResult, lastExplain);
   }
 
   function updatePlatformDescription() {
@@ -285,7 +329,7 @@
     if (!platformId) return;
 
     try {
-      const res = await fetch(`/api/extensions?platform=${encodeURIComponent(platformId)}`);
+      const res = await fetch(`/api/extensions?platform=${encodeURIComponent(platformId)}&${langParam()}`);
       const data = await res.json();
       extensions = (data && data.extensions) || [];
     } catch (e) {
@@ -922,7 +966,7 @@
     const sourceParam = useSource && currentSourceId ? `&source=${encodeURIComponent(currentSourceId)}` : '';
     // режим KTX2 (UASTC/ETC1S) → texMode; актуален только когда выбран флажок ktx2
     const texParam = features.includes('ktx2') ? `&texMode=${encodeURIComponent(ktx2Mode)}` : '';
-    return `/api/optimize?platform=${encodeURIComponent(platformId)}&job=${encodeURIComponent(jobId)}${featuresParam}${sourceParam}${texParam}`;
+    return `/api/optimize?platform=${encodeURIComponent(platformId)}&job=${encodeURIComponent(jobId)}&${langParam()}${featuresParam}${sourceParam}${texParam}`;
   }
 
   // Повтор по sourceId — без тела (модель уже на сервере); первый прогон — с телом файла.
@@ -2060,8 +2104,9 @@
     updateLogsBar();
     renderDecoderLegend();
     if (!logsWindow.classList.contains('hidden')) renderLogsWindow();
+    reloadPlatformTitles();
     loadExtensions(platformSelect.value);
-    if (lastResult) renderReport(lastResult, lastExplain);
+    reexplainLastResult();
     if (!validationWindow.classList.contains('hidden')) renderValidationWindow();
     if (!metadataWindow.classList.contains('hidden')) renderMetadataWindow();
     logMessage('debug', t('log.langChanged', { name: t('lang.name') }));

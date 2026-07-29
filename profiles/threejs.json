@@ -1,8 +1,14 @@
 {
   "id": "threejs",
   "enabled": true,
-  "title": "Web (Three.js)",
-  "description": "A model for a website: opens right in the browser on a desktop or laptop. A balance between good image quality and fast loading.",
+  "title": {
+    "en": "Web (Three.js)",
+    "ru": "Веб (Three.js)"
+  },
+  "description": {
+    "en": "A model for a website: opens right in the browser on a desktop or laptop. A balance between good image quality and fast loading.",
+    "ru": "Модель для сайта: открывается прямо в браузере на компьютере или ноутбуке. Баланс между качеством картинки и быстрой загрузкой."
+  },
   "budgets": {
     "triangles": 100000,
     "drawCalls": 50,
@@ -21,75 +27,164 @@
   "availableExtensions": [
     {
       "id": "safe",
-      "title": "Safe optimizations",
-      "description": "Lossless cleanup: dedup materials/textures, remove unused data, weld identical vertices, drop degenerate and orphan geometry. Shape and materials are not changed.",
-      "impact": "Smaller file with no visible change.",
+      "title": {
+        "en": "Safe optimizations",
+        "ru": "Безопасные оптимизации"
+      },
+      "description": {
+        "en": "Lossless cleanup: dedup materials/textures, remove unused data, weld identical vertices, drop degenerate and orphan geometry. Shape and materials are not changed.",
+        "ru": "Чистка без потерь: убираем повторяющиеся материалы и текстуры, неиспользуемые данные, склеиваем совпадающие вершины, удаляем вырожденную и висящую в пустоте геометрию. Форму и материалы не меняем."
+      },
+      "impact": {
+        "en": "Smaller file with no visible change.",
+        "ru": "Файл меньше, на вид ничего не изменилось."
+      },
       "reversible": false,
       "dataLoss": "none",
-      "opts": { "safe": true }
+      "opts": {
+        "safe": true
+      }
     },
     {
       "id": "meshopt",
-      "title": "Meshopt compression",
-      "description": "Compresses geometry with Meshopt — smaller file that unpacks quickly on the GPU. A good default for the web.",
-      "impact": "Noticeably smaller geometry; fast decode in the browser.",
+      "title": {
+        "en": "Meshopt compression",
+        "ru": "Сжатие Meshopt"
+      },
+      "description": {
+        "en": "Compresses geometry with Meshopt — smaller file that unpacks quickly on the GPU. A good default for the web.",
+        "ru": "Сжимает геометрию методом Meshopt — файл меньше и быстро распаковывается силами видеокарты. Хороший выбор по умолчанию для веба."
+      },
+      "impact": {
+        "en": "Noticeably smaller geometry; fast decode in the browser.",
+        "ru": "Геометрия заметно легче, распаковка в браузере быстрая."
+      },
       "reversible": true,
       "dataLoss": "none",
-      "opts": { "compress": true, "codec": "meshopt" }
+      "opts": {
+        "compress": true,
+        "codec": "meshopt"
+      }
     },
     {
       "id": "join",
-      "title": "Join meshes",
-      "description": "Merges separate parts into one mesh — fewer draw calls. Structural: individual parts cannot be restored from the result.",
-      "impact": "Fewer draw calls; parts are merged (irreversible).",
+      "title": {
+        "en": "Join meshes",
+        "ru": "Объединение мешей"
+      },
+      "description": {
+        "en": "Merges separate parts into one mesh — fewer draw calls. Structural: individual parts cannot be restored from the result.",
+        "ru": "Сливает отдельные части в один меш — меньше отдельных отрисовок за кадр. Меняет структуру: вернуть отдельные части из результата уже нельзя."
+      },
+      "impact": {
+        "en": "Fewer draw calls; parts are merged (irreversible).",
+        "ru": "Меньше отрисовок за кадр; части слиты необратимо."
+      },
       "reversible": false,
       "dataLoss": "significant",
-      "opts": { "join": true }
+      "opts": {
+        "join": true
+      }
     },
     {
       "id": "instance",
-      "title": "GPU instancing",
-      "description": "Turns repeated meshes into GPU instances (EXT_mesh_gpu_instancing) — fewer draw calls. Requires the extension to be supported on the target site.",
-      "impact": "Fewer draw calls when the scene repeats meshes.",
+      "title": {
+        "en": "GPU instancing",
+        "ru": "GPU-инстансинг"
+      },
+      "description": {
+        "en": "Turns repeated meshes into GPU instances (EXT_mesh_gpu_instancing) — fewer draw calls. Requires the extension to be supported on the target site.",
+        "ru": "Превращает повторяющиеся меши в копии на стороне видеокарты (EXT_mesh_gpu_instancing) — меньше отдельных отрисовок. Целевой сайт должен поддерживать это расширение."
+      },
+      "impact": {
+        "en": "Fewer draw calls when the scene repeats meshes.",
+        "ru": "Меньше отрисовок, если в сцене есть повторяющиеся меши."
+      },
       "reversible": true,
       "dataLoss": "none",
-      "opts": { "instance": true }
+      "opts": {
+        "instance": true
+      }
     },
     {
       "id": "resample",
-      "title": "Resample",
-      "description": "Removes redundant animation keyframes without changing the motion — smaller animation data.",
-      "impact": "Smaller animations; no visible change.",
+      "title": {
+        "en": "Resample",
+        "ru": "Прореживание анимации"
+      },
+      "description": {
+        "en": "Removes redundant animation keyframes without changing the motion — smaller animation data.",
+        "ru": "Убирает лишние ключевые кадры анимации, не меняя само движение — данные анимации становятся легче."
+      },
+      "impact": {
+        "en": "Smaller animations; no visible change.",
+        "ru": "Анимации легче, на вид без изменений."
+      },
       "reversible": false,
       "dataLoss": "none",
-      "opts": { "resample": true }
+      "opts": {
+        "resample": true
+      }
     },
     {
       "id": "ktx2",
-      "title": "KTX2 compression",
-      "description": "Converts textures to a GPU format: saves up to ~80% of video memory. Requires KTX2Loader support in Three.js (or basisu in another engine).",
-      "impact": "The file may grow 5–10%, but texture video memory drops several-fold.",
+      "title": {
+        "en": "KTX2 compression",
+        "ru": "Сжатие KTX2"
+      },
+      "description": {
+        "en": "Converts textures to a GPU format: saves up to ~80% of video memory. Requires KTX2Loader support in Three.js (or basisu in another engine).",
+        "ru": "Переводит текстуры в формат для видеокарты: экономит до ~80% видеопамяти. Требует поддержки KTX2Loader в Three.js (или basisu в другом движке)."
+      },
+      "impact": {
+        "en": "The file may grow 5–10%, but texture video memory drops several-fold.",
+        "ru": "Файл может вырасти на 5–10%, зато видеопамяти под текстуры нужно в разы меньше."
+      },
       "reversible": true,
       "dataLoss": "none",
-      "opts": { "noKtx": false }
+      "opts": {
+        "noKtx": false
+      }
     },
     {
       "id": "draco",
-      "title": "Draco compression",
-      "description": "Minimal file weight (often −50% on geometry). Decodes slower than Meshopt in the browser but is supported everywhere.",
-      "impact": "The file is noticeably lighter; decoding on open is slower.",
+      "title": {
+        "en": "Draco compression",
+        "ru": "Сжатие Draco"
+      },
+      "description": {
+        "en": "Minimal file weight (often −50% on geometry). Decodes slower than Meshopt in the browser but is supported everywhere.",
+        "ru": "Минимальный вес файла (часто −50% на геометрии). Распаковывается в браузере медленнее Meshopt, зато поддерживается везде."
+      },
+      "impact": {
+        "en": "The file is noticeably lighter; decoding on open is slower.",
+        "ru": "Файл заметно легче; распаковка при открытии медленнее."
+      },
       "reversible": true,
       "dataLoss": "none",
-      "opts": { "codec": "draco" }
+      "opts": {
+        "codec": "draco"
+      }
     },
     {
       "id": "strip-colors",
-      "title": "Remove vertex colors",
-      "description": "Removes painted vertex colors. Enable only if vertex colors are not visible in the model (white channels are removed without this option too).",
-      "impact": "Saves 5–20% of size if colors exist; may change the look if they were used.",
+      "title": {
+        "en": "Remove vertex colors",
+        "ru": "Удаление цветов вершин"
+      },
+      "description": {
+        "en": "Removes painted vertex colors. Enable only if vertex colors are not visible in the model (white channels are removed without this option too).",
+        "ru": "Удаляет раскрашенные цвета вершин. Включайте, только если в модели цвета вершин не видны (белые каналы удаляются и без этой опции)."
+      },
+      "impact": {
+        "en": "Saves 5–20% of size if colors exist; may change the look if they were used.",
+        "ru": "Экономит 5–20% размера, если цвета есть; может изменить вид, если они использовались."
+      },
       "reversible": false,
       "dataLoss": "significant",
-      "opts": { "stripColors": true }
+      "opts": {
+        "stripColors": true
+      }
     }
   ],
   "notes": [

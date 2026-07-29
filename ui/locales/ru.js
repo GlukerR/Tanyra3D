@@ -7,6 +7,11 @@ window.I18N_CATALOGS = window.I18N_CATALOGS || {};
 window.I18N_CATALOGS.ru = {
   'lang.name': 'Русский',
 
+  'unit.kb': 'КБ',
+  'unit.mb': 'МБ',
+  'unit.locale': 'ru-RU',
+  'pct.noChange': 'без изменений',
+
   // --- левая панель ---
   'outliner.models': 'Модели',
   'outliner.sub': 'Оптимизатор GLB',

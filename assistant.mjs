@@ -27,8 +27,47 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import enMessages from './messages/en.mjs';
+import ruMessages from './messages/ru.mjs';
+
 const BASE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROFILES_DIR = path.join(BASE_DIR, 'profiles');
+
+// ----------------------------------------------------------------------------
+// Язык отчёта
+//
+// Английский — основа: на него откатывается любой каталог при нехватке ключа, и он
+// же используется, когда язык не передан. Добавить язык = добавить messages/<код>.mjs
+// и строку в CATALOGS.
+// ----------------------------------------------------------------------------
+
+const CATALOGS = { en: enMessages, ru: ruMessages };
+const DEFAULT_LANG = 'en';
+
+export function listLanguages() {
+  return Object.keys(CATALOGS);
+}
+
+// Возвращает функцию t(key, data) для выбранного языка.
+function messages(lang) {
+  const cat = CATALOGS[lang] || CATALOGS[DEFAULT_LANG];
+  return (key, data) => {
+    const fn = cat[key] || CATALOGS[DEFAULT_LANG][key];
+    // Отсутствующий ключ отдаём как есть — недоперевод должен быть виден, а не
+    // превращаться в пустую строку посреди отчёта.
+    return typeof fn === 'function' ? fn(data || {}) : key;
+  };
+}
+
+// Поле профиля может быть строкой (тогда это английский) или объектом { en, ru, ... }.
+// Профиль от стороннего автора с обычными строками работает без изменений — требовать
+// от него перевода на все языки значит не получить сторонних профилей.
+function pick(value, lang) {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object') return value[lang] ?? value[DEFAULT_LANG] ?? '';
+  return String(value);
+}
 
 // ----------------------------------------------------------------------------
 // Загрузка профилей (данные, не код)
@@ -59,13 +98,29 @@ function loadProfile(platformId) {
 // ----------------------------------------------------------------------------
 
 const MB = (bytes) => bytes / (1024 * 1024);
-// Человеческий размер: до 1 МБ показываем в КБ, иначе в МБ — крошечные модели
-// не должны выглядеть как «0.0 МБ».
-const fmtMB = (bytes) => {
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${MB(bytes).toFixed(1)} MB`;
+
+// Единицы и разделитель разрядов — часть языка, а не константа. «11.4 MB» и «500,000»
+// посреди русского текста читаются как недоделка, потому что это она и есть.
+const UNITS = {
+  en: { kb: 'KB', mb: 'MB', locale: 'en-US' },
+  ru: { kb: 'КБ', mb: 'МБ', locale: 'ru-RU' },
 };
-const fmtInt = (n) => Number(n).toLocaleString('en-US');
+
+// Возвращает форматтеры под язык. Внутри exported-функций результат кладётся в
+// одноимённые const — они перекрывают модульные, поэтому вызовы не переписываются.
+function formatters(lang) {
+  const u = UNITS[lang] || UNITS[DEFAULT_LANG];
+  return {
+    // Человеческий размер: до 1 МБ показываем в КБ, иначе в МБ — крошечные модели
+    // не должны выглядеть как «0.0 МБ».
+    fmtMB: (bytes) => (bytes < 1024 * 1024
+      ? `${Math.round(bytes / 1024)} ${u.kb}`
+      : `${MB(bytes).toFixed(1)} ${u.mb}`),
+    fmtInt: (n) => Number(n).toLocaleString(u.locale),
+  };
+}
+
+const { fmtMB, fmtInt } = formatters(DEFAULT_LANG);
 
 function deltaPct(before, after) {
   if (!before) return 0;
@@ -91,7 +146,7 @@ function timesLess(before, after) {
 // listPlatforms()
 // ----------------------------------------------------------------------------
 
-export function listPlatforms() {
+export function listPlatforms(lang = DEFAULT_LANG) {
   let files;
   try {
     files = fs.readdirSync(PROFILES_DIR).filter((f) => f.endsWith('.json'));
@@ -103,7 +158,9 @@ export function listPlatforms() {
     try {
       const p = JSON.parse(fs.readFileSync(path.join(PROFILES_DIR, f), 'utf8'));
       // v0.1.0: показываем только включённые платформы (enabled: true или не указано = true)
-      if (p && p.id && p.enabled !== false) out.push({ id: p.id, title: p.title || p.id, description: p.description || '' });
+      if (p && p.id && p.enabled !== false) {
+        out.push({ id: p.id, title: pick(p.title, lang) || p.id, description: pick(p.description, lang) });
+      }
     } catch {
       /* повреждённый профиль просто не показываем в списке */
     }
@@ -115,7 +172,9 @@ export function listPlatforms() {
 // planFor(platformId) — план обработки + объяснение выбора настроек
 // ----------------------------------------------------------------------------
 
-export function planFor(platformId) {
+export function planFor(platformId, lang = DEFAULT_LANG) {
+  const t = messages(lang);
+  const { fmtInt } = formatters(lang);
   const profile = loadProfile(platformId);
   // v0.0.8: базовый план строится из baselineOpts (KTX2/Draco выключены);
   // engineOpts — legacy-поле старых профилей, оставлено как фолбэк
@@ -125,53 +184,39 @@ export function planFor(platformId) {
   const explanation = [];
 
   // геометрия
-  if (opts.codec === 'draco') {
-    explanation.push('Geometry will be compressed with a proven method (Draco) — the file gets noticeably lighter and the model unpacks in the browser.');
-  } else {
-    explanation.push('Geometry will be compressed with a modern method (meshopt) — a smaller file that unpacks quickly right on the GPU.');
-  }
+  explanation.push(t(opts.codec === 'draco' ? 'plan.geometry.draco' : 'plan.geometry.meshopt'));
 
   // чистка структуры — базовая часть плана, происходит всегда
-  explanation.push('We remove junk without changing the picture: duplicate materials and textures, unused data, invisible triangles and orphan vertices.');
+  explanation.push(t('plan.cleanup'));
 
   // текстуры
-  if (opts.noKtx) {
-    explanation.push('Textures stay in a universal form (PNG/WebP) — they open in any browser without extra loaders. GPU KTX2 compression is available as an advanced option.');
-  } else if (opts.texMode === 'uastc') {
-    explanation.push('Textures are converted to a high-quality GPU format — the picture stays sharp while needing less video memory.');
-  } else {
-    explanation.push('Color textures are compressed into a light format for fast loading, and detail maps into a more precise one. This saves both traffic and video memory.');
-  }
+  if (opts.noKtx) explanation.push(t('plan.textures.keep'));
+  else if (opts.texMode === 'uastc') explanation.push(t('plan.textures.uastc'));
+  else explanation.push(t('plan.textures.mixed'));
 
   // сборка деталей
-  if (!opts.keepParts) {
-    explanation.push('Small parts are joined into a single model — the GPU needs fewer separate draw calls.');
-  } else {
-    explanation.push('Individual model parts are kept as they are — not joined.');
-  }
+  explanation.push(t(opts.keepParts ? 'plan.parts.keep' : 'plan.parts.join'));
 
   // цвета вершин
-  if (opts.stripColors) {
-    explanation.push('Unused vertex colors are removed — they only make the file heavier.');
-  }
+  if (opts.stripColors) explanation.push(t('plan.stripColors'));
 
   // цель по бюджету платформы
   const targetBits = [];
-  if (b.triangles) targetBits.push(`up to ${fmtInt(b.triangles)} triangles`);
-  if (b.textureMaxSize) targetBits.push(`textures up to ${b.textureMaxSize}px`);
-  if (b.vramMB) targetBits.push(`up to ${b.vramMB} MB video memory`);
+  if (b.triangles) targetBits.push(t('plan.goal.triangles', { n: fmtInt(b.triangles) }));
+  if (b.textureMaxSize) targetBits.push(t('plan.goal.textureSize', { px: b.textureMaxSize }));
+  if (b.vramMB) targetBits.push(t('plan.goal.vram', { mb: b.vramMB }));
   if (targetBits.length) {
-    explanation.push(`Goal — fit the "${profile.title}" platform budget: ${targetBits.join(', ')}.`);
+    explanation.push(t('plan.goal', { title: pick(profile.title, lang), bits: targetBits.join(', ') }));
   }
 
   return {
     profileId: profile.id,
-    title: profile.title,
+    title: pick(profile.title, lang),
     engineOpts: { ...opts },
     explanation,
     // аддитивное поле (в рамках правил стабильности §4c): web-interface может взять
     // список расширений прямо из плана, не делая второй вызов
-    availableExtensions: extensionsOf(profile),
+    availableExtensions: extensionsOf(profile, lang),
   };
 }
 
@@ -179,14 +224,20 @@ export function planFor(platformId) {
 // getAvailableExtensions(platformId) — расширенные опции платформы (opt-in)
 // ----------------------------------------------------------------------------
 
-function extensionsOf(profile) {
+function extensionsOf(profile, lang = DEFAULT_LANG) {
   const list = Array.isArray(profile.availableExtensions) ? profile.availableExtensions : [];
   // копии: мутации у потребителя не должны влиять на закешированные профили
-  return list.map((e) => ({ ...e, opts: { ...(e.opts || {}) } }));
+  return list.map((e) => ({
+    ...e,
+    title: pick(e.title, lang),
+    description: pick(e.description, lang),
+    impact: pick(e.impact, lang),
+    opts: { ...(e.opts || {}) },
+  }));
 }
 
-export function getAvailableExtensions(platformId) {
-  return extensionsOf(loadProfile(platformId));
+export function getAvailableExtensions(platformId, lang = DEFAULT_LANG) {
+  return extensionsOf(loadProfile(platformId), lang);
 }
 
 // Алиас под имя, которое web-interface (server.mjs) уже ищет у ассистента.
@@ -196,7 +247,9 @@ export const listExtensions = getAvailableExtensions;
 // explainResult(runResult, platformId)
 // ----------------------------------------------------------------------------
 
-export function explainResult(runResult, platformId) {
+export function explainResult(runResult, platformId, lang = DEFAULT_LANG) {
+  const t = messages(lang);
+  const { fmtMB, fmtInt } = formatters(lang);
   loadProfile(platformId); // валидирует platformId (throws на неизвестном) — контракт §4c; budgets больше не нужны здесь
 
   const rr = runResult || {};
@@ -206,7 +259,7 @@ export function explainResult(runResult, platformId) {
   // --- нештатные статусы ---
   if (rr.error) {
     return {
-      summary: `Could not process the model: ${rr.error}`,
+      summary: t('status.error', { error: rr.error }),
       highlights: [],
       budgetChecks: [],
       warnings: [],
@@ -214,7 +267,7 @@ export function explainResult(runResult, platformId) {
   }
   if (rr.status === 'skip') {
     return {
-      summary: 'Model skipped: a result for it already exists. To rebuild it, enable overwrite.',
+      summary: t('status.skip'),
       highlights: [],
       budgetChecks: [],
       warnings: [],
@@ -222,10 +275,10 @@ export function explainResult(runResult, platformId) {
   }
   if (!before || !after) {
     return {
-      summary: 'Processing did not reach the result stage — model data is unavailable.',
+      summary: t('status.noMetrics'),
       highlights: [],
       budgetChecks: [],
-      warnings: collectWarnings(rr),
+      warnings: collectWarnings(rr, t),
     };
   }
 
@@ -233,43 +286,47 @@ export function explainResult(runResult, platformId) {
   const fileGrew = after.fileBytes > before.fileBytes;
   const vramDropped = after.gpuBytes < before.gpuBytes;
 
-  let summary = `Done. File: ${fmtMB(before.fileBytes)} → ${fmtMB(after.fileBytes)} (${pctText(before.fileBytes, after.fileBytes)}); `
-    + `texture video memory: ${fmtMB(before.gpuBytes)} → ${fmtMB(after.gpuBytes)} (${pctText(before.gpuBytes, after.gpuBytes)}).`;
+  let summary = t('summary.done', {
+    fileBefore: fmtMB(before.fileBytes),
+    fileAfter: fmtMB(after.fileBytes),
+    filePct: pctText(before.fileBytes, after.fileBytes),
+    vramBefore: fmtMB(before.gpuBytes),
+    vramAfter: fmtMB(after.gpuBytes),
+    vramPct: pctText(before.gpuBytes, after.gpuBytes),
+  });
   if (rr.status === 'fail') {
-    summary = 'Result check did not pass — the optimized file was not written. ' + summary;
+    summary = t('summary.failPrefix') + summary;
   } else if (fileGrew && vramDropped) {
     // рост файла при падении VRAM — не ошибка, объясняем нейтрально
-    summary += ' The file got slightly heavier but video memory dropped: the GPU texture format weighs more in the file yet takes far less on the GPU.';
+    summary += t('summary.fileGrewVramDropped');
   }
 
   // --- highlights: главные улучшения человеческим языком ---
   const highlights = [];
 
   if (after.fileBytes < before.fileBytes) {
-    highlights.push(`File is ${Math.abs(deltaPct(before.fileBytes, after.fileBytes))}% lighter — faster to load.`);
+    highlights.push(t('hi.fileLighter', { pct: Math.abs(deltaPct(before.fileBytes, after.fileBytes)) }));
   } else if (fileGrew && vramDropped) {
     const tl = timesLess(before.gpuBytes, after.gpuBytes);
-    highlights.push(tl
-      ? `Texture video memory is ${tl} smaller — the model won't eat memory on weak devices.`
-      : 'Texture video memory dropped — the model is gentler on weak devices.');
+    highlights.push(tl ? t('hi.vramTimesLess', { times: tl }) : t('hi.vramDropped'));
   }
 
   if (vramDropped && !(fileGrew)) {
-    highlights.push(`Texture video memory is ${Math.abs(deltaPct(before.gpuBytes, after.gpuBytes))}% lower — smoother on weak GPUs.`);
+    highlights.push(t('hi.vramPct', { pct: Math.abs(deltaPct(before.gpuBytes, after.gpuBytes)) }));
   }
 
   if (after.drawCalls < before.drawCalls) {
-    highlights.push(`Rendering is simpler: draw calls ${fmtInt(before.drawCalls)} → ${fmtInt(after.drawCalls)} — less GPU load.`);
+    highlights.push(t('hi.drawCalls', { before: fmtInt(before.drawCalls), after: fmtInt(after.drawCalls) }));
   }
 
   if (before.triangles > 0 && after.triangles === before.triangles) {
-    highlights.push(`Model shape fully preserved (${fmtInt(after.triangles)} triangles) — geometry untouched.`);
+    highlights.push(t('hi.shapeKept', { n: fmtInt(after.triangles) }));
   } else if (before.triangles > 0 && after.triangles < before.triangles) {
-    highlights.push(`Extra triangles removed: ${fmtInt(before.triangles)} → ${fmtInt(after.triangles)}.`);
+    highlights.push(t('hi.trianglesRemoved', { before: fmtInt(before.triangles), after: fmtInt(after.triangles) }));
   }
 
   if (Array.isArray(rr.applied) && rr.applied.length) {
-    highlights.push(`Safe improvements applied: ${rr.applied.length} — each verified, shape and materials not distorted.`);
+    highlights.push(t('hi.applied', { n: rr.applied.length }));
   }
 
   // Budget check убран из выдачи (решение Александра): без точных целей пользователя
@@ -280,7 +337,7 @@ export function explainResult(runResult, platformId) {
     summary,
     highlights: highlights.slice(0, 6),
     budgetChecks: [],
-    warnings: collectWarnings(rr),
+    warnings: collectWarnings(rr, t),
   };
 }
 
@@ -367,7 +424,7 @@ function buildBudgetChecks(budgets, after) {
 // warnings — из skipped и validation (info|fail)
 // ----------------------------------------------------------------------------
 
-function collectWarnings(rr) {
+function collectWarnings(rr, t = messages(DEFAULT_LANG)) {
   const warnings = [];
 
   if (Array.isArray(rr.skipped)) {
@@ -383,7 +440,7 @@ function collectWarnings(rr) {
       // Причина часто уже вписана в текст («Правило — потому что…»), и приклеивать
       // её вторым хвостом значило печатать одно и то же дважды в одной строке.
       const reason = s.reason && s.reason !== s.text && !s.text.includes(s.reason) ? ` — ${s.reason}` : '';
-      warnings.push(`Not applied: ${s.text}${reason}`);
+      warnings.push(t('warn.notApplied', { text: s.text, reason }));
     }
   }
 

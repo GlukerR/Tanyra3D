@@ -6,6 +6,13 @@ window.I18N_CATALOGS = window.I18N_CATALOGS || {};
 window.I18N_CATALOGS.en = {
   'lang.name': 'English',
 
+  // Единицы и формат чисел. 'unit.locale' — тег для Number.toLocaleString:
+  // разделитель разрядов у языков разный (500,000 против 500 000).
+  'unit.kb': 'KB',
+  'unit.mb': 'MB',
+  'unit.locale': 'en-US',
+  'pct.noChange': 'no change',
+
   // --- левая панель ---
   'outliner.models': 'Models',
   'outliner.sub': 'GLB optimizer',

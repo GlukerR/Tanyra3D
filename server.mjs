@@ -67,10 +67,18 @@ const FALLBACK_ENGINE_OPTS = {
   dryRun: false,
 };
 
-function listPlatformsSafe() {
+// Язык отчёта приходит от клиента параметром ?lang=. Не по заголовку Accept-Language:
+// в интерфейсе язык переключается кнопкой, и отчёт должен идти на выбранном языке,
+// а не на языке, который браузер считает предпочтительным.
+function langOf(url) {
+  const v = url && url.searchParams ? url.searchParams.get('lang') : null;
+  return v && /^[a-z]{2}$/.test(v) ? v : 'en';
+}
+
+function listPlatformsSafe(lang) {
   if (assistant && typeof assistant.listPlatforms === 'function') {
     try {
-      const p = assistant.listPlatforms();
+      const p = assistant.listPlatforms(lang);
       if (Array.isArray(p) && p.length) return p;
     } catch (e) {
       console.error('[assistant] listPlatforms() failed:', e.message);
@@ -83,10 +91,10 @@ function listPlatformsSafe() {
 //   listExtensions(platformId) → [{ id, title, description, impact }]
 // Пока assistant.mjs не реализует listExtensions(), возвращаем пустой список —
 // панель «Расширенные опции» в UI просто не покажется (нет придуманных web-interface данных).
-function listExtensionsSafe(platformId) {
+function listExtensionsSafe(platformId, lang) {
   if (assistant && typeof assistant.listExtensions === 'function') {
     try {
-      const list = assistant.listExtensions(platformId);
+      const list = assistant.listExtensions(platformId, lang);
       if (Array.isArray(list)) return list;
     } catch (e) {
       console.error('[assistant] listExtensions() failed:', e.message);
@@ -95,10 +103,10 @@ function listExtensionsSafe(platformId) {
   return [];
 }
 
-function planForSafe(platformId) {
+function planForSafe(platformId, lang) {
   if (assistant && typeof assistant.planFor === 'function') {
     try {
-      const plan = assistant.planFor(platformId);
+      const plan = assistant.planFor(platformId, lang);
       if (plan && typeof plan === 'object') return plan;
     } catch (e) {
       console.error('[assistant] planFor() failed:', e.message);
@@ -113,10 +121,10 @@ function planForSafe(platformId) {
   };
 }
 
-function explainResultSafe(runResult, platformId) {
+function explainResultSafe(runResult, platformId, lang) {
   if (assistant && typeof assistant.explainResult === 'function') {
     try {
-      const explain = assistant.explainResult(runResult, platformId);
+      const explain = assistant.explainResult(runResult, platformId, lang);
       if (explain && typeof explain === 'object') return explain;
     } catch (e) {
       console.error('[assistant] explainResult() failed:', e.message);
@@ -332,16 +340,38 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // --- пересказ уже готового результата на другом языке ---
+    //
+    // Смена языка не должна пересобирать модель: explainResult() — чистая функция от
+    // результата прогона, файлы ей не нужны. Клиент присылает тот самый result, который
+    // получил при сборке, и получает тот же отчёт на другом языке.
+    if (req.method === 'POST' && pathname === '/api/explain') {
+      const platformId = url.searchParams.get('platform');
+      if (!platformId) {
+        sendJSON(res, 400, { error: 'platform is required' });
+        return;
+      }
+      let payload;
+      try {
+        payload = JSON.parse((await readBody(req)).toString('utf8'));
+      } catch (e) {
+        sendJSON(res, 400, { error: 'Malformed JSON body' });
+        return;
+      }
+      sendJSON(res, 200, { explain: explainResultSafe(payload && payload.result, platformId, langOf(url)) });
+      return;
+    }
+
     // --- список платформ ---
     if (req.method === 'GET' && pathname === '/api/platforms') {
-      sendJSON(res, 200, { platforms: listPlatformsSafe(), engineVersion: VERSION });
+      sendJSON(res, 200, { platforms: listPlatformsSafe(langOf(url)), engineVersion: VERSION });
       return;
     }
 
     // --- расширенные опции для платформы ---
     if (req.method === 'GET' && pathname === '/api/extensions') {
       const platformId = url.searchParams.get('platform') || '';
-      sendJSON(res, 200, { extensions: listExtensionsSafe(platformId) });
+      sendJSON(res, 200, { extensions: listExtensionsSafe(platformId, langOf(url)) });
       return;
     }
 
@@ -432,7 +462,7 @@ const server = http.createServer(async (req, res) => {
 
     // --- обработка модели ---
     if (req.method === 'POST' && pathname === '/api/optimize') {
-      const platformId = url.searchParams.get('platform') || (listPlatformsSafe()[0] || {}).id;
+      const platformId = url.searchParams.get('platform') || (listPlatformsSafe(langOf(url))[0] || {}).id;
       const jobId = url.searchParams.get('job') || '';
       const featuresParam = url.searchParams.get('features') || '';
       const advancedFeatures = featuresParam.split(',').map((s) => s.trim()).filter(Boolean);
@@ -488,7 +518,7 @@ const server = http.createServer(async (req, res) => {
         await purgeSourcesOlderThan(sourceId);
       }
 
-      const plan = planForSafe(platformId);
+      const plan = planForSafe(platformId, langOf(url));
       const engineOpts = { ...FALLBACK_ENGINE_OPTS, ...(plan.engineOpts || {}), texMode: texModeParam };
 
       const onProgress = (e) => {
@@ -515,7 +545,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const explain = explainResultSafe(result, platformId);
+      const explain = explainResultSafe(result, platformId, langOf(url));
 
       let downloadUrl = null;
       if (result.status === 'ok' && result.file && result.file.written && result.file.dst) {
