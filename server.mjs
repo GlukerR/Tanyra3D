@@ -198,6 +198,26 @@ function safeJoin(baseDir, relPath) {
   return resolved;
 }
 
+// Языки интерфейса подключаются по факту наличия файла в ui/locales — добавить язык
+// значит положить туда каталог, и всё. Список собирается на каждый запрос страницы:
+// приложение локальное, лишний readdir дешевле, чем перезапуск сервера ради нового языка.
+//
+// Порядок важен: en идёт первым — это язык, на который i18n.js откатывается, когда в
+// другом каталоге не хватает ключа. Каталог должен быть определён к этому моменту.
+const LOCALES_DIR = path.join(UI_DIR, 'locales');
+const LOCALE_MARKER = '<!--locales-->';
+
+async function localeScriptTags() {
+  let files = [];
+  try {
+    files = (await fsp.readdir(LOCALES_DIR)).filter((f) => f.endsWith('.js'));
+  } catch (e) {
+    return ''; // папки нет — интерфейс останется на языке разметки
+  }
+  files.sort((a, b) => (a === 'en.js' ? -1 : b === 'en.js' ? 1 : a.localeCompare(b)));
+  return files.map((f) => `<script src="/locales/${encodeURIComponent(f)}"></script>`).join('\n');
+}
+
 async function serveStatic(req, res, urlPath, baseDir = UI_DIR, stripPrefix = '') {
   let rel = urlPath === '/' ? '/index.html' : urlPath;
   rel = decodeURIComponent(rel.split('?')[0]);
@@ -209,6 +229,12 @@ async function serveStatic(req, res, urlPath, baseDir = UI_DIR, stripPrefix = ''
     return;
   }
   try {
+    if (baseDir === UI_DIR && rel === '/index.html') {
+      const html = (await fsp.readFile(filePath, 'utf8')).replace(LOCALE_MARKER, await localeScriptTags());
+      res.writeHead(200, { 'Content-Type': MIME['.html'] });
+      res.end(html);
+      return;
+    }
     const data = await fsp.readFile(filePath);
     const ext = path.extname(filePath).toLowerCase();
     res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });

@@ -290,10 +290,11 @@
 </footer>
 
 <script type="module" src="/viewer/index.js"></script>
-<!-- Каталоги — до i18n.js (он читает их при старте), i18n.js — до app.js (тот переводит
-     разметку первым же действием). Новый язык = ещё один файл и ещё одна строка здесь. -->
-<script src="/locales/en.js"></script>
-<script src="/locales/ru.js"></script>
+<!-- Сюда server.mjs подставляет по одному <script> на каждый файл в ui/locales.
+     Добавить язык = положить туда файл каталога; правки здесь и в коде не нужны.
+     Каталоги должны идти ДО i18n.js (он читает их при старте), i18n.js — до app.js
+     (тот переводит разметку первым же действием). -->
+<!--locales-->
 <script src="/i18n.js"></script>
 <script src="/app.js"></script>
 </body>
