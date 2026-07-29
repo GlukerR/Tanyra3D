@@ -30,7 +30,7 @@ import { GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 export const RULES = [
   {
     meta: {
-      id: 'structure/dedup', category: 'materials', title: 'Duplicate resources (dedup)',
+      id: 'structure/dedup', category: 'materials', title: 'Duplicate resources (dedup)', titleKey: 'rule.structureDedup',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: [], touches: ['texture', 'material', 'accessor'],
       reversible: false, dataLoss: 'none', // склеиваются только байт-в-байт идентичные копии — терять нечего
       enabled: (o) => o.safe,
@@ -52,7 +52,7 @@ export const RULES = [
 
   {
     meta: {
-      id: 'structure/prune-unused', category: 'scene', title: 'Unused resources (prune)',
+      id: 'structure/prune-unused', category: 'scene', title: 'Unused resources (prune)', titleKey: 'rule.structurePruneUnused',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['structure/dedup'], touches: ['texture', 'material', 'accessor', 'node'],
       reversible: false, dataLoss: 'none', // удаляется только то, на что нет ни одной ссылки
       enabled: (o) => o.safe,
@@ -89,7 +89,7 @@ export const RULES = [
       // tier basic: базовое действие — удаление БЕЛЫХ каналов (provable, вид не меняется).
       // Lossy-ветка (удалить раскрашенные) — расширение 'strip-colors': включается только
       // через advancedFeatures:['strip-colors'] или флаг --strip-vertex-colors (→ opts.stripColors).
-      id: 'attributes/vertex-colors', category: 'attributes', title: 'Vertex colors (COLOR_n)',
+      id: 'attributes/vertex-colors', category: 'attributes', title: 'Vertex colors (COLOR_n)', titleKey: 'rule.attributesVertexColors',
       severity: 'warn', fixSafety: 'provable', tier: 'basic', runAfter: ['structure/prune-unused'], touches: ['accessor'],
       // базовая ветка (белые каналы) — потери нет; strip-ветка помечает свои строки
       // через res.irreversible → dataLoss 'significant' на уровне applied-записи
@@ -142,7 +142,7 @@ export const RULES = [
 
   {
     meta: {
-      id: 'geometry/weld', category: 'geometry', title: 'Vertex weld',
+      id: 'geometry/weld', category: 'geometry', title: 'Vertex weld', titleKey: 'rule.geometryWeld',
       severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['attributes/vertex-colors'], touches: ['geometry', 'accessor'],
       reversible: false, dataLoss: 'none', // свариваются только идентичные вершины
       // geometry-чистка идёт и при компрессии: спека Draco — «decode → run all geometry
@@ -169,7 +169,7 @@ export const RULES = [
 
   {
     meta: {
-      id: 'geometry/degenerate-triangles', category: 'geometry', title: 'Degenerate triangles',
+      id: 'geometry/degenerate-triangles', category: 'geometry', title: 'Degenerate triangles', titleKey: 'rule.geometryDegenerate',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['geometry/weld'], touches: ['geometry'],
       reversible: false, dataLoss: 'none', // нулевая площадь — не рисовались
       enabled: (o) => o.safe || o.compress, // чистка геометрии нужна и перед компрессией
@@ -210,7 +210,7 @@ export const RULES = [
 
   {
     meta: {
-      id: 'geometry/orphan-vertices', category: 'geometry', title: 'Orphan vertices',
+      id: 'geometry/orphan-vertices', category: 'geometry', title: 'Orphan vertices', titleKey: 'rule.geometryOrphan',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['geometry/degenerate-triangles'], touches: ['geometry', 'accessor'],
       reversible: false, dataLoss: 'none', // не адресованы индексами — не рисовались
       enabled: (o) => o.safe || o.compress, // чистка геометрии нужна и перед компрессией
@@ -246,7 +246,7 @@ export const RULES = [
 
   {
     meta: {
-      id: 'scene/join', category: 'scene', title: 'Mesh join (flatten + join)',
+      id: 'scene/join', category: 'scene', title: 'Mesh join (flatten + join)', titleKey: 'rule.sceneJoin',
       severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['geometry/orphan-vertices'], touches: ['geometry', 'node'],
       reversible: false, dataLoss: 'significant', // §4d: структура узлов и имена частей теряются безвозвратно
       reversalNote: 'Node hierarchy and separate parts are merged — they cannot be restored from the result. To keep parts, use --keep-parts.',
@@ -274,7 +274,7 @@ export const RULES = [
     meta: {
       // GPU-инстансинг: повторяющиеся меши → EXT_mesh_gpu_instancing (меньше draw calls).
       // Отдельный флажок; расширение требует поддержки декодера на целевом сайте.
-      id: 'scene/instance', category: 'scene', title: 'GPU instancing',
+      id: 'scene/instance', category: 'scene', title: 'GPU instancing', titleKey: 'rule.sceneInstance',
       severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['structure/prune-unused'], touches: ['node', 'mesh'],
       reversible: true, dataLoss: 'none',
       reversalNote: 'Instancing can be expanded back to individual nodes.',
@@ -301,7 +301,7 @@ export const RULES = [
   {
     meta: {
       // Ресэмпл анимаций: убрать избыточные ключевые кадры (без потерь качества).
-      id: 'animation/resample', category: 'performance', title: 'Resample animations',
+      id: 'animation/resample', category: 'performance', title: 'Resample animations', titleKey: 'rule.animationResample',
       severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['structure/prune-unused'], touches: ['accessor'],
       reversible: false, dataLoss: 'none',
       feature: 'resample',
@@ -323,7 +323,7 @@ export const RULES = [
 
   {
     meta: {
-      id: 'structure/prune-final', category: 'scene', title: 'Cleanup of orphaned resources',
+      id: 'structure/prune-final', category: 'scene', title: 'Cleanup of orphaned resources', titleKey: 'rule.structurePruneFinal',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['scene/join', 'geometry/orphan-vertices'], touches: ['accessor', 'node'],
       reversible: false, dataLoss: 'none', // только осиротевшие после предыдущих фиксов ресурсы
       enabled: (o) => o.safe || o.join || o.compress, // финальная зачистка после safe/склейки/компрессии
@@ -346,7 +346,7 @@ export const RULES = [
       // ADVANCED: KTX2 требует KTX2Loader (Three.js) / поддержку basisu в движке —
       // работает не «везде», поэтому только явный opt-in (advancedFeatures:['ktx2'] / --ktx2).
       // normalizeOpts переводит выбор фичи в noKtx:false — enabled смотрит на итоговую опцию.
-      id: 'textures/ktx2', category: 'textures', title: 'Textures → KTX2/UASTC',
+      id: 'textures/ktx2', category: 'textures', title: 'Textures → KTX2/UASTC', titleKey: 'rule.texturesKtx2',
       severity: 'warn', fixSafety: 'perceptual', tier: 'advanced', feature: 'ktx2',
       runAfter: ['structure/prune-final'], touches: ['texture'],
       reversible: true, dataLoss: 'minor', // §4d: KTX2 ↔ PNG/WebP, потеря от BASIS-U распаковки
@@ -450,7 +450,7 @@ export const RULES = [
       // косвенно, через runAfter ['textures/ktx2'] — и только когда KTX2 включён.
       // Без KTX2 (обычный случай `['safe','draco']`) сжатие уезжало в первый проход,
       // и checkpoint фиксировался уже после него.
-      id: 'geometry/compress', category: 'geometry', title: 'Geometry compression',
+      id: 'geometry/compress', category: 'geometry', title: 'Geometry compression', titleKey: 'rule.geometryCompress',
       severity: 'info', fixSafety: 'numeric', tier: 'advanced', runAfter: ['textures/ktx2', 'structure/prune-final'], touches: ['geometry', 'accessor'],
       reversible: true, dataLoss: 'none', // §4d: Draco/Meshopt ↔ стандартный формат в пределах точности float32
       reversalNote: 'Compressed geometry unpacks back to the standard format without data loss.',

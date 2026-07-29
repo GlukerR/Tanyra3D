@@ -21,7 +21,7 @@ import { MeshoptDecoder, MeshoptEncoder } from 'meshoptimizer';
 // Общий словарь, а не внутренности движка: аддон не должен зависеть от того, кто его
 // вызывает (ARCH-001). core/contract.mjs не зависит ни от кого.
 import { AUTOFIX_MAX_TIER, ENGINE_META, compareBaseline } from '../../core/contract.mjs';
-import { register } from '../../core/i18n.mjs';
+import { register, render } from '../../core/i18n.mjs';
 import {
   BASELINE_METRICS, BASELINE_SOFT, MB, collectMetrics, baselineSnapshot,
 } from './metrics.mjs';
@@ -149,7 +149,10 @@ function stripInputCompression(doc) {
 // (compareBaseline). При любом level:'fail' движок не записывает .glb.
 async function validate({ ctx, before, after, glbBytes, src, result, advancedPlannedIds, addFound, log }) {
   const v = result.validation;
-  const vp = (level, text) => v.push({ level, text }); // md-отчёт рендерит ✅/ℹ/❌ из level
+  // vp — обёртка для записей валидации. Принимает либо messageId + data (рендерит через
+  // i18n), либо готовую строку (совместимость с compareBaseline и др.).
+  const locale = ctx.opts.locale;
+  const vp = (level, messageId, data = {}) => v.push({ level, text: render(messageId, data, locale) });
 
   // материалы резолвятся: ни один примитив не ссылается на удалённый материал
   let materialsOk = true;
@@ -161,68 +164,71 @@ async function validate({ ctx, before, after, glbBytes, src, result, advancedPla
   }
 
   // 1. геометрия на месте
-  if (before.triangles === 0) vp('info', 'no triangle geometry before or after');
-  else if (after.triangles > 0) vp('pass', 'geometry is present');
-  else vp('fail', 'GEOMETRY IS EMPTY — broken file!');
+  if (before.triangles === 0) vp('info', 'check.geometryEmpty');
+  else if (after.triangles > 0) vp('pass', 'check.geometryPresent');
+  else vp('fail', 'check.geometryBroken');
   // 2. треугольники не изменились (кроме вырожденных); окно отсчёта — как в v2 (до weld)
   const trianglesBase = ctx.cache.get('trianglesBeforeWeld') ?? before.triangles;
   const degenerateRemoved = ctx.cache.get('degenerateRemoved') ?? 0;
   const triangleDelta = trianglesBase - after.triangles;
-  if (triangleDelta === 0) vp('pass', 'triangle count unchanged');
-  else if (triangleDelta === degenerateRemoved) vp('info', `triangle count dropped by ${triangleDelta} — only degenerate ones (zero area), render is identical`);
-  else vp('fail', `triangle mismatch: expected ${trianglesBase - degenerateRemoved}, got ${after.triangles}`);
+  if (triangleDelta === 0) vp('pass', 'check.trianglesUnchanged');
+  else if (triangleDelta === degenerateRemoved) vp('info', 'check.trianglesDropped', { n: triangleDelta });
+  else vp('fail', 'check.trianglesMismatch', { expected: trianglesBase - degenerateRemoved, got: after.triangles });
   // 2b. BASELINE-CHECKPOINT — строгая сверка структуры со снимком после базового прохода (движок)
-  for (const line of compareBaseline(ctx.baselineMetrics, after, BASELINE_METRICS, { advancedPlannedIds, log, soft: BASELINE_SOFT })) v.push(line);
+  for (const line of compareBaseline(ctx.baselineMetrics, after, BASELINE_METRICS, { advancedPlannedIds, log, soft: BASELINE_SOFT })) {
+    // compareBaseline возвращает { level, messageId, data } — рендерим через vp
+    vp(line.level, line.messageId, line.data);
+  }
   // 3-5. анимации, скины, сцены
-  if (before.animations === after.animations) vp('pass', `animations: ${after.animations}`);
-  else vp('fail', `animations lost: was ${before.animations}, now ${after.animations}`);
-  if (before.skins === after.skins) vp('pass', `effective skins: ${after.skins}`);
-  else vp('fail', `skins lost: was ${before.skins}, now ${after.skins}`);
-  if (before.scenes === after.scenes) vp('pass', `scene hierarchy intact: ${after.scenes}`);
-  else vp('fail', `scenes lost: was ${before.scenes}, now ${after.scenes}`);
+  if (before.animations === after.animations) vp('pass', 'check.animationsPreserved', { n: after.animations });
+  else vp('fail', 'check.animationsLost', { before: before.animations, after: after.animations });
+  if (before.skins === after.skins) vp('pass', 'check.skinsPreserved', { n: after.skins });
+  else vp('fail', 'check.skinsLost', { before: before.skins, after: after.skins });
+  if (before.scenes === after.scenes) vp('pass', 'check.scenesPreserved', { n: after.scenes });
+  else vp('fail', 'check.scenesLost', { before: before.scenes, after: after.scenes });
   // 6. bounding box в пределах эпсилон (квантование кодека даёт микросдвиг — допуск 1% диагонали)
   if (before.bounds && after.bounds) {
     const diag = Math.hypot(...[0, 1, 2].map((i) => before.bounds.max[i] - before.bounds.min[i]));
     const eps = Math.max(1e-6, diag * 0.01);
     const ok = [0, 1, 2].every((i) =>
       Math.abs(before.bounds.min[i] - after.bounds.min[i]) <= eps && Math.abs(before.bounds.max[i] - after.bounds.max[i]) <= eps);
-    if (ok) vp('pass', 'bounding box within epsilon');
+    if (ok) vp('pass', 'check.boundsUnchanged');
     // @gltf-transform/core getBounds() не умеет EXT_mesh_gpu_instancing (не учитывает
     // per-instance трансформы) — после реального инстансинга даёт заведомо неверные
     // числа, хотя рендер не меняется. Не блокируем запись в этом единственном известном
     // случае — только информируем; иначе (без инстансинга) расхождение остаётся fail.
     else if (result.applied.some((a) => a.ruleId === 'scene/instance')) {
-      vp('info', 'bounding box check skipped after GPU instancing — getBounds() does not support EXT_mesh_gpu_instancing');
-    } else vp('fail', 'bounding box changed — model shifted or collapsed');
+      vp('info', 'check.boundsSkippedAfterInstance');
+    } else vp('fail', 'check.boundsChanged');
   } else {
-    vp('info', 'bounding box not computed (getBounds unavailable or no scene)');
+    vp('info', 'check.boundsNotComputed');
   }
   // 7. материалы
-  if (materialsOk) vp('pass', 'every material resolves');
-  else vp('fail', 'a primitive references a deleted material');
+  if (materialsOk) vp('pass', 'check.materialsResolve');
+  else vp('fail', 'check.materialsBroken');
   // 8. gltf-validator (Khronos)
   try {
     const validator = await import('gltf-validator');
     const res = await validator.validateBytes(new Uint8Array(glbBytes));
     const errs = res.issues.numErrors;
     if (errs === 0) {
-      vp('pass', 'gltf-validator (Khronos): 0 errors');
+      vp('pass', 'check.validatorZeroErrors');
     } else {
       // вход мог быть битым изначально — проверяем исходник и блокируем только НОВЫЕ ошибки
       const inRes = await validator.validateBytes(new Uint8Array(fs.readFileSync(src)));
       const inErrs = inRes.issues.numErrors;
       if (inErrs > 0) addFound(ENGINE_META.inputValidation, `the input file already has ${inErrs} gltf-validator errors (an export defect, not the optimization)`);
       if (errs <= inErrs) {
-        vp('info', `gltf-validator: ${errs} errors remain, inherited from the input (${inErrs} in the source) — optimization added none`);
+        vp('info', 'check.validatorErrorsRemain', { errs, inErrs });
         for (const m of res.issues.messages.filter((m) => m.severity === 0).slice(0, 3)) {
-          vp('info', `example: ${m.code} @ ${m.pointer || '—'}`);
+          vp('info', 'check.validatorExample', { code: m.code, pointer: m.pointer || '—' });
         }
       } else {
-        vp('fail', `gltf-validator: ${errs} errors (input had ${inErrs}) — optimization added new ones`);
+        vp('fail', 'check.validatorErrorsIncreased', { errs, inErrs });
       }
     }
   } catch {
-    vp('info', 'gltf-validator not installed — structural validation skipped');
+    vp('info', 'check.validatorSkipped');
   }
 }
 

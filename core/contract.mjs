@@ -34,7 +34,7 @@ export function compareBaseline(baseline, after, keys, { advancedPlannedIds = []
   }
   const broken = keys.filter((k) => after[k] !== baseline[k]);
   if (broken.length === 0) {
-    return [{ level: 'pass', text: `baseline-checkpoint: structure (${keys.join(', ')}) matches the checkpoint taken after the basic optimizations` }];
+    return [{ level: 'pass', messageId: 'check.baselineMatch', data: { keys: keys.join(', ') } }];
   }
   const cause = advancedPlannedIds.length
     ? `second-pass extensions (${advancedPlannedIds.join(', ')}) or file writing`
@@ -42,14 +42,12 @@ export function compareBaseline(baseline, after, keys, { advancedPlannedIds = []
   return broken.map((k) => (soft.has(k)
     ? {
       level: 'info',
-      text: `${k} changed during encoding (was ${baseline[k]} at checkpoint, now ${after[k]}) — `
-        + `the codec re-indexed/welded vertices (e.g. Draco calls weld before compression). `
-        + `Triangles and mesh topology are preserved; writing is not blocked. For animated models the strict keys (skins, animations) protect the structure.`,
+      messageId: 'check.baselineSoftMismatch',
+      data: { k, baseline: baseline[k], after: after[k] },
     }
     : {
       level: 'fail',
-      text: `Component guarantee violated: ${k} changed after the extensions (was ${baseline[k]} at checkpoint, now ${after[k]}). `
-        + `Per the components' official docs (ARCHITECTURE.md §0a) Draco/Meshopt/KTX2 do not change mesh structure. `
-        + `Likely cause: ${cause} — a library bug or incorrect component use. File NOT written.`,
+      messageId: 'check.baselineHardMismatch',
+      data: { k, baseline: baseline[k], after: after[k], cause },
     }));
 }

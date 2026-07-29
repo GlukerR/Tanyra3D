@@ -12,7 +12,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { render } from './i18n.mjs';
+import { register, render } from './i18n.mjs';
+import enCoreMessages from './messages/en.mjs';
+import ruCoreMessages from './messages/ru.mjs';
+
+// Каталоги ядра регистрируются при импорте движка.
+register('en', enCoreMessages);
+register('ru', ruCoreMessages);
+
 // Общий словарь движка и аддона (ARCH-001): политика автофикса, engine/*-находки,
 // сверка baseline-checkpoint. Аддон берёт их оттуда же, а не из движка — иначе
 // связь двусторонняя: движок зовёт аддон, аддон импортирует внутренности движка.
@@ -181,8 +188,9 @@ async function runFile(addon, src, dstName, o, result) {
         // Правила-бандлы без единого feature (например safe-чистка на много правил
         // одновременно) остаются тихими — как и раньше.
         if (rule.meta.feature) {
-          const reason = `feature "${rule.meta.feature}" is not enabled (advancedFeatures: ['${rule.meta.feature}'])`;
-          addSkipped(rule.meta, `${rule.meta.title} — ${reason}`, reason, 'disabled');
+          const reason = render('feature.notEnabled', { feature: rule.meta.feature }, locale);
+          const titleText = rule.meta.titleKey ? render(rule.meta.titleKey, {}, locale) : rule.meta.title;
+          addSkipped(rule.meta, `${titleText} — ${reason}`, reason, 'disabled');
         }
         continue;
       }
@@ -190,13 +198,15 @@ async function runFile(addon, src, dstName, o, result) {
       const decision = rule.canFix ? rule.canFix(finding, ctx) : { safe: true };
       if (!decision.safe) {
         const reason = decision.messageId ? render(decision.messageId, decision.data, locale) : (decision.reason || '');
-        addSkipped(rule.meta, `${rule.meta.title} — ${reason}`, reason, 'unsafe');
+        const titleText = rule.meta.titleKey ? render(rule.meta.titleKey, {}, locale) : rule.meta.title;
+        addSkipped(rule.meta, `${titleText} — ${reason}`, reason, 'unsafe');
         continue;
       }
       const tier = finding.fixSafety || rule.meta.fixSafety;
       if (TIER_RANK[tier] > TIER_RANK[AUTOFIX_MAX_TIER] && !decision.force) {
         const reason = `safety level "${tier}" is not applied automatically`;
-        addSkipped(rule.meta, `${rule.meta.title} — ${reason}`, reason, 'policy');
+        const titleText = rule.meta.titleKey ? render(rule.meta.titleKey, {}, locale) : rule.meta.title;
+        addSkipped(rule.meta, `${titleText} — ${reason}`, reason, 'policy');
         continue;
       }
       planned.push({ rule, finding });
@@ -207,8 +217,9 @@ async function runFile(addon, src, dstName, o, result) {
   // Фаза 3 одного прохода: ПРИМЕНЕНИЕ (по порядку, меняем рабочую копию)
   const applyPlanned = async (planned) => {
     for (const { rule, finding } of planned) {
-      progress({ type: 'rule', phase: 3, ruleId: rule.meta.id, title: rule.meta.title });
-      log(`      • ${rule.meta.title}`);
+      const titleText = rule.meta.titleKey ? render(rule.meta.titleKey, {}, locale) : rule.meta.title;
+      progress({ type: 'rule', phase: 3, ruleId: rule.meta.id, title: titleText });
+      log(`      • ${titleText}`);
       const res = (await rule.fix(finding, ctx)) || {};
       addFound(rule.meta, renderLines(res.found, locale));
       addSkipped(rule.meta, renderLines(res.skipped, locale));
