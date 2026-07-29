@@ -6,6 +6,9 @@
   'use strict';
 
   const $ = (id) => document.getElementById(id);
+  // Короткий доступ к каталогу строк (ui/i18n.js). Тексты интерфейса берутся ТОЛЬКО
+  // отсюда — иначе смена языка оставляет островки английского.
+  const t = (key, params) => window.I18n.t(key, params);
 
   const dropzone = $('dropzone');
   const fileInput = $('file-input');
@@ -107,6 +110,10 @@
   let lastBuildSignature = null;
   // Что найдено в исходнике (draco/meshopt/ktx2) — для авто-флажков [Source].
   let lastDetection = null;
+  // Последний отчёт держим целиком: смена языка перерисовывает панель из этих же данных,
+  // а не просит сервер собрать модель заново.
+  let lastResult = null;
+  let lastExplain = null;
   // Результат /api/inspect (metadata + validation) для ЛЕВОЙ колонки окон — исходная модель.
   let modelInspect = null;
   // То же самое для ПРАВОЙ колонки — собранная модель (/api/inspect-result после сборки).
@@ -143,7 +150,7 @@
     // и держать их открытыми значит показывать неверное как текущее.
     closeAllDetails();
     const feats = getSelectedFeatures();
-    logMessage('debug', 'Options: ' + (feats.length ? feats.join(', ') : 'none'));
+    logMessage('debug', t('log.options', { list: feats.length ? feats.join(', ') : t('log.none') }));
   }
 
   // Состояние кнопки запуска. Всё — opt-in: без выбранного флажка оптимизировать нечего,
@@ -152,13 +159,13 @@
   function updateRunButtonState() {
     if (!selectedFile || getSelectedFeatures().length === 0) {
       runBtn.disabled = true;
-      runBtn.title = !selectedFile ? '' : 'Select an optimization to build';
+      runBtn.title = !selectedFile ? '' : t('btn.pickOption');
       return;
     }
     if (lastBuildSignature === null) { runBtn.disabled = false; runBtn.removeAttribute('title'); return; }
     const unchanged = currentSettingsSignature() === lastBuildSignature;
     runBtn.disabled = unchanged;
-    if (unchanged) runBtn.title = 'Change a setting to rebuild';
+    if (unchanged) runBtn.title = t('btn.changeSetting');
     else runBtn.removeAttribute('title');
   }
 
@@ -184,14 +191,16 @@
     return p < 0 ? `−${Math.abs(p)}%` : `+${p}%`;
   }
 
-  const CATEGORY_LABELS = {
-    geometry: 'Geometry',
-    textures: 'Textures',
-    materials: 'Materials',
-    uv: 'UV layout',
-    attributes: 'Attributes',
-    scene: 'Scene',
-    performance: 'Performance',
+  // Категория находки → ключ каталога. Именно ключ, а не готовая строка: таблица
+  // строится один раз при загрузке, а язык может смениться позже.
+  const CATEGORY_KEYS = {
+    geometry: 'cat.geometry',
+    textures: 'cat.textures',
+    materials: 'cat.materials',
+    uv: 'cat.uv',
+    attributes: 'cat.attributes',
+    scene: 'cat.scene',
+    performance: 'cat.performance',
   };
 
   const VALIDATION_ICON = { pass: '✓', info: 'i', fail: '✕' };
@@ -231,7 +240,7 @@
     updatePlatformDescription();
     await loadExtensions(platformSelect.value);
     updateRunButtonState();
-    logMessage('info', 'Target platform: ' + platformSelect.value);
+    logMessage('info', t('log.platform', { id: platformSelect.value }));
   });
 
   // ---------------------------------------------------------------
@@ -244,26 +253,26 @@
   // подключить декодер на целевом сайте (пометка ⚠); остальное (Join/Safe/Remove colors)
   // работает на голом three.js.
   const OPT_GROUPS = [
-    { title: 'Cleanup', kind: 'checks', ids: ['safe', 'strip-colors'] },
-    { title: 'Structural', kind: 'checks', ids: ['join', 'instance'] },
-    { title: 'Geometry', kind: 'geometry' },
-    { title: 'Textures', kind: 'checks', ids: ['ktx2'] },
-    { title: 'Animation', kind: 'checks', ids: ['resample'] },
+    { titleKey: 'group.cleanup', kind: 'checks', ids: ['safe', 'strip-colors'] },
+    { titleKey: 'group.structural', kind: 'checks', ids: ['join', 'instance'] },
+    { titleKey: 'group.geometry', kind: 'geometry' },
+    { titleKey: 'group.textures', kind: 'checks', ids: ['ktx2'] },
+    { titleKey: 'group.animation', kind: 'checks', ids: ['resample'] },
   ];
   const NEEDS_DECODER = new Set(['meshopt', 'draco', 'ktx2', 'instance']);
   // ⚠ — не документация, а требование к разработчику (нужно подключить декодер на сайте).
   // 📖 остаётся отдельным значком «пояснение, как это работает» — их нельзя путать.
   // Текст — что именно установить, отдельно на каждую технологию (не один и тот же текст
   // под всеми значками): разработчик должен понять, ЧТО конкретно подключить.
-  const DECODER_NOTES = {
-    meshopt: 'Install the Meshopt decoder on the target site/engine.',
-    draco: 'Install the Draco decoder on the target site/engine.',
-    ktx2: 'Install a KTX2 (Basis Universal) transcoder on the target site/engine.',
-    instance: 'Target site/engine must support EXT_mesh_gpu_instancing.',
+  const DECODER_KEYS = {
+    meshopt: 'decoder.meshopt',
+    draco: 'decoder.draco',
+    ktx2: 'decoder.ktx2',
+    instance: 'decoder.instance',
   };
   // Общий смысл значка — для легенды панели (сама легенда не заменяет конкретный текст
   // на каждом значке, только объясняет, что вообще значит ⚠).
-  const DECODER_NOTE = 'Marks options that need extra decoder/engine support to display correctly';
+  const DECODER_NOTE_KEY = 'decoder.legend';
 
   async function loadExtensions(platformId) {
     extensions = [];
@@ -323,7 +332,7 @@
     const w = document.createElement('span');
     w.className = 'ext-decoder-warn';
     w.textContent = '⚠';
-    const note = (id && DECODER_NOTES[id]) || DECODER_NOTE;
+    const note = t((id && DECODER_KEYS[id]) || DECODER_NOTE_KEY);
     w.title = note;
     w.setAttribute('aria-label', note);
     return w;
@@ -361,7 +370,7 @@
       if (ext.impact) {
         const p = document.createElement('p');
         p.className = 'ext-impact';
-        p.textContent = `Impact: ${ext.impact}`;
+        p.textContent = t('ext.impact', { text: ext.impact });
         tip.appendChild(p);
       }
       return tip.childNodes.length > 0;
@@ -427,7 +436,7 @@
     btn.type = 'button';
     btn.className = 'ext-info-btn';
     btn.textContent = '📖';
-    btn.setAttribute('aria-label', `Details: ${ext.title || ext.id}`);
+    btn.setAttribute('aria-label', t('ext.details', { name: ext.title || ext.id }));
     btn.addEventListener('mouseenter', () => infoTip.showDelayed(btn, ext));
     btn.addEventListener('mouseleave', () => infoTip.hide());
     btn.addEventListener('focus', () => infoTip.showNow(btn, ext));
@@ -446,7 +455,7 @@
   // его (checkbox, не radio — только radio-группа не даёт снять выбор повторным кликом).
   function renderGeometryGroup(byId) {
     if (!byId.meshopt && !byId.draco) return null;
-    const sec = optSection('Geometry');
+    const sec = optSection(t('group.geometry'));
     const opts = [
       byId.meshopt && { v: 'meshopt', ext: byId.meshopt, label: byId.meshopt.title },
       byId.draco && { v: 'draco', ext: byId.draco, label: byId.draco.title },
@@ -493,7 +502,7 @@
   function renderCheckGroup(group, byId) {
     const items = group.ids.map((id) => byId[id]).filter(Boolean);
     if (!items.length) return null;
-    const sec = optSection(group.title);
+    const sec = optSection(t(group.titleKey));
     for (const ext of items) sec.appendChild(buildExtensionRow(ext));
     return sec;
   }
@@ -533,7 +542,11 @@
       const mode = document.createElement('details');
       mode.className = 'ktx2-mode hidden';
       const summary = document.createElement('summary');
-      summary.innerHTML = 'Mode: <span class="ktx2-mode-current">UASTC</span>';
+      summary.textContent = `${t('ktx2.mode')} `;
+      const modeCurrent = document.createElement('span');
+      modeCurrent.className = 'ktx2-mode-current';
+      modeCurrent.textContent = 'UASTC';
+      summary.appendChild(modeCurrent);
       mode.appendChild(summary);
       const modeOpts = [
         { v: 'uastc', label: 'UASTC (Recommended)', short: 'UASTC' },
@@ -552,7 +565,7 @@
           summary.querySelector('.ktx2-mode-current').textContent = o.short;
           updateRunButtonState();
           rememberSelection(); // режим KTX2 — тоже часть выбора платформы
-          logMessage('debug', 'KTX2 mode: ' + o.short);
+          logMessage('debug', t('log.ktx2mode', { mode: o.short }));
         });
         optLabel.appendChild(radio);
         optLabel.appendChild(document.createTextNode(' ' + o.label));
@@ -594,8 +607,8 @@
   async function handleFile(file) {
     if (!file) return;
     if (!/\.glb$/i.test(file.name)) {
-      chosenFileLabel.textContent = 'Only .glb is supported for now';
-      logMessage('warn', `Rejected "${file.name}" — only .glb is supported for now`);
+      chosenFileLabel.textContent = t('dropzone.rejected');
+      logMessage('warn', t('log.rejected', { name: file.name }));
       selectedFile = null;
       runBtn.disabled = true;
       return;
@@ -603,7 +616,7 @@
     selectedFile = file;
     chosenFileLabel.textContent = '';
     runBtn.disabled = false;
-    logMessage('info', `Model loaded: ${file.name} (${fmtBytes(file.size)})`);
+    logMessage('info', t('log.loaded', { name: file.name, size: fmtBytes(file.size) }));
     renderModelList(file);
     if (stageHint) stageHint.classList.add('hidden');
     // Новый файл → сбросить прежний результат и серверный исходник (будет перезалит).
@@ -615,7 +628,7 @@
       // Определяем, что уже сжато в исходнике → авто-включаем флажки с бейджем [Source].
       lastDetection = (info && info.detected) || null;
       const found = Object.keys(lastDetection || {}).filter((k) => lastDetection[k]);
-      if (found.length) logMessage('info', 'Compression found in source: ' + found.join(', '));
+      if (found.length) logMessage('info', t('log.foundCompression', { list: found.join(', ') }));
       applyDetection();
     }
     // Инспекция на сервере (metadata + validation) + регистрация исходника, чтобы
@@ -638,7 +651,7 @@
       // его данные устаревшим ответом.
       if (selectedFile !== file) return;
       if (!res.ok) {
-        logMessage('warn', `Inspection failed (${res.status}) — Metadata and Validation are unavailable`);
+        logMessage('warn', t('log.inspectFailed', { status: res.status }));
         return;
       }
       const data = await res.json();
@@ -650,11 +663,11 @@
       updateInspectButtons();
       const n = (data.validation || []).filter((m) => !m.explainedBy).length;
       logMessage('info', n
-        ? `Source inspected — ${n} validation issue${n === 1 ? '' : 's'}`
-        : 'Source inspected — no validation issues');
+        ? t('log.sourceInspected', { n })
+        : t('log.sourceInspected', { n: 0 }));
     } catch (e) {
       // инспекция недоступна — кнопки выключены, сборка всё равно работает
-      logMessage('warn', 'Inspection unavailable: ' + e.message);
+      logMessage('warn', t('log.inspectUnavailable', { error: e.message }));
     }
   }
 
@@ -683,7 +696,7 @@
       const res = await fetch(downloadUrl.replace('/api/download', '/api/inspect-result'));
       if (token !== runToken) return;
       if (!res.ok) {
-        logMessage('warn', `Could not inspect the optimized model (${res.status})`);
+        logMessage('warn', t('log.resultInspectFailed', { status: res.status }));
         return;
       }
       const data = await res.json();
@@ -694,10 +707,10 @@
       if (!validationWindow.classList.contains('hidden')) renderValidationWindow();
       const n = (data.validation || []).filter((m) => !m.explainedBy).length;
       logMessage('info', n
-        ? `Optimized model inspected — ${n} validation issue${n === 1 ? '' : 's'}`
-        : 'Optimized model inspected — no validation issues');
+        ? t('log.resultInspected', { n })
+        : t('log.resultInspected', { n: 0 }));
     } catch (e) {
-      logMessage('warn', 'Could not inspect the optimized model: ' + e.message);
+      logMessage('warn', t('log.resultInspectError', { error: e.message }));
     }
   }
 
@@ -794,8 +807,8 @@
     const anchor = container.querySelector(anchorSel) || container;
     const badge = document.createElement('span');
     badge.className = 'ext-source-badge';
-    badge.textContent = 'Source';
-    badge.title = 'This technology was already used in the imported model';
+    badge.textContent = t('ext.source');
+    badge.title = t('ext.source.title');
     anchor.appendChild(badge);
   }
 
@@ -818,6 +831,8 @@
   // Сбросить всё, что относится к предыдущему результату оптимизации (при загрузке
   // новой модели). Саму загруженную модель и вьюпорты не трогает.
   function clearResults() {
+    lastResult = null;
+    lastExplain = null;
     currentSourceId = null;
     lastBuildSignature = null; // новая модель ещё не собиралась — первая сборка разрешена
     resultInspect = null; // окна инспекции снова показывают только исходник
@@ -828,7 +843,7 @@
     exportWindow.classList.add('hidden');
     irreversibleWarning.classList.add('hidden');
     failBanner.classList.add('hidden');
-    runBtn.textContent = 'Build Optimized Model';
+    runBtn.textContent = t('btn.build');
     // Правый HUD пуст до сборки; левый заполняется базовыми данными модели в handleFile.
     statsAfter.innerHTML = '';
     deltaBadge.textContent = '';
@@ -886,10 +901,10 @@
 
   function onProgressEvent(e) {
     if (e.type === 'phase') {
-      setPhase(`Phase ${e.phase}: ${e.name}`, 'busy');
+      setPhase(t('status.phase', { n: e.phase, name: e.name }), 'busy');
       logMessage('debug', `Phase ${e.phase}: ${e.name}`);
     } else if (e.type === 'rule') {
-      setPhase(`Rule: ${e.title}`, 'busy');
+      setPhase(t('status.rule', { title: e.title }), 'busy');
       logMessage('debug', `Rule: ${e.title}`);
     }
   }
@@ -935,9 +950,12 @@
     if (!selectedFile) return;
 
     runBtn.disabled = true;
-    setPhase(currentSourceId ? 'Optimizing…' : 'Uploading file…', 'busy');
+    setPhase(currentSourceId ? t('status.optimizing') : t('status.uploading'), 'busy');
     const feats = getSelectedFeatures();
-    logMessage('info', `Build started — platform ${platformSelect.value}, options: ${feats.join(', ') || 'none'}`);
+    logMessage('info', t('log.buildStarted', {
+      platform: platformSelect.value,
+      options: feats.join(', ') || t('log.none'),
+    }));
 
     const jobId = (window.crypto && window.crypto.randomUUID)
       ? window.crypto.randomUUID()
@@ -962,24 +980,24 @@
       const data = await res.json();
 
       if (!res.ok) {
-        showGenericError(data && data.error ? data.error : `The server responded with an error (${res.status}).`);
+        showGenericError(data && data.error ? data.error : t('log.serverError', { status: res.status }));
         return;
       }
 
       renderResult(data);
     } catch (e) {
       if (es) es.close();
-      showGenericError('Could not reach the server: ' + e.message);
+      showGenericError(t('log.noServer', { error: e.message }));
     } finally {
       updateRunButtonState();
     }
   }
 
   function showGenericError(message) {
-    setPhase('Error', 'fail');
+    setPhase(t('status.error'), 'fail');
     logMessage('error', message);
     showWindow(failBanner);
-    failBanner.querySelector('.fail-title').textContent = 'Could not process the file';
+    failBanner.querySelector('.fail-title').textContent = t('fail.generic');
     failBanner.querySelector('.fail-text').textContent = message;
     failValidation.innerHTML = '';
     // Кнопку не прячем; прогон не удался — разрешаем повтор даже с теми же настройками.
@@ -990,6 +1008,18 @@
   // ---------------------------------------------------------------
   // Рендер результата
   // ---------------------------------------------------------------
+
+  function renderReport(result, explain) {
+    lastResult = result;
+    lastExplain = explain;
+    renderComparison(result.metrics);
+    renderSummary(explain);
+    renderValidation(result.validation);
+    renderIssues(result.findings, result.applied);
+    renderBudgets(explain && explain.budgetChecks);
+    renderWarnings(explain && explain.warnings);
+    renderAppliedSkipped(result.applied, result.skipped);
+  }
 
   function renderResult(data) {
     const { result, explain, downloadUrl } = data;
@@ -1003,31 +1033,28 @@
       return;
     }
 
-    setPhase('Ready', null);
+    setPhase(t('status.ready'), null);
     failBanner.classList.add('hidden');
 
     // Применённые правила — раньше итога, чтобы в свёрнутой панели логов (она показывает
     // последнее сообщение) оставался итог сборки, а не случайное последнее правило.
-    for (const a of result.applied || []) logMessage('debug', 'Applied: ' + a.text);
+    for (const a of result.applied || []) logMessage('debug', t('log.applied', { text: a.text }));
     const m = result.metrics;
     if (m && m.before && m.after) {
-      logMessage('info', `Build finished — ${fmtBytes(m.before.fileBytes)} → ${fmtBytes(m.after.fileBytes)}`
-        + ` (${pctText(m.before.fileBytes, m.after.fileBytes)})`);
+      logMessage('info', t('log.buildFinishedSize', {
+        before: fmtBytes(m.before.fileBytes),
+        after: fmtBytes(m.after.fileBytes),
+        pct: pctText(m.before.fileBytes, m.after.fileBytes),
+      }));
     } else {
-      logMessage('info', 'Build finished');
+      logMessage('info', t('log.buildFinished'));
     }
 
-    renderComparison(result.metrics);
-    renderSummary(explain);
-    renderValidation(result.validation);
-    renderIssues(result.findings, result.applied);
-    renderBudgets(explain && explain.budgetChecks);
-    renderWarnings(explain && explain.warnings);
-    renderAppliedSkipped(result.applied, result.skipped);
+    renderReport(result, explain);
 
     // Кнопку не прячем — можно менять флажки и пересобирать результат сколько угодно раз.
     // Запоминаем настройки этой сборки: пока их не изменят, пересборка неактивна.
-    runBtn.textContent = 'Rebuild with New Settings';
+    runBtn.textContent = t('btn.rebuild');
     lastBuildSignature = currentSettingsSignature();
 
     // Результат перезаписывается на сервере при каждом прогоне → анти-кэш в URL,
@@ -1067,12 +1094,12 @@
   }
 
   function renderFail(result, explain) {
-    setPhase('File failed validation', 'fail');
-    logMessage('error', 'File not written — the model failed the integrity check.');
+    setPhase(t('status.failed'), 'fail');
+    logMessage('error', t('log.notWritten'));
     showWindow(failBanner);
-    failBanner.querySelector('.fail-title').textContent = 'File not written';
+    failBanner.querySelector('.fail-title').textContent = t('fail.notWritten');
     failBanner.querySelector('.fail-text').textContent =
-      (explain && explain.summary) || 'The model failed the integrity check — the source file is untouched.';
+      (explain && explain.summary) || t('fail.text');
 
     failValidation.innerHTML = '';
     const items = (result && result.validation) || [];
@@ -1183,10 +1210,10 @@
       card.className = 'issue-card sev-error issue-card--lossy';
       const title = document.createElement('p');
       title.className = 'issue-title';
-      title.textContent = `Irreversible changes (${lossyLines.length})`;
+      title.textContent = t('issues.irreversible', { n: lossyLines.length });
       const hint = document.createElement('p');
       hint.className = 'issue-text';
-      hint.textContent = 'This data cannot be restored from the result — keep the source file.';
+      hint.textContent = t('issues.irreversible.hint');
       const ul = document.createElement('ul');
       ul.className = 'issue-sublist';
       for (const text of lossyLines) {
@@ -1218,7 +1245,7 @@
 
         const title = document.createElement('p');
         title.className = 'issue-title';
-        title.textContent = CATEGORY_LABELS[b.category] || b.category || 'Finding';
+        title.textContent = CATEGORY_KEYS[b.category] ? t(CATEGORY_KEYS[b.category]) : (b.category || t('cat.other'));
 
         const text = document.createElement('p');
         text.className = 'issue-text';
@@ -1492,7 +1519,7 @@
     logsCount.textContent = String(logs.length);
     logsBar.classList.toggle('has-error', logs.some((l) => l.level === 'error'));
     const last = logs[logs.length - 1];
-    logsLast.textContent = last ? last.text : 'no messages';
+    logsLast.textContent = last ? last.text : t('logs.none');
     logsLast.title = last ? last.text : '';
   }
 
@@ -1501,7 +1528,7 @@
     if (!logs.length) {
       const p = document.createElement('p');
       p.className = 'meta-empty';
-      p.textContent = 'No log messages yet.';
+      p.textContent = t('logs.empty');
       logsBody.appendChild(p);
       return;
     }
@@ -1566,7 +1593,10 @@
     a.click();
     a.remove();
     exportWindow.classList.add('hidden');
-    logMessage('info', `Exported ${fileName} (${fmt === EXPORT_FORMATS.json ? 'glTF JSON' : 'GLB'})`);
+    logMessage('info', t('log.exported', {
+      name: fileName,
+      format: fmt === EXPORT_FORMATS.json ? 'glTF JSON' : 'GLB',
+    }));
   });
 
   logsClear.addEventListener('click', () => {
@@ -1577,12 +1607,17 @@
 
   updateLogsBar();
 
-  // Легенда ⚠ — построена один раз тем же decoderWarning(), что и значки в списке опций,
-  // чтобы значение символа было визуально узнаваемо одним и тем же элементом.
-  if (decoderLegend) {
+  // Легенда ⚠ — строится тем же decoderWarning(), что и значки в списке опций, чтобы
+  // значение символа было визуально узнаваемо одним и тем же элементом. Пересобирается
+  // целиком: текст в ней переводится, дописать перевод к готовому узлу нельзя.
+  function renderDecoderLegend() {
+    if (!decoderLegend) return;
+    decoderLegend.innerHTML = '';
     decoderLegend.appendChild(decoderWarning());
-    decoderLegend.appendChild(document.createTextNode(' ' + DECODER_NOTE + '.'));
+    decoderLegend.appendChild(document.createTextNode(' ' + t(DECODER_NOTE_KEY) + '.'));
   }
+
+  renderDecoderLegend();
 
   setupWindow(failBanner);
   setupWindow(metadataWindow);
@@ -1603,7 +1638,7 @@
   // Окна Metadata / Validation (данные из /api/inspect: fns.inspect + gltf-validator)
   // ---------------------------------------------------------------
 
-  const SEVERITY = { 0: 'Error', 1: 'Warning', 2: 'Info', 3: 'Hint' };
+  const severityName = (code) => t(`sev.${code}`);
 
   function fmtCell(v) {
     if (v == null) return '';
@@ -1665,9 +1700,9 @@
   function splitPanes(buildPane) {
     const wrap = document.createElement('div');
     wrap.className = 'window-split';
-    wrap.appendChild(inspectColumn('Original', modelInspect, buildPane, 'No model loaded yet.'));
-    wrap.appendChild(inspectColumn('Optimized', resultInspect, buildPane,
-      'No optimized model yet — run a build to compare.'));
+    wrap.appendChild(inspectColumn(t('inspect.original'), modelInspect, buildPane, t('inspect.noModel')));
+    wrap.appendChild(inspectColumn(t('inspect.optimized'), resultInspect, buildPane,
+      t('inspect.noResult')));
     return wrap;
   }
 
@@ -1719,7 +1754,7 @@
     if (!sections.length) {
       const p = document.createElement('p');
       p.className = 'meta-empty';
-      p.textContent = 'No scene contents reported.';
+      p.textContent = t('inspect.noScene');
       col.appendChild(p);
     }
   }
@@ -1728,7 +1763,7 @@
     const rows = issues.map((m) => ({
       code: m.code,
       message: m.message,
-      severity: SEVERITY[m.severity] || String(m.severity),
+      severity: severityName(m.severity),
       pointer: m.pointer || '',
     }));
     const scroll = document.createElement('div');
@@ -1766,7 +1801,7 @@
     } else {
       const p = document.createElement('p');
       p.className = 'meta-empty';
-      p.textContent = 'No validation issues — the file is clean.';
+      p.textContent = t('inspect.clean');
       col.appendChild(p);
     }
     if (explained.length) col.appendChild(explainedGroup(explained));
@@ -1941,7 +1976,7 @@
       animPlayBtn.classList.toggle('is-on', playing);
       animPlayBtn.setAttribute('aria-pressed', String(playing));
       animPlayBtn.textContent = playing ? '⏸' : '▶';
-      animPlayBtn.title = playing ? 'Pause animation' : 'Play animation';
+      animPlayBtn.title = t(playing ? 'vp.pause' : 'vp.play');
       animPlayBtn.setAttribute('aria-label', animPlayBtn.title);
       if (window.OptiViewer) window.OptiViewer.setAnimationPlaying(playing);
     });
@@ -1995,6 +2030,45 @@
   }
 
   // ---------------------------------------------------------------
+  // Язык интерфейса
+  //
+  // Кнопки строятся по списку каталогов, а не зашиты: добавить язык = добавить файл
+  // каталога и строку <script> в index.html, этот код не трогается.
+  // ---------------------------------------------------------------
+
+  function renderLangSwitch() {
+    const box = $('lang-switch');
+    if (!box) return;
+    box.innerHTML = '';
+    for (const code of window.I18n.languages()) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'lang-btn' + (code === window.I18n.lang ? ' is-on' : '');
+      btn.textContent = code.toUpperCase();
+      btn.title = window.I18n.t('lang.name');
+      btn.setAttribute('aria-pressed', String(code === window.I18n.lang));
+      btn.addEventListener('click', () => window.I18n.setLang(code));
+      box.appendChild(btn);
+    }
+  }
+
+  // Статику переводит сам i18n по атрибутам; всё, что нарисовано из JS, надо
+  // перерисовать — оно осталось на прежнем языке.
+  window.I18n.onChange(() => {
+    renderLangSwitch();
+    updateRunButtonState();
+    updateLogsBar();
+    renderDecoderLegend();
+    if (!logsWindow.classList.contains('hidden')) renderLogsWindow();
+    loadExtensions(platformSelect.value);
+    if (lastResult) renderReport(lastResult, lastExplain);
+    if (!validationWindow.classList.contains('hidden')) renderValidationWindow();
+    if (!metadataWindow.classList.contains('hidden')) renderMetadataWindow();
+    logMessage('debug', t('log.langChanged', { name: t('lang.name') }));
+  });
+
+  window.I18n.apply();
+  renderLangSwitch();
 
   loadPlatforms();
 })();

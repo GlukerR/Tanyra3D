@@ -20,6 +20,9 @@
 
 <header class="topbar">
   <span class="brand">Tanyra3D</span>
+  <!-- Переключатель языка. Пока приложение — одна страница, отдельное меню ему не нужно;
+       когда появится строка меню File/View/Help, переедет в неё. -->
+  <div class="lang-switch" id="lang-switch" role="group" aria-label="Language"></div>
 </header>
 
 <main class="workspace">
@@ -28,30 +31,30 @@
   <aside class="outliner">
     <div class="outliner-head">
       <div>
-        <h2 class="outliner-title">Models</h2>
-        <p class="outliner-sub">GLB optimizer</p>
+        <h2 class="outliner-title" data-i18n="outliner.models">Models</h2>
+        <p class="outliner-sub" data-i18n="outliner.sub">GLB optimizer</p>
       </div>
-      <button id="choose-file-btn" class="icon-btn" title="Add a model" aria-label="Add a model">+</button>
+      <button id="choose-file-btn" class="icon-btn" data-i18n-title="outliner.add" data-i18n-aria="outliner.add" title="Add a model" aria-label="Add a model">+</button>
     </div>
     <!-- Инспекция ассета: окна Metadata / Validation (как на gltf.report) -->
     <div class="outliner-tools">
-      <button id="btn-metadata" class="outliner-tool" data-window-trigger disabled title="Asset metadata (scenes, meshes, materials…)">⊞ Metadata</button>
-      <button id="btn-validation" class="outliner-tool" data-window-trigger disabled title="Khronos glTF validation report">✓ Validation</button>
+      <button id="btn-metadata" class="outliner-tool" data-window-trigger disabled data-i18n="outliner.metadata" data-i18n-title="outliner.metadata.title" title="Asset metadata (scenes, meshes, materials…)">⊞ Metadata</button>
+      <button id="btn-validation" class="outliner-tool" data-window-trigger disabled data-i18n="outliner.validation" data-i18n-title="outliner.validation.title" title="Khronos glTF validation report">✓ Validation</button>
     </div>
     <div class="outliner-body">
       <div id="dropzone" class="dropzone">
         <input type="file" id="file-input" accept=".glb" hidden>
         <div class="dropzone-icon">⤓</div>
-        <p class="dropzone-title">Drop a 3D model here</p>
-        <p class="dropzone-sub">or click + · .glb for now</p>
+        <p class="dropzone-title" data-i18n="dropzone.title">Drop a 3D model here</p>
+        <p class="dropzone-sub" data-i18n="dropzone.sub">or click + · .glb for now</p>
       </div>
       <p id="chosen-file" class="chosen-file"></p>
       <ul id="model-list" class="model-list"></ul>
     </div>
     <!-- Логи внизу сайдбара: ошибки уходят сюда; клик разворачивает окно логов -->
-    <button id="logs-bar" class="outliner-logs" data-window-trigger title="Open logs">
-      <span class="outliner-logs-label">Logs</span>
-      <span id="logs-last" class="outliner-logs-last">no messages</span>
+    <button id="logs-bar" class="outliner-logs" data-window-trigger data-i18n-title="logs.open" title="Open logs">
+      <span class="outliner-logs-label" data-i18n="logs.label">Logs</span>
+      <span id="logs-last" class="outliner-logs-last" data-i18n="logs.none">no messages</span>
       <span id="logs-count" class="outliner-logs-count">0</span>
     </button>
   </aside>
@@ -65,7 +68,7 @@
       <div class="vp-pane" id="preview-original">
         <canvas class="viewer-canvas"></canvas>
         <header class="vp-hud vp-hud-left">
-          <span class="vp-label">ORIGINAL MESH</span>
+          <span class="vp-label" data-i18n="vp.original">ORIGINAL MESH</span>
           <div class="vp-stats" id="stats-before"></div>
         </header>
         <div class="viewer-status hidden"></div>
@@ -73,7 +76,7 @@
 
       <!-- Draggable divider -->
       <div id="viewport-splitter" class="viewport-splitter" role="separator"
-           aria-orientation="vertical" title="Drag to resize">
+           aria-orientation="vertical" data-i18n-title="vp.splitter" title="Drag to resize">
         <span class="splitter-grip"></span>
       </div>
 
@@ -81,7 +84,7 @@
       <div class="vp-pane" id="preview-optimized">
         <canvas class="viewer-canvas"></canvas>
         <header class="vp-hud vp-hud-right">
-          <span class="vp-label accent">OPTIMIZED MESH</span>
+          <span class="vp-label accent" data-i18n="vp.optimized">OPTIMIZED MESH</span>
           <span id="delta-badge" class="delta-badge"></span>
           <div class="vp-stats" id="stats-after"></div>
         </header>
@@ -92,15 +95,15 @@
 
     <!-- Viewport controls (bottom center) -->
     <div class="vp-toolbar">
-      <button id="reset-view-btn" class="vp-tool" title="Reset view" aria-label="Reset view">⤢</button>
-      <button id="link-toggle-btn" class="vp-tool is-on" title="Link cameras" aria-pressed="true" aria-label="Link cameras">⇄</button>
+      <button id="reset-view-btn" class="vp-tool" data-i18n-title="vp.reset" data-i18n-aria="vp.reset" title="Reset view" aria-label="Reset view">⤢</button>
+      <button id="link-toggle-btn" class="vp-tool is-on" data-i18n-title="vp.link" data-i18n-aria="vp.link" title="Link cameras" aria-pressed="true" aria-label="Link cameras">⇄</button>
 
       <!-- Экспозиция. Всегда доступна: пересвеченная модель встречается чаще, чем
            анимированная, и рассмотреть её иначе нельзя. Одна на оба вьюпорта —
            разная яркость слева и справа читалась бы как разница обработки. -->
       <span class="vp-sep" aria-hidden="true"></span>
-      <span class="vp-ctl-label" title="Exposure">☀</span>
-      <input id="exposure-slider" class="vp-slider" type="range" min="10" max="300" value="100" step="5" aria-label="Exposure">
+      <span class="vp-ctl-label" data-i18n-title="vp.exposure" title="Exposure">☀</span>
+      <input id="exposure-slider" class="vp-slider" type="range" min="10" max="300" value="100" step="5" data-i18n-aria="vp.exposure" aria-label="Exposure">
       <span id="exposure-value" class="vp-ctl-value">1.0</span>
 
       <!-- Анимация. Скрыта целиком, пока в модели нет клипов: пустой проигрыватель
@@ -109,24 +112,24 @@
       <div id="anim-controls" class="vp-anim hidden">
         <span class="vp-sep" aria-hidden="true"></span>
         <button id="anim-play-btn" class="vp-tool is-on" title="Pause animation" aria-label="Pause animation" aria-pressed="true">⏸</button>
-        <select id="anim-clip" class="vp-anim-clip" aria-label="Animation clip"></select>
-        <input id="anim-seek" class="vp-slider" type="range" min="0" max="1000" value="0" step="1" aria-label="Animation time">
+        <select id="anim-clip" class="vp-anim-clip" data-i18n-aria="vp.clip" aria-label="Animation clip"></select>
+        <input id="anim-seek" class="vp-slider" type="range" min="0" max="1000" value="0" step="1" data-i18n-aria="vp.time" aria-label="Animation time">
         <span id="anim-time" class="vp-ctl-value">0.0s</span>
       </div>
     </div>
 
     <!-- Empty-stage hint (shown until a model is loaded) -->
-    <div id="stage-hint" class="stage-hint">Load a .glb from the left panel to preview it here</div>
+    <div id="stage-hint" class="stage-hint" data-i18n="stage.hint">Load a .glb from the left panel to preview it here</div>
 
     <!-- Окно ошибки — закрываемое (×) и перетаскиваемое за заголовок.
          Базовый паттерн `.window` для всех будущих окон (ошибки/диалоги). -->
     <div id="fail-banner" class="window window--error fail-banner hidden" role="dialog" aria-label="Error">
       <div class="window-titlebar">
-        <span class="window-title fail-title">File not written</span>
-        <button type="button" class="window-close" aria-label="Close">×</button>
+        <span class="window-title fail-title" data-i18n="fail.notWritten">File not written</span>
+        <button type="button" class="window-close" data-i18n-aria="win.close" aria-label="Close">×</button>
       </div>
       <div class="window-body">
-        <p class="fail-text">The model failed the integrity check — the source file is untouched.</p>
+        <p class="fail-text" data-i18n="fail.text">The model failed the integrity check — the source file is untouched.</p>
         <div id="fail-validation" class="fail-validation"></div>
       </div>
     </div>
@@ -135,25 +138,25 @@
          ширину, поверх вьюпортов; закрываемые/перетаскиваемые (паттерн .window). -->
     <div id="metadata-window" class="window window--wide window--glass hidden" role="dialog" aria-label="Metadata">
       <div class="window-titlebar">
-        <span class="window-title">Metadata</span>
-        <button type="button" class="window-close" aria-label="Close">×</button>
+        <span class="window-title" data-i18n="win.metadata">Metadata</span>
+        <button type="button" class="window-close" data-i18n-aria="win.close" aria-label="Close">×</button>
       </div>
       <div class="window-body window-scroll" id="metadata-body"></div>
     </div>
 
     <div id="validation-window" class="window window--wide window--glass hidden" role="dialog" aria-label="Validation">
       <div class="window-titlebar">
-        <span class="window-title">Validation</span>
-        <button type="button" class="window-close" aria-label="Close">×</button>
+        <span class="window-title" data-i18n="win.validation">Validation</span>
+        <button type="button" class="window-close" data-i18n-aria="win.close" aria-label="Close">×</button>
       </div>
       <div class="window-body window-scroll" id="validation-body"></div>
     </div>
 
     <div id="logs-window" class="window window--wide window--glass hidden" role="dialog" aria-label="Logs">
       <div class="window-titlebar">
-        <span class="window-title">Logs</span>
-        <button type="button" id="logs-clear" class="window-action">Clear</button>
-        <button type="button" class="window-close" aria-label="Close">×</button>
+        <span class="window-title" data-i18n="win.logs">Logs</span>
+        <button type="button" id="logs-clear" class="window-action" data-i18n="logs.clear">Clear</button>
+        <button type="button" class="window-close" data-i18n-aria="win.close" aria-label="Close">×</button>
       </div>
       <div class="window-body window-scroll" id="logs-body"></div>
     </div>
@@ -162,21 +165,21 @@
          Новые экспортёры добавляются пунктами радио, интерфейс не меняется. -->
     <div id="export-window" class="window window--glass hidden" role="dialog" aria-label="Export result">
       <div class="window-titlebar">
-        <span class="window-title">Export result</span>
-        <button type="button" class="window-close" aria-label="Close">×</button>
+        <span class="window-title" data-i18n="win.export">Export result</span>
+        <button type="button" class="window-close" data-i18n-aria="win.close" aria-label="Close">×</button>
       </div>
       <div class="window-body">
         <label class="export-field">
-          <span class="export-label">File name</span>
+          <span class="export-label" data-i18n="export.name">File name</span>
           <input type="text" id="export-name" class="export-name" autocomplete="off" spellcheck="false">
         </label>
         <div class="export-field">
-          <span class="export-label">Format</span>
-          <label class="export-format"><input type="radio" name="export-format" value="glb" checked> <b>GLB</b> — single binary, ready for the web</label>
-          <label class="export-format"><input type="radio" name="export-format" value="json"> <b>glTF JSON</b> — self-contained .gltf with embedded data</label>
+          <span class="export-label" data-i18n="export.format">Format</span>
+          <label class="export-format"><input type="radio" name="export-format" value="glb" checked> <span data-i18n-html="export.glb"><b>GLB</b> — single binary, ready for the web</span></label>
+          <label class="export-format"><input type="radio" name="export-format" value="json"> <span data-i18n-html="export.json"><b>glTF JSON</b> — self-contained .gltf with embedded data</span></label>
         </div>
-        <p class="export-hint">Saves to your browser's downloads folder.</p>
-        <button type="button" id="export-save" class="btn-primary">Save</button>
+        <p class="export-hint" data-i18n="export.hint">Saves to your browser's downloads folder.</p>
+        <button type="button" id="export-save" class="btn-primary" data-i18n="export.save">Save</button>
       </div>
     </div>
 
@@ -187,7 +190,7 @@
     <div class="inspector-scroll">
 
       <div class="inspector-section">
-        <label class="section-label">Platform</label>
+        <label class="section-label" data-i18n="insp.platform">Platform</label>
         <div class="select-wrap">
           <select id="platform-select"></select>
         </div>
@@ -195,7 +198,7 @@
       </div>
 
       <div class="inspector-section extensions hidden" id="extensions-panel">
-        <label class="section-label">Advanced options</label>
+        <label class="section-label" data-i18n="insp.advanced">Advanced options</label>
         <!-- Легенда для значка ⚠ (не документация — требование к разработчику). Один раз
              для всей панели: значок встречается в Structural/Geometry/Textures. Содержимое
              и видимость управляются из app.js (decoderWarning() задаёт тот же ⚠). -->
@@ -204,7 +207,7 @@
       </div>
 
       <div class="inspector-section hidden" id="summary-section">
-        <label class="section-label">Summary</label>
+        <label class="section-label" data-i18n="insp.summary">Summary</label>
         <p id="summary-text" class="summary-text"></p>
         <ul id="highlights-list" class="highlights-list"></ul>
       </div>
@@ -221,39 +224,39 @@
 
       <div class="inspector-section hidden" id="validation-section">
         <details class="report-accordion">
-          <summary class="section-label collapsible-summary">Integrity check <span id="validation-count"></span></summary>
+          <summary class="section-label collapsible-summary"><span data-i18n="insp.integrity">Integrity check</span> <span id="validation-count"></span></summary>
           <ul id="validation-list" class="detail-list"></ul>
         </details>
       </div>
 
       <div class="inspector-section hidden" id="analysis-section">
         <div class="section-head">
-          <label class="section-label">Analysis</label>
+          <label class="section-label" data-i18n="insp.analysis">Analysis</label>
           <span id="issues-count" class="issues-badge"></span>
         </div>
         <div id="issues-list" class="issues-list"></div>
       </div>
 
       <div class="inspector-section hidden" id="budgets-section">
-        <label class="section-label">Budget check</label>
+        <label class="section-label" data-i18n="insp.budget">Budget check</label>
         <div id="budgets-list" class="budgets-list"></div>
       </div>
 
       <div class="inspector-section hidden" id="warnings-section">
-        <label class="section-label">Warnings</label>
+        <label class="section-label" data-i18n="insp.warnings">Warnings</label>
         <ul id="warnings-list" class="warnings-list"></ul>
       </div>
 
       <div class="inspector-section hidden" id="applied-section">
         <details class="report-accordion">
-          <summary class="section-label collapsible-summary">What was done <span id="applied-count"></span></summary>
+          <summary class="section-label collapsible-summary"><span data-i18n="insp.done">What was done</span> <span id="applied-count"></span></summary>
           <ul id="applied-list" class="detail-list"></ul>
         </details>
       </div>
 
       <div class="inspector-section hidden" id="skipped-section">
         <details class="report-accordion">
-          <summary class="section-label collapsible-summary">What was skipped <span id="skipped-count"></span></summary>
+          <summary class="section-label collapsible-summary"><span data-i18n="insp.skipped">What was skipped</span> <span id="skipped-count"></span></summary>
           <ul id="skipped-list" class="detail-list"></ul>
         </details>
       </div>
@@ -266,11 +269,11 @@
            НЕ выводится — он в «Анализе», иначе закреплённый блок разрастался и
            закрывал панель. -->
       <div id="irreversible-warning" class="irreversible-warning hidden">
-        <p class="irreversible-title">Irreversible changes applied</p>
-        <p class="irreversible-text">Keep the source file — this data cannot be restored from the result. See Analysis for the list.</p>
+        <p class="irreversible-title" data-i18n="insp.irreversible.title">Irreversible changes applied</p>
+        <p class="irreversible-text" data-i18n="insp.irreversible.text">Keep the source file — this data cannot be restored from the result. See Analysis for the list.</p>
       </div>
-      <button id="run-btn" class="btn-primary" disabled>Build Optimized Model</button>
-      <button id="download-btn" class="btn-primary btn-download hidden" data-window-trigger>DOWNLOAD RESULT</button>
+      <button id="run-btn" class="btn-primary" data-i18n="btn.build" disabled>Build Optimized Model</button>
+      <button id="download-btn" class="btn-primary btn-download hidden" data-i18n="btn.download" data-window-trigger>DOWNLOAD RESULT</button>
     </div>
   </aside>
 
@@ -279,7 +282,7 @@
 <footer class="statusbar">
   <div class="statusbar-left">
     <span id="status-dot" class="status-dot"></span>
-    <span id="phase-status">Ready</span>
+    <span id="phase-status" data-i18n="status.ready">Ready</span>
   </div>
   <div class="statusbar-right">
     <span id="version-label"></span>
@@ -287,6 +290,11 @@
 </footer>
 
 <script type="module" src="/viewer/index.js"></script>
+<!-- Каталоги — до i18n.js (он читает их при старте), i18n.js — до app.js (тот переводит
+     разметку первым же действием). Новый язык = ещё один файл и ещё одна строка здесь. -->
+<script src="/locales/en.js"></script>
+<script src="/locales/ru.js"></script>
+<script src="/i18n.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>
