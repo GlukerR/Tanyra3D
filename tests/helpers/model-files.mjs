@@ -57,8 +57,9 @@ export function isPresent(name) {
  *   describeLocal('parkergirl.glb', 'parkergirl — heavy morphs', () => { ... })
  */
 export function describeLocal(modelName, describeName, fn) {
-  return (isPresent(modelName) ? describe : describe.skip)(
-    `${describeName} [model=${modelName} ${isPresent(modelName) ? 'present' : 'missing locally — skipped'}]`,
+  const present = isPresent(modelName);
+  return (present ? describe : describe.skip)(
+    `${describeName} [model=${modelName} ${present ? 'present' : 'missing locally — skipped'}]`,
     fn,
   );
 }

@@ -24,17 +24,15 @@
 
 import { describe, it, expect } from 'vitest';
 import { optimizeFile, listRules, VERSION } from '../optimize2.mjs';
-import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, '..');
-
-function modelPath(name) {
-  return path.resolve(PROJECT_ROOT, 'fixtures/models', name);
-}
+import {
+  REPO_MODELS,
+  modelPath,
+  eachModel,
+  describeLocal,
+} from './helpers/model-files.mjs';
 
 // Все 24 модели золотого корпуса, попадающие в параметризованные проверки.
 // Linked Duplicates Grid 01 и Orphan Texture Cube 01 — отдельные блоки ниже.
@@ -110,74 +108,20 @@ const APPLY_ON_PASSTHROUGH = new Set([
 // `it` / `it.skip`. Параметризация eachModel: для REPO — только `it`;
 // для LOCAL — `it` если файл есть, иначе `it.skip` с осмысленным именем.
 
-const REPO_MODELS = new Set([
-  'Dirty Cube 01.glb',
-  'Instance Grid 01.glb',
-  'Morph Cube 01.glb',
-  'Vertex Colors 01.glb',
-  'Draco Compressed Input 01.glb',
-  'Meshopt Compressed Input 01.glb',
-  'Linked Duplicates Grid 01.glb',
-  'Orphan Texture Cube 01.glb',
-  'Preinstanced Grid 01.glb',
-  'Truncated Broken 01.glb',
-]);
-
-const LOCAL_ONLY_MODELS = new Set([
-  // 16 Khronos-эталонов (CC-BY / проприетарные — тяжёлые, не коммитятся)
-  'ABeautifulGame.glb',
-  'AnimationPointerUVs.glb',
-  'AnisotropyBarnLamp.glb',
-  'CarConcept.glb',
-  'ChronographWatch.glb',
-  'CommercialRefrigerator.glb',
-  'DiffuseTransmissionPlant.glb',
-  'DiffuseTransmissionTeacup.glb',
-  'IridescenceLamp.glb',
-  'IridescentDishWithOlives.glb',
-  'MosquitoInAmber.glb',
-  'PotOfCoalsAnimationPointer.glb',
-  'SheenWoodLeatherSofa.glb',
-  'SpecularSilkPouf.glb',
-  'SunglassesKhronos.glb',
-  'ToyCar.glb',
-  // 2 доп. локальных (модели Александра — тоже CC-BY лицензии или подобное)
-  'Cthulhu Stone 01.glb',
-  'Lilith Character 01.glb',
-  // 2 CC-BY-4.0 персонажа (см. fixtures/models/*license.md)
-  'chibi_zenitsu.glb',
-  'parkergirl.glb',
-  // 3 клиентские модели: тяжёлые текстуры, EXT_texture_webp; не в git
-  'Е300.glb',
-  'r 250.glb',
-  'L-330.glb',
-]);
-
-// Fail-fast на этапе загрузки модуля: REPO-модели обязан быть.
-for (const m of REPO_MODELS) {
-  if (!fs.existsSync(modelPath(m))) {
-    throw new Error(
-      `Golden Corpus: отсутствует коммитимая fixtures/models/${m}. После ` +
-      `git clone все 10 моделей из fixtures/.gitignore (!models/...) должны ` +
-      `быть на диске. Если файл потерян — git checkout fixtures/models/${m}.`,
-    );
-  }
-}
-
-// eachModel: для модели в REPO всегда `it`; для LOCAL — `it` если файл есть,
-// иначе `it.skip` с осмысленным маркером. Не используем vitest it.skipIf —
-// он на массиве массивов схлопывает имена (зафиксировано в
-// tests/gap-005-regression.test.mjs, см. комментарий перед PRESERVE_MODES).
-function eachModel(prefix, models, body, timeout) {
-  for (const m of models) {
-    const pth = modelPath(m);
-    if (REPO_MODELS.has(m) || fs.existsSync(pth)) {
-      it(`${m} — ${prefix}`, () => body(m), timeout);
-    } else {
-      it.skip(`${m} — ${prefix} [skipped: ${m} missing locally]`, () => {}, timeout);
-    }
-  }
-}
+// eachModel импортирован из tests/helpers/model-files.mjs — единый source of
+// truth для REPO_MODELS и поведения skip-vs-run. Локальный дубль удалён по
+// ревью (code-reviewer-minimax-m3, раунд 3, замечание #3).
+//
+// Деление на REPO (10 коммитимых) и LOCAL (у автора, в git его нет):
+//   - REPO — в tests/helpers/model-files.mjs, проверяется через smoke-блок
+//     «Golden Corpus — REPO fixtures are committed» ниже. Каждая репо-модель
+//     даёт свою expect(fs.existsSync). Если хоть одна отсутствует —
+//     vitest-отчёт укажет конкретное имя, без «failed to load suite».
+//   - LOCAL — 16 Khronos-эталонов (CC-BY / проприетарные), 2 крупные
+//     модели Александра (Cthulhu Stone 01, Lilith Character 01), 2 CC-BY-4.0
+//     персонажа (chibi_zenitsu, parkergirl), 3 клиентские (Е300, r 250, L-330).
+//     Для них eachModel создаёт `it.skip` с маркером [skipped: ...], чтобы
+//     `npx vitest run` после свежего `git clone` был зелёным.
 
 // Helper-фильтр для describe с safe / safe+join: исключает KHR_animation_pointer и known-failing.
 // Используется во всех 3 safe-using describe вместо повторного .filter(...).
@@ -192,6 +136,18 @@ const SAFE_RULE_IDS = new Set(
     .filter((r) => r.tier === 'basic' || r.feature === 'safe')
     .map((r) => r.id),
 );
+
+// ---------- SMOKE: REPO-модели реально лежат в fixtures/models/ ----------
+// Заменяет fail-fast throw на module-load (code-reviewer-minimax-m3, раунд 3,
+// замечание #2). Теперь пропавший REPO-файл = отдельный провальный `it`
+// с конкретным именем, а не «suite failed to load».
+describe('Golden Corpus — REPO fixtures are committed', () => {
+  for (const m of REPO_MODELS) {
+    it(`${m} — присутствует в fixtures/models/`, () => {
+      expect(fs.existsSync(modelPath(m))).toBe(true);
+    });
+  }
+});
 
 // Проверка: все sidecar-файлы лицензий существуют
 describe('Golden Corpus — license sidecars', () => {
@@ -706,7 +662,7 @@ describe('Golden Corpus — Morph Cube 01: morph targets survive', () => {
 // 4. Cthulhu Stone 01.glb — скиннинг + анимации (skin damage не видно по метрикам)
 // ============================================================================
 
-(fs.existsSync(modelPath('Cthulhu Stone 01.glb')) ? describe : describe.skip)('Golden Corpus — Cthulhu Stone 01: skins + animations preserved', () => {
+describeLocal('Cthulhu Stone 01.glb', 'Golden Corpus — Cthulhu Stone 01: skins + animations preserved', () => {
   const TIMEOUT = 30000; // модель 18 МБ, нужен буфер
 
   it('safe: скин и анимации сохранены по количеству', async () => {
@@ -739,7 +695,7 @@ describe('Golden Corpus — Morph Cube 01: morph targets survive', () => {
 // 5. Lilith Character 01.glb — три клипа анимации
 // ============================================================================
 
-(fs.existsSync(modelPath('Lilith Character 01.glb')) ? describe : describe.skip)('Golden Corpus — Lilith Character 01: three named animations + 1 skin', () => {
+describeLocal('Lilith Character 01.glb', 'Golden Corpus — Lilith Character 01: three named animations + 1 skin', () => {
   const TIMEOUT = 30000;
 
   // Расчётное время прогонов с большим количеством нод (281); safe с weld/orphan
