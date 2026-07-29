@@ -16,4 +16,16 @@ export default {
 
   // --- engine-level messages ---
   'feature.notEnabled': ({ feature }) => `возможность "${feature}" не включена (advancedFeatures: ['${feature}'])`,
+
+  // --- input compression ---
+  'engine.inputCompression.found': ({ codecs }) => `входная геометрия уже сжата (${codecs}) — распакована при загрузке`,
+  'engine.inputCompression.reencode': ({ codec }) => `перекодировано с нуля (${codec}), без двойного сжатия или скрытой переупаковки`,
+  'engine.inputCompression.noCompress': () => 'геометрия экспортирована без сжатия (опция сжатия не выбрана)',
+  'engine.inputCompression.applied': ({ codecs, note }) => `Входное сжатие снято: ${codecs} — ${note}`,
+
+  // --- input validation ---
+  'engine.inputValidation.found': ({ n }) => `во входном файле уже ${n} ошибок gltf-validator (дефект экспорта, а не оптимизации)`,
+
+  // --- policy ---
+  'engine.policy.safetyLevel': ({ tier }) => `уровень безопасности "${tier}" не применяется автоматически`,
 };

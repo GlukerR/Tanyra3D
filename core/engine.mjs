@@ -140,11 +140,12 @@ async function runFile(addon, src, dstName, o, result) {
   // Граничный случай из ARCHITECTURE.md §6: «Draco vs Meshopt already present — не стекировать».
   const strippedCodecs = addon.stripInputCompression(ctx.document);
   if (strippedCodecs.length) {
-    addFound(ENGINE_META.inputCompression, `input geometry is already compressed (${strippedCodecs.join(', ')}) — decompressed on load`);
+    const codecs = strippedCodecs.join(', ');
+    addFound(ENGINE_META.inputCompression, render('engine.inputCompression.found', { codecs }, locale));
     const reencodeNote = o.compress
-      ? `re-encoded from scratch (${o.codec}), no double compression or hidden re-packing`
-      : 'geometry exported uncompressed (no geometry compression option selected)';
-    addApplied(ENGINE_META.inputCompression, `Removed input compression ${strippedCodecs.join(', ')} — ${reencodeNote}`);
+      ? render('engine.inputCompression.reencode', { codec: o.codec }, locale)
+      : render('engine.inputCompression.noCompress', {}, locale);
+    addApplied(ENGINE_META.inputCompression, render('engine.inputCompression.applied', { codecs, note: reencodeNote }, locale));
   }
 
   // ==========================================================================
@@ -204,7 +205,7 @@ async function runFile(addon, src, dstName, o, result) {
       }
       const tier = finding.fixSafety || rule.meta.fixSafety;
       if (TIER_RANK[tier] > TIER_RANK[AUTOFIX_MAX_TIER] && !decision.force) {
-        const reason = `safety level "${tier}" is not applied automatically`;
+        const reason = render('engine.policy.safetyLevel', { tier }, locale);
         const titleText = rule.meta.titleKey ? render(rule.meta.titleKey, {}, locale) : rule.meta.title;
         addSkipped(rule.meta, `${titleText} — ${reason}`, reason, 'policy');
         continue;

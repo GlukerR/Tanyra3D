@@ -18,4 +18,16 @@ export default {
 
   // --- engine-level messages ---
   'feature.notEnabled': ({ feature }) => `feature "${feature}" is not enabled (advancedFeatures: ['${feature}'])`,
+
+  // --- input compression ---
+  'engine.inputCompression.found': ({ codecs }) => `input geometry is already compressed (${codecs}) — decompressed on load`,
+  'engine.inputCompression.reencode': ({ codec }) => `re-encoded from scratch (${codec}), no double compression or hidden re-packing`,
+  'engine.inputCompression.noCompress': () => 'geometry exported uncompressed (no geometry compression option selected)',
+  'engine.inputCompression.applied': ({ codecs, note }) => `Removed input compression ${codecs} — ${note}`,
+
+  // --- input validation ---
+  'engine.inputValidation.found': ({ n }) => `the input file already has ${n} gltf-validator errors (an export defect, not the optimization)`,
+
+  // --- policy ---
+  'engine.policy.safetyLevel': ({ tier }) => `safety level "${tier}" is not applied automatically`,
 };
