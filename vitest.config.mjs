@@ -86,6 +86,10 @@ export default defineConfig({
           name: 'browser',
           include: ['tests/**/*.browser.test.mjs'],
           setupFiles: ['tests/browser-setup.mjs'],
+          // globalSetup — smoke-гейт: golden-corpus существует и не пуст,
+          // fixtures на месте. Мягче node-гейта (нет сравнения с baseline),
+          // но предотвращает зелёный бейдж на пустом наборе.
+          globalSetup: ['tests/browser-baseline.setup.mjs'],
           testTimeout: 120_000,
           hookTimeout: 120_000,
           browser: {
