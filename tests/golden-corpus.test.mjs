@@ -246,6 +246,19 @@ describe('Golden Corpus — safe cleanup preserves structure', () => {
     },
 
   );
+
+  // Отдельный тест для Unlinked Duplicates 01: модель не в GOLDEN_MODELS, поэтому
+  // общий параметризованный прогон выше её не покрывает. Safe не должен валить
+  // валидацию на геометрии без нормалей — это главный риск этой модели.
+  it('Unlinked Duplicates 01.glb — safe не валит валидацию на геометрии без нормалей', async () => {
+    const result = await optimizeFile(modelPath('Unlinked Duplicates 01.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.file.written).toBe(false);
+    expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
+  });
 });
 
 // ---------- ПРОГОН ПО ВСЕМ МОДЕЛЯМ: core invariant (triangles preserved) ----------
