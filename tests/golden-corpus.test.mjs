@@ -1141,6 +1141,26 @@ describe('Golden Corpus — Unlinked Duplicates 01: identical geometry without n
     expect(result.status).toBe('ok');
     expect(result.metrics.after.nodes).toBe(6);
   });
+
+  // ----------------------------------------------------------
+  // Отсутствие NORMAL не валит пайплайн ни в одном режиме
+  // ----------------------------------------------------------
+
+  it('отсутствие NORMAL не валит пайплайн: status ok + validation без fail во всех режимах', async () => {
+    // Единственная модель корпуса без нормалей — код, который наивно предполагает
+    // наличие NORMAL, споткнётся именно здесь. Проверяем все комбинации флагов,
+    // включая draco (не тестируется отдельно для этой модели):
+    //   [] ['safe'] ['instance'] ['safe','instance'] ['safe','join'] ['safe','draco']
+    for (const flags of [[], ['safe'], ['instance'], ['safe', 'instance'], ['safe', 'join'], ['safe', 'draco']]) {
+      const result = await optimizeFile(modelPath('Unlinked Duplicates 01.glb'), {
+        advancedFeatures: flags,
+        dryRun: true,
+      });
+      expect(result.status).toBe('ok');
+      // Падение = fail в validation. Предупреждения (warn / info) допустимы.
+      expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
+    }
+  });
 });
 
 // ============================================================================
