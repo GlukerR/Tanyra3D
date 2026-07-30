@@ -19,6 +19,7 @@ import path from 'node:path';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const analyseScript = path.resolve(__dirname, 'analyse-test-coverage.mjs');
 const BASELINE_ITS = 228;
+const BASELINE_FLAG_COMBOS = 7;
 
 export function setup() {
   let data;
@@ -56,6 +57,18 @@ export function setup() {
   if (uncovered.length) {
     failures.push(
       `Models with zero coverage: ${uncovered.map(([m]) => m).join(', ')}`,
+    );
+  }
+
+  // Уникальные комбинации флагов — если падает, кто-то переименовал
+  // или удалил правило, не обновив корпус.
+  const uniqFlagCombos = new Set(
+    (data.flagCombinations || []).map((fc) => JSON.stringify(fc.flags)),
+  );
+  if (uniqFlagCombos.size < BASELINE_FLAG_COMBOS) {
+    failures.push(
+      `Unique flag combos ${uniqFlagCombos.size} < baseline ${BASELINE_FLAG_COMBOS}. ` +
+      `A rule may have been renamed or removed.`,
     );
   }
 

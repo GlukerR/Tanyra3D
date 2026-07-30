@@ -18,6 +18,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const analyseScript = path.resolve(__dirname, 'analyse-test-coverage.mjs');
 
 const BASELINE_ITS = 228; // минимальное ожидаемое число тестов
+const BASELINE_FLAG_COMBOS = 7; // минимальное число уникальных комбинаций флагов
 
 describe('Golden Corpus — baseline (analyse-test-coverage)', () => {
   let data;
@@ -58,5 +59,12 @@ describe('Golden Corpus — baseline (analyse-test-coverage)', () => {
     // Допустимые пропуски: gltf-validator (1), потенциальные будущие
     // интеграционные проверки. Жёсткий лимит — 5.
     expect(data.skippedIts).toBeLessThanOrEqual(5);
+  });
+
+  it(`уникальных комбинаций флагов не менее ${BASELINE_FLAG_COMBOS} (правила не переименовывали и не удаляли)`, () => {
+    const uniq = new Set(
+      (data.flagCombinations || []).map((fc) => JSON.stringify(fc.flags)),
+    );
+    expect(uniq.size).toBeGreaterThanOrEqual(BASELINE_FLAG_COMBOS);
   });
 });
