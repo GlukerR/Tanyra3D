@@ -273,16 +273,25 @@ async function runFile(addon, src, dstName, o, result) {
   // passthrough (0 флажков, чистый вход) applied закономерно пуст — «нечего чинить» не
   // значит «не нужно записывать файл»: --none/--passthrough — легитимный запрошенный режим
   // (в т.ч. конвертация .gltf → .glb без изменений), должен отдавать реальный файл, а не
-  // молчаливое «not written». Единственная причина не писать — провал валидации (или dry-run).
+  // молчаливое «not written».
+  //
+  // 2026-07-30, решение Александра: провал проверки целостности тоже больше НЕ отменяет
+  // запись. Раньше пайплайн решал за человека — «результат мне не нравится, файла не
+  // будет», — и на выходе не оставалось ничего, даже посмотреть, насколько всё плохо.
+  // Отказ должен быть громким, а не запирающим: статус остаётся `fail`, проверка
+  // по-прежнему красная, но файл на диске есть и его можно выгрузить, если человека
+  // расхождение устраивает. Единственная причина не писать теперь — dry-run.
   progress({ type: 'phase', phase: 5, name: 'report' });
   log('    phase 5/5 · report');
-  const writeAsset = !o.dryRun && validationOk;
+  const writeAsset = !o.dryRun;
   if (writeAsset) fs.writeFileSync(dst, glb);
   const reportName = addon.writeReport({ name: dstName, result, before, after, assetWritten: writeAsset, opts: o });
 
   result.file.written = writeAsset;
   result.file.reportPath = path.join(o.outDir, reportName);
   result.metrics = { before, after };
-  result.status = validationOk ? 'ok' : 'fail'; // fail = валидация не прошла, .glb не записан
+  // fail = проверка целостности не прошла. Файл при этом записан (см. выше) — статус
+  // говорит о доверии к результату, а не о наличии файла. Наличие — result.file.written.
+  result.status = validationOk ? 'ok' : 'fail';
   return result;
 }

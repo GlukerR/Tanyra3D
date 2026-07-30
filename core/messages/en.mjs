@@ -14,7 +14,8 @@ export default {
   'check.baselineHardMismatch': ({ k, baseline, after, cause }) =>
     `Component guarantee violated: ${k} changed after the extensions (was ${baseline} at checkpoint, now ${after}). `
     + "Per the components' official docs (ARCHITECTURE.md §0a) Draco/Meshopt/KTX2 do not change mesh structure. "
-    + `Likely cause: ${cause} — a library bug or incorrect component use. File NOT written.`,
+    + `Likely cause: ${cause} — a library bug or incorrect component use. `
+    + 'The file was written, but do not trust it as an exact copy of the source geometry — check the result visually before shipping it.',
 
   // --- engine-level messages ---
   'feature.notEnabled': ({ feature }) => `feature "${feature}" is not enabled (advancedFeatures: ['${feature}'])`,
