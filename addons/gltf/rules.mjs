@@ -24,6 +24,67 @@ import { render } from '../../core/i18n.mjs';
 import { collectMetrics, countTriangles, effectiveSkins, listSemantics } from './metrics.mjs';
 import { GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 
+// Текстура «цветная» (данные в sRGB), если так сказала сама модель — ребро графа
+// помечено isColor, — ИЛИ если имя слота содержит color/emissive.
+//
+// Второй признак нужен потому, что расширения объявляют isColor не всегда:
+// KHR_materials_diffuse_transmission не помечает им `diffuseTransmissionColorTexture`,
+// а это настоящая цветная карта.
+//
+// А вот проверять «имя содержит diffuse», как это делает getTextureColorSpace() из
+// @gltf-transform/functions (SRGB_PATTERN = /color|emissive|diffuse/i), нельзя:
+// `diffuseTransmissionTexture` — скалярный коэффициент пропускания, линейный по
+// спецификации расширения. Из-за одного слова «diffuse» в имени он утягивал в sRGB
+// всю карту, а в этой модели тем же изображением служат ещё occlusion и
+// metallicRoughness. Результат — AO и шероховатость, декодированные как sRGB:
+// на глаз модель темнее оригинала.
+const COLOR_SLOT_RE = /color|emissive/i;
+
+function isColorTexture(tex, listSlots) {
+  const declared = tex.getGraph().listParentEdges(tex).some((e) => e.getAttributes().isColor);
+  return declared || COLOR_SLOT_RE.test(listSlots(tex).join(' '));
+}
+
+// KTX2: сместить transfer function на линейную у текстур, которые цветными не являются.
+//
+// Кодировщик получает цветовое пространство от gltf-transform CLI и записывает его в
+// DFD (Data Format Descriptor) готового файла. Пиксели при этом НЕ пересчитываются:
+// toktx вызывается с --assign-oetf, то есть проставляет ярлык. Поэтому исправить
+// достаточно ярлык — перекодировать нечего.
+//
+// Раскладка KTX2 (спецификация Khronos, §3.1 и §3.9): по смещению 48 лежит
+// dfdByteOffset; в самом DFD после dfdTotalSize (u32) и двух служебных u32 идут
+// colorModel, colorPrimaries, transferFunction, flags — по байту.
+const KTX2_DFD_OFFSET_POS = 48;
+const KHR_DF_PRIMARIES_UNSPECIFIED = 0;
+const KHR_DF_TRANSFER_LINEAR = 1;
+const KHR_DF_TRANSFER_SRGB = 2;
+
+function relabelDataTextures(document, functions, out) {
+  const relabeled = [];
+  for (const tex of document.getRoot().listTextures()) {
+    if (tex.getMimeType() !== 'image/ktx2') continue;
+    if (isColorTexture(tex, functions.listTextureSlots)) continue;
+
+    const image = tex.getImage();
+    if (!image || image.byteLength < KTX2_DFD_OFFSET_POS + 4) continue;
+    const buf = new Uint8Array(image); // копия: правим не чужой буфер
+    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+    const dfd = view.getUint32(KTX2_DFD_OFFSET_POS, true);
+    const transferPos = dfd + 14;
+    if (!dfd || transferPos >= buf.length) continue;
+    if (buf[transferPos] !== KHR_DF_TRANSFER_SRGB) continue;
+
+    buf[transferPos] = KHR_DF_TRANSFER_LINEAR;
+    buf[dfd + 13] = KHR_DF_PRIMARIES_UNSPECIFIED; // первичные цвета к линейным данным неприменимы
+    tex.setImage(buf);
+    relabeled.push(tex.getName() || functions.listTextureSlots(tex).join('+') || '—');
+  }
+  if (relabeled.length) {
+    out.details.push({ messageId: 'ktx2.relabeled', data: { n: relabeled.length, list: relabeled.join(', ') } });
+  }
+}
+
 // Порядок пайплайна ЖЁСТКИЙ и выверен в v2 (кодируется через runAfter):
 // dedup → prune → vertex-colors → weld → degenerate → orphan → (flatten+join)
 // → prune → ktx2 → geometry-compress. Не менять.
@@ -423,6 +484,7 @@ export const RULES = [
           cur = tmpB;
         }
         ctx.document = await ctx.io.read(cur); // дальше пайплайн работает с KTX2-версией
+        relabelDataTextures(ctx.document, fns, out);
       } finally {
         // каталог целиком — вместе с тем, что мог дописать сам toktx
         try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* занят — подчистит ОС */ }

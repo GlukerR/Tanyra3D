@@ -70,13 +70,14 @@ export default {
   // не именуют текстуры, поэтому тринадцать одинаковых строк вида `Texture "—": …`
   // не сообщали ничего, кроме своего количества.
   'ktx2.done.toPng': ({ n, from }) => `${n} texture${n === 1 ? '' : 's'} converted ${from} → PNG (lossless, required by toktx)`,
-  'ktx2.found': ({ n }) => `textures not in KTX2: ${n}`,
+  'ktx2.found': ({ n }) => `${n} incoming texture${n === 1 ? ' was' : 's were'} not KTX2 — these are the ones being encoded`,
   // Список имён — только если имена есть. Раньше печаталось `(5: —, —, —, —, —)`:
   // пять прочерков вместо имён, потому что текстуры безымянные. Читателю это
   // сообщало ровно ничего, а строку удлиняло вдвое.
   'ktx2.done.color': ({ n, list }) => `${n} color texture${n === 1 ? '' : 's'} → KTX2/ETC1S, quality 255${list ? ` (${list})` : ''} — compact in file and in VRAM`,
   'ktx2.done.data': ({ n, list }) => `${n} data texture${n === 1 ? '' : 's'} → KTX2/UASTC --level 2 --zstd 18${list ? ` (${list})` : ''} — normals/ORM without ETC1S artifacts`,
   'ktx2.done.uastc': ({ n }) => `Textures → KTX2/UASTC: ${n} (--level 2 --zstd 18, no RDO; --uastc mode)`,
+  'ktx2.relabeled': ({ n, list }) => `${n} data texture${n === 1 ? '' : 's'} relabeled to linear (${list}) — the encoder marked them sRGB, which darkens occlusion/roughness at render time`,
   'ktx2.log.skipped': () => '        all textures are already KTX2 or absent — encoding skipped',
   'ktx2.log.encoding': ({ n, mixed }) => `        KTX2 encoding (${n}, mode ${mixed ? 'mixed: ETC1S+UASTC' : 'uastc'})`,
 
