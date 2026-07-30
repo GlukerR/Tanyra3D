@@ -26,6 +26,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Браузерные тесты (viewer-regression.browser.test.mjs) требуют Chromium
+      # через @vitest/browser + playwright. --with-deps ставит системные библиотеки
+      # для отрисовки (libGL, libEGL и т.д.) на ubuntu-latest.
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
       # Весь набор, а не один файл. tests/optimize.test.mjs обёрнут в
       # describeIfModels(['CarConcept.glb']), а CarConcept — модель Khronos, в
       # репозиторий она не коммитится. На CI файла нет → набор пропускается →
@@ -36,6 +42,10 @@ jobs:
       # исключения в fixtures/.gitignore). Тесты на локальные модели помечаются
       # skipped с указанием причины — это видно в логе, а не растворяется.
       # Проверено на чистом состоянии: 316 passed, 230 skipped, 0 failed.
+      #
+      # Браузерные тесты (browser-проект) запускаются вместе с node — конфиг
+      # vitest настроен на projects, и `npx vitest run` гоняет все проекты.
+      # Скриншоты падений сохраняются в tests/__screenshots__/.
       - name: Run tests
         run: npx vitest run --reporter=default --reporter=json --outputFile=vitest-report.json
 
@@ -51,3 +61,14 @@ jobs:
             echo "::error::Выполнено всего $PASSED тестов — набор почти целиком пропущен, это не зелёный прогон"
             exit 1
           fi
+
+      # Скриншоты падений браузерных тестов — артефакт для отладки.
+      # Сохраняются даже при провале шага Run tests (if: always()).
+      - name: Upload failure screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-test-screenshots-${{ matrix.node-version }}
+          path: tests/__screenshots__/
+          if-no-files-found: ignore
+          retention-days: 7

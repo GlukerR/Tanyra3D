@@ -17,9 +17,85 @@
 //
 // Отдельные тесты по-прежнему могут задать свой таймаут третьим аргументом `it`,
 // если им нужно БОЛЬШЕ (например прогон 150-мегабайтных моделей из input/).
-export default {
-  test: {
-    testTimeout: 120_000,
-    hookTimeout: 120_000,
+//
+// 2026-07-30: Добавлен browser-проект для viewer-regression.browser.test.mjs.
+//   — publicDir внутри browser-проекта (на верхнем уровне не наследуется)
+//   — testTimeout/hookTimeout внутри КАЖДОГО проекта (тоже не наследуется)
+import { defineConfig } from 'vitest/config'
+import { playwright } from '@vitest/browser-playwright'
+import fs from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const threeRoot = path.resolve(__dirname, 'node_modules/three')
+
+// Плагин Vite для раздачи файлов декодеров Three.js по /vendor/three/.
+// В production сервер (server.mjs) отдаёт их через express.static, но в тестовом
+// окружении dev-сервера Vite этих путей нет. Плагин читает файлы из
+// node_modules/three/ и отдаёт с корректным MIME-типом (особенно важно для .wasm).
+const threeVendorPlugin = {
+  name: 'three-vendor',
+  configureServer(viteServer) {
+    viteServer.middlewares.use('/vendor/three/', (req, res, next) => {
+      // req.url — путь после монтирования middleware, без /vendor/three/.
+      // ВНИМАНИЕ: на POSIX path.join сбрасывает первый аргумент, если второй
+      // начинается с '/', поэтому УБИРАЕМ ведущий слеш.
+      const relPath = (req.url || '').replace(/^\//, '')
+      if (!relPath || relPath.includes('..')) return next()
+      const filePath = path.join(threeRoot, relPath)
+      if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) return next()
+      const ext = path.extname(filePath).toLowerCase()
+      const mime = {
+        '.wasm': 'application/wasm',
+        '.js': 'application/javascript',
+        '.mjs': 'application/javascript',
+        '.png': 'image/png',
+        '.jpg': 'image/jpeg',
+        '.svg': 'image/svg+xml',
+        '.drc': 'application/octet-stream',
+      }[ext] || 'application/octet-stream'
+      res.writeHead(200, { 'Content-Type': mime })
+      res.end(fs.readFileSync(filePath))
+    })
   },
-};
+}
+
+export default defineConfig({
+  test: {
+    projects: [
+      {
+        test: {
+          name: 'node',
+          include: ['tests/**/*.test.mjs'],
+          exclude: ['tests/**/*.browser.test.mjs'],
+          testTimeout: 120_000,
+          hookTimeout: 120_000,
+        },
+      },
+      {
+        // publicDir ДОЛЖЕН быть внутри проекта — при использовании projects
+        // верхнеуровневые vite-опции не наследуются дочерними проектами.
+        publicDir: 'fixtures/models',
+        plugins: [threeVendorPlugin],
+        test: {
+          name: 'browser',
+          include: ['tests/**/*.browser.test.mjs'],
+          setupFiles: ['tests/browser-setup.mjs'],
+          testTimeout: 120_000,
+          hookTimeout: 120_000,
+          browser: {
+            enabled: true,
+            provider: playwright(),
+            headless: true,
+            screenshotDirectory: 'tests/__screenshots__',
+            screenshotFailures: true,
+            instances: [
+              { browser: 'chromium' },
+            ],
+          },
+        },
+      },
+    ],
+  },
+})
