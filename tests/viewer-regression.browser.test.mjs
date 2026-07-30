@@ -787,6 +787,39 @@ describe('DualViewport — both viewports loaded with Lilith (3 clips)', () => {
     }
   })
 
+  it('camera state matches between left and right — all 6 fields', () => {
+    // После loadOriginal() + loadOptimized() с одной и той же моделью состояния
+    // камер обоих вьюпортов должны совпадать ПОЛНОСТЬЮ, включая near, far,
+    // minDistance, maxDistance. Загрузка второй модели копирует камеру из левой
+    // (см. DualViewport.loadOptimized — camera = left.getCameraState()).
+    //
+    // Раньше getCameraState() не передавал near/far, и правый вьюпорт оставался
+    // со значениями из конструктора (0.01 / 1000), а левый получал вычисленные
+    // по габариту — плоскости отсечения различались.
+    const states = window.OptiViewer.cameraStates()
+    expect(states.left).not.toBeNull()
+    expect(states.right).not.toBeNull()
+    if (!states.left || !states.right) return
+
+    // position — Vector3, сравниваем покомпонентно
+    expect(states.left.position.x).toBeCloseTo(states.right.position.x, 4)
+    expect(states.left.position.y).toBeCloseTo(states.right.position.y, 4)
+    expect(states.left.position.z).toBeCloseTo(states.right.position.z, 4)
+
+    // target — Vector3
+    expect(states.left.target.x).toBeCloseTo(states.right.target.x, 4)
+    expect(states.left.target.y).toBeCloseTo(states.right.target.y, 4)
+    expect(states.left.target.z).toBeCloseTo(states.right.target.z, 4)
+
+    // near/far — скаляры, должны совпадать точно
+    expect(states.left.near).toBe(states.right.near)
+    expect(states.left.far).toBe(states.right.far)
+
+    // minDistance/maxDistance — скаляры
+    expect(states.left.minDistance).toBe(states.right.minDistance)
+    expect(states.left.maxDistance).toBe(states.right.maxDistance)
+  })
+
   it('resetView() works with both viewports loaded', () => {
     expect(() => window.OptiViewer.resetView()).not.toThrow()
   })
