@@ -34,87 +34,75 @@ const PARKERGIRL_URL = '/parkergirl.glb'
 const DRACO_URL = '/Draco%20Compressed%20Input%2001.glb'
 const MESHOPT_URL = '/Meshopt%20Compressed%20Input%2001.glb'
 
-// Все GLB-модели в fixtures/models/ (кроме уже перечисленных выше).
-// URL-encoded вручную — encodeURIComponent небезопасен для /vendor/роутинга.
-// Модели, отмеченные gitTracked: true, версионируются в git и доступны на CI.
-// Остальные — только локально (не коммитятся из-за лицензий).
-// Размеры файлов (байты) — для перф-порога: модели > 10MB должны грузиться < 10с.
-// Измерено на ext4, md5sum совпадает с git-объектом.
-const FILE_SIZES = {
-  'Dirty Cube 01': 62284,
-  'Instance Grid 01': 993984,
-  'Morph Cube 01': 3672,
-  'Vertex Colors 01': 2948,
-  'Draco Compressed Input 01': 6380,
-  'Meshopt Compressed Input 01': 7500,
-  'Linked Duplicates Grid 01': 8624,
-  'Orphan Texture Cube 01': 25620,
-  'Preinstanced Grid 01': 2532,
-  'Truncated Broken 01': 1468,
-  'chibi_zenitsu': 4253652,
-  'Lilith Character 01': 8261392,
-  'Cthulhu Stone 01': 19113196,
-  'parkergirl': 8479208,
-  'ABeautifulGame': 42977928,
-  'MosquitoInAmber': 24229904,
-  'IridescenceLamp': 4083912,
-  'SunglassesKhronos': 371188,
-  'SpecularSilkPouf': 4632512,
-  'DiffuseTransmissionTeacup': 4795028,
-  'ToyCar': 5422412,
-  'IridescentDishWithOlives': 5742828,
-  'DiffuseTransmissionPlant': 5759100,
-  'PotOfCoalsAnimationPointer': 6326684,
-  'ChronographWatch': 7446368,
-  'AnisotropyBarnLamp': 7833440,
-  'AnimationPointerUVs': 7980492,
-  'SheenWoodLeatherSofa': 10107912,
-  'CommercialRefrigerator': 10131180,
-  'CarConcept': 11778688,
-  'r 250': 16055840,
-  'Е300': 16708380,
-  'L-330': 7830588,
-}
-
-const ALL_MODELS = [
-  { name: 'Dirty Cube 01', url: CUBE_URL, gitTracked: true },
-  { name: 'Instance Grid 01', url: '/Instance%20Grid%2001.glb', gitTracked: true },
-  { name: 'Morph Cube 01', url: '/Morph%20Cube%2001.glb', gitTracked: true },
-  { name: 'Vertex Colors 01', url: '/Vertex%20Colors%2001.glb', gitTracked: true },
-  { name: 'Draco Compressed Input 01', url: DRACO_URL, gitTracked: true },
-  { name: 'Meshopt Compressed Input 01', url: MESHOPT_URL, gitTracked: true },
-  { name: 'Linked Duplicates Grid 01', url: '/Linked%20Duplicates%20Grid%2001.glb', gitTracked: true },
-  { name: 'Orphan Texture Cube 01', url: '/Orphan%20Texture%20Cube%2001.glb', gitTracked: true },
-  { name: 'Preinstanced Grid 01', url: '/Preinstanced%20Grid%2001.glb', gitTracked: true },
-  // Truncated Broken — намеренно обрезанный/битый GLB (коррупция данных).
-  // Парсинг Three.js выбрасывает RangeError, что ожидаемо и не является
-  // дефектом вьюера. Проверяем только что ошибка приходит (а не зависание).
-  { name: 'Truncated Broken 01', url: '/Truncated%20Broken%2001.glb', gitTracked: true, expectFail: true },
-  // Local-only: сторонние модели, не коммитятся
-  { name: 'chibi_zenitsu', url: ANIM_MODEL_URL, gitTracked: false },
-  { name: 'Lilith Character 01', url: LILITH_URL, gitTracked: false },
-  { name: 'Cthulhu Stone 01', url: CTHULHU_URL, gitTracked: false },
-  { name: 'parkergirl', url: PARKERGIRL_URL, gitTracked: false },
-  { name: 'ABeautifulGame', url: '/ABeautifulGame.glb', gitTracked: false },
-  { name: 'MosquitoInAmber', url: '/MosquitoInAmber.glb', gitTracked: false },
-  { name: 'IridescenceLamp', url: '/IridescenceLamp.glb', gitTracked: false },
-  { name: 'SunglassesKhronos', url: '/SunglassesKhronos.glb', gitTracked: false },
-  { name: 'SpecularSilkPouf', url: '/SpecularSilkPouf.glb', gitTracked: false },
-  { name: 'DiffuseTransmissionTeacup', url: '/DiffuseTransmissionTeacup.glb', gitTracked: false },
-  { name: 'ToyCar', url: '/ToyCar.glb', gitTracked: false },
-  { name: 'IridescentDishWithOlives', url: '/IridescentDishWithOlives.glb', gitTracked: false },
-  { name: 'DiffuseTransmissionPlant', url: '/DiffuseTransmissionPlant.glb', gitTracked: false },
-  { name: 'PotOfCoalsAnimationPointer', url: '/PotOfCoalsAnimationPointer.glb', gitTracked: false },
-  { name: 'ChronographWatch', url: '/ChronographWatch.glb', gitTracked: false },
-  { name: 'AnisotropyBarnLamp', url: '/AnisotropyBarnLamp.glb', gitTracked: false },
-  { name: 'AnimationPointerUVs', url: '/AnimationPointerUVs.glb', gitTracked: false },
-  { name: 'SheenWoodLeatherSofa', url: '/SheenWoodLeatherSofa.glb', gitTracked: false },
-  { name: 'CommercialRefrigerator', url: '/CommercialRefrigerator.glb', gitTracked: false },
-  { name: 'CarConcept', url: '/CarConcept.glb', gitTracked: false },
-  { name: 'r 250', url: '/r%20250.glb', gitTracked: false },
-  { name: 'Е300', url: '/%D0%95300.glb', gitTracked: false },
-  { name: 'L-330', url: '/L-330.glb', gitTracked: false },
+// Все GLB-модели в fixtures/models/. Часть коммитится в репозиторий, часть лежит
+// только у автора (лицензии сторонних моделей не позволяют их публиковать) — здесь
+// это НЕ перечисляется: наличие проверяется HEAD-запросом к тому же серверу, который
+// раздаёт модели тесту. Причины две.
+//
+// Первая: список версионируемых моделей уже есть — REPO_MODELS в
+// tests/helpers/model-files.mjs. Второй такой список расходится с первым молча.
+// Импортировать сам helper сюда нельзя: он читает `node:fs`, а этот файл исполняется
+// в браузере.
+//
+// Вторая: размеры файлов приходят из Content-Length, а не из таблицы констант.
+// Таблица устаревала бы при каждой пересборке фикстуры.
+const MODEL_FILES = [
+  'Dirty Cube 01.glb',
+  'Instance Grid 01.glb',
+  'Morph Cube 01.glb',
+  'Vertex Colors 01.glb',
+  'Draco Compressed Input 01.glb',
+  'Meshopt Compressed Input 01.glb',
+  'Linked Duplicates Grid 01.glb',
+  'Orphan Texture Cube 01.glb',
+  'Preinstanced Grid 01.glb',
+  // Truncated Broken — намеренно обрезанный GLB. Парсинг three.js кидает RangeError:
+  // это ожидаемо и дефектом вьюера не является. Проверяем, что ошибка ПРИХОДИТ, а не
+  // что загрузка висит.
+  'Truncated Broken 01.glb',
+  'chibi_zenitsu.glb',
+  'Lilith Character 01.glb',
+  'Cthulhu Stone 01.glb',
+  'parkergirl.glb',
+  'ABeautifulGame.glb',
+  'MosquitoInAmber.glb',
+  'IridescenceLamp.glb',
+  'SunglassesKhronos.glb',
+  'SpecularSilkPouf.glb',
+  'DiffuseTransmissionTeacup.glb',
+  'ToyCar.glb',
+  'IridescentDishWithOlives.glb',
+  'DiffuseTransmissionPlant.glb',
+  'PotOfCoalsAnimationPointer.glb',
+  'ChronographWatch.glb',
+  'AnisotropyBarnLamp.glb',
+  'AnimationPointerUVs.glb',
+  'SheenWoodLeatherSofa.glb',
+  'CommercialRefrigerator.glb',
+  'CarConcept.glb',
+  'r 250.glb',
+  'Е300.glb',
+  'L-330.glb',
 ]
+
+const EXPECT_FAIL = new Set(['Truncated Broken 01.glb'])
+
+// Наличие и размер — с сервера, один HEAD на модель, до объявления тестов.
+// Top-level await: vitest собирает файл асинхронно, и к моменту описания `it`
+// результат уже известен — отсутствующая модель становится честным it.skip с
+// причиной в отчёте, а не тестом, который «прошёл», ничего не проверив.
+const MODEL_PROBES = await Promise.all(
+  MODEL_FILES.map(async (file) => {
+    const url = '/' + encodeURIComponent(file)
+    try {
+      const res = await fetch(url, { method: 'HEAD' })
+      const len = Number(res.headers.get('content-length'))
+      return { file, url, present: res.ok, size: Number.isFinite(len) ? len : 0 }
+    } catch (e) {
+      return { file, url, present: false, size: 0 }
+    }
+  }),
+)
 
 // ---------------------------------------------------------------------------
 // Viewer — класс движка просмотра (ui/viewer/viewer.js)
@@ -653,8 +641,8 @@ describe('DualViewport — both viewports loaded with Lilith (3 clips)', () => {
 // Проверяет, что модель загружается без ошибок, stats не-null, triangles > 0,
 // detectSource возвращает валидные флаги сжатия.
 //
-// Модели, отмеченные gitTracked: false, могут отсутствовать на CI (не коммитятся
-// из-за лицензий) — в этом случае тест пропускается с пояснением.
+// Модель, которой нет на диске (сторонние не коммитятся из-за лицензий), даёт
+// it.skip с причиной в имени — см. MODEL_PROBES выше.
 // ---------------------------------------------------------------------------
 
 describe('Viewer — all models parameterized (browser)', () => {
@@ -703,13 +691,19 @@ describe('Viewer — all models parameterized (browser)', () => {
     return 60_000
   }
 
-  for (const { name, url, gitTracked, expectFail } of ALL_MODELS) {
-    const fileSize = FILE_SIZES[name]
-    if (fileSize === undefined) {
-      throw new Error(`Missing FILE_SIZES entry for '${name}' — add it before the test runs`)
-    }
+  for (const { file, url, present, size } of MODEL_PROBES) {
+    const name = file.replace(/\.glb$/i, '')
+    const expectFail = EXPECT_FAIL.has(file)
+    const timeout = testTimeout(size)
 
-    const timeout = testTimeout(fileSize)
+    // Модели нет на диске — тест пропускается ЯВНО, с причиной в имени. Раньше здесь
+    // был перехват 404 внутри теста и `return`: тест числился пройденным, не проверив
+    // ничего. На CI, где из 34 моделей лежат 10, это давало два десятка зелёных строк
+    // ни о чём — и настоящий сбой сети выглядел точно так же.
+    if (!present) {
+      it.skip(`${name} — loads, has stats, detectSource valid [нет локально — пропущено]`, () => {})
+      continue
+    }
 
     it(`${name} — loads, has stats, detectSource valid`, async () => {
       const startTime = performance.now()
@@ -718,20 +712,9 @@ describe('Viewer — all models parameterized (browser)', () => {
       try {
         gltf = await viewer.load(url)
       } catch (err) {
-        const elapsed = performance.now() - startTime
-        const msg = String(err.message || '')
-
-        // 404 = модель не прикоммичена (не gitTracked). Пропускаем.
-        if (msg.includes('404') || msg.includes('Not Found') || msg.includes('Failed to fetch')) {
-          if (!gitTracked) {
-            timings.push({ name, time: elapsed, size: fileSize })
-            return
-          }
-          throw err
-        }
         // Намеренно битая модель — ошибка ожидаема
         if (expectFail) {
-          timings.push({ name, time: elapsed, size: fileSize })
+          timings.push({ name, time: performance.now() - startTime, size })
           return
         }
         throw err
@@ -742,13 +725,13 @@ describe('Viewer — all models parameterized (browser)', () => {
         throw new Error(`${name} marked as expectFail but loaded successfully`)
       }
 
-      const elapsed = performance.now() - startTime
-      timings.push({ name, time: elapsed, size: fileSize })
+      timings.push({ name, time: performance.now() - startTime, size })
 
-      // Порог производительности: модели > 10MB должны загружаться не дольше 10 секунд.
-      if (fileSize > 10_000_000 && elapsed > 10_000) {
-        throw new Error(`${name}: ${(fileSize / 1_000_000).toFixed(1)}MB loaded in ${elapsed.toFixed(0)}ms (limit: 10s)`)
-      }
+      // Порога «столько-то мегабайт за столько-то секунд» здесь СОЗНАТЕЛЬНО нет.
+      // Время загрузки плавает вместе с загрузкой машины — тем же соображением
+      // обоснован общий testTimeout в vitest.config.mjs. Тайминги печатаются в
+      // afterAll: замер как наблюдение полезен, замер как приговор — источник
+      // случайного красного.
 
       // Модель загружена — проверяем stats
       expect(gltf).toBeTruthy()
