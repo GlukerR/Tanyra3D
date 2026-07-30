@@ -90,6 +90,10 @@ window.I18N_CATALOGS.en = {
   'btn.changeSetting': 'Change a setting to rebuild',
 
   // --- статус ---
+  // Подписи индикатора ожидания во вьюпортах.
+  'busy.loading': 'Loading',
+  'busy.uploading': 'Uploading',
+  'busy.optimizing': 'Building',
   'status.ready': 'Ready',
   'status.error': 'Error',
   'status.uploading': 'Uploading file…',

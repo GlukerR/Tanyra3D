@@ -89,6 +89,9 @@ window.I18N_CATALOGS.ru = {
   'btn.changeSetting': 'Измените настройку, чтобы пересобрать',
 
   // --- статус ---
+  'busy.loading': 'Загрузка',
+  'busy.uploading': 'Отправка файла',
+  'busy.optimizing': 'Сборка',
   'status.ready': 'Готово',
   'status.error': 'Ошибка',
   'status.uploading': 'Загрузка файла…',

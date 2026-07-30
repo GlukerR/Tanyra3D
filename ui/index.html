@@ -59,6 +59,36 @@
     </button>
   </aside>
 
+  <!-- Индикатор ожидания для вьюпортов. Один шаблон на обе панели — app.js клонирует
+       его в каждую при старте. Дублировать три десятка строк разметки дважды нечего:
+       содержимое одинаковое, различается только подпись.
+
+       Кость, а не колесо: колесо крутится и на кнопке «Сохранить», и в браузере, и в
+       десятке других мест — глаз его не замечает. Подбрасываемая кость заметна и при
+       этом маленькая. Грани настоящие, с точками 1–6, потому что кость с произвольными
+       пятнами читается как «что-то сломалось».
+
+       Стоит по центру СВЕРХУ панели: слева и справа там углы заняты HUD-ом, а середина
+       пустая, и модель, которую как раз и надо разглядывать, не закрывается. -->
+  <template id="vp-busy-template">
+    <div class="vp-busy hidden" aria-live="polite">
+      <div class="die-toss">
+        <div class="die">
+          <div class="die-face die-front"><i class="p-mc"></i></div>
+          <div class="die-face die-back"><i class="p-tl"></i><i class="p-tc"></i><i class="p-tr"></i><i class="p-bl"></i><i class="p-bc"></i><i class="p-br"></i></div>
+          <!-- Противоположные грани дают в сумме 7 — как у настоящей кости:
+               1↔6, 2↔5, 3↔4. Кувыркающийся кубик с произвольными числами на
+               соседних гранях читается как ошибка отрисовки, а не как кость. -->
+          <div class="die-face die-right"><i class="p-tl"></i><i class="p-br"></i></div>
+          <div class="die-face die-left"><i class="p-tl"></i><i class="p-tr"></i><i class="p-mc"></i><i class="p-bl"></i><i class="p-br"></i></div>
+          <div class="die-face die-top"><i class="p-tl"></i><i class="p-mc"></i><i class="p-br"></i></div>
+          <div class="die-face die-bottom"><i class="p-tl"></i><i class="p-tr"></i><i class="p-bl"></i><i class="p-br"></i></div>
+        </div>
+      </div>
+      <span class="vp-busy-label"></span>
+    </div>
+  </template>
+
   <!-- CENTER: full-bleed split — original ⇄ optimized viewports with a draggable divider -->
   <section class="center-zone">
 

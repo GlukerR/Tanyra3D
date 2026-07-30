@@ -99,6 +99,53 @@
   const phaseStatus = $('phase-status');
   const versionLabel = $('version-label');
 
+  // ---------------------------------------------------------------
+  // Индикатор ожидания во вьюпортах
+  // ---------------------------------------------------------------
+  //
+  // Тяжёлая модель грузится и оптимизируется секундами, а то и десятками секунд.
+  // Раньше единственным признаком работы была строка состояния в шапке — далеко от
+  // того места, куда человек смотрит. Слева окно оставалось пустым, справа висела
+  // прошлая модель, и отличить «считает» от «зависло» было не по чему.
+  //
+  // Индикатор живёт В САМОМ вьюпорте, сверху по центру. Правый показывается ПОВЕРХ
+  // прежнего результата, не стирая его: старую картинку видно, и с ней же можно
+  // сравнить новую, когда она приедет.
+  const busyByPane = new Map();
+
+  function initBusyIndicators() {
+    const tpl = document.getElementById('vp-busy-template');
+    if (!tpl) return;
+    for (const id of ['preview-original', 'preview-optimized']) {
+      const pane = document.getElementById(id);
+      if (!pane) continue;
+      const node = tpl.content.firstElementChild.cloneNode(true);
+      pane.appendChild(node);
+      busyByPane.set(id, node);
+    }
+  }
+
+  // messageKey === null снимает индикатор. Ключ, а не готовая строка: подпись должна
+  // перевестись, если язык переключат прямо во время долгой сборки.
+  function setBusy(paneId, messageKey) {
+    const node = busyByPane.get(paneId);
+    if (!node) return;
+    if (messageKey) node.dataset.i18nKey = messageKey;
+    else delete node.dataset.i18nKey;
+    const label = node.querySelector('.vp-busy-label');
+    if (label) label.textContent = messageKey ? t(messageKey) : '';
+    node.classList.toggle('hidden', !messageKey);
+  }
+
+  function refreshBusyLabels() {
+    for (const node of busyByPane.values()) {
+      const key = node.dataset.i18nKey;
+      if (!key) continue;
+      const label = node.querySelector('.vp-busy-label');
+      if (label) label.textContent = t(key);
+    }
+  }
+
   let selectedFile = null;
   // Идентификатор загруженного исходника на сервере: пока он есть, повторная
   // оптимизация той же модели идёт без перезаливки файла (меняем только флажки).
@@ -710,13 +757,20 @@
     clearResults();
     // Сразу показать оригинал в левом вьюпорте + его базовые данные (ещё до сборки).
     if (window.OptiViewer) {
-      const info = await window.OptiViewer.loadOriginal(file);
-      renderOriginalStats(file.size, info && info.stats);
-      // Определяем, что уже сжато в исходнике → авто-включаем флажки с бейджем [Source].
-      lastDetection = (info && info.detected) || null;
-      const found = Object.keys(lastDetection || {}).filter((k) => lastDetection[k]);
-      if (found.length) logMessage('info', t('log.foundCompression', { list: found.join(', ') }));
-      applyDetection();
+      setBusy('preview-original', 'busy.loading');
+      try {
+        const info = await window.OptiViewer.loadOriginal(file);
+        renderOriginalStats(file.size, info && info.stats);
+        // Определяем, что уже сжато в исходнике → авто-включаем флажки с бейджем [Source].
+        lastDetection = (info && info.detected) || null;
+        const found = Object.keys(lastDetection || {}).filter((k) => lastDetection[k]);
+        if (found.length) logMessage('info', t('log.foundCompression', { list: found.join(', ') }));
+        applyDetection();
+      } finally {
+        // finally, а не после await: битый файл кидает, и индикатор иначе остался бы
+        // крутиться навсегда над окном, в котором уже ничего не произойдёт.
+        setBusy('preview-original', null);
+      }
     }
     // Инспекция на сервере (metadata + validation) + регистрация исходника, чтобы
     // сборка потом переиспользовала его без перезаливки.
@@ -1041,6 +1095,7 @@
 
     runBtn.disabled = true;
     setPhase(currentSourceId ? t('status.optimizing') : t('status.uploading'), 'busy');
+    setBusy('preview-optimized', currentSourceId ? 'busy.optimizing' : 'busy.uploading');
     const feats = getSelectedFeatures();
     logMessage('info', t('log.buildStarted', {
       platform: platformSelect.value,
@@ -1074,11 +1129,16 @@
         return;
       }
 
-      renderResult(data);
+      // Ждём, пока результат появится в правом окне: индикатор должен гаснуть по
+      // картинке, а не по ответу сервера. Ошибку загрузки глотаем — её показывает
+      // сам вьюпорт своей строкой состояния, а нам здесь важно снять индикатор.
+      const shown = renderResult(data);
+      if (shown) await shown.catch(() => {});
     } catch (e) {
       if (es) es.close();
       showGenericError(t('log.noServer', { error: e.message }));
     } finally {
+      setBusy('preview-optimized', null);
       updateRunButtonState();
     }
   }
@@ -1162,7 +1222,11 @@
     const freshUrl = bust(downloadUrl);
 
     // Правый вьюпорт: загрузить оптимизированную модель (оригинал уже показан слева).
-    if (window.OptiViewer) window.OptiViewer.loadOptimized(freshUrl);
+    // Промис возвращается наружу: индикатор ожидания в правом окне должен гаснуть,
+    // когда модель ВИДНА, а не когда сервер ответил. Между этими моментами на тяжёлой
+    // модели проходят секунды разбора и загрузки текстур.
+    let optimizedShown = null;
+    if (window.OptiViewer) optimizedShown = Promise.resolve(window.OptiViewer.loadOptimized(freshUrl));
 
     if (downloadUrl) {
       resultDownloadUrl = freshUrl;
@@ -1176,11 +1240,12 @@
       resultDownloadUrl = null;
       downloadBtn.classList.add('hidden');
       irreversibleWarning.classList.add('hidden');
-    integrityWarning.classList.add('hidden');
+      integrityWarning.classList.add('hidden');
       resultInspect = null;
       runToken++; // инвалидирует inspectResult() предыдущей сборки, если он ещё летит
       updateInspectButtons();
     }
+    return optimizedShown;
   }
 
   // §4d ARCHITECTURE.md: перед скачиванием предупреждаем, что часть данных потеряна
@@ -2208,6 +2273,7 @@
     updateRunButtonState();
     updateLogsBar();
     renderDecoderLegend();
+    refreshBusyLabels(); // язык могли переключить посреди долгой сборки
     if (!logsWindow.classList.contains('hidden')) renderLogsWindow();
     reloadPlatformTitles();
     loadExtensions(platformSelect.value);
@@ -2219,6 +2285,7 @@
 
   window.I18n.apply();
   renderLangSwitch();
+  initBusyIndicators();
 
   loadPlatforms();
 })();

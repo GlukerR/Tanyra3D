@@ -267,6 +267,132 @@ body {
 .vp-hud-left { left: 14px; }
 .vp-hud-right { right: 14px; text-align: right; }
 
+/* ---------- Индикатор ожидания во вьюпорте ---------- */
+
+/* Сверху по центру: углы заняты HUD-ом, середина пуста, а модель — то, ради чего
+   окно и открыто, — не закрывается. pointer-events: none, чтобы индикатор не
+   перехватывал вращение камеры: он сообщает, а не участвует. */
+.vp-busy {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 6px;
+  /* Ширина ограничена не из эстетики: правый HUD прижат к краю панели, а панель бывает
+     узкой (при сдвинутом разделителе — 344 px). Индикатор по центру + широкий HUD =
+     наложение. Здесь оно решено размером: короткая подпись и мелкий кегль держат
+     блок в ~90 px, что оставляет зазор даже на узкой панели. */
+  max-width: 150px;
+  border-radius: var(--radius-lg);
+  /* Подложка нужна: над светлой моделью белые точки кости пропадают. Полупрозрачная
+     с размытием — модель под ней остаётся видна. */
+  background: rgba(20, 19, 28, 0.55);
+  backdrop-filter: blur(6px);
+  animation: vp-busy-in 160ms ease-out;
+}
+
+@keyframes vp-busy-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-6px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.vp-busy-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--on-surface-variant);
+  white-space: nowrap;
+}
+
+/* Подбрасывание: отдельный слой от вращения. Смешать их в одной анимации нельзя —
+   у подброса своё замедление на взлёте (ease-out) и разгон на падении, а вращение
+   должно идти ровно (linear). Два вложенных элемента дают обе кривые сразу. */
+.die-toss {
+  width: 28px;
+  height: 28px;
+  perspective: 200px;
+  animation: die-toss 1.15s cubic-bezier(0.33, 0, 0.4, 1) infinite;
+}
+
+@keyframes die-toss {
+  0%   { transform: translateY(4px)   scaleY(0.9) scaleX(1.06); }
+  16%  { transform: translateY(-1px)  scaleY(1) scaleX(1); }
+  50%  { transform: translateY(-13px) scaleY(1) scaleX(1); }
+  84%  { transform: translateY(-1px)  scaleY(1) scaleX(1); }
+  100% { transform: translateY(4px)   scaleY(0.9) scaleX(1.06); }
+}
+
+.die {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  animation: die-tumble 2.3s linear infinite;
+}
+
+@keyframes die-tumble {
+  from { transform: rotateX(0deg)   rotateY(0deg)   rotateZ(0deg); }
+  to   { transform: rotateX(360deg) rotateY(720deg) rotateZ(360deg); }
+}
+
+.die-face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  padding: 3px;
+  box-sizing: border-box;
+  background: var(--primary-container);
+  border-radius: 5px;
+  /* backface-visibility не выключаем: грань, повёрнутая к нам изнанкой, всё равно
+     перекрыта ближней гранью — куб непрозрачный. */
+  box-shadow: inset 0 0 0 1px rgba(41, 43, 94, 0.35);
+}
+
+.die-face i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--on-primary);
+  align-self: center;
+  justify-self: center;
+}
+
+/* Раскладка точек — стандартная для игральной кости: 3×3, ячейки заданы явно.
+   Порядок <i> в разметке значения не имеет, каждая точка знает своё место. */
+.p-tl { grid-area: 1 / 1; } .p-tc { grid-area: 1 / 2; } .p-tr { grid-area: 1 / 3; }
+.p-ml { grid-area: 2 / 1; } .p-mc { grid-area: 2 / 2; } .p-mr { grid-area: 2 / 3; }
+.p-bl { grid-area: 3 / 1; } .p-bc { grid-area: 3 / 2; } .p-br { grid-area: 3 / 3; }
+
+/* 14px = половина ребра (28px): грань выносится на половину куба от центра. */
+.die-front  { transform: translateZ(14px); }
+.die-back   { transform: rotateY(180deg) translateZ(14px); }
+.die-right  { transform: rotateY(90deg)  translateZ(14px); }
+.die-left   { transform: rotateY(-90deg) translateZ(14px); }
+.die-top    { transform: rotateX(90deg)  translateZ(14px); }
+.die-bottom { transform: rotateX(-90deg) translateZ(14px); }
+
+/* Движение по кругу в углу зрения — известный триггер для вестибулярных расстройств
+   и укачивания. Тем, кто попросил систему поменьше двигаться, оставляем ровно
+   пульсацию: индикатор всё так же говорит «идёт работа», но не кувыркается. */
+@media (prefers-reduced-motion: reduce) {
+  .die-toss { animation: none; }
+  .die { animation: die-still-pulse 1.6s ease-in-out infinite; }
+  .vp-busy { animation: none; }
+  @keyframes die-still-pulse {
+    0%, 100% { opacity: 0.45; transform: rotateX(-20deg) rotateY(-28deg); }
+    50%      { opacity: 1;    transform: rotateX(-20deg) rotateY(-28deg); }
+  }
+}
+
 .vp-label {
   display: block;
   font-family: var(--font-mono);
