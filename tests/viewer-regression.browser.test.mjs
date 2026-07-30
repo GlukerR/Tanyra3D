@@ -460,6 +460,164 @@ describe('DualViewport — animation sync (browser)', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Animation panel DOM — anim-controls visibility, clip list, single-clip hiding
+// ---------------------------------------------------------------------------
+//
+// Проверяет поведение панели управления анимацией (#anim-controls).
+// Панель должна:
+//   - быть скрыта (class=hidden) для моделей без анимации
+//   - быть видна для моделей с анимацией
+//   - показывать список клипов (<select> с <option>) для моделей с ≥2 клипами
+//   - скрывать селектор клипа (#anim-clip) если клип ровно один
+//   - скрываться после reset() (модель снята)
+//
+// Логика управляется refreshAnimUI() (см. ui/app.js tail), которая вызывается
+// из _notifyLoaded() через window.onOptiViewerModelLoaded.
+// ---------------------------------------------------------------------------
+
+describe('Animation panel (DOM) — anim-controls visibility and clip list', () => {
+  let animControls
+  let animClipSel
+
+  beforeAll(async () => {
+    await setupDualViewportDOM()
+    resetAnimationClipIndex()
+
+    // Создаём DOM панели анимации — те же ID и классы, что в index.html
+    animControls = document.createElement('div')
+    animControls.id = 'anim-controls'
+    animControls.className = 'vp-anim hidden'
+    animControls.style.display = '' // display управляется через class hidden
+
+    animClipSel = document.createElement('select')
+    animClipSel.id = 'anim-clip'
+    animClipSel.className = 'vp-anim-clip'
+
+    animControls.appendChild(animClipSel)
+
+    // play-btn, seek, time — тоже создаём, но в тестах не проверяем
+    const playBtn = document.createElement('button')
+    playBtn.id = 'anim-play-btn'
+    playBtn.className = 'vp-tool is-on'
+    animControls.appendChild(playBtn)
+
+    const seek = document.createElement('input')
+    seek.id = 'anim-seek'
+    seek.className = 'vp-slider'
+    seek.type = 'range'
+    animControls.appendChild(seek)
+
+    const timeEl = document.createElement('span')
+    timeEl.id = 'anim-time'
+    timeEl.className = 'vp-ctl-value'
+    timeEl.textContent = '0.0s'
+    animControls.appendChild(timeEl)
+
+    document.body.appendChild(animControls)
+
+    // Регистрируем refreshAnimUI() — копия логики из app.js
+    window.onOptiViewerModelLoaded = () => {
+      if (!window.OptiViewer || !window.OptiViewer.getAnimation) return
+      const info = window.OptiViewer.getAnimation()
+      const has = info.count > 0
+      animControls.classList.toggle('hidden', !has)
+      if (!has) {
+        animClipSel.innerHTML = ''
+        return
+      }
+
+      // Пересобираем список, если модель сменилась
+      const signature = info.names.join('\u0000')
+      if (animClipSel.dataset.signature !== signature) {
+        animClipSel.dataset.signature = signature
+        animClipSel.innerHTML = ''
+        info.names.forEach((name, i) => {
+          const opt = document.createElement('option')
+          opt.value = String(i)
+          opt.textContent = name
+          animClipSel.appendChild(opt)
+        })
+        // Один клип — выбирать не из чего
+        animClipSel.classList.toggle('hidden', info.count < 2)
+      }
+      if (Number(animClipSel.value) !== info.index) {
+        animClipSel.value = String(info.index)
+      }
+    }
+
+    // Стартовое состояние: моделей нет — панели нет
+    window.onOptiViewerModelLoaded()
+  })
+
+  afterAll(() => {
+    animControls?.remove()
+    teardownDualViewportDOM()
+    delete window.onOptiViewerModelLoaded
+  })
+
+  it('starts hidden — no model loaded', () => {
+    expect(animControls.classList.contains('hidden')).toBe(true)
+    expect(animClipSel.children.length).toBe(0)
+  })
+
+  it('non-animated model (Dirty Cube) — panel stays hidden, clip list empty', async () => {
+    const resp = await fetch(CUBE_URL)
+    const file = new File([await resp.blob()], 'Dirty Cube 01.glb', { type: 'model/gltf-binary' })
+    await window.OptiViewer.loadOriginal(file)
+
+    // onOptiViewerModelLoaded вызывается _notifyLoaded() после загрузки
+    expect(animControls.classList.contains('hidden')).toBe(true)
+    expect(animClipSel.children.length).toBe(0)
+  })
+
+  it('animated model with 1 clip (chibi_zenitsu) — panel visible, clip selector hidden', async () => {
+    const resp = await fetch(ANIM_MODEL_URL)
+    const file = new File([await resp.blob()], 'chibi_zenitsu.glb', { type: 'model/gltf-binary' })
+    await window.OptiViewer.loadOriginal(file)
+
+    expect(animControls.classList.contains('hidden')).toBe(false)
+    expect(animClipSel.children.length).toBe(1)
+    // Один клип → селектор скрыт
+    expect(animClipSel.classList.contains('hidden')).toBe(true)
+  })
+
+  it('model with 3 clips (Lilith) — panel visible, clip selector has 3 options', async () => {
+    const resp = await fetch(LILITH_URL)
+    const file = new File([await resp.blob()], 'Lilith Character 01.glb', { type: 'model/gltf-binary' })
+    await window.OptiViewer.loadOriginal(file)
+
+    expect(animControls.classList.contains('hidden')).toBe(false)
+    expect(animClipSel.children.length).toBe(3)
+    // Три клипа → селектор виден
+    expect(animClipSel.classList.contains('hidden')).toBe(false)
+
+    // Имена клипов содержат ожидаемые подстроки
+    const names = [...animClipSel.options].map((o) => o.textContent)
+    expect(names.some((n) => n.includes('Idle'))).toBe(true)
+    expect(names.some((n) => n.includes('Lilith_Walk_Loop'))).toBe(true)
+    expect(names.some((n) => n.includes('0-T-Pose'))).toBe(true)
+  })
+
+  it('single-clip model (Cthulhu Stone) — panel visible, clip selector hidden', async () => {
+    const resp = await fetch(CTHULHU_URL)
+    const file = new File([await resp.blob()], 'Cthulhu Stone 01.glb', { type: 'model/gltf-binary' })
+    await window.OptiViewer.loadOriginal(file)
+
+    expect(animControls.classList.contains('hidden')).toBe(false)
+    expect(animClipSel.children.length).toBe(1)
+    expect(animClipSel.classList.contains('hidden')).toBe(true)
+    expect(animClipSel.options[0].textContent).toMatch(/Scene/)
+  })
+
+  it('after reset() — panel hides again', () => {
+    window.OptiViewer.reset()
+    // reset() вызывает _notifyLoaded(), который зовёт onOptiViewerModelLoaded
+    expect(animControls.classList.contains('hidden')).toBe(true)
+    expect(animClipSel.children.length).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Viewer — сжатые модели (Draco, Meshopt)
 // ---------------------------------------------------------------------------
 //
