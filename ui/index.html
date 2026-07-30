@@ -268,6 +268,13 @@
            не должно уезжать из вида при прокрутке. Перечень конкретных правок сюда
            НЕ выводится — он в «Анализе», иначе закреплённый блок разрастался и
            закрывал панель. -->
+      <!-- Проверка целостности не пройдена. Файл при этом записан и скачать его можно:
+           решение, годится ли расхождение, за человеком. Плашка красная и стоит выше
+           жёлтой — это более серьёзная новость, чем потеря данных по плану. -->
+      <div id="integrity-warning" class="integrity-warning hidden">
+        <p class="integrity-title" data-i18n="insp.integrityFailed.title">Integrity check failed</p>
+        <p class="integrity-text" data-i18n="insp.integrityFailed.text">The file was written and can be downloaded, but the result differs from the source in ways the components promise not to change. Compare both viewports before shipping it.</p>
+      </div>
       <div id="irreversible-warning" class="irreversible-warning hidden">
         <p class="irreversible-title" data-i18n="insp.irreversible.title">Irreversible changes applied</p>
         <p class="irreversible-text" data-i18n="insp.irreversible.text">Keep the source file — this data cannot be restored from the result. See Analysis for the list.</p>

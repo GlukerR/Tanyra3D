@@ -92,6 +92,7 @@
   const exportName = $('export-name');
   const exportSave = $('export-save');
   const irreversibleWarning = $('irreversible-warning');
+  const integrityWarning = $('integrity-warning');
   const validationCount = $('validation-count');
 
   const statusDot = $('status-dot');
@@ -229,11 +230,42 @@
         platformSelect.appendChild(opt);
       }
       updatePlatformDescription();
+      // Список платформ пуст — выбирать нечего, и загружать опции не под что. Молча
+      // оставить панель скрытой нельзя: см. комментарий в loadExtensions().
+      if (!platforms.length) {
+        showExtensionsUnavailable('opts.noPlatforms');
+        return;
+      }
       loadExtensions(platformSelect.value);
     } catch (e) {
       platformSelect.innerHTML = '<option value="web">Web</option>';
       platforms = [{ id: 'web', title: 'Web', description: '' }];
+      // Сюда попадали, когда сервер не ответил на /api/platforms, — и loadExtensions()
+      // не вызывался вовсе. Панель опций так и оставалась с классом hidden из разметки:
+      // для пользователя вся правая колонка настроек просто исчезала, без единого слова
+      // о причине. Отказ должен быть виден там, где пропало содержимое.
+      showExtensionsUnavailable('opts.noServer', { error: String((e && e.message) || e) });
     }
+  }
+
+  // Панель опций скрыта в разметке и открывается только при успешной загрузке. Любой
+  // отказ по дороге поэтому выглядит одинаково — «панели нет». Показываем панель с
+  // причиной вместо пустого места: пропавший блок интерфейса пользователь не отличит
+  // от поломки, а строка с причиной сразу говорит, где искать.
+  function showExtensionsUnavailable(messageKey, params) {
+    extensions = [];
+    extensionsList.innerHTML = '';
+    infoTip.hide();
+    if (decoderLegend) decoderLegend.classList.add('hidden');
+
+    const note = document.createElement('p');
+    note.className = 'opts-unavailable';
+    note.textContent = t(messageKey, params);
+    extensionsList.appendChild(note);
+    extensionsPanel.classList.remove('hidden');
+
+    logMessage('error', t(messageKey, params));
+    updateRunButtonState();
   }
 
   // Названия и описания платформ приходят из профилей — на другом языке они другие.
@@ -328,12 +360,14 @@
     if (decoderLegend) decoderLegend.classList.add('hidden');
     if (!platformId) return;
 
+    let failure = null;
     try {
       const res = await fetch(`/api/extensions?platform=${encodeURIComponent(platformId)}&${langParam()}`);
       const data = await res.json();
       extensions = (data && data.extensions) || [];
     } catch (e) {
-      extensions = []; // расширенные опции недоступны — базовая обработка всё равно работает
+      extensions = [];
+      failure = String((e && e.message) || e);
     }
 
     // Пользователь мог переключить платформу ещё раз, пока этот fetch летел — устаревший
@@ -341,7 +375,16 @@
     // savedSelections не в тот ключ.
     if (platformSelect.value !== platformId) return;
 
-    if (!extensions.length) return;
+    // Раньше оба этих случая заканчивались тихим `return`, и панель оставалась скрытой:
+    // расширенные опции «недоступны» выглядели как исчезнувший кусок интерфейса.
+    if (failure) {
+      showExtensionsUnavailable('opts.noServer', { error: failure });
+      return;
+    }
+    if (!extensions.length) {
+      showExtensionsUnavailable('opts.empty', { platform: platformId });
+      return;
+    }
 
     const byId = Object.fromEntries(extensions.map((e) => [e.id, e]));
     for (const group of OPT_GROUPS) {
@@ -888,6 +931,7 @@
     downloadBtn.classList.add('hidden');
     exportWindow.classList.add('hidden');
     irreversibleWarning.classList.add('hidden');
+    integrityWarning.classList.add('hidden');
     failBanner.classList.add('hidden');
     runBtn.textContent = t('btn.build');
     // Правый HUD пуст до сборки; левый заполняется базовыми данными модели в handleFile.
@@ -1049,6 +1093,7 @@
     // Кнопку не прячем; прогон не удался — разрешаем повтор даже с теми же настройками.
     lastBuildSignature = null;
     irreversibleWarning.classList.add('hidden');
+    integrityWarning.classList.add('hidden');
   }
 
   // ---------------------------------------------------------------
@@ -1074,12 +1119,18 @@
     // с другими флажками шёл без перезаливки.
     if (data.sourceId) currentSourceId = data.sourceId;
 
-    if (!result || result.status === 'fail') {
+    // Файла нет вовсе (обработка сорвалась) — показать окно отказа и остановиться:
+    // показывать нечего. А вот провал проверки целостности при записанном файле —
+    // не то же самое: результат существует, его надо показать, дать сравнить глазами
+    // и дать скачать. Решать, годится ли расхождение, — пользователю, не программе.
+    const written = !!(result && result.file && result.file.written);
+    if (!result || (result.status === 'fail' && !written)) {
       renderFail(result, explain);
       return;
     }
 
-    setPhase(t('status.ready'), null);
+    const integrityFailed = result.status === 'fail';
+    setPhase(integrityFailed ? t('status.failed') : t('status.ready'), integrityFailed ? 'fail' : null);
     failBanner.classList.add('hidden');
 
     // Применённые правила — раньше итога, чтобы в свёрнутой панели логов (она показывает
@@ -1097,6 +1148,8 @@
     }
 
     renderReport(result, explain);
+    integrityWarning.classList.toggle('hidden', !integrityFailed);
+    if (integrityFailed) logMessage('error', t('log.integrityFailed'));
 
     // Кнопку не прячем — можно менять флажки и пересобирать результат сколько угодно раз.
     // Запоминаем настройки этой сборки: пока их не изменят, пересборка неактивна.
@@ -1123,6 +1176,7 @@
       resultDownloadUrl = null;
       downloadBtn.classList.add('hidden');
       irreversibleWarning.classList.add('hidden');
+    integrityWarning.classList.add('hidden');
       resultInspect = null;
       runToken++; // инвалидирует inspectResult() предыдущей сборки, если он ещё летит
       updateInspectButtons();
@@ -1159,6 +1213,7 @@
     downloadBtn.classList.add('hidden');
     exportWindow.classList.add('hidden');
     irreversibleWarning.classList.add('hidden');
+    integrityWarning.classList.add('hidden');
     resultInspect = null; // собранного файла нет — правая колонка окон пуста
     runToken++; // инвалидирует inspectResult() предыдущей (успешной) сборки, если он ещё летит
     updateInspectButtons();
@@ -1839,11 +1894,21 @@
   // Аддон схлопывает сообщения валидатора по виду нарушения и приносит count. Показываем
   // число повторений: «нарушение в 79 398 местах» и «нарушение в одном» — разные новости,
   // а раньше это были 79 398 одинаковых строк, по которым не пролистать.
+  // Перевод сообщений gltf-validator (Khronos) на стороне клиента.
+  // Ключ — код ошибки (m.code), значение — ключ в каталоге ui/locales/.
+  // Если перевода нет — возвращается оригинальное английское сообщение.
+  function translateValidatorMessage(code, originalMessage) {
+    const key = 'validator.' + code;
+    const translated = t(key);
+    // t() возвращает ключ как есть, если перевода нет — значит код неизвестен.
+    return translated === key ? originalMessage : translated;
+  }
+
   function issuesTable(issues) {
     const rows = issues.map((m) => ({
       code: m.code,
       count: fmtInt(m.count || 1),
-      message: m.message,
+      message: translateValidatorMessage(m.code, m.message),
       severity: severityName(m.severity),
       // указатель у схлопнутой группы — пример, а не полный адрес; многоточие об этом говорит
       pointer: (m.pointer || '') + ((m.count || 1) > 1 ? ' …' : ''),

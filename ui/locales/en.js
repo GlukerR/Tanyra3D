@@ -66,6 +66,11 @@ window.I18N_CATALOGS.en = {
   // --- инспектор ---
   'insp.platform': 'Platform',
   'insp.advanced': 'Advanced options',
+  // Отказы панели опций. Показываются НА МЕСТЕ опций: пустая панель неотличима от
+  // поломки интерфейса, строка с причиной — отличима.
+  'opts.noServer': ({ error }) => `Optimization options could not be loaded: ${error}. The server may not be running — restart it and reload the page.`,
+  'opts.noPlatforms': 'The server returned no target platforms, so there are no options to choose from. Check the profiles/ folder.',
+  'opts.empty': ({ platform }) => `Platform "${platform}" offers no advanced options.`,
   'insp.summary': 'Summary',
   'insp.integrity': 'Integrity check',
   'insp.analysis': 'Analysis',
@@ -73,6 +78,8 @@ window.I18N_CATALOGS.en = {
   'insp.warnings': 'Warnings',
   'insp.done': 'What was done',
   'insp.skipped': 'What was skipped',
+  'insp.integrityFailed.title': 'Integrity check failed',
+  'insp.integrityFailed.text': 'The file was written and can be downloaded, but the result differs from the source in ways the components promise not to change. Compare both viewports before shipping it.',
   'insp.irreversible.title': 'Irreversible changes applied',
   'insp.irreversible.text': 'Keep the source file — this data cannot be restored from the result. See Analysis for the list.',
 
@@ -166,9 +173,11 @@ window.I18N_CATALOGS.en = {
   'log.buildFinishedSize': ({ before, after, pct }) => `Build finished — ${before} → ${after} (${pct})`,
   'log.applied': ({ text }) => `Applied: ${text}`,
   'log.exported': ({ name, format }) => `Exported ${name} (${format})`,
+  'log.integrityFailed': 'Integrity check failed — the file was written anyway, check the result before using it.',
   'log.notWritten': 'File not written — the model failed the integrity check.',
   'log.serverError': ({ status }) => `The server responded with an error (${status}).`,
   'log.noServer': ({ error }) => `Could not reach the server: ${error}`,
   'log.ktx2mode': ({ mode }) => `KTX2 mode: ${mode}`,
   'log.langChanged': ({ name }) => `Interface language: ${name}`,
+
 };

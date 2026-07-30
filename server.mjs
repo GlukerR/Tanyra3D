@@ -206,24 +206,52 @@ function safeJoin(baseDir, relPath) {
   return resolved;
 }
 
-// Языки интерфейса подключаются по факту наличия файла в ui/locales — добавить язык
-// значит положить туда каталог, и всё. Список собирается на каждый запрос страницы:
-// приложение локальное, лишний readdir дешевле, чем перезапуск сервера ради нового языка.
+// Языки интерфейса подключаются по факту наличия файла в ui/locales или translations/ —
+// добавить язык значит положить каталог в одну из этих папок, и всё. Список собирается
+// на каждый запрос страницы: приложение локальное, лишний readdir дешевле, чем перезапуск
+// сервера ради нового языка.
 //
-// Порядок важен: en идёт первым — это язык, на который i18n.js откатывается, когда в
-// другом каталоге не хватает ключа. Каталог должен быть определён к этому моменту.
+// ui/locales/ содержит только английские каталоги (en.js, validator-en.js) — это язык,
+// на который i18n.js откатывается, когда в другом каталоге не хватает ключа. Каталог
+// должен быть определён к этому моменту.
+//
+// translations/ содержит остальные языки (ru.js, validator-ru.js и т.д.). Файлы оттуда
+// обслуживаются по /translations/* и загружаются после английских.
 const LOCALES_DIR = path.join(UI_DIR, 'locales');
+const TRANSLATIONS_DIR = path.join(__dirname, 'translations');
 const LOCALE_MARKER = '<!--locales-->';
 
 async function localeScriptTags() {
-  let files = [];
+  // Английские каталоги из ui/locales/ (en.js, validator-en.js)
+  let localeFiles = [];
   try {
-    files = (await fsp.readdir(LOCALES_DIR)).filter((f) => f.endsWith('.js'));
+    localeFiles = (await fsp.readdir(LOCALES_DIR)).filter((f) => f.endsWith('.js'));
   } catch (e) {
     return ''; // папки нет — интерфейс останется на языке разметки
   }
-  files.sort((a, b) => (a === 'en.js' ? -1 : b === 'en.js' ? 1 : a.localeCompare(b)));
-  return files.map((f) => `<script src="/locales/${encodeURIComponent(f)}"></script>`).join('\n');
+  localeFiles.sort((a, b) => (a === 'en.js' ? -1 : b === 'en.js' ? 1 : a.localeCompare(b)));
+
+  // Переводы из translations/ (ru.js, validator-ru.js, …)
+  let transFiles = [];
+  try {
+    transFiles = (await fsp.readdir(TRANSLATIONS_DIR)).filter((f) => f.endsWith('.js'));
+  } catch (e) {
+    // translations/ не существует — не страшно, есть только английский
+  }
+  transFiles.sort((a, b) => a.localeCompare(b));
+
+  const enSet = new Set(localeFiles);
+  const tags = [];
+  for (const f of localeFiles) {
+    tags.push(`<script src="/locales/${encodeURIComponent(f)}"></script>`);
+  }
+  for (const f of transFiles) {
+    // Если файл с тем же именем есть и в ui/locales/, приоритет у ui/locales —
+    // не дублируем скрипт
+    if (enSet.has(f)) continue;
+    tags.push(`<script src="/translations/${encodeURIComponent(f)}"></script>`);
+  }
+  return tags.join('\n');
 }
 
 async function serveStatic(req, res, urlPath, baseDir = UI_DIR, stripPrefix = '') {
@@ -331,6 +359,12 @@ const server = http.createServer(async (req, res) => {
     // --- three.js для просмотрщика (из node_modules/three) ---
     if (req.method === 'GET' && pathname.startsWith('/vendor/three/')) {
       await serveStatic(req, res, pathname, THREE_DIR, '/vendor/three');
+      return;
+    }
+
+    // --- переводы (из translations/ — неанглийские локали) ---
+    if (req.method === 'GET' && pathname.startsWith('/translations/')) {
+      await serveStatic(req, res, pathname, TRANSLATIONS_DIR, '/translations');
       return;
     }
 
@@ -549,8 +583,12 @@ const server = http.createServer(async (req, res) => {
 
       const explain = explainResultSafe(result, platformId, langOf(url));
 
+      // Ссылка даётся по факту наличия файла, а не по статусу. Провалившая проверку
+      // целостности модель тоже записывается (решение Александра 2026-07-30): показать
+      // расхождение и запретить выгрузку — значит решить за пользователя, что ему этот
+      // результат не нужен. Предупреждение остаётся красным, выбор остаётся за ним.
       let downloadUrl = null;
-      if (result.status === 'ok' && result.file && result.file.written && result.file.dst) {
+      if (result.file && result.file.written && result.file.dst) {
         const rel = path.relative(RESULTS_DIR, result.file.dst).split(path.sep).join('/');
         downloadUrl = '/api/download?f=' + encodeURIComponent(rel);
       }

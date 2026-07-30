@@ -920,6 +920,15 @@ details[open] > .collapsible-summary::before {
   gap: 4px;
 }
 
+/* Причина, по которой опций нет. Занимает место самих опций — панель не исчезает,
+   а объясняет. Тон приглушённый: это не ошибка обработки модели, а состояние панели. */
+.opts-unavailable {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--outline);
+}
+
 /* Секции опций (Geometry / Structural / Textures / Cleanup) */
 .opt-section + .opt-section { margin-top: 14px; }
 
@@ -1315,6 +1324,29 @@ details[open] > .collapsible-summary::before {
 .detail-list .val-fail::before { content: '✕'; color: var(--error); left: 0; }
 
 /* ---------- Inspector footer ---------- */
+
+/* Проверка целостности провалена. Тот же приём, что у жёлтой плашки, но красным:
+   различие уровня, а не отдельный язык оформления. */
+.integrity-warning {
+  border-left: 2px solid var(--error);
+  background: rgba(255, 180, 171, 0.10);
+  padding: 10px 12px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.integrity-title {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--error);
+}
+
+.integrity-text {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--on-surface-variant);
+}
 
 .irreversible-warning {
   border-left: 2px solid var(--warning);
