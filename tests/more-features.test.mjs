@@ -106,7 +106,7 @@ describeIfModels(['CarConcept.glb'], 'keepParts', () => {
 
     // С keepParts мешей не меньше (join не объединяет)
     expect(withKeep.metrics.after.meshes).toBeGreaterThanOrEqual(withoutKeep.metrics.after.meshes);
-  }, 30000);
+  });
 
   it('keepParts:true preserves triangle count', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {

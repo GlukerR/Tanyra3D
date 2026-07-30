@@ -185,7 +185,6 @@ describe('Golden Corpus — API smoke test', () => {
 
 // ---------- ПРОГОН ПО ВСЕМ МОДЕЛЯМ: PASSTHROUGH (базовый пайплайн) ----------
 describe('Golden Corpus — passthrough (default pipeline)', () => {
-  const TIMEOUT = 30000; // ABeautifulGame — большая модель
 
   eachModel(
     'passthrough returns status ok, applied empty',
@@ -205,7 +204,7 @@ describe('Golden Corpus — passthrough (default pipeline)', () => {
       expect(result.metrics.before.fileBytes).toBeGreaterThan(0);
       expect(result.metrics.after.fileBytes).toBeGreaterThan(0);
     },
-    TIMEOUT,
+
   );
 
   // Отдельный мини-тест для моделей с уже-сжатым входом: даже на пустом
@@ -224,13 +223,12 @@ describe('Golden Corpus — passthrough (default pipeline)', () => {
       // Должно быть сообщение ровно про снятое входное сжатие, не правило.
       expect(result.applied[0].text).toMatch(/Removed input compression/i);
     },
-    TIMEOUT,
+
   );
 });
 
 // ---------- ПРОГОН ПО ВСЕМ МОДЕЛЯМ: safe-cleanup не ломает структуру ----------
 describe('Golden Corpus — safe cleanup preserves structure', () => {
-  const TIMEOUT = 60000; // ABeautifulGame — большая модель (~145 MB)
 
   eachModel(
     'safe cleanup preserves structure (no validation fails)',
@@ -246,13 +244,12 @@ describe('Golden Corpus — safe cleanup preserves structure', () => {
       // это корректное поведение opt-in. Главный инвариант — safe не ломает валидацию.
       expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
     },
-    TIMEOUT,
+
   );
 });
 
 // ---------- ПРОГОН ПО ВСЕМ МОДЕЛЯМ: core invariant (triangles preserved) ----------
 describe('Golden Corpus — core invariant: triangles ± small delta', () => {
-  const TIMEOUT = 60000; // ABeautifulGame — большая модель
 
   eachModel(
     'triangles delta ≤ 10 (degenerate removal is normal)',
@@ -269,13 +266,12 @@ describe('Golden Corpus — core invariant: triangles ± small delta', () => {
       expect(delta).toBeLessThanOrEqual(10);
       // drawCalls МОГУТ уменьшиться после join — это ожидаемо, не проверяем
     },
-    TIMEOUT,
+
   );
 });
 
 // ---------- ПРОГОН ПО ВСЕМ МОДЕЛЯМ: join не увеличивает meshes/drawCalls ----------
 describe('Golden Corpus — join invariant', () => {
-  const TIMEOUT = 60000; // ABeautifulGame — большая модель, safe+join дольше
 
   eachModel(
     'meshes ≤ before after join (flatten+join)',
@@ -295,7 +291,7 @@ describe('Golden Corpus — join invariant', () => {
       // Главный инвариант: join+safe не ломает валидацию.
       expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
     },
-    TIMEOUT,
+
   );
 });
 
@@ -305,7 +301,6 @@ describe('Golden Corpus — join invariant', () => {
 // на «грязной» модели проверяет, что safe pipeline ЯВНО что-то сделал — `applied.length > 0`,
 // `validation` без fail И хотя бы одно правило с правильным ruleId.
 describe('Golden Corpus — safe is NOT silent no-op', () => {
-  const TIMEOUT = 60000; // CarConcept — самая тяжёлая в корпусе
 
   // Выбор моделей для проверки "safe НЕ молчаливый no-op":
   // CarConcept — первая в корпусе, на которой измерено применение safe; добавлен
@@ -327,12 +322,11 @@ describe('Golden Corpus — safe is NOT silent no-op', () => {
     expect(result.applied.length).toBeGreaterThan(0);
     expect(result.applied.some((a) => SAFE_RULE_IDS.has(a.ruleId))).toBe(true);
     expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
-  }, TIMEOUT);
+  });
 });
 
 // ---------- МЕТРИКИ ----------
 describe('Golden Corpus — metrics structure', () => {
-  const TIMEOUT = 60000; // ABeautifulGame — большая модель (~145 MB), нужен буфер
 
   eachModel(
     'metrics have all required fields',
@@ -357,7 +351,7 @@ describe('Golden Corpus — metrics structure', () => {
         expect(result.metrics.after).toHaveProperty(field);
       }
     },
-    TIMEOUT,
+
   );
 });
 
@@ -473,7 +467,6 @@ function countsOfCamerasAndLights(json) {
 // ============================================================================
 
 describe('Golden Corpus — Dirty Cube 01: safe does real work', () => {
-  const TIMEOUT = 30000; // модель маленькая (~62 KB), таймаут на всякий случай
 
   it('dedup удаляет дубликаты текстур (5 → меньше; на практике 5 → 1)', async () => {
     const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
@@ -490,7 +483,7 @@ describe('Golden Corpus — Dirty Cube 01: safe does real work', () => {
     expect(result.applied.some(
       (a) => a.ruleId === 'structure/dedup' && /duplicate textures/i.test(a.text),
     )).toBe(true);
-  }, TIMEOUT);
+  });
 
   it('prune-unused удаляет TEXCOORD_1…5 по одному', async () => {
     const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
@@ -512,7 +505,7 @@ describe('Golden Corpus — Dirty Cube 01: safe does real work', () => {
     for (const sem of ['TEXCOORD_1', 'TEXCOORD_2', 'TEXCOORD_3', 'TEXCOORD_4', 'TEXCOORD_5']) {
       expect(pruneAttrLines.some((t) => t.includes(sem))).toBe(true);
     }
-  }, TIMEOUT);
+  });
 
   it('камеры и лайты реально есть в файле (sanity для следующей проверки)', async () => {
     const src = readSourceJson('Dirty Cube 01.glb');
@@ -543,7 +536,7 @@ describe('Golden Corpus — Dirty Cube 01: safe does real work', () => {
     });
     expect(result.metrics.before.nodes).toBe(11);
     expect(result.metrics.after.nodes).toBe(10);
-  }, TIMEOUT);
+  });
 
   it('примечание: в файле нет неиспользуемых материалов (тест не написан)', () => {
     // Спецификация Dirty Cube 01.md заявляет «Удалить Material_UNUSED_01 / 02».
@@ -561,7 +554,6 @@ describe('Golden Corpus — Dirty Cube 01: safe does real work', () => {
 // ============================================================================
 
 describe('Golden Corpus — Vertex Colors 01: COLOR_n semantics', () => {
-  const TIMEOUT = 10000;
 
   it('sanity: исходный файл содержит оба color-канала (COLOR_0 и COLOR_1)', async () => {
     const src = readSourceJson('Vertex Colors 01.glb');
@@ -585,7 +577,7 @@ describe('Golden Corpus — Vertex Colors 01: COLOR_n semantics', () => {
     expect(result.applied.some(
       (a) => a.ruleId === 'attributes/vertex-colors' && /all values white/i.test(a.text),
     )).toBe(true);
-  }, TIMEOUT);
+  });
 
   it('под strip-colors оба color-канала удаляются', async () => {
     const { result, json } = await runAndRead('Vertex Colors 01.glb', {
@@ -595,7 +587,7 @@ describe('Golden Corpus — Vertex Colors 01: COLOR_n semantics', () => {
     expect(Array.from(colorSemantics(json))).toEqual([]);
     // И в `findings`, и в applied должны быть сообщения vertexColors.stripped.
     expect(result.applied.some((a) => a.ruleId === 'attributes/vertex-colors')).toBe(true);
-  }, TIMEOUT);
+  });
 
   it('треугольники и узлы не изменились ни в safe, ни в strip-colors', async () => {
     for (const flags of [['safe'], ['strip-colors'], ['safe', 'strip-colors']]) {
@@ -607,7 +599,7 @@ describe('Golden Corpus — Vertex Colors 01: COLOR_n semantics', () => {
       expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
       expect(result.metrics.after.nodes).toBe(result.metrics.before.nodes);
     }
-  }, TIMEOUT);
+  });
 });
 
 // ============================================================================
@@ -615,7 +607,6 @@ describe('Golden Corpus — Vertex Colors 01: COLOR_n semantics', () => {
 // ============================================================================
 
 describe('Golden Corpus — Morph Cube 01: morph targets survive', () => {
-  const TIMEOUT = 10000;
 
   it('safe применяет ноль правил (модель действительно чистая)', async () => {
     const result = await optimizeFile(modelPath('Morph Cube 01.glb'), {
@@ -627,7 +618,7 @@ describe('Golden Corpus — Morph Cube 01: morph targets survive', () => {
     // Это не повод её выкидывать — она про ДРУГОЕ (см. следующий тест).
     expect(result.applied.length).toBe(0);
     expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
-  }, TIMEOUT);
+  });
 
   it('под safe два НЕ-basis морф-таргета на месте', async () => {
     const { result, json } = await runAndRead('Morph Cube 01.glb', {
@@ -645,7 +636,7 @@ describe('Golden Corpus — Morph Cube 01: morph targets survive', () => {
     expect(t.length).toBe(2); // Morph_Up + Morph_Right
     // У каждого target должен быть POSITION (иначе morph нереален):
     for (const target of t) expect(target).toHaveProperty('POSITION');
-  }, TIMEOUT);
+  });
 
   it('под safe+join морф-таргеты тоже на месте', async () => {
     const { result, json } = await runAndRead('Morph Cube 01.glb', {
@@ -655,7 +646,7 @@ describe('Golden Corpus — Morph Cube 01: morph targets survive', () => {
     const firstPrim = ((json.meshes || [])[0] || {}).primitives || [];
     expect(firstPrim.length).toBe(1);
     expect((firstPrim[0] && firstPrim[0].targets || []).length).toBe(2);
-  }, TIMEOUT);
+  });
 });
 
 // ============================================================================
@@ -663,7 +654,6 @@ describe('Golden Corpus — Morph Cube 01: morph targets survive', () => {
 // ============================================================================
 
 describeLocal('Cthulhu Stone 01.glb', 'Golden Corpus — Cthulhu Stone 01: skins + animations preserved', () => {
-  const TIMEOUT = 30000; // модель 18 МБ, нужен буфер
 
   it('safe: скин и анимации сохранены по количеству', async () => {
     const result = await optimizeFile(modelPath('Cthulhu Stone 01.glb'), {
@@ -678,7 +668,7 @@ describeLocal('Cthulhu Stone 01.glb', 'Golden Corpus — Cthulhu Stone 01: skins
     // Расхождение зафиксировано в .claude/CONTEXT.md, тест пишем под файл.
     expect(result.metrics.before.animations).toBe(1);
     expect(result.metrics.after.animations).toBe(1);
-  }, TIMEOUT);
+  });
 
   it('safe: выходной файл содержит анимацию по имени «Scene»', async () => {
     const { result, json } = await runAndRead('Cthulhu Stone 01.glb', {
@@ -688,7 +678,7 @@ describeLocal('Cthulhu Stone 01.glb', 'Golden Corpus — Cthulhu Stone 01: skins
     const names = animationNames(json);
     expect(names.length).toBe(1);
     expect(names[0]).toMatch(/Scene/i);
-  }, TIMEOUT);
+  });
 });
 
 // ============================================================================
@@ -696,7 +686,6 @@ describeLocal('Cthulhu Stone 01.glb', 'Golden Corpus — Cthulhu Stone 01: skins
 // ============================================================================
 
 describeLocal('Lilith Character 01.glb', 'Golden Corpus — Lilith Character 01: three named animations + 1 skin', () => {
-  const TIMEOUT = 30000;
 
   // Расчётное время прогонов с большим количеством нод (281); safe с weld/orphan
   // на толстой геометрии занимает несколько секунд — буфер 30s.
@@ -711,7 +700,7 @@ describeLocal('Lilith Character 01.glb', 'Golden Corpus — Lilith Character 01:
     expect(result.metrics.after.skins).toBe(1);
     expect(result.metrics.before.animations).toBe(3);
     expect(result.metrics.after.animations).toBe(3);
-  }, TIMEOUT);
+  });
 
   it('safe: имена трёх клипов содержат Idle / Lilith_Walk_Loop / 0-T-Pose', async () => {
     const { result, json } = await runAndRead('Lilith Character 01.glb', {
@@ -724,7 +713,7 @@ describeLocal('Lilith Character 01.glb', 'Golden Corpus — Lilith Character 01:
     expect(names.some((n) => /Idle/.test(n))).toBe(true);
     expect(names.some((n) => /Lilith_Walk_Loop/.test(n))).toBe(true);
     expect(names.some((n) => /0-T-Pose/.test(n))).toBe(true);
-  }, TIMEOUT);
+  });
 });
 
 // ============================================================================
@@ -732,7 +721,6 @@ describeLocal('Lilith Character 01.glb', 'Golden Corpus — Lilith Character 01:
 // ============================================================================
 
 describe('Golden Corpus — Draco Compressed Input 01: re-decompression + safe', () => {
-  const TIMEOUT = 10000;
 
   it('safe отрабатывает с status ok и сохраняет треугольники', async () => {
     const result = await optimizeFile(modelPath('Draco Compressed Input 01.glb'), {
@@ -741,7 +729,7 @@ describe('Golden Corpus — Draco Compressed Input 01: re-decompression + safe',
     });
     expect(result.status).toBe('ok');
     expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
-  }, TIMEOUT);
+  });
 
   it('safe снимает входное Draco-сжатие (расширение пропадает из выхода)', async () => {
     // addons/gltf/index.mjs: stripInputCompression() снимает KHR_draco_mesh_compression
@@ -754,7 +742,7 @@ describe('Golden Corpus — Draco Compressed Input 01: re-decompression + safe',
       advancedFeatures: ['safe'],
     });
     expect((json.extensionsUsed || []).includes('KHR_draco_mesh_compression')).toBe(false);
-  }, TIMEOUT);
+  });
 
   it('safe БЕЗ draco — файл ВЫРАСТАЕТ (измерено: 6 380 → 7 052). Это нормально.', async () => {
     const result = await optimizeFile(modelPath('Draco Compressed Input 01.glb'), {
@@ -766,7 +754,7 @@ describe('Golden Corpus — Draco Compressed Input 01: re-decompression + safe',
     // не передан. Тест закрепляет этот «как будто регресс» как ожидаемое поведение,
     // чтобы будущий человек не «починил» grow.
     expect(result.metrics.after.fileBytes).toBeGreaterThan(result.metrics.before.fileBytes);
-  }, TIMEOUT);
+  });
 
   it('safe + draco сжимает обратно — размер возвращается к разумному', async () => {
     const result = await optimizeFile(modelPath('Draco Compressed Input 01.glb'), {
@@ -778,7 +766,7 @@ describe('Golden Corpus — Draco Compressed Input 01: re-decompression + safe',
     // После явного draco размер должен быть < исходного (633 < 6380 — сильное
     // сжатие на этой модели, поведение `geometry/compress`).
     expect(result.metrics.after.fileBytes).toBeLessThan(result.metrics.before.fileBytes);
-  }, TIMEOUT);
+  });
 });
 
 // ============================================================================
@@ -786,7 +774,6 @@ describe('Golden Corpus — Draco Compressed Input 01: re-decompression + safe',
 // ============================================================================
 
 describe('Golden Corpus — Meshopt Compressed Input 01: re-decompress + safe', () => {
-  const TIMEOUT = 10000;
 
   it('safe + meshopt — status ok, геометрия не повреждена', async () => {
     const result = await optimizeFile(modelPath('Meshopt Compressed Input 01.glb'), {
@@ -797,7 +784,7 @@ describe('Golden Corpus — Meshopt Compressed Input 01: re-decompress + safe', 
     // Core invariant: треугольники и узлы не должны поехать при повторном сжатии.
     expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
     expect(result.metrics.after.nodes).toBe(result.metrics.before.nodes);
-  }, TIMEOUT);
+  });
 
   it('safe + meshopt применяет geometry/compress (видно в applied)', async () => {
     const result = await optimizeFile(modelPath('Meshopt Compressed Input 01.glb'), {
@@ -806,7 +793,7 @@ describe('Golden Corpus — Meshopt Compressed Input 01: re-decompress + safe', 
     });
     expect(result.status).toBe('ok');
     expect(result.applied.some((a) => a.ruleId === 'geometry/compress')).toBe(true);
-  }, TIMEOUT);
+  });
 
   it('safe снимает входное Meshopt-сжатие (расширение пропадает из выхода)', async () => {
     const srcBefore = readSourceJson('Meshopt Compressed Input 01.glb');
@@ -816,7 +803,7 @@ describe('Golden Corpus — Meshopt Compressed Input 01: re-decompress + safe', 
       advancedFeatures: ['safe'],
     });
     expect((json.extensionsUsed || []).includes('EXT_meshopt_compression')).toBe(false);
-  }, TIMEOUT);
+  });
 });
 
 // ============================================================================
@@ -824,7 +811,6 @@ describe('Golden Corpus — Meshopt Compressed Input 01: re-decompress + safe', 
 // ============================================================================
 
 describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', () => {
-  const TIMEOUT = 10000;
 
   // Измерения на 2026-07-28:
   //   instance в одиночку  : 4→4 м, 12→12 н, 12→12 dc, 8 624 → 8 224 байт (applied пуст)
@@ -845,7 +831,7 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
       expect(result.status).toBe('ok');
       expect(result.metrics.after.triangles).toBe(144);
     }
-  }, TIMEOUT);
+  });
 
   it('["instance"] в одиночку не срабатывает (применяется только после dedup)', async () => {
     // До dedup — 4 РАЗНЫХ меша с 3 родителями каждый, порог правила — 5.
@@ -862,7 +848,7 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
     expect(result.metrics.after.meshes).toBe(4);
     expect(result.metrics.after.nodes).toBe(12);
     expect(result.metrics.after.drawCalls).toBe(12);
-  }, TIMEOUT);
+  });
 
   it('["safe"] мерджит 4 меша в 1 (dc/nodes не трогает)', async () => {
     const result = await optimizeFile(modelPath('Linked Duplicates Grid 01.glb'), {
@@ -874,7 +860,7 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
     expect(result.metrics.after.nodes).toBe(12);
     expect(result.metrics.after.drawCalls).toBe(12);
     expect(result.metrics.after.fileBytes).toBeLessThan(result.metrics.before.fileBytes);
-  }, TIMEOUT);
+  });
 
   it('["safe","instance"] — 12 узлов → 1, появляется EXT_mesh_gpu_instancing', async () => {
     const { result, json } = await runAndRead('Linked Duplicates Grid 01.glb', {
@@ -888,7 +874,7 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
     expect(result.applied.some((a) => a.ruleId === 'scene/instance')).toBe(true);
     // Главное — расширение реально попало в выходной документ, а не только в applied.
     expect((json.extensionsUsed || []).includes('EXT_mesh_gpu_instancing')).toBe(true);
-  }, TIMEOUT);
+  });
 
   it('["safe","join"] сводит к 1/1/1, но ФАЙЛ РАСТЁТ (ожидаемо, 8 624 → 15 704)', async () => {
     // join разворачивает 12 экземпляров в 12 копий геометрии внутри одного меша —
@@ -904,7 +890,7 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
     expect(result.metrics.after.drawCalls).toBe(1);
     expect(result.metrics.after.meshes).toBe(1);
     expect(result.metrics.after.fileBytes).toBeGreaterThan(result.metrics.before.fileBytes);
-  }, TIMEOUT);
+  });
 });
 
 // ============================================================================
@@ -912,7 +898,6 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
 // ============================================================================
 
 describe('Golden Corpus — Orphan Texture Cube 01: orphan cleanup + drawCalls limit', () => {
-  const TIMEOUT = 10000;
 
   // Измерения на 2026-07-28: 25 620 → 2 780 (−89 %) под ['safe']. Применённые
   // правила (по списку в задании §8):
@@ -932,7 +917,7 @@ describe('Golden Corpus — Orphan Texture Cube 01: orphan cleanup + drawCalls l
     expect(result.applied.some(
       (a) => a.ruleId === 'structure/prune-unused' && /Textures: removed 1 unused/i.test(a.text),
     )).toBe(true);
-  }, TIMEOUT);
+  });
 
   it('два пустых узла коллекций удалены, узел Cube остался (3 → 1)', async () => {
     const result = await optimizeFile(modelPath('Orphan Texture Cube 01.glb'), {
@@ -942,7 +927,7 @@ describe('Golden Corpus — Orphan Texture Cube 01: orphan cleanup + drawCalls l
     expect(result.status).toBe('ok');
     expect(result.metrics.before.nodes).toBe(3);
     expect(result.metrics.after.nodes).toBe(1);
-  }, TIMEOUT);
+  });
 
   it('треугольников 12 и 3 материала на месте (цвета не перепутаны)', async () => {
     const result = await optimizeFile(modelPath('Orphan Texture Cube 01.glb'), {
@@ -953,7 +938,7 @@ describe('Golden Corpus — Orphan Texture Cube 01: orphan cleanup + drawCalls l
     expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
     expect(result.metrics.after.materials).toBe(result.metrics.before.materials);
     expect(result.metrics.after.materials).toBe(3);
-  }, TIMEOUT);
+  });
 
   it('файл упал более чем на 80% (измерено −89 %)', async () => {
     const result = await optimizeFile(modelPath('Orphan Texture Cube 01.glb'), {
@@ -963,7 +948,7 @@ describe('Golden Corpus — Orphan Texture Cube 01: orphan cleanup + drawCalls l
     expect(result.status).toBe('ok');
     const ratio = result.metrics.after.fileBytes / result.metrics.before.fileBytes;
     expect(ratio).toBeLessThanOrEqual(0.20);
-  }, TIMEOUT);
+  });
 
   it('drawCalls остаётся 3 — три примитива в трёх материалах не сводятся', async () => {
     // Фиксирует границу: примитивы используют три разных материала — join
@@ -979,7 +964,7 @@ describe('Golden Corpus — Orphan Texture Cube 01: orphan cleanup + drawCalls l
       expect(result.metrics.after.drawCalls).toBe(3);
       expect(result.metrics.after.materials).toBe(3);
     }
-  }, TIMEOUT);
+  });
 });
 
 // ============================================================================
@@ -987,7 +972,6 @@ describe('Golden Corpus — Orphan Texture Cube 01: orphan cleanup + drawCalls l
 // ============================================================================
 
 describe('Golden Corpus — Instance Grid 01: 625 узлов, pipeline does not crash', () => {
-  const TIMEOUT = 30000; // большая сцена, 1 МБ
 
   it('["instance"] в одиночку: applied пуст, status ok', async () => {
     // Array-модификатор Blender запёк смещения в вершины. В GLB получилось
@@ -1001,7 +985,7 @@ describe('Golden Corpus — Instance Grid 01: 625 узлов, pipeline does not 
     });
     expect(result.status).toBe('ok');
     expect(result.applied.length).toBe(0);
-  }, TIMEOUT);
+  });
 
   it('safe на 625 узлах не ломается; треугольники и узлы не изменились', async () => {
     // Тест не утверждает, что safe что-то сделал — для этой модели это опционально
@@ -1016,6 +1000,6 @@ describe('Golden Corpus — Instance Grid 01: 625 узлов, pipeline does not 
     // Узлов должно быть НЕ МЕНЬШЕ исходного (если prune не снёс лишние empty).
     // По измерениям исходно 625; ожидаем, что safe не выкинул важные узлы.
     expect(result.metrics.after.nodes).toBe(625);
-  }, TIMEOUT);
+  });
 });
 

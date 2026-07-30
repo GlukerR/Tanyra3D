@@ -41,8 +41,6 @@ function parseGlbJson(bytes) {
 // --------------------------------------------------------------------
 
 describe('animation/resample — models with animations', () => {
-  const TIMEOUT = 60000;
-
   // Модели из задания (все локальные). Для каждой проверяем инварианты resample.
   const ANIM_MODELS = [
     // Имена клипов в Lilith имеют префикс `root|` (специфика glTF-экспорта).
@@ -75,7 +73,7 @@ describe('animation/resample — models with animations', () => {
           const anySkipped = result.skipped.some((s) => String(s.text || '').includes('resample'));
           expect(anyResample || anySkipped).toBe(true);
         }
-      }, TIMEOUT);
+      });
 
       it('число анимаций не изменилось', async () => {
         const result = await optimizeFile(modelPath(name), {
@@ -85,7 +83,7 @@ describe('animation/resample — models with animations', () => {
         expect(result.status).toBe('ok');
         expect(result.metrics.before.animations).toBe(animCount);
         expect(result.metrics.after.animations).toBe(animCount);
-      }, TIMEOUT);
+      });
 
       it('имена клипов сохранены', async () => {
         // Читаем выходной GLB (без dryRun, чтобы получить файл)
@@ -108,7 +106,7 @@ describe('animation/resample — models with animations', () => {
           const found = animNames.some((n) => n.includes(expected));
           expect(found).toBe(true);
         }
-      }, TIMEOUT);
+      });
 
       if (hasSkins) {
         it('skins не изменились', async () => {
@@ -119,7 +117,7 @@ describe('animation/resample — models with animations', () => {
           expect(result.status).toBe('ok');
           expect(result.metrics.before.skins).toBe(result.metrics.after.skins);
           expect(result.metrics.after.skins).toBeGreaterThan(0);
-        }, TIMEOUT);
+        });
       }
 
       it('morphTargets не изменились', async () => {
@@ -129,7 +127,7 @@ describe('animation/resample — models with animations', () => {
         });
         expect(result.status).toBe('ok');
         expect(result.metrics.before.morphTargets).toBe(result.metrics.after.morphTargets);
-      }, TIMEOUT);
+      });
 
       it('файл стал меньше или равным (resample не увеличивает)', async () => {
         const result = await optimizeFile(modelPath(name), {
@@ -140,7 +138,7 @@ describe('animation/resample — models with animations', () => {
         // resample может не найти лишних кадров → размер не изменится.
         // Для Lilith Character 01 ожидаем заметное уменьшение (~20%).
         expect(result.metrics.after.fileBytes).toBeLessThanOrEqual(result.metrics.before.fileBytes);
-      }, TIMEOUT);
+      });
     });
   }
 });
@@ -150,8 +148,6 @@ describe('animation/resample — models with animations', () => {
 // --------------------------------------------------------------------
 
 describe('animation/resample — model without animations', () => {
-  const TIMEOUT = 30000;
-
   const modelName = 'Dirty Cube 01.glb';
 
   it('status ok, applied пуст', async () => {
@@ -162,7 +158,7 @@ describe('animation/resample — model without animations', () => {
     expect(result.status).toBe('ok');
     // resample нечего делать — applied пуст
     expect(result.applied.length).toBe(0);
-  }, TIMEOUT);
+  });
 
   it('skipped содержит сообщение про "no animations to resample"', async () => {
     const result = await optimizeFile(modelPath(modelName), {
@@ -177,7 +173,7 @@ describe('animation/resample — model without animations', () => {
     // skipped может быть пустым, если другое правило не сработало.
     // Но если skipped не пуст, среди записей должно быть что-то про анимации.
     expect(anyRelevant || result.skipped.length === 0).toBe(true);
-  }, TIMEOUT);
+  });
 
   it('треугольники и анимации не изменились (resample не трогает геометрию)', async () => {
     const result = await optimizeFile(modelPath(modelName), {
@@ -191,7 +187,7 @@ describe('animation/resample — model without animations', () => {
     // У модели Dirty Cube 01 нет анимаций от природы
     expect(result.metrics.before.animations).toBe(0);
     expect(result.metrics.after.animations).toBe(0);
-  }, TIMEOUT);
+  });
 
   it('модель проходит валидацию (0 fail)', async () => {
     const result = await optimizeFile(modelPath(modelName), {
@@ -200,7 +196,7 @@ describe('animation/resample — model without animations', () => {
     });
     expect(result.status).toBe('ok');
     expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
-  }, TIMEOUT);
+  });
 });
 
 // --------------------------------------------------------------------
@@ -208,8 +204,6 @@ describe('animation/resample — model without animations', () => {
 // --------------------------------------------------------------------
 
 describe('animation/resample + safe — combined', () => {
-  const TIMEOUT = 60000;
-
   const modelName = 'Lilith Character 01.glb';
   if (!modelPresent(modelName)) {
     it.skip(`${modelName} — model missing locally`, () => {});
@@ -226,7 +220,7 @@ describe('animation/resample + safe — combined', () => {
     expect(result.metrics.after.animations).toBe(3);
     expect(result.metrics.before.skins).toBe(1);
     expect(result.metrics.after.skins).toBe(1);
-  }, TIMEOUT);
+  });
 
   it('validation passes under safe+resample', async () => {
     const result = await optimizeFile(modelPath(modelName), {
@@ -235,5 +229,5 @@ describe('animation/resample + safe — combined', () => {
     });
     expect(result.status).toBe('ok');
     expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
-  }, TIMEOUT);
+  });
 });

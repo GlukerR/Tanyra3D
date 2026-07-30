@@ -54,7 +54,7 @@ function parseBaselineBlock(content, name) {
   if (!m) return null;
   return m[1]
     .split(',')
-    .map((s) => s.trim().replace(/^['"]|['"]$/g, ''))
+    .map((s) => s.trim().replace(/^['\"]|['\"]$/g, ''))
     .filter(Boolean);
 }
 
@@ -117,8 +117,6 @@ describe('GAP-005 Source Code Checks — BASELINE_METRICS · BASELINE_SOFT', () 
 // в ноль или исказиться — этот тест упал бы. После GAP-005 — стабильно.
 
 describe('GAP-005 Behavioral — Morph Cube 01 (committed, 2 morph targets)', () => {
-  const TIMEOUT = 30000;
-
   it('source: 2 morph targets (основа glTF targets[] без basis)', () => {
     // В glTF basis включён в POSITION самого примитива, в targets[] попадают
     // только дополнительные. На этой модели targets = 2. Sanity-инвариант
@@ -136,7 +134,7 @@ describe('GAP-005 Behavioral — Morph Cube 01 (committed, 2 morph targets)', ()
       }
     }
     expect(total).toBe(2);
-  }, 5000);
+  });
 
   // ПРОСТО it.each с массивом массивов в vitest 4.1.10 роняет имена (все
   // три теста выходят под одним именем, и часть из них бежит с неверными
@@ -160,7 +158,7 @@ describe('GAP-005 Behavioral — Morph Cube 01 (committed, 2 morph targets)', ()
       expect(typeof result.metrics.after.morphTargets).toBe('number');
       expect(result.metrics.before.morphTargets).toBeGreaterThan(0);
       expect(result.metrics.before.morphTargets).toBe(result.metrics.after.morphTargets);
-    }, TIMEOUT);
+    });
   }
 
   it('attributes содержит POSITION — UV-канал и нормаль видны baseline-checkpoint', async () => {
@@ -173,5 +171,5 @@ describe('GAP-005 Behavioral — Morph Cube 01 (committed, 2 morph targets)', ()
     // На этой модели как минимум POSITION (всегда) и NORMAL; полный список
     // зависит от экспортёра, поэтому assert только на POSITION — стабильно.
     expect(result.metrics.before.attributes.split(',').map((s) => s.trim())).toContain('POSITION');
-  }, TIMEOUT);
+  });
 });

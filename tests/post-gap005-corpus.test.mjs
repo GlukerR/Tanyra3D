@@ -64,7 +64,6 @@ async function runAndRead(modelName, opts = {}) {
 // первые же тесты ниже провалятся.
 
 describe('Post-GAP-005 corpus — Preinstanced Grid 01: instanceCountOf on entry', () => {
-  const TIMEOUT = 30000;
 
   it('source: passthrough уже имеет EXT_mesh_gpu_instancing на входе', () => {
     const bytes = fs.readFileSync(modelPath('Preinstanced Grid 01.glb'));
@@ -89,7 +88,7 @@ describe('Post-GAP-005 corpus — Preinstanced Grid 01: instanceCountOf on entry
     expect(result.metrics.after.nodes).toBe(1);
     expect(result.metrics.before.drawCalls).toBe(1);
     expect(result.metrics.after.drawCalls).toBe(1);
-  }, TIMEOUT);
+  });
 
   it('[\'safe\']: без изменений — нечего инстансить/мерджить (1 узел, 144 треугольника)', async () => {
     const result = await optimizeFile(modelPath('Preinstanced Grid 01.glb'), {
@@ -103,7 +102,7 @@ describe('Post-GAP-005 corpus — Preinstanced Grid 01: instanceCountOf on entry
     expect(result.metrics.after.drawCalls).toBe(1);
     // Safe не сломал валидацию.
     expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
-  }, TIMEOUT);
+  });
 
   it('[\'safe\']: EXT_mesh_gpu_instancing сохраняется в extensionsUsed выхода', async () => {
     // Из задания: «prune не должен счесть расширение мусором».
@@ -114,7 +113,7 @@ describe('Post-GAP-005 corpus — Preinstanced Grid 01: instanceCountOf on entry
     });
     expect(result.status).toBe('ok');
     expect((json && json.extensionsUsed) || []).toContain('EXT_mesh_gpu_instancing');
-  }, TIMEOUT);
+  });
 });
 
 // ============================================================================
@@ -127,7 +126,6 @@ describe('Post-GAP-005 corpus — Preinstanced Grid 01: instanceCountOf on entry
 // устройству, а не по дефекту». Отдельный describe.
 
 describe('Post-GAP-005 corpus — Truncated Broken 01: pipeline must fail', () => {
-  const TIMEOUT = 10000;
 
   it('optimizeFile возвращает объект (не бросает исключение) на повреждённом GLB', async () => {
     let result;
@@ -143,7 +141,7 @@ describe('Post-GAP-005 corpus — Truncated Broken 01: pipeline must fail', () =
     // Контракт роли: «оптимизация не бросает на повреждённых входах».
     expect(threw).toBeNull();
     expect(result).toBeDefined();
-  }, TIMEOUT);
+  });
 
   it('passthrough: status=fail с понятной ошибкой про типизированный массив', async () => {
     const result = await optimizeFile(modelPath('Truncated Broken 01.glb'), {
@@ -159,7 +157,7 @@ describe('Post-GAP-005 corpus — Truncated Broken 01: pipeline must fail', () =
     // подтверждает, что ошибка про НАШ файл, а не generic.
     expect(result.error).toMatch(/Invalid typed array length/i);
     expect(result.error).toMatch(/1468/);
-  }, TIMEOUT);
+  });
 
   it('[\'safe\']: тоже fail с той же маркой (не зависит от режима)', async () => {
     const result = await optimizeFile(modelPath('Truncated Broken 01.glb'), {
@@ -169,7 +167,7 @@ describe('Post-GAP-005 corpus — Truncated Broken 01: pipeline must fail', () =
     expect(result.status).toBe('fail');
     expect(result.error).toMatch(/Invalid typed array length/i);
     expect(result.error).toMatch(/1468/);
-  }, TIMEOUT);
+  });
 
   it('fail никаких файлов на диск не пишет', async () => {
     // dryRun:true по умолчанию, и даже если upstream менял outDir — здесь
@@ -187,7 +185,7 @@ describe('Post-GAP-005 corpus — Truncated Broken 01: pipeline must fail', () =
     // проверяем только, что .glb для этой модели в `output/` не появился.
     const newNames = [...after].filter((n) => !before.has(n));
     expect(newNames.some((n) => n.startsWith('Truncated Broken 01.'))).toBe(false);
-  }, TIMEOUT);
+  });
 });
 
 // ============================================================================
@@ -208,7 +206,6 @@ const chibiPath = modelPath('chibi_zenitsu.glb');
 const chibiPresent = fs.existsSync(chibiPath);
 const chibiDescribe = chibiPresent ? describe : describe.skip;
 chibiDescribe('Post-GAP-005 corpus — chibi_zenitsu (local CC-BY-4.0): skin + anim + morphs', () => {
-  const TIMEOUT = 60000;
 
   it('passthrough: 1 skin, 1 анимация (\'Run\'), morphTargets > 0', async () => {
     const result = await optimizeFile(modelPath('chibi_zenitsu.glb'), {
@@ -222,7 +219,7 @@ chibiDescribe('Post-GAP-005 corpus — chibi_zenitsu (local CC-BY-4.0): skin + a
     expect(result.metrics.after.animations).toBe(1);
     expect(result.metrics.before.morphTargets).toBeGreaterThan(0);
     expect(result.metrics.before.morphTargets).toBe(result.metrics.after.morphTargets);
-  }, TIMEOUT);
+  });
 
   it('[\'safe\']: morphTargets и скин сохранены (тест скина под морф + joint)', async () => {
     const result = await optimizeFile(modelPath('chibi_zenitsu.glb'), {
@@ -233,7 +230,7 @@ chibiDescribe('Post-GAP-005 corpus — chibi_zenitsu (local CC-BY-4.0): skin + a
     expect(result.metrics.after.skins).toBe(1);
     expect(result.metrics.before.morphTargets).toBe(result.metrics.after.morphTargets);
     expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
-  }, TIMEOUT);
+  });
 
   it('[\'safe\',\'draco\']: компрессия не теряет морфы (4.25 → 2.33 МБ по измерениям)', async () => {
     const result = await optimizeFile(modelPath('chibi_zenitsu.glb'), {
@@ -246,7 +243,7 @@ chibiDescribe('Post-GAP-005 corpus — chibi_zenitsu (local CC-BY-4.0): skin + a
     const ratio = result.metrics.after.fileBytes / result.metrics.before.fileBytes;
     expect(ratio).toBeGreaterThan(0.30);
     expect(ratio).toBeLessThan(0.70);
-  }, TIMEOUT);
+  });
 
   it('source: имена анимаций содержат \'Run\', 2 морфа на 2 примитивах', () => {
     const bytes = fs.readFileSync(modelPath('chibi_zenitsu.glb'));
@@ -275,7 +272,6 @@ const parkergirlPath = modelPath('parkergirl.glb');
 const parkergirlPresent = fs.existsSync(parkergirlPath);
 const parkergirlDescribe = parkergirlPresent ? describe : describe.skip;
 parkergirlDescribe('Post-GAP-005 corpus — parkergirl (local CC-BY-4.0): heavy morph stress', () => {
-  const TIMEOUT = 60000;
 
   it('passthrough: 1 skin, 1 анимация (\'MorphBake\'), morphTargets > 0', async () => {
     const result = await optimizeFile(modelPath('parkergirl.glb'), {
@@ -288,7 +284,7 @@ parkergirlDescribe('Post-GAP-005 corpus — parkergirl (local CC-BY-4.0): heavy 
     expect(result.metrics.before.animations).toBe(1);
     expect(result.metrics.after.animations).toBe(1);
     expect(result.metrics.before.morphTargets).toBeGreaterThan(0);
-  }, TIMEOUT);
+  });
 
   it('[\'safe\']: morphTargets 456 → 456, файл 8.48 → 4.82 МБ по измерениям', async () => {
     const result = await optimizeFile(modelPath('parkergirl.glb'), {
@@ -300,7 +296,7 @@ parkergirlDescribe('Post-GAP-005 corpus — parkergirl (local CC-BY-4.0): heavy 
     expect(result.metrics.after.morphTargets).toBe(456);
     const ratio = result.metrics.after.fileBytes / result.metrics.before.fileBytes;
     expect(ratio).toBeLessThan(0.80);
-  }, TIMEOUT);
+  });
 
   it('[\'safe\',\'draco\']: 8.48 → 4.09 МБ по измерениям, морфы сохранены', async () => {
     const result = await optimizeFile(modelPath('parkergirl.glb'), {
@@ -311,7 +307,7 @@ parkergirlDescribe('Post-GAP-005 corpus — parkergirl (local CC-BY-4.0): heavy 
     expect(result.metrics.before.morphTargets).toBe(result.metrics.after.morphTargets);
     const ratio = result.metrics.after.fileBytes / result.metrics.before.fileBytes;
     expect(ratio).toBeLessThan(0.60);
-  }, TIMEOUT);
+  });
 
   it('source: 1 анимация по имени \'MorphBake\', морфы распределены по 8 примитивам', () => {
     const bytes = fs.readFileSync(modelPath('parkergirl.glb'));
@@ -359,8 +355,6 @@ parkergirlDescribe('Post-GAP-005 corpus — parkergirl (local CC-BY-4.0): heavy 
 // около 8 МБ).
 
 describe('Post-GAP-005 corpus — клиентские модели, KTX2 graceful', () => {
-  const TIMEOUT_KTX2 = 120_000;
-  const TIMEOUT_SAFE = 120_000;
 
   const CLIENT_MODELS = ['Е300.glb', 'r 250.glb', 'L-330.glb'];
   for (const m of CLIENT_MODELS) {
@@ -390,7 +384,7 @@ describe('Post-GAP-005 corpus — клиентские модели, KTX2 gracef
         // под safe должна быть минимальной (допуск по большим моделям).
         expect(delta).toBeLessThanOrEqual(5000);
         expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
-      }, TIMEOUT_SAFE);
+      });
 
       it('[\'safe\',\'ktx2\']: graceful fail если toktx не установлен; ok если установлен', async () => {
         // Допускаем ТОЛЬКО два исхода:
@@ -424,7 +418,7 @@ describe('Post-GAP-005 corpus — клиентские модели, KTX2 gracef
         } else {
           throw new Error(`Unexpected status ${result.status} for ${m} under safe+ktx2`);
         }
-      }, TIMEOUT_KTX2);
+      });
     });
   }
 });

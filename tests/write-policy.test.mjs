@@ -21,8 +21,6 @@ import {
   describeIfModels,
 } from './helpers/model-files.mjs';
 
-const TIMEOUT = 30000;
-
 // ========================================================================
 // Работа 1, пункт 1: dryRun:true → written === false
 // ========================================================================
@@ -44,7 +42,7 @@ describeIfModels(
         if (result.file.dst) {
           expect(fs.existsSync(result.file.dst)).toBe(false);
         }
-      }, TIMEOUT);
+      });
     }
   },
 );
@@ -79,7 +77,7 @@ describeIfModels(
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }
-    }, TIMEOUT);
+    });
   },
 );
 
@@ -114,7 +112,7 @@ describeIfModels(
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       }
-    }, TIMEOUT);
+    });
   },
 );
 
@@ -142,7 +140,7 @@ describeIfModels(
         } finally {
           fs.rmSync(tmpDir, { recursive: true, force: true });
         }
-      }, TIMEOUT);
+      });
     }
   },
 );

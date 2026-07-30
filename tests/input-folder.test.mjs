@@ -50,7 +50,6 @@ describe('Input folder — basic checks', () => {
 
 // ---- Batch passthrough for ALL input models ----
 describe('Input folder — batch passthrough (default pipeline)', () => {
-  const longTimeout = 60000;
 
   it.each(inputModels)(`passthrough: %s`, async (modelName) => {
     const modelFullPath = path.join(INPUT_DIR, modelName);
@@ -72,12 +71,11 @@ describe('Input folder — batch passthrough (default pipeline)', () => {
     expect(result.metrics.before).not.toBeNull();
     expect(result.metrics.after).not.toBeNull();
     expect(result.metrics.before.fileBytes).toBeGreaterThan(0);
-  }, longTimeout);
+  });
 });
 
 // ---- Safe cleanup + core invariant ----
 describe('Input folder — safe cleanup (core invariant)', () => {
-  const longTimeout = 120000;
 
   it.each(inputModels.filter((m) => !KNOWN_FAILING.has(m)))(
     `safe cleanup: %s`,
@@ -105,7 +103,6 @@ describe('Input folder — safe cleanup (core invariant)', () => {
         expect(result.status).toMatch(/ok|skip/);
       }
     },
-    longTimeout,
   );
 });
 
@@ -131,7 +128,7 @@ describe('Input folder — edge case filenames', () => {
 
     // Имена с пробелами/кириллицей не должны ломать пайплайн
     expect(['ok', 'skip']).toContain(result.status);
-  }, 60000);
+  });
 
   it(`edge filename count: ${edgeNames.length} models with special chars, ${edgeKnownFailing.length} known failing`, () => {
     expect(edgeNames.length).toBeGreaterThan(0);

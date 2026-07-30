@@ -24,7 +24,6 @@ const PROJECT_ROOT = path.resolve(__dirname, '..');
 // Временная директория для битых файлов — создаётся в проекте, не в системе,
 // чтобы не оставлять мусор. afterAll удаляет.
 const FIXTURE_DIR = path.resolve(PROJECT_ROOT, 'fixtures', '_broken_testfiles');
-const TIMEOUT = 30000;
 
 // ---------- создаём битые файлы ----------
 const BROKEN_FILES = {};
@@ -92,7 +91,7 @@ describe('Corrupted input — graceful failure', () => {
     expect(result.error).toBeDefined();
     expect(typeof result.error).toBe('string');
     expect(result.error.length).toBeGreaterThan(0);
-  }, TIMEOUT);
+  });
 
   it('random bytes as .glb returns status:fail without crash', async () => {
     const result = await optimizeFile(BROKEN_FILES.random, { dryRun: true });
@@ -100,7 +99,7 @@ describe('Corrupted input — graceful failure', () => {
     expect(result.error).toBeDefined();
     expect(typeof result.error).toBe('string');
     expect(result.error.length).toBeGreaterThan(0);
-  }, TIMEOUT);
+  });
 
   it('broken JSON chunk returns status:fail without crash', async () => {
     const result = await optimizeFile(BROKEN_FILES.brokenJson, { dryRun: true });
@@ -108,7 +107,7 @@ describe('Corrupted input — graceful failure', () => {
     expect(result.error).toBeDefined();
     expect(typeof result.error).toBe('string');
     expect(result.error.length).toBeGreaterThan(0);
-  }, TIMEOUT);
+  });
 
   it('GLB header with no JSON chunk returns status:fail', async () => {
     const result = await optimizeFile(BROKEN_FILES.noJson, { dryRun: true });
@@ -116,7 +115,7 @@ describe('Corrupted input — graceful failure', () => {
     expect(result.error).toBeDefined();
     expect(typeof result.error).toBe('string');
     expect(result.error.length).toBeGreaterThan(0);
-  }, TIMEOUT);
+  });
 });
 
 // ---------- НЕСУЩЕСТВУЮЩИЙ ФАЙЛ ----------
@@ -129,7 +128,7 @@ describe('Corrupted input — nonexistent file', () => {
     expect(result.error).toBeDefined();
     expect(typeof result.error).toBe('string');
     expect(result.error.length).toBeGreaterThan(0);
-  }, TIMEOUT);
+  });
 
   it('nonexistent path with advancedFeatures also returns fail', async () => {
     const fakePath = path.join(FIXTURE_DIR, 'no_such_file.glb');
@@ -139,7 +138,7 @@ describe('Corrupted input — nonexistent file', () => {
     });
     expect(result.status).toBe('fail');
     expect(result.error).toBeDefined();
-  }, TIMEOUT);
+  });
 });
 
 // ---------- ГРАНИЧНЫЕ СЛУЧАИ ----------
@@ -152,7 +151,7 @@ describe('Corrupted input — edge cases', () => {
     });
     expect(result.status).toBe('fail');
     expect(result.error).toBeDefined();
-  }, TIMEOUT);
+  });
 
   it('corrupted file with dryRun:false — no crash (no disk write attempt)', async () => {
     const result = await optimizeFile(BROKEN_FILES.random, {
@@ -162,7 +161,7 @@ describe('Corrupted input — edge cases', () => {
     expect(result.status).toBe('fail');
     expect(result.file.written).toBe(false);
     expect(result.error).toBeDefined();
-  }, TIMEOUT);
+  });
 
   it('empty file with onProgress callback — no crash', async () => {
     const progressEvents = [];
@@ -173,7 +172,7 @@ describe('Corrupted input — edge cases', () => {
     expect(result.status).toBe('fail');
     // onProgress мог не вызываться (ошибка до фазы 1) — это нормально
     expect(result.error).toBeDefined();
-  }, TIMEOUT);
+  });
 });
 
 // ---------- СТАТИСТИКА ----------

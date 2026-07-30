@@ -118,7 +118,7 @@ describeIfModels(['CarConcept.glb'], 'Draco — vs meshopt', () => {
     const meshoptDelta = Math.abs(meshopt.metrics.after.triangles - meshopt.metrics.before.triangles);
     expect(dracoDelta).toBeLessThanOrEqual(10);
     expect(meshoptDelta).toBeLessThanOrEqual(10);
-  }, 30000);
+  });
 });
 
 // ---- Draco: на всём золотом корпусе ----
@@ -134,9 +134,7 @@ describe('Draco — golden corpus', () => {
     // AnimationPointerUVs и PotOfCoalsAnimationPointer — known failing (KHR_animation_pointer)
   ];
 
-  const TIMEOUT = 30000;
-
-  // it.each → eachModel: пропуск LOCALS, которых нет на диске.
+  // eachModel: пропуск LOCALS, которых нет на диске.
   eachModel('draco returns ok, triangles preserved', GOLDEN, async (name) => {
     const result = await optimizeFile(modelPath(name), {
       advancedFeatures: ['draco'],
@@ -150,7 +148,7 @@ describe('Draco — golden corpus', () => {
     const compressRule = result.applied.find((a) => a.ruleId === 'geometry/compress');
     expect(compressRule).toBeDefined();
     expect(compressRule.text).toMatch(/draco/i);
-  }, TIMEOUT);
+  });
 });
 
 // ---- Draco: выборочно на input-папке ----
@@ -176,8 +174,6 @@ describe('Draco — input folder (first 10 models)', () => {
   const KNOWN_FAILING = new Set(['decepticon_fighter.glb', 'uttvm_core_guard.glb']);
   const models = inputModels.filter((m) => !KNOWN_FAILING.has(m));
 
-  const TIMEOUT = 60000;
-
   it.each(models)('%s — draco returns ok or known fail', async (name) => {
     const result = await optimizeFile(path.join(INPUT_DIR, name), {
       advancedFeatures: ['draco'],
@@ -196,7 +192,7 @@ describe('Draco — input folder (first 10 models)', () => {
     const compressRule = result.applied.find((a) => a.ruleId === 'geometry/compress');
     expect(compressRule).toBeDefined();
     expect(compressRule.text).toMatch(/draco/i);
-  }, TIMEOUT);
+  });
 
   it(`${models.length} models tested from input/ (${DRACO_FAILING.size} Draco-incompatible)`, () => {
     expect(models.length).toBeGreaterThan(0);

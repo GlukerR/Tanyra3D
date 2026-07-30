@@ -23,7 +23,6 @@ import { modelPath, describeIfModels } from './helpers/model-files.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 
-const TIMEOUT_PARALLEL = 120000; // параллельные запуски могут быть дольше
 
 // Все тесты ниже используют 3 LOCAL-модели; после свежего git clone их нет — каждый
 // describe-блок пропускается как единое целое. Только 'App upstream' манифесты
@@ -56,7 +55,7 @@ describeIfModels(THREE_LOCAL, 'Parallel — 3 different models', () => {
       expect(results[i].metrics.after).not.toBeNull();
       expect(results[i].applied.length).toBeGreaterThan(0);
     }
-  }, TIMEOUT_PARALLEL);
+  });
 
   it('each model has distinct fileBytes before optimization', async () => {
     const results = await Promise.all([
@@ -78,7 +77,7 @@ describeIfModels(THREE_LOCAL, 'Parallel — 3 different models', () => {
     // CarConcept больше SpecularSilkPouf (известные размеры)
     expect(carBytes).toBeGreaterThan(toyBytes);
     expect(toyBytes).toBeGreaterThan(poufBytes);
-  }, TIMEOUT_PARALLEL);
+  });
 
   it('each model has distinct triangle counts — not mixed up', async () => {
     const results = await Promise.all([
@@ -103,7 +102,7 @@ describeIfModels(THREE_LOCAL, 'Parallel — 3 different models', () => {
     expect(toyTris).toBeLessThan(carTris);
     expect(poufTris).toBeLessThan(toyTris);
     expect(poufTris).toBeGreaterThan(100);
-  }, TIMEOUT_PARALLEL);
+  });
 
   it('each model has its own applied rules (counts differ)', async () => {
     const results = await Promise.all([
@@ -131,7 +130,7 @@ describeIfModels(THREE_LOCAL, 'Parallel — 3 different models', () => {
     for (const r of results) {
       expect(r.applied.some((a) => a.ruleId === 'geometry/compress')).toBe(true);
     }
-  }, TIMEOUT_PARALLEL);
+  });
 
   it('metrics.before and metrics.after are distinct objects per call', async () => {
     const results = await Promise.all([
@@ -155,7 +154,7 @@ describeIfModels(THREE_LOCAL, 'Parallel — 3 different models', () => {
         expect(r.metrics.after).toHaveProperty(field);
       }
     }
-  }, TIMEOUT_PARALLEL);
+  });
 
   it('core invariant holds for all 3 models in parallel', async () => {
     const results = await Promise.all([
@@ -168,7 +167,7 @@ describeIfModels(THREE_LOCAL, 'Parallel — 3 different models', () => {
       const delta = Math.abs(r.metrics.after.triangles - r.metrics.before.triangles);
       expect(delta).toBeLessThanOrEqual(10);
     }
-  }, TIMEOUT_PARALLEL);
+  });
 });
 
 // ---- Одна модель × 3 параллельно — все результаты идентичны ----
@@ -203,7 +202,7 @@ describeIfModels(THREE_LOCAL, 'Parallel — same model x3', () => {
     const valCounts = results.map((r) => r.validation.length);
     expect(valCounts[0]).toBe(valCounts[1]);
     expect(valCounts[1]).toBe(valCounts[2]);
-  }, TIMEOUT_PARALLEL);
+  });
 
   it('3 parallel calls to ToyCar return identical applied ruleIds', async () => {
     const results = await Promise.all([
@@ -216,7 +215,7 @@ describeIfModels(THREE_LOCAL, 'Parallel — same model x3', () => {
     const ruleIdSets = results.map((r) => r.applied.map((a) => a.ruleId).sort());
     expect(ruleIdSets[0]).toEqual(ruleIdSets[1]);
     expect(ruleIdSets[1]).toEqual(ruleIdSets[2]);
-  }, TIMEOUT_PARALLEL);
+  });
 });
 
 // ---- Разные advancedFeatures параллельно ----
@@ -245,7 +244,7 @@ describeIfModels(['CarConcept.glb'], 'Parallel — different features', () => {
     expect(results[0].applied.some((a) => a.ruleId === 'geometry/compress')).toBe(true);
     expect(results[1].applied.some((a) => a.ruleId === 'geometry/compress')).toBe(true);
     expect(results[2].applied.some((a) => a.ruleId === 'geometry/compress')).toBe(false);
-  }, TIMEOUT_PARALLEL);
+  });
 
   it('default and ktx2 in parallel — ktx2 may fail gracefully, default always ok', async () => {
     const results = await Promise.all([
@@ -265,7 +264,7 @@ describeIfModels(['CarConcept.glb'], 'Parallel — different features', () => {
       const delta = Math.abs(r.metrics.after.triangles - r.metrics.before.triangles);
       expect(delta).toBeLessThanOrEqual(10);
     }
-  }, TIMEOUT_PARALLEL);
+  });
 });
 
 // ---- dryRun:false параллельно (запись в os.tmpdir()) ----
@@ -324,7 +323,7 @@ describeIfModels(THREE_LOCAL, 'Parallel — dryRun:false (write to tmpdir)', () 
       expect(fs.existsSync(reportPath)).toBe(true);
       expect(fs.statSync(reportPath).size).toBeGreaterThan(0);
     }
-  }, TIMEOUT_PARALLEL);
+  });
 
   it('same model written twice in parallel — force:true avoids skip conflict', async () => {
     // Два параллельных вызова одной модели — оба с force:true
@@ -338,5 +337,5 @@ describeIfModels(THREE_LOCAL, 'Parallel — dryRun:false (write to tmpdir)', () 
     expect(results[1].status).toBe('ok');
     expect(results[0].file.written).toBe(true);
     expect(results[1].file.written).toBe(true);
-  }, TIMEOUT_PARALLEL);
+  });
 });

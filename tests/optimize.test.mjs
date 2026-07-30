@@ -214,7 +214,7 @@ describeIfModels(['CarConcept.glb'], 'additional scenarios', () => {
     // join does not inflate meshes
     expect(result.metrics.after.meshes).toBeLessThanOrEqual(result.metrics.before.meshes);
     expect(result.metrics.after.drawCalls).toBeLessThanOrEqual(result.metrics.before.drawCalls);
-  }, 30000);
+  });
 
   it('strip-colors combined with safe returns ok', async () => {
     const result = await optimizeFile(MODEL, {

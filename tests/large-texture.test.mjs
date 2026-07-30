@@ -29,7 +29,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 // Генерируем временные GLB-файлы в os.tmpdir(), не в fixtures/ (правило промпта: fixtures/ неприкосновенна)
 const FIXTURE_DIR = path.resolve(os.tmpdir(), 'glb_optimize_large_tex_' + Date.now());
-const TIMEOUT = 120000;
+const TIMEOUT_LONG = 360_000; // >120s: 3 модели KTX2 подряд, нужен буфер
 
 const LARGE_MODELS = {};
 
@@ -159,7 +159,7 @@ describe('Large texture — 4K noise (4096×4096)', () => {
     expect(result.metrics.before.textures).toBe(1);
     expect(result.metrics.before.textureBytes).toBeGreaterThan(0);
     expect(result.metrics.after.textureBytes).toBeGreaterThan(0);
-  }, TIMEOUT);
+  });
 
   it('safe + meshopt + ktx2 work alongside 4K noise texture (no crash)', async () => {
     const result = await optimizeFile(LARGE_MODELS['4k_square'], {
@@ -176,7 +176,7 @@ describe('Large texture — 4K noise (4096×4096)', () => {
     if (result.status === 'ok') {
       expect(result.applied.some((a) => a.ruleId === 'textures/ktx2')).toBe(true);
     }
-  }, TIMEOUT);
+  });
 });
 
 // ---- 8K ultrawide (2:1) ----
@@ -198,7 +198,7 @@ describe('Large texture — 8K noise (8192×4096)', () => {
     expect(result.metrics.before.textures).toBe(1);
     expect(result.metrics.before.textureBytes).toBeGreaterThan(0);
     expect(result.metrics.after.textureBytes).toBeGreaterThan(0);
-  }, TIMEOUT);
+  });
 });
 
 // ---- 1×16384 (экстремальный узкий формат) ----
@@ -220,7 +220,7 @@ describe('Large texture — 1×16384 noise strip', () => {
     expect(result.metrics.before.textures).toBe(1);
     expect(result.metrics.before.textureBytes).toBeGreaterThan(0);
     expect(result.metrics.after.textureBytes).toBeGreaterThan(0);
-  }, TIMEOUT);
+  });
 });
 
 // ---- KTX2 vs default: сравнение метрик ----
@@ -236,7 +236,7 @@ describe('Large texture — metrics comparison', () => {
     expect(result.metrics.before.textureBytes).toBeGreaterThan(0);
     expect(result.metrics.after.textureBytes).toBeGreaterThan(0);
     expect(result.metrics.after.textures).toBe(1);
-  }, TIMEOUT);
+  });
 
   it('all 3 noise textures report non-zero textureBytes', async () => {
     for (const [label, glbPath] of Object.entries(LARGE_MODELS)) {
@@ -248,7 +248,7 @@ describe('Large texture — metrics comparison', () => {
       expect(result.metrics.before.textureBytes).toBeGreaterThan(0);
       expect(result.metrics.after.textureBytes).toBeGreaterThan(0);
     }
-  }, TIMEOUT * 3);
+  }, TIMEOUT_LONG);
 });
 
 // ---- Статистика ----

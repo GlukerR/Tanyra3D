@@ -308,8 +308,6 @@ describeLocal(BASE_MODEL, 'Russian locale — CarConcept', () => {
 // Золотой корпус — 2 комбинации флагов
 // ============================================================================
 describe('Russian locale — golden corpus', () => {
-  const TIMEOUT = 60000;
-
   const FLAG_SETS = [
     { label: 'passthrough', flags: [] },
     { label: 'safe+meshopt', flags: ['safe', 'meshopt'] },
@@ -323,7 +321,7 @@ describe('Russian locale — golden corpus', () => {
       // Модели с KHR_animation_pointer и т.д. могут вернуть fail — это ок.
       expect(r.status).toBeOneOf(['ok', 'fail']);
       expect(collectViolations(r)).toEqual([]);
-    }, TIMEOUT);
+    });
   }
 
   it(`${GOLDEN.length} models * ${FLAG_SETS.length} flag sets = ${GOLDEN.length * FLAG_SETS.length} total`, () => {
