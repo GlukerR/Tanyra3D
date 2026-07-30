@@ -33,14 +33,21 @@ const TARGET = path.resolve(PROJECT_ROOT, 'tests/golden-corpus.test.mjs');
 // ищет const-определение массива со строками в том же файле.
 const CONST_ARRAYS = {};
 
-// Предварительный проход: собрать все const-массивы строк из кода
+// Предварительный проход: собрать все const-массивы строк из кода.
+// Также обрабатывает new Set([...]) — распространённый паттерн в тестовых файлах.
 function collectConstArrays(code) {
-  const re = /const\s+(\w+)\s*=\s*\[([^\]]+)\]/gs;
+  // const NAME = [...] — прямое определение
+  let re = /const\s+(\w+)\s*=\s*\[([^\]]+)\]/gs;
   let m;
   while ((m = re.exec(code)) !== null) {
-    const name = m[1];
     const items = [...m[2].matchAll(/['"`]([^'"`]+\.glb)['"`]/g)].map((x) => x[1]);
-    if (items.length) CONST_ARRAYS[name] = items;
+    if (items.length) CONST_ARRAYS[m[1]] = items;
+  }
+  // const NAME = new Set([...]) — Set-обёртка
+  re = /const\s+(\w+)\s*=\s*new\s+Set\s*\(\s*\[([^\]]+)\]\s*\)/gs;
+  while ((m = re.exec(code)) !== null) {
+    const items = [...m[2].matchAll(/['"`]([^'"`]+\.glb)['"`]/g)].map((x) => x[1]);
+    if (items.length) CONST_ARRAYS[m[1]] = items;
   }
 }
 
@@ -287,83 +294,237 @@ function findAdvancedFeatures(node) {
 }
 
 // –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-//  3. Fallback-парсер (если babel недоступен)
+//  3. Fallback-парсер (блочный — brace matching вместо line-by-line)
+//
+//  В отличие от старой «построчной» версии, этот парсер:
+//   1. Находит it()/eachModel() блоки и извлекает callback-тело через
+//      findMatchingBrace (счётчик скобок с учётом строк и комментариев).
+//   2. Из тела извлекает modelPath('...') и advancedFeatures: [...] —
+//      оба работают поперёк строк.
+//   3. Для eachModel — разбирает аргумент-массив моделей через
+//      resolveModelListFromText (фильтры, spread, inline).
+//   4. Для for (const flags of [...]) — ищет охватывающий цикл и
+//      извлекает массивы флагов, когда в теле стоит переменная flags.
 // –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 
+// Найти парную скобку: от start (где уже стоит '{') ищем '}' с учётом
+// строковых литералов и однострочных комментариев.
+function findMatchingBrace(code, start, open = '{', close = '}') {
+  let depth = 1;
+  for (let i = start + 1; i < code.length; i++) {
+    const c = code[i];
+    if (c === open) depth++;
+    else if (c === close) {
+      depth--;
+      if (depth === 0) return i;
+    }
+    // Строки — пропускаем содержимое
+    if (c === "'" || c === '"' || c === '`') {
+      const q = c;
+      i++;
+      while (i < code.length && code[i] !== q) {
+        if (code[i] === '\\') i++;
+        i++;
+      }
+    }
+    // Однострочный комментарий — до конца строки
+    if (c === '/' && code[i + 1] === '/') {
+      while (i < code.length && code[i] !== '\n') i++;
+    }
+    // Блочный комментарий /* ... */ — пропускаем до закрытия
+    if (c === '/' && code[i + 1] === '*') {
+      i += 2; // за '/*'
+      while (i < code.length - 1 && !(code[i] === '*' && code[i + 1] === '/')) i++;
+      i++; // за '/'
+    }
+  }
+  return -1;
+}
+
+// Извлечь все комбинации advancedFeatures из тела блока.
+// Обрабатывает два случая:
+//   (а) литерал  advancedFeatures: ['safe', 'instance']
+//   (б) переменная advancedFeatures: flags  →  ищем охватывающий
+//       for (const flags of [['safe'], ...]) в codeBeforeBlock.
+function extractFlagsFromBody(body, codeBeforeBlock) {
+  const results = [];
+
+  // (а) Литерал: advancedFeatures: [...]  — через /s работает поперёк строк
+  const re = /advancedFeatures\s*:\s*\[([^\]]*)\]/gs;
+  let m;
+  while ((m = re.exec(body)) !== null) {
+    const flags = m[1].split(',').map((s) => s.trim().replace(/['"`]/g, '')).filter(Boolean);
+    if (flags.length) results.push(flags);
+  }
+
+  // (б) Переменная: advancedFeatures: flags — ищем for (const flags of [...])
+  if (/advancedFeatures\s*:\s*flags\b/.test(body)) {
+    // Ищем ПОСЛЕДНИЙ подходящий for-цикл перед этим блоком
+    const forRe = /for\s*\(\s*(?:const|let|var)\s+flags\s+of\s*(\[[\s\S]*?\n\s*\])\s*\)/g;
+    let lastFor;
+    let fm;
+    while ((fm = forRe.exec(codeBeforeBlock)) !== null) lastFor = fm;
+    if (lastFor) {
+      const arrText = lastFor[1];
+      // Внутри внешнего массива — вложенные массивы флагов: ['safe'], ['safe','instance'], …
+      const innerArrs = [...arrText.matchAll(/\[([^\]]*)\]/g)];
+      for (const ia of innerArrs) {
+        const flags = ia[1].split(',').map((s) => s.trim().replace(/['"`]/g, '')).filter(Boolean);
+        if (flags.length) results.push(flags);
+      }
+    }
+  }
+
+  return results;
+}
+
+// Распарсить список моделей из текста первого аргумента eachModel.
+// Поддерживает:
+//   inline:    ['Model1.glb', 'Model2.glb']
+//   spread:    [...APPLY_ON_PASSTHROUGH]
+//   filter:    GOLDEN_MODELS.filter(isSafeEligible)
+//   bare name: DIRTY_SAFE_MODELS
+function resolveModelListFromText(text) {
+  // inline массив: ['Model1.glb', 'Model2.glb']
+  const inlineRe = /^\s*\[([^\]]*)\]/;
+  const im = text.match(inlineRe);
+  if (im) {
+    // Может быть [...SPREAD] — проверяем
+    const spreadInner = im[1].trim();
+    if (spreadInner.startsWith('...')) {
+      const name = spreadInner.slice(3).trim();
+      if (CONST_ARRAYS[name]) return CONST_ARRAYS[name];
+    }
+    return [...im[1].matchAll(/['"`]([^'"`]+\.glb)['"`]/g)].map((x) => x[1]);
+  }
+
+  // Имя + опциональный .filter(...): GOLDEN_MODELS.filter(isSafeEligible)
+  const nameRe = /^\s*(\w+)(?:\.filter\([^)]*\))?/;
+  const nm = text.match(nameRe);
+  if (nm && CONST_ARRAYS[nm[1]]) {
+    return CONST_ARRAYS[nm[1]];
+  }
+
+  return [];
+}
+
+// Основной fallback-парсер — блочный, с brace-matching.
 function fallbackParse(code) {
-  const lines = code.split('\n');
   const describes = [];
   const its = [];
   const modelPaths = [];
   const flagCombos = [];
 
+  // Шаг 1: найти все describe / it / eachModel на верхнем уровне
+  const blocks = [];
+  const re = /(?:^|\n)(\s*)(describe|describeLocal|describe\.skip|it|it\.skip|eachModel)\s*\(\s*['"`]([^'"`]*)['"`]/g;
+  let bm;
+  while ((bm = re.exec(code)) !== null) {
+    blocks.push({
+      index: bm.index,
+      endOfName: bm.index + bm[0].length,
+      indent: bm[1].length,
+      keyword: bm[2],
+      name: bm[3],
+    });
+  }
+
+  // Стек describe-блоков
   const describeStack = [];
-  let currentDescribe = null;
 
-  const reDescribe = /^\s*(describe|describeLocal|describe\.skip)\s*\(\s*(['"`])([^'"`]+)\2/;
-  const reIt = /^\s*(it|it\.skip)\s*\(\s*(['"`])([^'"`]+)\2/;
-  const reEachModel = /^\s*eachModel\s*\(\s*(['"`])([^'"`]+)\1/;
-  const reModelPath = /modelPath\s*\(\s*(['"`])([^'"`]+)\1\s*\)/g;
+  for (let bi = 0; bi < blocks.length; bi++) {
+    const block = blocks[bi];
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    let m = trimmed.match(reDescribe);
-    if (m) {
-      const type = m[1];
-      const name = m[3];
-      describeStack.push({ name, type, children: [] });
-      currentDescribe = describeStack[describeStack.length - 1];
-      describes.push(currentDescribe);
+    // --- describe / describeLocal / describe.skip ---------------------
+    if (block.keyword.startsWith('describe')) {
+      describeStack.push(block);
+      describes.push({ name: block.name, type: block.keyword });
       continue;
     }
 
-    m = trimmed.match(reIt);
-    if (m) {
-      const isSkipped = m[1] === 'it.skip';
-      const itName = m[3];
-      const dc = currentDescribe?.name || '(top-level)';
-      its.push({ name: itName, skipped: isSkipped, describe: dc });
+    const dc = describeStack.length > 0
+      ? describeStack[describeStack.length - 1].name
+      : '(top-level)';
 
-      let mp;
-      const localRe = new RegExp(reModelPath.source, 'g');
-      while ((mp = localRe.exec(trimmed)) !== null) {
-        modelPaths.push({ modelName: mp[2], describe: dc, itName });
+    // --- it / it.skip / eachModel ------------------------------------
+
+    // Найти тело стрелочной функции: «=>» → «{» → парный «}»
+    const afterName = code.slice(block.endOfName);
+    const arrowIdx = afterName.indexOf('=>');
+    if (arrowIdx < 0) continue;
+    const afterArrow = code.slice(block.endOfName + arrowIdx + 2);
+    const braceIdx = afterArrow.indexOf('{');
+    if (braceIdx < 0) continue;
+
+    const bodyStart = block.endOfName + arrowIdx + 2 + braceIdx;
+    const bodyEnd = findMatchingBrace(code, bodyStart);
+    if (bodyEnd < 0) continue;
+
+    const body = code.slice(bodyStart + 1, bodyEnd);
+    const codeBeforeBlock = code.slice(0, block.index);
+
+    if (block.keyword === 'it' || block.keyword === 'it.skip') {
+      // --- it-блок -----------------------------------------------------
+      const isSkipped = block.keyword === 'it.skip';
+      its.push({ name: block.name, skipped: isSkipped, describe: dc });
+
+      // modelPath('...') и runAndRead('...')
+      for (const re of [
+        /modelPath\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g,
+        /runAndRead\s*\(\s*['"`]([^'"`]+\.glb)['"`]\s*,/g,
+      ]) {
+        let mpm;
+        while ((mpm = re.exec(body)) !== null) {
+          modelPaths.push({ modelName: mpm[1], describe: dc, itName: block.name });
+        }
       }
 
-      const af = findAdvancedFallback(trimmed);
-      for (const flags of af) {
-        flagCombos.push({ flags, describe: dc, itName });
+      // advancedFeatures
+      const flags = extractFlagsFromBody(body, codeBeforeBlock);
+      for (const f of flags) {
+        flagCombos.push({ flags: f, describe: dc, itName: block.name });
       }
-      continue;
+    } else if (block.keyword === 'eachModel') {
+      // --- eachModel-блок ----------------------------------------------
+      its.push({ name: `eachModel(${block.name})`, skipped: false, describe: dc });
+
+      // Разобрать список моделей из аргумента после имени
+      const afterNameText = code.slice(block.endOfName);
+      const argStart = afterNameText.indexOf(',');
+      if (argStart >= 0) {
+        const modelArgText = afterNameText.slice(argStart + 1).trim().slice(0, 600);
+        const modelList = resolveModelListFromText(modelArgText);
+
+        for (const model of modelList) {
+          const itName = `${model} — ${block.name}`;
+          its.push({ name: itName, skipped: false, describe: dc });
+          modelPaths.push({ modelName: model, describe: dc, itName });
+        }
+
+        // advancedFeatures из callback-тела
+        const flags = extractFlagsFromBody(body, codeBeforeBlock);
+        for (const f of flags) {
+          for (const model of modelList) {
+            flagCombos.push({
+              flags: f,
+              describe: dc,
+              itName: `${model} — ${block.name}`,
+            });
+          }
+        }
+      }
     }
 
-    m = trimmed.match(reEachModel);
-    if (m) {
-      const itDesc = m[2];
-      const dc = currentDescribe?.name || '(top-level)';
-      its.push({ name: `eachModel(${itDesc})`, skipped: false, describe: dc });
-      continue;
-    }
-
-    if (trimmed === '});' && describeStack.length) {
+    // --- Pop describe stack: следующий блок на том же / меньшем отступе?
+    const nextBlock = blocks[bi + 1];
+    while (describeStack.length > 0) {
+      const top = describeStack[describeStack.length - 1];
+      if (nextBlock && nextBlock.indent > top.indent) break;
       describeStack.pop();
-      currentDescribe = describeStack.length ? describeStack[describeStack.length - 1] : null;
     }
   }
 
   return { describes, its, modelPaths, flagCombos };
-}
-
-function findAdvancedFallback(line) {
-  const results = [];
-  const re = /advancedFeatures\s*:\s*\[([^\]]*)\]/g;
-  let m;
-  while ((m = re.exec(line)) !== null) {
-    const flags = m[1].split(',').map((s) => s.trim().replace(/['"`]/g, '')).filter(Boolean);
-    if (flags.length) results.push(flags);
-  }
-  return results;
 }
 
 // –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––

@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Golden Corpus Coverage Heatmap</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-dim: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d2991d;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  header h1 {
+    font-size: 18px;
+    font-weight: 600;
+  }
+
+  .badge {
+    background: var(--border);
+    border-radius: 12px;
+    padding: 2px 10px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .badge.ok { background: #1a3a1a; color: var(--green); }
+  .badge.warn { background: #3a2e0a; color: var(--yellow); }
+
+  main {
+    padding: 16px 24px;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  /* Input panel */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 20px;
+    overflow: hidden;
+  }
+
+  .panel-header {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .panel-body { padding: 16px; }
+
+  .toolbar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  textarea {
+    width: 100%;
+    min-height: 80px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 12px;
+    padding: 10px;
+    resize: vertical;
+  }
+
+  textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(88,166,255,0.15);
+  }
+
+  button, .file-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background 0.15s;
+  }
+
+  button:hover, .file-btn:hover { background: #79b8ff; }
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  .demo-btn {
+    background: var(--border);
+    color: var(--text-dim);
+  }
+
+  .demo-btn:hover { background: #484f58; }
+
+  /* Stats row */
+  .stats {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+  }
+
+  .stat {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .stat-val { font-size: 22px; font-weight: 700; }
+  .stat-lbl { font-size: 11px; color: var(--text-dim); }
+
+  /* Heatmap */
+  .heatmap-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .heatmap {
+    display: inline-grid;
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    min-width: max-content;
+  }
+
+  .h-cell {
+    min-width: 52px;
+    min-height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-weight: 500;
+    padding: 1px 4px;
+    background: var(--surface);
+    transition: all 0.15s;
+  }
+
+  .h-header {
+    background: var(--surface);
+    color: var(--text-dim);
+    font-size: 10px;
+    font-weight: 600;
+    text-align: center;
+    white-space: nowrap;
+    padding: 4px 6px;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    writing-mode: horizontal-tb;
+  }
+
+  .h-row-label {
+    background: var(--surface);
+    color: var(--text);
+    font-size: 11px;
+    white-space: nowrap;
+    padding: 2px 8px;
+    min-width: 180px;
+    display: flex;
+    align-items: center;
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    text-align: left;
+    justify-content: flex-start;
+    gap: 4px;
+  }
+
+  .h-corner {
+    position: sticky;
+    top: 0;
+    left: 0;
+    z-index: 3;
+    background: var(--surface);
+  }
+
+  .h-covered {
+    background: #1a3a1a;
+    color: var(--green);
+  }
+
+  .h-missed {
+    background: #2d1518;
+    color: var(--red);
+  }
+
+  .h-count {
+    font-size: 9px;
+    color: var(--text-dim);
+    margin-left: auto;
+  }
+
+  .h-row-label .h-count {
+    margin-left: 8px;
+  }
+
+  /* Tooltip */
+  .tooltip {
+    display: none;
+    position: fixed;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    z-index: 100;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    max-width: 320px;
+  }
+
+  /* Legend */
+  .legend {
+    display: flex;
+    gap: 16px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+  }
+
+  .legend-swatch.covered { background: #1a3a1a; }
+  .legend-swatch.missed { background: #2d1518; }
+
+  /* Summary per-flag column */
+  .h-footer {
+    background: var(--surface);
+    color: var(--text-dim);
+    font-size: 10px;
+    text-align: center;
+    padding: 3px 4px;
+  }
+
+  .h-footer strong { color: var(--text); }
+
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🔥 Golden Corpus Coverage</h1>
+  <span class="badge" id="badge-status">no data</span>
+  <span class="badge" id="badge-count"></span>
+</header>
+
+<main>
+  <!-- Input -->
+  <div class="panel" id="input-panel">
+    <div class="panel-header">📋 JSON from <code>analyse-test-coverage.mjs --json</code></div>
+    <div class="panel-body">
+      <div class="toolbar">
+        <button onclick="loadFromTextarea()">Render Heatmap</button>
+        <button class="demo-btn" onclick="loadDemo()">Load Demo</button>
+        <label class="file-btn">
+          📂 Open File
+          <input type="file" accept=".json" onchange="loadFile(this)" hidden>
+        </label>
+        <span style="font-size:11px;color:var(--text-dim)">
+          Or <code>curl ... | node analyse-test-coverage.mjs --json | pbcopy</code>
+        </span>
+      </div>
+      <textarea id="json-input" placeholder='Paste JSON output from node tests/analyse-test-coverage.mjs --json'></textarea>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div id="stats-row" class="stats hidden"></div>
+
+  <!-- Heatmap -->
+  <div class="panel hidden" id="heatmap-panel">
+    <div class="panel-header">📊 Model × Flag Combinations</div>
+    <div class="panel-body">
+      <div class="heatmap-wrapper">
+        <div class="heatmap" id="heatmap-grid"></div>
+      </div>
+      <div class="legend" id="legend"></div>
+    </div>
+  </div>
+
+  <!-- Tooltip -->
+  <div class="tooltip" id="tooltip"></div>
+</main>
+
+<script>
+// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+//  Data & rendering
+// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+
+let DATA = null;
+
+// Map flag arrays to canonical labels
+function flagLabel(flags) {
+  if (!flags || !flags.length) return '∅ (passthrough)';
+  return flags.join(', ');
+}
+
+function flagKey(flags) {
+  if (!flags || !flags.length) return '[]';
+  return JSON.stringify(flags);
+}
+
+// All unique flag combinations from the data
+function collectFlagCombos(data) {
+  const seen = new Map();
+  const order = [];
+
+  // From modelCoverage
+  for (const [, info] of Object.entries(data.modelCoverage || {})) {
+    for (const f of (info.flags || [])) {
+      const k = flagKey(f);
+      if (!seen.has(k)) {
+        seen.set(k, f);
+        order.push(f);
+      }
+    }
+  }
+
+  // From flagCombinations
+  for (const fc of (data.flagCombinations || [])) {
+    const k = flagKey(fc.flags);
+    if (!seen.has(k)) {
+      seen.set(k, fc.flags);
+      order.push(fc.flags);
+    }
+  }
+
+  // Sort: passthrough first, then safe, then combos
+  order.sort((a, b) => {
+    const ka = flagKey(a), kb = flagKey(b);
+    if (ka === '[]') return -1;
+    if (kb === '[]') return 1;
+    return ka.localeCompare(kb);
+  });
+
+  return order;
+}
+
+// Build a model → set-of-flagkeys map
+function modelFlagMap(data, flagCombos) {
+  const map = {};
+  for (const [model, info] of Object.entries(data.modelCoverage || {})) {
+    map[model] = new Set();
+    if (info.tests > 0) {
+      // Flags explicitly listed
+      for (const f of (info.flags || [])) {
+        map[model].add(flagKey(f));
+      }
+      // If no explicit flags but tests > 0, mark "P" for parameterized
+      if (!(info.flags || []).length && info.tests > 0) {
+        map[model].add('P');
+      }
+    }
+  }
+  return map;
+}
+
+function loadFromTextarea() {
+  const raw = document.getElementById('json-input').value.trim();
+  if (!raw) return;
+
+  try {
+    DATA = JSON.parse(raw);
+  } catch (e) {
+    DATA = null;
+    alert('Invalid JSON: ' + e.message);
+    return;
+  }
+
+  render();
+}
+
+function loadFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    document.getElementById('json-input').value = reader.result;
+    loadFromTextarea();
+  };
+  reader.readAsText(file);
+}
+
+function loadDemo() {
+  // Minimal demo data showing coverage patterns
+  const demo = {
+    parser: 'demo',
+    totalDescribes: 6,
+    totalIts: 42,
+    activeIts: 41,
+    skippedIts: 1,
+    uniqueModels: 6,
+    goldenModels: 18,
+    modelCoverage: {
+      'Dirty Cube 01.glb':       { tests: 5,  flags: [['safe'], ['safe','instance'], ['safe','meshopt']] },
+      'Morph Cube 01.glb':        { tests: 2,  flags: [['safe']] },
+      'Vertex Colors 01.glb':     { tests: 3,  flags: [['safe'], ['strip-colors']] },
+      'Linked Duplicates Grid 01.glb': { tests: 5, flags: [['instance'], ['safe'], ['safe','instance'], ['safe','join']] },
+      'Unlinked Duplicates 01.glb':     { tests: 8, flags: [['safe'], ['instance'], ['safe','instance'], ['safe','join'], ['safe','draco']] },
+      'Preinstanced Grid 01.glb':       { tests: 4, flags: [['safe'], ['instance'], ['safe','instance'], ['safe','join'], ['safe','draco']] },
+    },
+    flagCombinations: [],
+  };
+  document.getElementById('json-input').value = JSON.stringify(demo, null, 2);
+  loadFromTextarea();
+}
+
+// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+//  Render
+// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+
+function render() {
+  if (!DATA) return;
+
+  const flagCombos = collectFlagCombos(DATA);
+  const modelMap = modelFlagMap(DATA, flagCombos);
+  const models = Object.keys(modelMap).sort();
+  const totalModels = models.length;
+  const totalFlags = flagCombos.length;
+
+  // Badges
+  const totalTests = DATA.totalIts || 0;
+  document.getElementById('badge-status').textContent = totalTests ? `${totalTests} tests` : 'no data';
+  document.getElementById('badge-status').className = totalTests > 50 ? 'badge ok' : 'badge warn';
+  document.getElementById('badge-count').textContent = `${totalModels} models × ${totalFlags} flags`;
+
+  // Stats
+  const statsRow = document.getElementById('stats-row');
+  statsRow.classList.remove('hidden');
+  statsRow.innerHTML = `
+    <div class="stat"><span class="stat-val">${DATA.totalDescribes || 0}</span><span class="stat-lbl">describe blocks</span></div>
+    <div class="stat"><span class="stat-val">${totalTests}</span><span class="stat-lbl">total it()</span></div>
+    <div class="stat"><span class="stat-val">${DATA.activeIts || 0}</span><span class="stat-lbl">active</span></div>
+    <div class="stat"><span class="stat-val">${DATA.skippedIts || 0}</span><span class="stat-lbl">skipped</span></div>
+    <div class="stat"><span class="stat-val">${totalModels}</span><span class="stat-lbl">models</span></div>
+    <div class="stat"><span class="stat-val">${totalFlags}</span><span class="stat-lbl">flag combos</span></div>
+  `;
+
+  // Count covered per flag column
+  const coveredCount = {};
+  for (const f of flagCombos) {
+    const fk = flagKey(f);
+    coveredCount[fk] = models.filter((m) => modelMap[m].has(fk)).length;
+  }
+  const parameterizedCount = models.filter((m) => modelMap[m].has('P')).length;
+
+  // Heatmap grid
+  const grid = document.getElementById('heatmap-grid');
+  const cols = 1 + flagCombos.length + (parameterizedCount > 0 ? 1 : 0);
+  const rows = 1 + totalModels + 1; // header + models + footer
+
+  grid.style.gridTemplateColumns = `180px repeat(${cols - 1}, 52px)`;
+  grid.style.gridTemplateRows = `28px repeat(${totalModels}, 24px) 28px`;
+  grid.innerHTML = '';
+
+  // Corner
+  const corner = document.createElement('div');
+  corner.className = 'h-cell h-corner';
+  corner.textContent = 'Model';
+  grid.appendChild(corner);
+
+  // Column headers
+  for (const f of flagCombos) {
+    const hdr = document.createElement('div');
+    hdr.className = 'h-cell h-header';
+    hdr.textContent = flagLabel(f);
+    hdr.title = `Flag: [${f.join(', ')}]\nCovered: ${coveredCount[flagKey(f)]}/${totalModels} models`;
+    grid.appendChild(hdr);
+  }
+  if (parameterizedCount > 0) {
+    const ph = document.createElement('div');
+    ph.className = 'h-cell h-header';
+    ph.textContent = 'P';
+    ph.title = `Parameterized only: ${parameterizedCount}/${totalModels} models`;
+    grid.appendChild(ph);
+  }
+
+  // Rows
+  for (const model of models) {
+    // Label
+    const label = document.createElement('div');
+    label.className = 'h-cell h-row-label';
+    const shortName = model.replace(/\.glb$/i, '').replace(/ 0\d/, '');
+    label.innerHTML = `${shortName} <span class="h-count">${modelMap[model].has('P') ? '·' : modelMap[model].size}</span>`;
+    label.title = `${model} — ${DATA.modelCoverage?.[model]?.tests || 0} tests`;
+    grid.appendChild(label);
+
+    // Cells
+    for (const f of flagCombos) {
+      const fk = flagKey(f);
+      const covered = modelMap[model].has(fk);
+      const cell = document.createElement('div');
+      cell.className = `h-cell ${covered ? 'h-covered' : 'h-missed'}`;
+      cell.textContent = covered ? '✓' : '—';
+      cell.title = covered
+        ? `${model}: tested with [${f.join(', ')}]`
+        : `${model}: NOT tested with [${f.join(', ')}]`;
+      cell.addEventListener('mouseenter', (e) => showTooltip(e, cell.title));
+      cell.addEventListener('mouseleave', hideTooltip);
+      grid.appendChild(cell);
+    }
+
+    if (parameterizedCount > 0) {
+      const pc = document.createElement('div');
+      pc.className = `h-cell ${modelMap[model].has('P') ? 'h-covered' : 'h-missed'}`;
+      pc.textContent = modelMap[model].has('P') ? '✓' : '—';
+      pc.title = `${model}: in general parameterized loop (no explicit flags)`;
+      grid.appendChild(pc);
+    }
+  }
+
+  // Footer row
+  const ftLabel = document.createElement('div');
+  ftLabel.className = 'h-cell h-footer';
+  ftLabel.innerHTML = `<strong>${totalModels} models</strong>`;
+  grid.appendChild(ftLabel);
+
+  for (const f of flagCombos) {
+    const fk = flagKey(f);
+    const count = coveredCount[fk];
+    const pct = totalModels ? Math.round(count / totalModels * 100) : 0;
+    const ft = document.createElement('div');
+    ft.className = 'h-cell h-footer';
+    ft.innerHTML = `<strong>${count}</strong> / ${pct}%`;
+    ft.title = `${count} of ${totalModels} models tested with [${f.join(', ')}]`;
+    grid.appendChild(ft);
+  }
+
+  if (parameterizedCount > 0) {
+    const pft = document.createElement('div');
+    pft.className = 'h-cell h-footer';
+    pft.innerHTML = `<strong>${parameterizedCount}</strong>`;
+    grid.appendChild(pft);
+  }
+
+  // Show heatmap panel
+  document.getElementById('heatmap-panel').classList.remove('hidden');
+
+  // Legend
+  document.getElementById('legend').innerHTML = `
+    <div class="legend-item"><span class="legend-swatch covered"></span> Covered</div>
+    <div class="legend-item"><span class="legend-swatch missed"></span> Not covered</div>
+    <div class="legend-item" style="color:var(--text-dim)">P = parameterized (no explicit flag combo)</div>
+  `;
+}
+
+// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+//  Tooltip
+// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+
+function showTooltip(e, text) {
+  const t = document.getElementById('tooltip');
+  t.textContent = text;
+  t.style.display = 'block';
+  t.style.left = (e.clientX + 12) + 'px';
+  t.style.top = (e.clientY - 12) + 'px';
+}
+
+function hideTooltip() {
+  document.getElementById('tooltip').style.display = 'none';
+}
+
+// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+//  Paste JSON output from `node tests/analyse-test-coverage.mjs --json`
+//  into the textarea above and click "Render Heatmap".
+// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+</script>
+</body>
+</html>
