@@ -561,6 +561,10 @@ const describedModels = data.describes
   .filter((d) => /\.glb/.test(d.name))
   .map((d) => d.name.match(/(['"`]?)([^'"`]+\.glb)\1/)?.[2] || d.name);
 
+// Модели из GOLDEN_MODELS, отсутствующие на диске.
+const modelsDir = path.resolve(PROJECT_ROOT, 'fixtures/models');
+const missingFromDisk = goldenModels.filter((m) => !fs.existsSync(path.join(modelsDir, m)));
+
 function modelCoverage() {
   const map = {};
   for (const mp of data.modelPaths) {
@@ -597,6 +601,7 @@ if (isJson) {
     skippedIts: data.its.filter((t) => t.skipped).length,
     uniqueModels: uniqueModels.length,
     goldenModels: goldenModels.length,
+    modelsMissing: missingFromDisk,
     modelsWithOwnDescribe: describedModels.filter((d) => !goldenModels.includes(d)).length,
     modelCoverage: Object.fromEntries(
       Object.entries(coverage).map(([model, info]) => [
@@ -635,6 +640,12 @@ console.log('── МОДЕЛИ ──');
 console.log(`  Уникальных моделей в modelPath(): ${uniqueModels.length}`);
 console.log(`  В GOLDEN_MODELS:                 ${goldenModels.length}`);
 console.log(`  С собственным describe:          ${describedModels.length}`);
+if (missingFromDisk.length) {
+  console.log(`  ⚠ ОТСУТСТВУЮТ НА ДИСКЕ:       ${missingFromDisk.length}`);
+  for (const m of missingFromDisk) console.log(`    — ${m}`);
+} else {
+  console.log(`  ✓ Все модели GOLDEN_MODELS на месте`);
+}
 console.log();
 
 console.log('── ПОКРЫТИЕ ПО МОДЕЛЯМ ──');
