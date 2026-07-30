@@ -62,6 +62,30 @@ jobs:
             exit 1
           fi
 
+      # Проверка baseline-гейта: преднамеренно ломаем BASELINE_ITS и убеждаемся,
+      # что vitest globalSetup валит suite с ненулевым exit-кодом. Если гейт
+      # молча пропустит сломанный baseline — шаг красный (exit 1).
+      #
+      # Использует только --project node (быстрее), browser-тесты не трогает.
+      # trap гарантирует восстановление baselines.json при любом исходе.
+      - name: Verify baseline gate actually fails on violation
+        run: |
+          trap 'mv tests/baselines.json.bak tests/baselines.json 2>/dev/null; echo "--- Restored baselines.json ---"' EXIT
+          cp tests/baselines.json tests/baselines.json.bak
+          node -e "
+            const fs = require('fs');
+            const f = JSON.parse(fs.readFileSync('tests/baselines.json','utf-8'));
+            f.BASELINE_ITS = 999;
+            fs.writeFileSync('tests/baselines.json', JSON.stringify(f, null, 2) + '\n');
+          "
+          echo '--- Running with broken baseline (BASELINE_ITS=999) — expect failure ---'
+          if npx vitest run --project node; then
+            echo '::error::Baseline gate passed with BASELINE_ITS=999 — gate is NOT working!'
+            exit 1
+          else
+            echo '✓ Baseline gate correctly aborted the suite (exit code non-zero)'
+          fi
+
       # Скриншоты падений браузерных тестов — артефакт для отладки.
       # Сохраняются даже при провале шага Run tests (if: always()).
       - name: Upload failure screenshots
