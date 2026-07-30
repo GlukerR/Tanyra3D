@@ -1222,5 +1222,22 @@ describe('Golden Corpus — Preinstanced Grid 01: pre-instanced model survives p
     // prune не должен счесть расширение мусором, dedup — не должен схлопнуть трансформы.
     expect((json.extensionsUsed || []).includes('EXT_mesh_gpu_instancing')).toBe(true);
   });
+
+  // ----------------------------------------------------------
+  // Устойчивость: ни один режим не валит пайплайн
+  // ----------------------------------------------------------
+
+  it('EXT_mesh_gpu_instancing: status ok + validation без fail во всех 6 режимах', async () => {
+    // Единственная модель корпуса с уже-присутствующим EXT_mesh_gpu_instancing.
+    // Код, который наивно обходит узлы без учёта экземпляров, сломается здесь.
+    for (const flags of [[], ['safe'], ['instance'], ['safe', 'instance'], ['safe', 'join'], ['safe', 'draco']]) {
+      const result = await optimizeFile(modelPath('Preinstanced Grid 01.glb'), {
+        advancedFeatures: flags,
+        dryRun: true,
+      });
+      expect(result.status).toBe('ok');
+      expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
+    }
+  });
 });
 
