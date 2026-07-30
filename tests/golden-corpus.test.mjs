@@ -1146,6 +1146,20 @@ describe('Golden Corpus — Unlinked Duplicates 01: identical geometry without n
   // Отсутствие NORMAL не валит пайплайн ни в одном режиме
   // ----------------------------------------------------------
 
+  // ----------------------------------------------------------
+  // Khronos glTF Validator — нужен установленный валидатор (npm: gltf-validator)
+  // Тест пропущен по умолчанию; заменить it.skip → it, чтобы включить.
+  // ----------------------------------------------------------
+
+  it.skip('проходит валидатор Khronos: 0 ошибок на исходнике', async () => {
+    // Валидатор требует Node >= 18; завернут в it.skip, чтобы не блокировать
+    // прогон корпуса в CI-окружениях без установленного валидатора.
+    const validator = await import('gltf-validator');
+    const bytes = fs.readFileSync(modelPath('Unlinked Duplicates 01.glb'));
+    const res = await validator.validateBytes(new Uint8Array(bytes));
+    expect(res.issues.numErrors).toBe(0);
+  });
+
   it('отсутствие NORMAL не валит пайплайн: status ok + validation без fail во всех режимах', async () => {
     // Единственная модель корпуса без нормалей — код, который наивно предполагает
     // наличие NORMAL, споткнётся именно здесь. Проверяем все комбинации флагов,
