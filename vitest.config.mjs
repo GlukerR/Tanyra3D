@@ -69,6 +69,10 @@ export default defineConfig({
           name: 'node',
           include: ['tests/**/*.test.mjs'],
           exclude: ['tests/**/*.browser.test.mjs'],
+          // globalSetup выполняется ДО всех тестов — baseline-гейт:
+          // падает сразу, если число тестов < 228 или модели пропали с диска.
+          // Подробный отчёт — в tests/analyse-baseline.test.mjs.
+          globalSetup: ['tests/analyse-baseline.setup.mjs'],
           testTimeout: 120_000,
           hookTimeout: 120_000,
         },
