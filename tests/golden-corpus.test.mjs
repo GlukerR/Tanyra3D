@@ -462,6 +462,21 @@ function countsOfCamerasAndLights(json) {
   };
 }
 
+// Семантики атрибутов на ВСЕХ примитивах документа: собираем все семантики
+// (POSITION, NORMAL, TEXCOORD_0, …), а не только COLOR_n.
+function primitiveAttributes(json) {
+  const out = new Set();
+  if (!json || !Array.isArray(json.meshes)) return out;
+  for (const mesh of json.meshes) {
+    for (const prim of mesh.primitives || []) {
+      for (const k of Object.keys(prim.attributes || {})) {
+        out.add(k);
+      }
+    }
+  }
+  return out;
+}
+
 // ============================================================================
 // 1. Dirty Cube 01.glb — основной свидетель, что safe — не пустышка
 // ============================================================================
@@ -1003,3 +1018,114 @@ describe('Golden Corpus — Instance Grid 01: 625 узлов, pipeline does not 
   });
 });
 
+// ============================================================================
+// 11. Unlinked Duplicates 01.glb — шесть одинаковых копий, только POSITION
+// ============================================================================
+
+describe('Golden Corpus — Unlinked Duplicates 01: identical geometry without normals', () => {
+
+  // ----------------------------------------------------------
+  // Исходник: метрики и атрибуты
+  // ----------------------------------------------------------
+
+  it('source: 5 808 треугольников, 6 мешей, 6 узлов, 6 draw calls, 0 материалов, 0 текстур', async () => {
+    const result = await optimizeFile(modelPath('Unlinked Duplicates 01.glb'), {
+      advancedFeatures: [],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.before.triangles).toBe(5808);
+    expect(result.metrics.before.meshes).toBe(6);
+    expect(result.metrics.before.nodes).toBe(6);
+    expect(result.metrics.before.drawCalls).toBe(6);
+    expect(result.metrics.before.materials).toBe(0);
+    expect(result.metrics.before.textures).toBe(0);
+  });
+
+  it('source: атрибуты примитивов — ровно POSITION, NORMAL отсутствует', async () => {
+    const src = readSourceJson('Unlinked Duplicates 01.glb');
+    const attrs = primitiveAttributes(src);
+    expect(attrs.size).toBe(1);
+    expect(attrs.has('POSITION')).toBe(true);
+    expect(attrs.has('NORMAL')).toBe(false);
+  });
+
+  // ----------------------------------------------------------
+  // ['safe'] — дедупликация схлопывает 6 одинаковых мешей в 1
+  // ----------------------------------------------------------
+
+  it('["safe"]: меши 6 → 1, узлы остаются 6, треугольники 5 808', async () => {
+    const { result } = await runAndRead('Unlinked Duplicates 01.glb', {
+      advancedFeatures: ['safe'],
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.meshes).toBe(1);
+    expect(result.metrics.after.nodes).toBe(6);
+    expect(result.metrics.after.triangles).toBe(5808);
+  });
+
+  // ----------------------------------------------------------
+  // ['instance'] без safe — не срабатывает (каждый меш у 1 узла)
+  // ----------------------------------------------------------
+
+  it('["instance"] без safe: applied пуст, status ok', async () => {
+    const { result } = await runAndRead('Unlinked Duplicates 01.glb', {
+      advancedFeatures: ['instance'],
+    });
+    expect(result.status).toBe('ok');
+    expect(result.applied.length).toBe(0);
+  });
+
+  // ----------------------------------------------------------
+  // ['safe','instance'] — инстансинг после дедупликации
+  // ----------------------------------------------------------
+
+  it('["safe","instance"]: узлы 6 → 1, draw calls 6 → 1, EXT_mesh_gpu_instancing', async () => {
+    const { result, json } = await runAndRead('Unlinked Duplicates 01.glb', {
+      advancedFeatures: ['safe', 'instance'],
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.nodes).toBe(1);
+    expect(result.metrics.after.drawCalls).toBe(1);
+    expect(result.applied.some((a) => a.ruleId === 'scene/instance')).toBe(true);
+    expect((json.extensionsUsed || []).includes('EXT_mesh_gpu_instancing')).toBe(true);
+  });
+
+  // ----------------------------------------------------------
+  // ['safe','join'] — файл растёт (как и на Linked Duplicates)
+  // ----------------------------------------------------------
+
+  it('["safe","join"]: файл стал БОЛЬШЕ исходного (ожидаемо, не дефект)', async () => {
+    const { result } = await runAndRead('Unlinked Duplicates 01.glb', {
+      advancedFeatures: ['safe', 'join'],
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.fileBytes).toBeGreaterThan(result.metrics.before.fileBytes);
+  });
+
+  // ----------------------------------------------------------
+  // Инвариант: треугольников 5 808 во всех режимах
+  // ----------------------------------------------------------
+
+  it('любой режим: треугольников по-прежнему 5 808', async () => {
+    for (const flags of [[], ['safe'], ['instance'], ['safe', 'instance'], ['safe', 'join']]) {
+      const { result } = await runAndRead('Unlinked Duplicates 01.glb', {
+        advancedFeatures: flags,
+      });
+      expect(result.status).toBe('ok');
+      expect(result.metrics.after.triangles).toBe(5808);
+    }
+  });
+
+  // ----------------------------------------------------------
+  // Три совпадающих узла не схлопываются
+  // ----------------------------------------------------------
+
+  it('три совпадающих узла не схлопываются: после ["safe"] узлов остаётся 6', async () => {
+    const { result } = await runAndRead('Unlinked Duplicates 01.glb', {
+      advancedFeatures: ['safe'],
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.nodes).toBe(6);
+  });
+});
