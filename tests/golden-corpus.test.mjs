@@ -1129,3 +1129,65 @@ describe('Golden Corpus — Unlinked Duplicates 01: identical geometry without n
     expect(result.metrics.after.nodes).toBe(6);
   });
 });
+
+// ============================================================================
+// 12. Preinstanced Grid 01.glb — уже содержит EXT_mesh_gpu_instancing
+// ============================================================================
+
+describe('Golden Corpus — Preinstanced Grid 01: pre-instanced model survives pipeline', () => {
+
+  // ----------------------------------------------------------
+  // Исходник: поправка на экземпляры в метриках
+  // ----------------------------------------------------------
+
+  it('source: metrics.before.triangles === 144 (instance count correction), nodes=1, meshes=1, dc=1', async () => {
+    const result = await optimizeFile(modelPath('Preinstanced Grid 01.glb'), {
+      advancedFeatures: [],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    // instanceCountOf() умножает треугольники на число экземпляров.
+    // Без поправки было бы 12; 144 = 12 × 12. Это проверка metrics.mjs.
+    expect(result.metrics.before.triangles).toBe(144);
+    // drawCalls НЕ умножаются — в этом и смысл инстансинга.
+    expect(result.metrics.before.drawCalls).toBe(1);
+    expect(result.metrics.before.nodes).toBe(1);
+    expect(result.metrics.before.meshes).toBe(1);
+  });
+
+  it('source: EXT_mesh_gpu_instancing присутствует в JSON', async () => {
+    const src = readSourceJson('Preinstanced Grid 01.glb');
+    expect((src.extensionsUsed || []).includes('EXT_mesh_gpu_instancing')).toBe(true);
+  });
+
+  // ----------------------------------------------------------
+  // Passthrough не трогает расширение
+  // ----------------------------------------------------------
+
+  it('passthrough: status ok, узлы 1→1, треугольники 144→144, EXT_mesh_gpu_instancing на месте', async () => {
+    const { result, json } = await runAndRead('Preinstanced Grid 01.glb', {
+      advancedFeatures: [],
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.triangles).toBe(144);
+    expect(result.metrics.after.nodes).toBe(1);
+    expect((json.extensionsUsed || []).includes('EXT_mesh_gpu_instancing')).toBe(true);
+  });
+
+  // ----------------------------------------------------------
+  // Safe не разваливает инстансинг
+  // ----------------------------------------------------------
+
+  it('["safe"]: nodes 1→1, dc 1→1, triangles 144→144, EXT_mesh_gpu_instancing на месте', async () => {
+    const { result, json } = await runAndRead('Preinstanced Grid 01.glb', {
+      advancedFeatures: ['safe'],
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.nodes).toBe(1);
+    expect(result.metrics.after.drawCalls).toBe(1);
+    expect(result.metrics.after.triangles).toBe(144);
+    // prune не должен счесть расширение мусором, dedup — не должен схлопнуть трансформы.
+    expect((json.extensionsUsed || []).includes('EXT_mesh_gpu_instancing')).toBe(true);
+  });
+});
+
