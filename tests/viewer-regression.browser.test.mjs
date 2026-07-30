@@ -868,24 +868,29 @@ describe('Viewer — all models parameterized (browser)', () => {
     disposeViewer(viewer, canvas)
   })
 
-  // Функция вычисления таймаута по размеру файла (байты):
+  // ВНИМАНИЕ: собственного таймаута у этих тестов больше нет — действует общий
+  // testTimeout из vitest.config.mjs (120 с).
+  //
+  // Была лесенка «по размеру файла»: <100K → 5 с, <1MB → 10 с и так далее. Она
+  // покраснела на `Dirty Cube 01` — 62 КБ, лимит 5 с. Модель тут ни при чём: она
+  // идёт в блоке первой и платит за прогрев WebGL. В спокойном прогоне это 2.6 с
+  // (сама же и возглавляла топ-5 медленных при 0.1 МБ), под нагрузкой — больше пяти.
+  //
+  // Вывод тот же, что записан в шапке vitest.config.mjs: таймаут — страховка от
+  // зависания, а не утверждение о скорости. Цифра, выведенная из размера файла,
+  // измеряет загрузку машины, а не тест. Замер как наблюдение остался — тайминги
+  // печатаются в afterAll.
+  //
+  // Историческая лесенка (для справки, если кто-то захочет её вернуть):
   //   < 100K   → 5s  (крошечные модели)
   //   < 1MB    → 10s
   //   < 10MB   → 15s
   //   < 50MB   → 30s  (ABeautifulGame 41MB)
   //   >= 50MB  → 60s  (запас)
-  function testTimeout(fileSize) {
-    if (fileSize < 100_000) return 5_000
-    if (fileSize < 1_000_000) return 10_000
-    if (fileSize < 10_000_000) return 15_000
-    if (fileSize < 50_000_000) return 30_000
-    return 60_000
-  }
 
   for (const { file, url, present, size } of MODEL_PROBES) {
     const name = file.replace(/\.glb$/i, '')
     const expectFail = EXPECT_FAIL.has(file)
-    const timeout = testTimeout(size)
 
     // Модели нет на диске — тест пропускается ЯВНО, с причиной в имени. Раньше здесь
     // был перехват 404 внутри теста и `return`: тест числился пройденным, не проверив
@@ -941,7 +946,7 @@ describe('Viewer — all models parameterized (browser)', () => {
       expect(typeof detected.draco).toBe('boolean')
       expect(typeof detected.meshopt).toBe('boolean')
       expect(typeof detected.ktx2).toBe('boolean')
-    }, timeout)
+    })
   }
 })
 
