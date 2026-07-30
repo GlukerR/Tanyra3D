@@ -10,11 +10,15 @@
 //   normalTexture             → transfer function = 1 (LINEAR)
 //   occlusion+metallicRoughness+diffuseTransmission → transfer function = 1 (LINEAR)
 //
-// Ловушка 1: toktx не установлен → правило ktx2 честно пропускается, текстуры
-//   остаются PNG/JPEG. Тест проверяет applied на наличие textures/ktx2 и
-//   пропускает байтовую проверку, если KTX2 не применился.
-// Ловушка 2: размер файла не проверяем числом — он зависит от версии кодировщика.
-// Ловушка 3: английский текст не сверяем — сравниваем по messageId.
+// Ловушки:
+//   1. toktx не установлен → правило ktx2 честно пропускается, текстуры
+//      остаются PNG/JPEG. Тест проверяет applied на наличие textures/ktx2 и
+//      не проверяет transfer function, если KTX2 не применился.
+//   2. Размер файла не проверяем числом — он зависит от версии кодировщика.
+//   3. Английский текст не сверяем — сравниваем по ruleId и байтовым значениям.
+//   4. gltf-transform использует KHR_texture_basisu для KTX2-текстур:
+//      texture.source НЕ заполнен, imageIndex лежит в
+//      texture.extensions.KHR_texture_basisu.source.
 
 import { describe, it, expect } from 'vitest';
 import { optimizeFile } from '../optimize2.mjs';
@@ -49,6 +53,22 @@ function parseGlbJson(bytes) {
 function isKTX2(buf) {
   if (buf.length < 12) return false;
   return buf.slice(0, 12).equals(KTX2_ID);
+}
+
+/**
+ * Получить imageIndex для texture с учётом KHR_texture_basisu.
+ * gltf-transform использует это расширение для KTX2-текстур:
+ * texture.extensions.KHR_texture_basisu.source = imageIndex
+ */
+function getTextureImageIndex(texture) {
+  if (texture.source !== undefined && texture.source !== null) {
+    return texture.source;
+  }
+  // glTF 2.0 KHR_texture_basisu extension
+  if (texture.extensions?.KHR_texture_basisu?.source !== undefined) {
+    return texture.extensions.KHR_texture_basisu.source;
+  }
+  return undefined;
 }
 
 /**
@@ -88,6 +108,8 @@ async function runAndRead(modelName, opts = {}) {
 /**
  * Извлечь KTX2 байт для texture по индексу из GLB.
  * Возвращает Buffer с KTX2 данными или null, если текстура не KTX2.
+ *
+ * Поддерживает стандартное поле texture.source и KHR_texture_basisu extension.
  */
 function getKtx2Bytes(glbBytes, json, textureIndex) {
   if (!json || !Array.isArray(json.images) || !Array.isArray(json.textures)) {
@@ -96,7 +118,7 @@ function getKtx2Bytes(glbBytes, json, textureIndex) {
   const texture = json.textures[textureIndex];
   if (!texture) return null;
 
-  const imageIndex = texture.source;
+  const imageIndex = getTextureImageIndex(texture);
   if (imageIndex === undefined || imageIndex === null) return null;
 
   const image = json.images[imageIndex];
@@ -124,6 +146,9 @@ function getKtx2Bytes(glbBytes, json, textureIndex) {
  * Собрать маппинг texture index → слоты материала.
  * Возвращает Map<number, string[]> где ключ — texture index, значение —
  * список слотов (например ['baseColorTexture', 'normalTexture']).
+ *
+ * Учитывает KHR_texture_basisu: текстуры без texture.source, но с
+ * texture.extensions.KHR_texture_basisu.source.
  */
 function getTextureSlotMapping(json) {
   const mapping = new Map();
@@ -167,6 +192,19 @@ function getTextureSlotMapping(json) {
   return mapping;
 }
 
+/**
+ * Извлечь KTX2-данные для всех текстур, собранных из slotMap.
+ * Возвращает массив { slots, buf }.
+ */
+function collectKtx2Textures(glbBytes, json, slotMap) {
+  const ktx2Textures = [];
+  for (const [texIdx, slots] of slotMap) {
+    const ktx2Buf = getKtx2Bytes(glbBytes, json, texIdx);
+    if (ktx2Buf) ktx2Textures.push({ texIdx, slots, buf: ktx2Buf });
+  }
+  return ktx2Textures;
+}
+
 // ========================================================================
 // Работа 2 — KTX2 colorspace на DiffuseTransmissionTeacup.glb
 // ========================================================================
@@ -181,11 +219,22 @@ describeLocal(
         dryRun: false,
         force: true,
       });
-      // KTX2 правило могло не примениться (toktx нет) — проверяем
-      // что хотя бы попытка была, и что applied не крэшнулся
-      expect(result.status).toBeOneOf(['ok', 'fail']);
-      expect(Array.isArray(result.applied)).toBe(true);
       expect(result.file.written).toBe(true);
+
+      const ktx2Applied = result.applied.some((a) => a.ruleId === 'textures/ktx2');
+      if (!ktx2Applied) {
+        // toktx не установлен — KTX2 не применился. Это не падение, просто
+        // дальнейшие проверки transfer function не имеют смысла.
+        console.log(
+          '[SKIP] textures/ktx2 rule not applied — toktx likely not available. ' +
+          'Transfer function checks will be skipped for this run.',
+        );
+        expect(Array.isArray(result.applied)).toBe(true);
+        return;
+      }
+      expect(result.status).toBe('ok');
+      expect(Array.isArray(result.applied)).toBe(true);
+      expect(result.applied.length).toBeGreaterThan(0);
     }, TIMEOUT);
 
     it('baseColorTexture has transfer function = 2 (sRGB) if KTX2 encoded', async () => {
@@ -196,19 +245,23 @@ describeLocal(
       });
 
       const ktx2Applied = result.applied.some((a) => a.ruleId === 'textures/ktx2');
-      // Если toktx не установлен — тест пропускает байтовую проверку
-      if (!ktx2Applied || !glbBytes || !json) return;
-
-      const slotMap = getTextureSlotMapping(json);
-      // Собираем все KTX2-текстуры
-      const ktx2Textures = [];
-      for (const [texIdx, slots] of slotMap) {
-        const ktx2Buf = getKtx2Bytes(glbBytes, json, texIdx);
-        if (ktx2Buf) ktx2Textures.push({ texIdx, slots, buf: ktx2Buf });
+      if (!ktx2Applied || !glbBytes || !json) {
+        // toktx не установлен — пропускаем
+        expect(true).toBe(true);
+        return;
       }
 
-      // Если ни одной KTX2 текстуры — toktx не установлен, пропускаем
-      if (ktx2Textures.length === 0) return;
+      const slotMap = getTextureSlotMapping(json);
+      expect(slotMap.size).toBeGreaterThan(0);
+
+      const ktx2Textures = collectKtx2Textures(glbBytes, json, slotMap);
+
+      // Если KTX2 rule applied, но ни одной KTX2 текстуры не найдено —
+      // это баг (неправильный imageIndex, неучтённое расширение и т.п.)
+      expect(
+        ktx2Textures.length,
+        'KTX2 rule applied but 0 KTX2 textures found — possible texture.source / KHR_texture_basisu mismatch',
+      ).toBeGreaterThanOrEqual(1);
 
       let foundBaseColor = false;
       for (const { slots, buf } of ktx2Textures) {
@@ -232,21 +285,26 @@ describeLocal(
       });
 
       const ktx2Applied = result.applied.some((a) => a.ruleId === 'textures/ktx2');
-      if (!ktx2Applied || !glbBytes || !json) return;
-
-      const slotMap = getTextureSlotMapping(json);
-      const ktx2Textures = [];
-      for (const [texIdx, slots] of slotMap) {
-        const ktx2Buf = getKtx2Bytes(glbBytes, json, texIdx);
-        if (ktx2Buf) ktx2Textures.push({ slots, buf: ktx2Buf });
+      if (!ktx2Applied || !glbBytes || !json) {
+        expect(true).toBe(true);
+        return;
       }
 
-      if (ktx2Textures.length === 0) return;
+      const slotMap = getTextureSlotMapping(json);
+      expect(slotMap.size).toBeGreaterThan(0);
+
+      const ktx2Textures = collectKtx2Textures(glbBytes, json, slotMap);
+
+      // Если KTX2 rule applied, но KTX2 текстур нет — баг
+      expect(
+        ktx2Textures.length,
+        'KTX2 rule applied but 0 KTX2 textures found — possible texture.source / KHR_texture_basisu mismatch',
+      ).toBeGreaterThanOrEqual(1);
 
       let nonColorCount = 0;
       for (const { slots, buf } of ktx2Textures) {
         const tf = readTransferFunction(buf);
-        const isColor = slots.some((s) => /color|emissive|diffuse/i.test(s));
+        const isColor = slots.some((s) => /^(baseColorTexture|emissiveTexture)$/.test(s));
         if (!isColor) {
           expect(tf).toBe(1); // LINEAR
           nonColorCount++;
@@ -264,21 +322,26 @@ describeLocal(
       });
 
       const ktx2Applied = result.applied.some((a) => a.ruleId === 'textures/ktx2');
-      if (!ktx2Applied || !glbBytes || !json) return;
-
-      const slotMap = getTextureSlotMapping(json);
-      const ktx2Textures = [];
-      for (const [texIdx, slots] of slotMap) {
-        const ktx2Buf = getKtx2Bytes(glbBytes, json, texIdx);
-        if (ktx2Buf) ktx2Textures.push({ slots, buf: ktx2Buf });
+      if (!ktx2Applied || !glbBytes || !json) {
+        expect(true).toBe(true);
+        return;
       }
 
-      if (ktx2Textures.length === 0) return;
+      const slotMap = getTextureSlotMapping(json);
+      expect(slotMap.size).toBeGreaterThan(0);
+
+      const ktx2Textures = collectKtx2Textures(glbBytes, json, slotMap);
+
+      // Если KTX2 rule applied, но KTX2 текстур нет — баг
+      expect(
+        ktx2Textures.length,
+        'KTX2 rule applied but 0 KTX2 textures found — possible texture.source / KHR_texture_basisu mismatch',
+      ).toBeGreaterThanOrEqual(1);
 
       let texturesChecked = 0;
       for (const { slots, buf } of ktx2Textures) {
         const tf = readTransferFunction(buf);
-        const isColor = slots.some((s) => /color|emissive|diffuse/i.test(s));
+        const isColor = slots.some((s) => /^(baseColorTexture|emissiveTexture)$/.test(s));
         if (isColor) {
           expect(tf).toBe(2); // sRGB
         } else {
