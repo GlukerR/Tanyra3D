@@ -11,14 +11,16 @@
 
 import { describe, it, expect, beforeAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const analyseScript = path.resolve(__dirname, 'analyse-test-coverage.mjs');
 
-const BASELINE_ITS = 228; // минимальное ожидаемое число тестов
-const BASELINE_FLAG_COMBOS = 7; // минимальное число уникальных комбинаций флагов
+const { BASELINE_ITS, BASELINE_FLAG_COMBOS } = JSON.parse(
+  readFileSync(path.resolve(__dirname, 'baselines.json'), 'utf-8'),
+);
 
 describe('Golden Corpus — baseline (analyse-test-coverage)', () => {
   let data;

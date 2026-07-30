@@ -13,13 +13,15 @@
 // который тоже выполняется в рамках suite и даёт гранулярные assertion'ы.
 
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const analyseScript = path.resolve(__dirname, 'analyse-test-coverage.mjs');
-const BASELINE_ITS = 228;
-const BASELINE_FLAG_COMBOS = 7;
+const { BASELINE_ITS, BASELINE_FLAG_COMBOS } = JSON.parse(
+  readFileSync(path.resolve(__dirname, 'baselines.json'), 'utf-8'),
+);
 
 export function setup() {
   let data;
