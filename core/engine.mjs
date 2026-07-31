@@ -177,6 +177,10 @@ async function runFile(addon, src, dstName, o, result) {
     document: await addon.load(io, src),
     io,
     opts: o,
+    // Путь к ИСХОДНОМУ файлу. Нужен правилам, которым важно то, что осталось за бортом
+    // разбора: список расширений из самого файла нельзя восстановить по документу —
+    // неизвестное расширение библиотека при загрузке просто отбрасывает.
+    src,
     outDir: o.outDir,
     dstName,
     cache: new Map(),

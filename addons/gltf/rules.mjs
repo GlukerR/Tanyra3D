@@ -18,6 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import * as fns from '@gltf-transform/functions';
+import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 import { MeshoptEncoder } from 'meshoptimizer';
 
 import { render } from '../../core/i18n.mjs';
@@ -85,6 +86,82 @@ function relabelDataTextures(document, functions, out) {
   }
 }
 
+// Расширения, объявленные в файле, но неизвестные библиотеке.
+//
+// Зачем это правилам. Неизвестное расширение библиотека при загрузке просто отбрасывает
+// — по документу его уже не видно. А оно могло описывать данные, которые держатся на
+// ИНДЕКСАХ свойств: `KHR_animation_pointer` адресует анимируемое свойство путём вида
+// `/materials/2/pbrMetallicRoughness/baseColorFactor`. После разбора такой канал теряет
+// цель, любая чистка считает его ничьим и удаляет, а перенумерация свойств (дедупликация,
+// объединение) ломает уцелевшие пути.
+//
+// Замер 2026-07-31 на `AnimationPointerUVs.glb` (образец Khronos): без флажков анимация
+// проходит насквозь целой (1 → 1), с одним `safe` исчезает (1 → 0) и валидатор Khronos
+// выдаёт 6 новых ошибок. Сторож целостности это ловит и метит файл красным, но это
+// защита от последствий, а не отказ их причинять.
+//
+// Список берём из САМОГО файла: в GLB он лежит в JSON-чанке, в .gltf это обычный JSON.
+const KNOWN_EXTENSIONS = new Set(ALL_EXTENSIONS.map((e) => e.EXTENSION_NAME));
+
+function readAssetJson(srcPath) {
+  const buf = fs.readFileSync(srcPath);
+  // .gltf — обычный JSON; .glb — контейнер, первый чанк JSON (спецификация glTF 2.0 §4.4).
+  if (buf.length >= 4 && buf.readUInt32LE(0) === 0x46546c67) {
+    let off = 12;
+    while (off + 8 <= buf.length) {
+      const len = buf.readUInt32LE(off);
+      const type = buf.readUInt32LE(off + 4);
+      if (type === 0x4e4f534a) return JSON.parse(buf.slice(off + 8, off + 8 + len).toString('utf8'));
+      off += 8 + len;
+    }
+    return null;
+  }
+  return JSON.parse(buf.toString('utf8'));
+}
+
+// Результат кэшируется в ctx.cache: файл читают несколько правил, а он может весить
+// сотни мегабайт.
+function unsupportedExtensions(ctx) {
+  const KEY = 'unsupportedExtensions';
+  if (ctx.cache && ctx.cache.has(KEY)) return ctx.cache.get(KEY);
+  let list = [];
+  try {
+    const json = ctx.src ? readAssetJson(ctx.src) : null;
+    list = ((json && json.extensionsUsed) || []).filter((name) => !KNOWN_EXTENSIONS.has(name));
+  } catch (e) {
+    list = []; // файл не разобрался — этим займётся сама загрузка, здесь молчим
+  }
+  if (ctx.cache) ctx.cache.set(KEY, list);
+  return list;
+}
+
+// Готовый отказ для правил, которые переставляют или удаляют свойства. Общий, чтобы
+// причина у всех была одна и та же — человек должен увидеть одно объяснение, а не пять
+// разных формулировок одной беды.
+function refuseIfUnsupported(ctx) {
+  const list = unsupportedExtensions(ctx);
+  if (!list.length) return null;
+  return { safe: false, messageId: 'unsupportedExtension.refuse', data: { list: list.join(', '), n: list.length } };
+}
+
+// Меши, на которые ссылается больше одного узла, — общая геометрия.
+//
+// Отличать её от обычной приходится по факту, а не по замыслу автора модели: связанные
+// дубликаты Blender (Alt+D) дают её сразу, обычные копии (Ctrl+D) — после дедупликации,
+// когда побайтно одинаковые меши сведены в один. Для объединения мешей это единственное,
+// что важно: такой меш нельзя запечь в вершины, не размножив его на каждого владельца.
+function sharedMeshes(document) {
+  const shared = new Set();
+  for (const mesh of document.getRoot().listMeshes()) {
+    let users = 0;
+    for (const parent of mesh.listParents()) {
+      if (parent.propertyType === 'Node') users++;
+      if (users > 1) { shared.add(mesh); break; }
+    }
+  }
+  return shared;
+}
+
 // Порядок пайплайна ЖЁСТКИЙ и выверен в v2 (кодируется через runAfter):
 // dedup → prune → vertex-colors → weld → degenerate → orphan → (flatten+join)
 // → prune → ktx2 → geometry-compress. Не менять.
@@ -97,7 +174,9 @@ export const RULES = [
       enabled: (o) => o.safe,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
-    canFix() { return { safe: true, messageId: 'dedup.safe', data: {} }; },
+    // Дедупликация сводит одинаковые свойства в одно и перенумеровывает остальные —
+    // ровно то, чего не переживают ссылки по индексу из неизвестного нам расширения.
+    canFix(finding, ctx) { return refuseIfUnsupported(ctx) || { safe: true, messageId: 'dedup.safe', data: {} }; },
     async fix(finding, ctx) {
       const root = ctx.document.getRoot();
       const b = { tex: root.listTextures().length, mat: root.listMaterials().length, acc: root.listAccessors().length };
@@ -119,7 +198,9 @@ export const RULES = [
       enabled: (o) => o.safe,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
-    canFix() { return { safe: true, messageId: 'prune.safe', data: {} }; },
+    // Чистка удаляет то, на что «нет ссылок». Ссылку из неизвестного расширения она не
+    // видит — и уносит вместе с мусором живые данные (замер: анимация 1 → 0).
+    canFix(finding, ctx) { return refuseIfUnsupported(ctx) || { safe: true, messageId: 'prune.safe', data: {} }; },
     async fix(finding, ctx) {
       const root = ctx.document.getRoot();
       const semBefore = listSemantics(ctx.document);
@@ -319,7 +400,7 @@ export const RULES = [
       enabled: (o) => o.join,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
-    canFix() { return { safe: true, messageId: 'join.safe', data: {} }; },
+    canFix(finding, ctx) { return refuseIfUnsupported(ctx) || { safe: true, messageId: 'join.safe', data: {} }; },
     async fix(finding, ctx) {
       const m = () => { const r = collectMetrics(ctx.document, 0); return { drawCalls: r.drawCalls, nodes: r.nodes, meshes: r.meshes }; };
       // Байты ХРАНИМОЙ геометрии — не то же самое, что метрика vertices.
@@ -334,9 +415,37 @@ export const RULES = [
       };
       const b = m();
       const gBefore = geomBytes();
-      await ctx.document.transform(fns.flatten(), fns.join());
+
+      // УМНОЕ ОБЪЕДИНЕНИЕ: сливаем только то, что сливается без потерь.
+      //
+      // Объединение запекает трансформ узла прямо в вершины, поэтому меш, на который
+      // ссылаются восемь узлов, обязан превратиться в восемь по-разному повёрнутых
+      // копий. На модели, построенной на повторах, это удваивало вес файла ради
+      // экономии отрисовок — размен, которого никто не просил.
+      //
+      // Раньше от этого спасал только инстансинг: он вешает на узел
+      // EXT_mesh_gpu_instancing, а такие узлы join не трогает. Спасал не всегда:
+      // общая геометрия появляется и ПОСРЕДИ прогона — дедупликация в `safe` сводит
+      // побайтно одинаковые меши в один, и модель с обычными копиями (Ctrl+D в Blender)
+      // становится моделью с общей геометрией уже после того, как интерфейс решил,
+      // предлагать инстансинг или нет. Замер 2026-07-31: `Unlinked Duplicates 01`
+      // с флажками по умолчанию рос на 61 %, единственный такой на весь корпус.
+      //
+      // Теперь общая геометрия исключается из объединения по факту, на месте: узел с
+      // мешем, у которого больше одного пользователя, join не получает вовсе. Своей
+      // логики объединения мы не пишем — это штатная опция filter самой библиотеки.
+      await ctx.document.transform(fns.flatten());
+      const shared = sharedMeshes(ctx.document);
+      await ctx.document.transform(fns.join({ filter: (node) => !shared.has(node.getMesh()) }));
+
       const a = m();
       const gAfter = geomBytes();
+
+      // Оставленная общая геометрия — не молчаливый отказ: человек видит меньше
+      // сэкономленных отрисовок, чем ожидал, и должен знать, почему и что включить.
+      const keptShared = shared.size
+        ? [{ messageId: 'join.keptShared', data: { meshes: shared.size } }]
+        : [];
 
       if (b.drawCalls > a.drawCalls || b.nodes > a.nodes || b.meshes > a.meshes) {
         const details = [{ messageId: 'join.done', data: { dcBefore: b.drawCalls, dcAfter: a.drawCalls, nodesBefore: b.nodes, nodesAfter: a.nodes } }];
@@ -357,9 +466,9 @@ export const RULES = [
             },
           });
         }
-        return { found: [{ messageId: 'join.found', data: { drawCalls: b.drawCalls, nodes: b.nodes } }], details, cost };
+        return { found: [{ messageId: 'join.found', data: { drawCalls: b.drawCalls, nodes: b.nodes } }], details, cost, skipped: keptShared };
       }
-      return {};
+      return { skipped: keptShared };
     },
   },
 
@@ -375,7 +484,7 @@ export const RULES = [
       enabled: (o) => o.instance,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
-    canFix() { return { safe: true }; },
+    canFix(finding, ctx) { return refuseIfUnsupported(ctx) || { safe: true }; },
     async fix(finding, ctx) {
       const root = ctx.document.getRoot();
       const b = { nodes: root.listNodes().length, dc: collectMetrics(ctx.document, 0).drawCalls };
@@ -435,7 +544,9 @@ export const RULES = [
 
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
-    canFix() { return { safe: true, messageId: 'pruneFinal.safe', data: {} }; },
+    // Та же причина, что у structure/prune-unused: чистка не видит ссылок из
+    // неизвестного расширения и уносит живые данные вместе с осиротевшими.
+    canFix(finding, ctx) { return refuseIfUnsupported(ctx) || { safe: true, messageId: 'pruneFinal.safe', data: {} }; },
     async fix(finding, ctx) {
       const root = ctx.document.getRoot();
       const b = root.listAccessors().length;

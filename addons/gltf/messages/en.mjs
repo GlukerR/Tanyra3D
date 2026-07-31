@@ -57,6 +57,10 @@ export default {
   'orphan.found': ({ n }) => `orphan vertices: ${n}`,
   'orphan.done': ({ n }) => `Orphan vertices: removed ${n} (addressed by no index, not drawn)`,
 
+  // Отказ структурных правил на модели с неизвестным расширением.
+  'unsupportedExtension.refuse': ({ list }) =>
+    `the model uses ${list}, which this pipeline does not understand. Such an extension can address properties by index (KHR_animation_pointer does), so removing or renumbering anything would silently break it — structural changes are refused. Compression and texture options still work.`,
+
   // --- scene/join ---
   'join.safe': () => 'model is static, separate parts not needed (otherwise --keep-parts)',
   'join.found': ({ drawCalls, nodes }) => `extra draw calls / nodes: draw calls ${drawCalls}, nodes ${nodes}`,
@@ -64,6 +68,8 @@ export default {
     `Meshes joined (flatten+join): draw calls ${dcBefore} → ${dcAfter}, nodes ${nodesBefore} → ${nodesAfter}`,
   // Цена объединения на модели с общей геометрией. Формулировка без обвинений:
   // человек выбрал опцию сознательно, ему нужна цифра и подсказка, а не выговор.
+  'join.keptShared': ({ meshes }) =>
+    `Left alone: ${meshes} mesh(es) shared by several nodes. Joining them would bake the same geometry into a separate copy per node — the file would grow instead of shrinking. Turn on GPU instancing to cut their draw calls without the extra bytes.`,
   'join.expandedShared': ({ bytes, pct, dcSaved }) =>
     `Join copied shared geometry: +${size(bytes)} (+${pct}%) of stored geometry bought ${dcSaved} fewer draw calls. `
     + `Meshes reused by several nodes must be baked into separate copies. If this model is built on repeats, `
