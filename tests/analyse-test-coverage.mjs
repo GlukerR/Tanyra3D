@@ -8,9 +8,15 @@
 //   — какие комбинации advancedFeatures проверяются
 //   — модель → сколько тестов её проверяют
 //
-// Парсинг через @babel/parser — единственный внешний парсер, который уже
-// есть в дереве зависимостей (@babel/core / @babel/parser — транзитив через
-// vitest). Если парсер недоступен — fallback на grep-подобную эвристику.
+// Парсинг: сначала пробуется @babel/parser, при его отсутствии — блочная
+// эвристика на регулярках.
+//
+// ВНИМАНИЕ: в этом репозитории @babel/parser НЕ установлен (проверено
+// 2026-07-31: node_modules/@babel отсутствует, в package.json его нет —
+// vitest тянет свой парсер иначе). То есть на практике всегда работает
+// fallback, и baseline в tests/baselines.json откалиброван именно под него.
+// AST-ветка — задел на случай, если парсер появится; менять её, не проверив
+// оба пути, нельзя: числа разъедутся и гейт либо порвётся, либо ослабнет.
 //
 // Запуск:
 //   node tests/analyse-test-coverage.mjs
@@ -561,9 +567,34 @@ const describedModels = data.describes
   .filter((d) => /\.glb/.test(d.name))
   .map((d) => d.name.match(/(['"`]?)([^'"`]+\.glb)\1/)?.[2] || d.name);
 
-// Модели из GOLDEN_MODELS, отсутствующие на диске.
+// Модели, отсутствующие на диске.
+//
+// ВАЖНО про чистый клон: из 34 моделей корпуса в git лежат только те, что
+// перечислены в REPO_MODELS (`tests/helpers/model-files.mjs`) — у остальных
+// чужая лицензия, коммитить их нельзя. На CI после `npm ci` на диске поэтому
+// 11 моделей из 24 в GOLDEN_MODELS, и это НОРМА, а не поломка: тесты на
+// локальные модели пропускаются через describeLocal.
+//
+// Поэтому гейтить можно только по REPO-моделям: их отсутствие — реальная
+// поломка (файл потерян или выпал из fixtures/.gitignore). Отсутствие
+// локальных моделей отдаётся отдельным полем и ничего не валит.
 const modelsDir = path.resolve(PROJECT_ROOT, 'fixtures/models');
-const missingFromDisk = goldenModels.filter((m) => !fs.existsSync(path.join(modelsDir, m)));
+
+// REPO_MODELS читаем регуляркой, а не импортом: helper тянет глобалы vitest
+// (`import { describe, it } from 'vitest'`), которые вне раннера недоступны,
+// а этот скрипт запускается обычным `node`.
+const helperCode = fs.readFileSync(
+  path.resolve(PROJECT_ROOT, 'tests/helpers/model-files.mjs'),
+  'utf-8',
+);
+const repoModelsMatch = helperCode.match(/const\s+REPO_MODELS\s*=\s*new\s+Set\s*\(\s*\[([^\]]+)\]/s);
+const repoModels = repoModelsMatch
+  ? [...repoModelsMatch[1].matchAll(/['"`]([^'"`]+\.glb)['"`]/g)].map((m) => m[1])
+  : [];
+
+const absentFromDisk = goldenModels.filter((m) => !fs.existsSync(path.join(modelsDir, m)));
+const missingFromDisk = absentFromDisk.filter((m) => repoModels.includes(m));
+const localModelsAbsent = absentFromDisk.filter((m) => !repoModels.includes(m));
 
 function modelCoverage() {
   const map = {};
@@ -602,6 +633,7 @@ if (isJson) {
     uniqueModels: uniqueModels.length,
     goldenModels: goldenModels.length,
     modelsMissing: missingFromDisk,
+    localModelsAbsent,
     modelsWithOwnDescribe: describedModels.filter((d) => !goldenModels.includes(d)).length,
     modelCoverage: Object.fromEntries(
       Object.entries(coverage).map(([model, info]) => [
@@ -641,10 +673,13 @@ console.log(`  Уникальных моделей в modelPath(): ${uniqueModel
 console.log(`  В GOLDEN_MODELS:                 ${goldenModels.length}`);
 console.log(`  С собственным describe:          ${describedModels.length}`);
 if (missingFromDisk.length) {
-  console.log(`  ⚠ ОТСУТСТВУЮТ НА ДИСКЕ:       ${missingFromDisk.length}`);
+  console.log(`  ⚠ REPO-МОДЕЛИ ПОТЕРЯНЫ:       ${missingFromDisk.length}`);
   for (const m of missingFromDisk) console.log(`    — ${m}`);
 } else {
-  console.log(`  ✓ Все модели GOLDEN_MODELS на месте`);
+  console.log(`  ✓ Все REPO-модели на месте`);
+}
+if (localModelsAbsent.length) {
+  console.log(`  · локальных нет на диске:      ${localModelsAbsent.length} (норма на чистом клоне)`);
 }
 console.log();
 

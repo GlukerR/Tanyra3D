@@ -1147,13 +1147,12 @@ describe('Golden Corpus — Unlinked Duplicates 01: identical geometry without n
   // ----------------------------------------------------------
 
   // ----------------------------------------------------------
-  // Khronos glTF Validator — нужен установленный валидатор (npm: gltf-validator)
-  // Тест пропущен по умолчанию; заменить it.skip → it, чтобы включить.
+  // Khronos glTF Validator — прямая dependency проекта (package.json),
+  // им же пользуется addons/gltf/index.mjs. После `npm ci` он есть всегда,
+  // отдельного пропуска не требует.
   // ----------------------------------------------------------
 
-  it.skip('проходит валидатор Khronos: 0 ошибок на исходнике', async () => {
-    // Валидатор требует Node >= 18; завернут в it.skip, чтобы не блокировать
-    // прогон корпуса в CI-окружениях без установленного валидатора.
+  it('проходит валидатор Khronos: 0 ошибок на исходнике', async () => {
     const validator = await import('gltf-validator');
     const bytes = fs.readFileSync(modelPath('Unlinked Duplicates 01.glb'));
     const res = await validator.validateBytes(new Uint8Array(bytes));

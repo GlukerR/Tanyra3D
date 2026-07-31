@@ -2,7 +2,7 @@
 //
 // Запускает `node tests/analyse-test-coverage.mjs --json` и проверяет, что:
 //   1. Число тестов не упало ниже baseline (228);
-//   2. Все модели GOLDEN_MODELS присутствуют на диске;
+//   2. Все закоммиченные модели (REPO_MODELS) присутствуют на диске;
 //   3. Каждая модель покрыта хотя бы одной комбинацией флагов.
 //
 // Файл подхватывается vitest автоматически (include: tests/**/*.test.mjs)
@@ -47,7 +47,9 @@ describe('Golden Corpus — baseline (analyse-test-coverage)', () => {
     expect(data.totalIts).toBeGreaterThanOrEqual(BASELINE_ITS);
   });
 
-  it('все модели GOLDEN_MODELS присутствуют на диске', () => {
+  // Только закоммиченные модели (REPO_MODELS). Локальные на чистом клоне
+  // отсутствуют законно — describeLocal их пропускает, см. helpers/model-files.mjs.
+  it('все закоммиченные модели (REPO_MODELS) присутствуют на диске', () => {
     expect(data.modelsMissing || []).toEqual([]);
   });
 

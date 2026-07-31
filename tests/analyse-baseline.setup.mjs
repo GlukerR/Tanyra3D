@@ -6,7 +6,9 @@
 //
 // Проверяет:
 //   1. totalIts ≥ 228 (число тестов не упало)
-//   2. modelsMissing пуст (все модели GOLDEN_MODELS на диске)
+//   2. modelsMissing пуст — то есть на диске все модели, которые ЛЕЖАТ В GIT
+//      (REPO_MODELS). Локальные модели корпуса на чистом клоне отсутствуют
+//      законно, гейтить по ним нельзя — иначе CI красный всегда.
 //   3. Нет моделей с нулевым покрытием (tests=0 и flags пуст)
 //
 // Подробный отчёт по каждой модели — в tests/analyse-baseline.test.mjs,
@@ -51,7 +53,10 @@ export function setup() {
 
   const missing = data.modelsMissing || [];
   if (missing.length) {
-    failures.push(`Models missing from disk: ${missing.join(', ')}`);
+    failures.push(
+      `Committed (REPO_MODELS) models missing from disk: ${missing.join(', ')}. ` +
+      `Check fixtures/.gitignore exceptions — a versioned model was lost.`,
+    );
   }
 
   const uncovered = Object.entries(data.modelCoverage || {})
