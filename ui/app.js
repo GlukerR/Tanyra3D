@@ -222,6 +222,9 @@
   // Идентификатор загруженного исходника на сервере: пока он есть, повторная
   // оптимизация той же модели идёт без перезаливки файла (меняем только флажки).
   let currentSourceId = null;
+  // Метрики исходной модели, посчитанные вьюером на клиенте (для левого HUD).
+  // Хранятся, чтобы при возврате к модели не перегружать её ради одних цифр.
+  let originalStats = null;
   // Анти-кэш для перезаписываемого результата (вьюпорт + скачивание) и одновременно
   // токен, по которому inspectResult() отличает свежий ответ от устаревшего — бампается
   // при каждой успешной сборке (bust()) и везде, где resultInspect сбрасывается вручную
@@ -256,6 +259,63 @@
   // настройки при загрузке новой модели и возврате на платформу. In-memory → перезагрузка
   // страницы сбрасывает всё к рекомендуемым дефолтам (так и задумано).
   const savedSelections = {};
+
+  // -----------------------------------------------------------------------
+  // Несколько моделей в списке, ОДНА в сцене.
+  //
+  // Решение Александра 2026-07-31: держать в двух вьюпортах несколько моделей
+  // сразу — это уже сборка сцены, задача не наша. Поэтому список — про то, чтобы
+  // не перезагружать файл заново, переключаясь между вариантами; сцена всегда
+  // показывает выбранную модель и её результат.
+  //
+  // Состояние каждой модели ЖИВЁТ В ТЕХ ЖЕ переменных, что и раньше: переписывать
+  // восемь десятков обращений на `M.поле` значило бы переколотить весь файл ради
+  // косметики. Вместо этого при переключении текущие значения складываются в запись,
+  // а из новой записи раскладываются обратно.
+  //
+  // Список полей — ОДИН, с геттером и сеттером рядом. Это принципиально: два
+  // отдельных списка (сохранить / восстановить) неизбежно разъезжаются, и получается
+  // самый неприятный сорт бага — состояние одной модели протекает в другую, причём
+  // через раз и только по одному полю.
+  const PER_MODEL_STATE = [
+    { key: 'selectedFile', get: () => selectedFile, set: (v) => { selectedFile = v; } },
+    { key: 'currentSourceId', get: () => currentSourceId, set: (v) => { currentSourceId = v; } },
+    { key: 'originalStats', get: () => originalStats, set: (v) => { originalStats = v; } },
+    { key: 'lastBuildSignature', get: () => lastBuildSignature, set: (v) => { lastBuildSignature = v; } },
+    { key: 'lastDetection', get: () => lastDetection, set: (v) => { lastDetection = v; } },
+    { key: 'lastResult', get: () => lastResult, set: (v) => { lastResult = v; } },
+    { key: 'lastExplain', get: () => lastExplain, set: (v) => { lastExplain = v; } },
+    { key: 'modelInspect', get: () => modelInspect, set: (v) => { modelInspect = v; } },
+    { key: 'resultInspect', get: () => resultInspect, set: (v) => { resultInspect = v; } },
+    { key: 'resultDownloadUrl', get: () => resultDownloadUrl, set: (v) => { resultDownloadUrl = v; } },
+    { key: 'resultExportBase', get: () => resultExportBase, set: (v) => { resultExportBase = v; } },
+  ];
+
+  // Приоритет флажков оптимизации: 'advise' — каждая модель сбрасывает их под себя;
+  // 'manual' — сохраняется последний выбор пользователя. Живёт в localStorage: это
+  // настройка человека, а не сеанса, и переживать перезагрузку она обязана.
+  const ADVICE_MODE_KEY = 'tanyra.adviceMode';
+  let adviceMode = 'advise';
+  try {
+    const stored = localStorage.getItem(ADVICE_MODE_KEY);
+    if (stored === 'advise' || stored === 'manual') adviceMode = stored;
+  } catch (e) { /* приватный режим браузера — остаёмся на значении по умолчанию */ }
+
+  const models = [];      // [{ id, file, state }] — порядок = порядок загрузки
+  let activeModelId = null;
+  let modelSeq = 0;
+
+  const activeModel = () => models.find((m) => m.id === activeModelId) || null;
+
+  function captureActiveModel() {
+    const rec = activeModel();
+    if (!rec) return;
+    for (const f of PER_MODEL_STATE) rec.state[f.key] = f.get();
+  }
+
+  function applyModelState(state) {
+    for (const f of PER_MODEL_STATE) f.set(state ? state[f.key] ?? null : null);
+  }
 
   // Текущая подпись настроек оптимизации: платформа + флажки + режим KTX2.
   function currentSettingsSignature() {
@@ -340,6 +400,8 @@
       const data = await res.json();
       platforms = data.platforms || [];
       versionLabel.textContent = data.engineVersion ? `core v${data.engineVersion}` : '';
+      const menuVersion = document.getElementById('menu-version');
+      if (menuVersion) menuVersion.textContent = data.engineVersion ? `Tanyra3D · core v${data.engineVersion}` : 'Tanyra3D';
 
       platformSelect.innerHTML = '';
       for (const p of platforms) {
@@ -819,11 +881,13 @@
       runBtn.disabled = true;
       return;
     }
-    selectedFile = file;
+    // Новая модель — новая запись в списке. addModel сначала складывает состояние
+    // той, что была на экране, поэтому вернуться к ней можно будет без перезагрузки.
+    addModel(file);
     chosenFileLabel.textContent = '';
     runBtn.disabled = false;
     logMessage('info', t('log.loaded', { name: file.name, size: fmtBytes(file.size) }));
-    renderModelList(file);
+    renderModelList();
     if (stageHint) stageHint.classList.add('hidden');
     // Новый файл → сбросить прежний результат и серверный исходник (будет перезалит).
     clearResults();
@@ -832,7 +896,8 @@
       setBusy('preview-original', 'busy.loading');
       try {
         const info = await window.OptiViewer.loadOriginal(file);
-        renderOriginalStats(file.size, info && info.stats);
+        originalStats = (info && info.stats) || null;
+        renderOriginalStats(file.size, originalStats);
         // Определяем, что уже сжато в исходнике → авто-включаем флажки с бейджем [Source].
         lastDetection = (info && info.detected) || null;
         const found = Object.keys(lastDetection || {}).filter((k) => lastDetection[k]);
@@ -936,8 +1001,12 @@
   function applyDetection() {
     extensionsList.querySelectorAll('.ext-source-badge, .ext-advised-badge').forEach((b) => b.remove());
 
+    // Режим «Советуем» (по умолчанию): каждая модель сбрасывает флажки под себя —
+    // под то, что в ней уже есть, и под то, что ей нужно. Иначе выбор, сделанный
+    // однажды на одной модели, молча переезжает на все следующие, и человек не
+    // понимает, почему совет не сработал. Режим «Мой выбор» оставляет всё как было.
     const saved = savedSelections[platformSelect.value];
-    if (saved) restoreSelection(saved);
+    if (saved && adviceMode === 'manual') restoreSelection(saved);
     else applyDefaultSelection();
 
     showDetectionBadges();
@@ -1108,25 +1177,231 @@
     dropzone.classList.toggle('hidden', modelList.children.length > 0);
   }
 
-  function renderModelList(file) {
+  function renderModelList() {
     modelList.innerHTML = '';
-    const li = document.createElement('li');
-    li.className = 'model-item selected';
-    const icon = document.createElement('span');
-    icon.className = 'model-icon';
-    icon.textContent = '▣';
-    const name = document.createElement('span');
-    name.className = 'model-name';
-    name.textContent = file.name;
-    name.title = file.name;
-    const size = document.createElement('span');
-    size.className = 'model-size';
-    size.textContent = fmtBytes(file.size);
-    li.appendChild(icon);
-    li.appendChild(name);
-    li.appendChild(size);
-    modelList.appendChild(li);
+    for (const rec of models) {
+      const li = document.createElement('li');
+      li.className = 'model-item' + (rec.id === activeModelId ? ' selected' : '');
+      li.dataset.modelId = rec.id;
+      // Галочка у моделей, которые уже собраны: по списку сразу видно, что сделано,
+      // а что ещё ждёт. Без этого при пяти моделях приходится щёлкать каждую.
+      const icon = document.createElement('span');
+      icon.className = 'model-icon';
+      icon.textContent = rec.state.lastResult ? '✓' : '▣';
+      if (rec.state.lastResult) icon.title = t('models.built');
+      const name = document.createElement('span');
+      name.className = 'model-name';
+      name.textContent = rec.file.name;
+      name.title = rec.file.name;
+      const size = document.createElement('span');
+      size.className = 'model-size';
+      size.textContent = fmtBytes(rec.file.size);
+
+      const remove = document.createElement('button');
+      remove.className = 'model-remove';
+      remove.type = 'button';
+      remove.textContent = '×';
+      remove.title = t('models.remove');
+      remove.setAttribute('aria-label', t('models.remove'));
+      // stopPropagation: клик по крестику не должен заодно выбирать модель,
+      // которую он удаляет.
+      remove.addEventListener('click', (e) => { e.stopPropagation(); removeModel(rec.id); });
+
+      li.appendChild(icon);
+      li.appendChild(name);
+      li.appendChild(size);
+      li.appendChild(remove);
+      li.addEventListener('click', () => selectModel(rec.id));
+      modelList.appendChild(li);
+    }
     syncDropzone();
+  }
+
+  // -----------------------------------------------------------------------
+  // Добавление, выбор и удаление моделей
+  // -----------------------------------------------------------------------
+
+  function addModel(file) {
+    captureActiveModel();          // не потерять состояние той, что сейчас на экране
+    const rec = { id: `m${++modelSeq}`, file, state: {} };
+    models.push(rec);
+    activeModelId = rec.id;
+    applyModelState(null);         // новая модель начинает с чистого состояния
+    selectedFile = file;
+    return rec;
+  }
+
+  async function selectModel(id) {
+    if (id === activeModelId) return;
+    const rec = models.find((m) => m.id === id);
+    if (!rec) return;
+    captureActiveModel();
+    activeModelId = id;
+    applyModelState(rec.state);
+    renderModelList();
+    await showActiveModel();
+  }
+
+  function removeModel(id) {
+    const i = models.findIndex((m) => m.id === id);
+    if (i === -1) return;
+    const [rec] = models.splice(i, 1);
+    // Сервер держит копию исходника на диске. Не сказать ему об удалении — значит
+    // оставить файл лежать до перезапуска: у человека на диске молча копятся
+    // десятки мегабайт, и он никогда не узнает почему.
+    releaseSource(rec.state.currentSourceId || (rec.id === activeModelId ? currentSourceId : null));
+
+    if (rec.id !== activeModelId) { renderModelList(); return; }
+
+    // Удалили ту, что на экране: показываем соседнюю, а если список опустел —
+    // возвращаем интерфейс в состояние «модель ещё не загружали».
+    const next = models[i] || models[i - 1] || null;
+    activeModelId = next ? next.id : null;
+    applyModelState(next ? next.state : null);
+    renderModelList();
+    if (next) showActiveModel();
+    else resetToEmpty();
+  }
+
+  function releaseSource(sourceId) {
+    if (!sourceId) return;
+    fetch(`/api/source/${encodeURIComponent(sourceId)}`, { method: 'DELETE' })
+      .catch(() => { /* сервер мог уже перезапуститься — не наша забота */ });
+  }
+
+  // Показать активную модель целиком: сцена, HUD, отчёт, кнопки.
+  //
+  // Модель перезагружается во вьюпорт при каждом переключении, а не держится в сцене
+  // про запас: одна ABeautifulGame стоит 704 МБ видеопамяти, и пара таких «про запас»
+  // положила бы вкладку. Плата — секунды на разбор тяжёлого файла, поэтому крутится
+  // индикатор ожидания.
+  async function showActiveModel() {
+    const rec = activeModel();
+    if (!rec) return;
+
+    clearResultPanels();
+    if (window.OptiViewer) {
+      setBusy('preview-original', 'busy.loading');
+      try {
+        await window.OptiViewer.loadOriginal(rec.file);
+      } finally {
+        setBusy('preview-original', null);
+      }
+    }
+    renderOriginalStats(rec.file.size, originalStats);
+    applyDetection();
+
+    // Результат уже собран — вернуть его на экран целиком, не пересобирая.
+    if (lastResult && lastExplain) {
+      renderReport(lastResult, lastExplain);
+      const integrityFailed = lastResult.status === 'fail';
+      integrityWarning.classList.toggle('hidden', !integrityFailed);
+      setPhase(integrityFailed ? t('status.failed') : t('status.ready'), integrityFailed ? 'fail' : null);
+      runBtn.textContent = t('btn.rebuild');
+      if (resultDownloadUrl) {
+        downloadBtn.classList.remove('hidden');
+        renderIrreversibleWarning(lastResult.applied);
+        if (window.OptiViewer) {
+          setBusy('preview-optimized', 'busy.loading');
+          try {
+            await window.OptiViewer.loadOptimized(resultDownloadUrl);
+          } finally {
+            setBusy('preview-optimized', null);
+          }
+        }
+      }
+    } else {
+      runBtn.textContent = t('btn.build');
+      setPhase(t('status.ready'), null);
+    }
+    updateInspectButtons();
+    updateRunButtonState();
+  }
+
+  // Панели результата — в исходное. В отличие от clearResults() НЕ трогает состояние
+  // модели: при переключении оно уже загружено из записи и затирать его нельзя.
+  function clearResultPanels() {
+    statsAfter.innerHTML = '';
+    deltaBadge.textContent = '';
+    downloadBtn.classList.add('hidden');
+    exportWindow.classList.add('hidden');
+    irreversibleWarning.classList.add('hidden');
+    integrityWarning.classList.add('hidden');
+    failBanner.classList.add('hidden');
+    [summarySection, analysisSection, budgetsSection, warningsSection,
+      appliedSection, skippedSection, validationSection].forEach((s) => s.classList.add('hidden'));
+  }
+
+  // Список опустел — вернуть интерфейс к виду «модель ещё не загружали».
+  function resetToEmpty() {
+    applyModelState(null);
+    clearResultPanels();
+    statsBefore.innerHTML = '';
+    chosenFileLabel.textContent = '';
+    runBtn.disabled = true;
+    runBtn.textContent = t('btn.build');
+    if (stageHint) stageHint.classList.remove('hidden');
+    if (window.OptiViewer) window.OptiViewer.reset();
+    setPhase(t('status.ready'), null);
+    updateInspectButtons();
+  }
+
+  // -----------------------------------------------------------------------
+  // Строка меню
+  // -----------------------------------------------------------------------
+
+  function initMenubar() {
+    const menubar = document.getElementById('menubar');
+    if (!menubar) return;
+
+    const panels = [...menubar.querySelectorAll('.menu-panel')];
+    const titles = [...menubar.querySelectorAll('.menu-title')];
+    const closeAll = () => {
+      panels.forEach((p) => p.classList.add('hidden'));
+      titles.forEach((b) => b.classList.remove('open'));
+    };
+
+    for (const btn of titles) {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const name = btn.dataset.menu;
+        const panel = menubar.querySelector(`[data-menu-panel="${name}"]`);
+        const wasOpen = panel && !panel.classList.contains('hidden');
+        closeAll();
+        if (panel && !wasOpen) { panel.classList.remove('hidden'); btn.classList.add('open'); }
+      });
+    }
+    // Клик мимо и Escape закрывают меню. Без этого раскрытая панель висит поверх
+    // модели, и её приходится закрывать тем же пунктом, которым открыл.
+    document.addEventListener('click', closeAll);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAll(); });
+    for (const p of panels) p.addEventListener('click', (e) => e.stopPropagation());
+
+    const openItem = document.getElementById('menu-open');
+    if (openItem) openItem.addEventListener('click', () => { closeAll(); fileInput.click(); });
+
+    const dlItem = document.getElementById('menu-download');
+    if (dlItem) {
+      dlItem.addEventListener('click', () => { closeAll(); downloadBtn.click(); });
+      // Пункт, который ничего не делает, хуже отсутствующего: пока результата нет,
+      // он неактивен. Состояние обновляется при каждом открытии меню.
+      const syncDownload = () => { dlItem.disabled = !resultDownloadUrl; };
+      for (const btn of titles) btn.addEventListener('click', syncDownload);
+      syncDownload();
+    }
+
+    for (const radio of menubar.querySelectorAll('input[name="advice-mode"]')) {
+      radio.checked = radio.value === adviceMode;
+      radio.addEventListener('change', () => {
+        if (!radio.checked) return;
+        adviceMode = radio.value;
+        try { localStorage.setItem(ADVICE_MODE_KEY, adviceMode); } catch (e) { /* приватный режим */ }
+        logMessage('info', t(adviceMode === 'advise' ? 'log.adviceMode.advise' : 'log.adviceMode.manual'));
+        // Переключили на «Советуем» — применить совет к модели, которая уже на экране,
+        // а не ждать следующей загрузки: иначе настройка выглядит сломанной.
+        if (adviceMode === 'advise') applyDetection();
+      });
+    }
   }
 
   chooseFileBtn.addEventListener('click', () => fileInput.click());
@@ -1303,6 +1578,11 @@
     } finally {
       setBusy('preview-optimized', null);
       updateRunButtonState();
+      // Сложить результат в запись модели СРАЗУ, а не при следующем переключении:
+      // иначе галочка «собрана» в списке появлялась бы с опозданием на одно действие,
+      // а закрытие вкладки теряло бы связь результата с моделью.
+      captureActiveModel();
+      renderModelList();
     }
   }
 
@@ -1459,6 +1739,18 @@
     statsBefore.innerHTML = '';
     statsAfter.innerHTML = '';
 
+    // Проценты — только у файла и видеопамяти, и это не экономия места.
+    //
+    // Эти две строки составляют размен, ради которого всё и делается, а поодиночке
+    // каждая врёт. KTX2 на маленькой модели раздувает файл в одиннадцать раз и вчетверо
+    // сокращает видеопамять: «+1064 %» без второй половины читается как катастрофа,
+    // хотя это выигрыш по метрике, которая и определяет, потянет ли модель телефон.
+    //
+    // У остальных строк процент был бы шумом: треугольников оптимизация не меняет
+    // по построению, а «материалов на 33 % меньше» — число без смысла, важно само
+    // изменение, и его видно по цвету.
+    const PCT_ROWS = new Set(['FILE', 'VRAM']);
+
     const rows = [
       ['FILE', before.fileBytes, after.fileBytes, fmtBytes],
       ['TRIS', before.triangles, after.triangles, fmtInt],
@@ -1483,7 +1775,14 @@
       if (beforeVal != null && afterVal != null && afterVal !== beforeVal) {
         cls = afterVal < beforeVal ? 'better' : 'worse';
       }
-      statsAfter.appendChild(hudLine(label, fmt(afterVal), cls));
+      const row = hudLine(label, fmt(afterVal), cls);
+      if (PCT_ROWS.has(label) && beforeVal > 0 && afterVal != null && afterVal !== beforeVal) {
+        const pct = document.createElement('span');
+        pct.className = 'hud-pct ' + (afterVal < beforeVal ? 'better' : 'worse');
+        pct.textContent = pctText(beforeVal, afterVal);
+        row.appendChild(pct);
+      }
+      statsAfter.appendChild(row);
     }
 
     const fileDelta = pctText(before.fileBytes, after.fileBytes);
@@ -2450,6 +2749,7 @@
   renderLangSwitch();
   initBusyIndicators();
   initPerfMeter();
+  initMenubar();
 
   loadPlatforms();
 })();

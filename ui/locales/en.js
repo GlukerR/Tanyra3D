@@ -98,6 +98,25 @@ window.I18N_CATALOGS.en = {
   // --- живой замер отрисовки в HUD вьюпортов ---
   // Показывается время кадра каждого вьюпорта, а не FPS: оба рисуются в одном
   // кадре, и раздельный счётчик кадров дал бы одинаковые числа. См. app.js renderPerf.
+  // --- строка меню ---
+  'menu.file': 'File',
+  'menu.file.open': 'Open model…',
+  'menu.file.download': 'Download result',
+  'menu.settings': 'Settings',
+  'menu.settings.priority': 'Optimization checkboxes',
+  'menu.settings.advise': 'Follow suggestions',
+  'menu.settings.advise.hint': 'Each model resets the checkboxes to what it already uses and what it needs',
+  'menu.settings.manual': 'Keep my choice',
+  'menu.settings.manual.hint': 'Your checkboxes stay as you left them; suggestions are only marked with a badge',
+  'menu.help': 'Help',
+  'menu.help.local': 'Everything runs on this machine. Models are never uploaded anywhere.',
+  'log.adviceMode.advise': 'Checkboxes now follow per-model suggestions',
+  'log.adviceMode.manual': 'Checkboxes now keep your own choice',
+
+  // --- список моделей ---
+  'models.remove': 'Remove from list',
+  'models.built': 'Already built',
+
   // --- полноэкранная подсветка при перетаскивании ---
   'dropOverlay.title': 'Drop the model anywhere',
   'dropOverlay.sub': '.glb',

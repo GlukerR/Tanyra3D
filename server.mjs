@@ -25,7 +25,7 @@ const RESULTS_DIR = path.join(__dirname, '_web', 'results');
 const THREE_DIR = path.join(__dirname, 'node_modules', 'three');
 
 // Никаких накоплений: на старте чистим прежние загрузки/результаты (только текущая
-// оптимизация хранится на диске — см. purgeSourcesOlderThan).
+// оптимизация хранится на диске — см. purgeBeyondLimit).
 // Чистим СОДЕРЖИМОЕ, а не саму папку: на Windows удалённый каталог остаётся в состоянии
 // pending-delete, и немедленный mkdir того же имени падает (UNKNOWN errno -4094).
 async function ensureEmptyDir(dir) {
@@ -158,17 +158,30 @@ const sourceUploads = new Map();
 // так что обе вкладки теряли исходник. Теперь чистится только то, что СТАРШЕ текущей.
 let uploadSeq = 0;
 
-// Держим на диске только текущий исходник: при загрузке новой модели стираем все прежние
-// (папки uploads/<id> и results/<id>) — записи не копятся, живёт лишь последняя оптимизация.
-async function purgeSourcesOlderThan(keepId) {
-  const keep = sourceUploads.get(keepId);
-  if (!keep) return;
-  for (const [id, entry] of [...sourceUploads.entries()]) {
-    if (id === keepId || entry.seq >= keep.seq) continue;
-    sourceUploads.delete(id);
-    await fsp.rm(path.join(UPLOADS_DIR, id), { recursive: true, force: true }).catch(() => {});
-    await fsp.rm(path.join(RESULTS_DIR, id), { recursive: true, force: true }).catch(() => {});
-  }
+// Сколько исходников держим на диске одновременно.
+//
+// Раньше держали ровно один: при загрузке новой модели прежние стирались. Это мешало
+// списку моделей — вернуться к прошлой без перезаливки было нельзя. Теперь список ведёт
+// клиент, он же говорит DELETE /api/source/<id>, когда модель из списка убрали.
+//
+// Но полагаться ТОЛЬКО на клиента нельзя: вкладку закрывают, браузер падает, страницу
+// перезагружают — и никто уже не придёт удалить свой каталог. Поэтому остаётся потолок:
+// всё, что старше N последних, стирается само. Иначе у человека на диске молча копятся
+// десятки мегабайт на каждую открытую модель, и он никогда не узнает почему.
+const MAX_KEPT_SOURCES = 12;
+
+async function dropSource(id) {
+  sourceUploads.delete(id);
+  await fsp.rm(path.join(UPLOADS_DIR, id), { recursive: true, force: true }).catch(() => {});
+  await fsp.rm(path.join(RESULTS_DIR, id), { recursive: true, force: true }).catch(() => {});
+}
+
+// Оставить N самых свежих исходников, остальные стереть. Сравнение по seq, а не по
+// времени файла: две одновременные загрузки видели друг друга «старыми» и стирали
+// чужие каталоги, так что обе вкладки теряли исходник.
+async function purgeBeyondLimit() {
+  const entries = [...sourceUploads.entries()].sort((a, b) => b[1].seq - a[1].seq);
+  for (const [id] of entries.slice(MAX_KEPT_SOURCES)) await dropSource(id);
 }
 
 function sendSSE(jobId, payload) {
@@ -397,6 +410,22 @@ const server = http.createServer(async (req, res) => {
     }
 
     // --- список платформ ---
+    // Модель убрали из списка — стереть её исходник и результат с диска.
+    // Клиент зовёт это сам; на случай, если не позовёт (закрыли вкладку, упал браузер),
+    // работает потолок MAX_KEPT_SOURCES.
+    if (req.method === 'DELETE' && pathname.startsWith('/api/source/')) {
+      const id = decodeURIComponent(pathname.slice('/api/source/'.length));
+      // id приходит снаружи и подставляется в путь. Пропускаем только формат UUID,
+      // который сами и выдали: без этого «../..» в id увёл бы rm куда угодно.
+      if (!/^[0-9a-f-]{36}$/i.test(id)) {
+        sendJSON(res, 400, { error: 'bad source id' });
+        return;
+      }
+      await dropSource(id);
+      sendJSON(res, 200, { ok: true });
+      return;
+    }
+
     if (req.method === 'GET' && pathname === '/api/platforms') {
       sendJSON(res, 200, { platforms: listPlatformsSafe(langOf(url)), engineVersion: VERSION });
       return;
@@ -480,7 +509,7 @@ const server = http.createServer(async (req, res) => {
       const uploadPath = path.join(srcDir, fileName);
       await fsp.writeFile(uploadPath, bytes);
       sourceUploads.set(sourceId, { uploadPath, name: fileName, seq: ++uploadSeq });
-      await purgeSourcesOlderThan(sourceId);
+      await purgeBeyondLimit();
 
       let data;
       try {
@@ -549,7 +578,7 @@ const server = http.createServer(async (req, res) => {
         await fsp.writeFile(uploadPath, bytes);
         sourceUploads.set(sourceId, { uploadPath, name: fileName, seq: ++uploadSeq });
         // новая модель → стереть данные предыдущих (не копим лишнее)
-        await purgeSourcesOlderThan(sourceId);
+        await purgeBeyondLimit();
       }
 
       const plan = planForSafe(platformId, langOf(url));
