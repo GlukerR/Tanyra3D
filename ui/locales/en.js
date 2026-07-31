@@ -90,6 +90,7 @@ window.I18N_CATALOGS.en = {
   'btn.download': 'DOWNLOAD RESULT',
   'btn.pickOption': 'Select an optimization to build',
   'btn.changeSetting': 'Change a setting to rebuild',
+  'btn.building': 'Building — wait for it to finish',
 
   // --- статус ---
   // Подписи индикатора ожидания во вьюпортах.

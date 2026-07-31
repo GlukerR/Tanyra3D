@@ -21,6 +21,9 @@
   --success: #4ade80;
   --warning: #fbbf24;
   --error: #ffb4ab;
+  /* Красный ЗНАКА тревоги — ярче, чем --error таблиц и заголовков: значок
+     маленький, без фигуры вокруг, и приглушённый тон рядом с текстом теряется. */
+  --alert: #ff3b30;
 
   --font-ui: Inter, "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, "Cascadia Mono", "Segoe UI Mono", Consolas, "SFMono-Regular", monospace;
@@ -1256,21 +1259,19 @@ details[open] > .collapsible-summary::before {
 .opt-radio input { accent-color: var(--primary-container); flex-shrink: 0; }
 
 /* СЕМЬЯ ЗНАЧКОВ-ПРЕДУПРЕЖДЕНИЙ
-   Контурная фигура + знак внутри, без заливки. Фигура говорит о характере сообщения,
-   а не о его громкости: треугольник с «?» — вопрос к площадке («нужно подключить
-   декодер»), круг с «!» — проблема. Раньше это были залитый жёлтый кружок с ⚠ и залитый
-   красный кружок с белым «!»: два непохожих значка об одном и том же классе вещей.
-   Общими остаются размер, штрих и посадка — рядом они читаются как один набор.
-   Книжечка 📖 в семью не входит намеренно: это документация, а не предупреждение. */
+   Только знак: «?» — вопрос к площадке (нужен декодер), «!» — проблема. Ни круга, ни
+   треугольника: фигура вокруг знака была тем, что делало значки непохожими друг на
+   друга и грязными в мелком размере. Общее теперь — размер, начертание и посадка;
+   различает их сам знак и цвет. Книжечка 📖 в семью не входит намеренно: это
+   документация, а не предупреждение. */
 .icon-badge {
   flex-shrink: 0;
-  position: relative;
-  width: 16px;
+  width: 14px;
   height: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 13px;
   font-weight: 700;
   line-height: 1;
   background: none;
@@ -1278,48 +1279,10 @@ details[open] > .collapsible-summary::before {
   vertical-align: middle;
 }
 
-/* Треугольник рисуется маской по контуру: CSS-границами его не собрать так, чтобы
-   внутри ровно сидел знак. Цвет берётся из currentColor — значок красится там, где
-   стоит, а не здесь. */
-.icon-badge.icon-triangle::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: currentColor;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 2 15 14.4H1z' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 2 15 14.4H1z' fill='none' stroke='%23000' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
-}
-
-/* Знак внутри треугольника — ниже геометрического центра: у треугольника центр тяжести
-   смещён вниз, и по центру рамки «?» смотрелся бы приподнятым. */
-.icon-badge.icon-triangle { padding-top: 4px; }
-
-.icon-badge.icon-circle {
-  border: 1.5px solid currentColor;
-  border-radius: 50%;
-}
-
 .ext-decoder-warn {
   margin-left: 2px;
   color: var(--warning);
 }
-
-/* Легенда значка ⚠ — один раз для всей панели опций (значок встречается в нескольких
-   секциях: Structural/Geometry/Textures), а не повторяется в каждой из них. */
-.decoder-legend {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 10px;
-  padding: 6px 8px;
-  font-size: 11px;
-  color: var(--on-surface-variant);
-  background: rgba(251, 191, 36, 0.08);
-  border: 1px solid rgba(251, 191, 36, 0.25);
-  border-radius: var(--radius-sm);
-}
-
-.decoder-legend .ext-decoder-warn { margin-left: 0; }
 
 .ext-row {
   border-left: 2px solid var(--outline-variant);
@@ -1438,22 +1401,20 @@ details[open] > .collapsible-summary::before {
   white-space: nowrap;
 }
 
-/* Знак цены — эта галочка сильно увеличила результат. Круг с «!», а не значок в ряд
-   с остальными: «В модели» и «Советуем» сообщают факты, этот требует решения.
-   Форма и посадка — общие с .icon-badge (см. семью значков выше). */
+/* Знак цены — эта галочка сильно увеличила результат. Тот же «!», что и у проблемной
+   модели: класс сообщения один, место разное. «В модели» и «Советуем» рядом сообщают
+   факты, этот знак требует решения — поэтому он ярко-красный. */
 .ext-cost-badge,
 .model-alert {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
+  width: 14px;
   height: 16px;
-  border: 1.5px solid currentColor;
-  border-radius: 50%;
   background: none;
-  color: var(--error, #f2544b);
-  font-size: 10px;
+  color: var(--alert);
+  font-size: 13px;
   font-weight: 700;
   line-height: 1;
   cursor: help;
@@ -1462,8 +1423,8 @@ details[open] > .collapsible-summary::before {
 
 .ext-cost-badge { margin-left: 6px; }
 
-/* Тот же круг с «!», но про САМУ МОДЕЛЬ: файл не читается или в нём ошибки стандарта.
-   Стоит там, где человек думает о модели, — в списке слева и на кнопках её инспекции. */
+/* Тот же «!», но про САМУ МОДЕЛЬ: файл не читается или в нём ошибки стандарта.
+   Стоит только в списке моделей — там, где человек выбирает, с чем работать. */
 .model-alert { margin-left: 4px; }
 
 /* KTX2 — раскрывающийся селектор режима (UASTC / ETC1S) */

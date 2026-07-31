@@ -22,6 +22,29 @@ const DRACO_DECODER_PATH = "/vendor/three/examples/jsm/libs/draco/gltf/";
 const KTX2_TRANSCODER_PATH = "/vendor/three/examples/jsm/libs/basis/";
 
 /**
+ * Освободить память под поддеревом: геометрии, материалы и все их текстуры.
+ * Отдельной функцией, потому что освобождать приходится два разных дерева — модель,
+ * которая была в сцене, и модель устаревшей загрузки, которая до сцены не дошла.
+ * Из сцены объект снимает вызывающий: у второго случая сцены и нет.
+ */
+function disposeSubtree(root) {
+  if (!root) return;
+  root.traverse((obj) => {
+    if (obj.geometry) obj.geometry.dispose();
+    if (obj.material) {
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const mat of mats) {
+        for (const key of Object.keys(mat)) {
+          const val = mat[key];
+          if (val && val.isTexture) val.dispose();
+        }
+        mat.dispose();
+      }
+    }
+  });
+}
+
+/**
  * Базовые метрики модели из загруженной сцены (клиентская прикидка до оптимизации):
  * треугольники, вершины, число мешей (draw calls), уникальные материалы/текстуры.
  * После сборки эти цифры заменяются авторитетными метриками ядра (before/after).
@@ -114,6 +137,8 @@ export class Viewer {
   constructor(canvas) {
     this.canvas = canvas;
     this.model = null;
+    // Счётчик загрузок: результат отстающей загрузки в сцену не попадает (см. load()).
+    this._loadToken = 0;
 
     this._initRenderer();
     this._initScene();
@@ -184,9 +209,23 @@ export class Viewer {
    * переиспользуется для перезагрузки (оригинал → оптимизированный и т.п.).
    */
   async load(url, { onProgress, camera = null } = {}) {
+    // Метка этой загрузки. Разбор GLB — это секунды, и за них человек успевает нажать
+    // «Пересобрать» или переключить модель. Раньше это кончалось так: обе загрузки
+    // проходили _disposeModel() по ЕЩЁ ПУСТОЙ сцене, а потом обе добавляли свою модель.
+    // Вторая записывалась в this.model, первая оставалась в сцене навсегда — никем не
+    // отслеживаемая, невыгружаемая, поверх новой. На экране это выглядело как «куча
+    // объектов» и огромный светящийся блок: две модели разного масштаба в одном кадре,
+    // камера наведена на одну из них.
+    const token = ++this._loadToken;
     this._disposeModel();
 
     const gltf = await this._loader.loadAsync(url, onProgress);
+    // Пока разбирали файл, началась следующая загрузка — эта устарела. Свою модель
+    // освобождаем сами: в сцену она не попала, и _disposeModel() до неё не доберётся.
+    if (token !== this._loadToken) {
+      disposeSubtree(gltf.scene);
+      return null;
+    }
     this.model = gltf.scene;
     this.scene.add(this.model);
     this._setupAnimations(gltf.animations);
@@ -369,19 +408,7 @@ export class Viewer {
     // иначе освобождённая геометрия остаётся живой через кэш AnimationMixer.
     this._disposeMixer();
     this.scene.remove(this.model);
-    this.model.traverse((obj) => {
-      if (obj.geometry) obj.geometry.dispose();
-      if (obj.material) {
-        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-        for (const mat of mats) {
-          for (const key of Object.keys(mat)) {
-            const val = mat[key];
-            if (val && val.isTexture) val.dispose();
-          }
-          mat.dispose();
-        }
-      }
-    });
+    disposeSubtree(this.model);
     this.model = null;
   }
 

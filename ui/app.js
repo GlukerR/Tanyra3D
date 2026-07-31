@@ -244,6 +244,11 @@
   // а не просит сервер собрать модель заново.
   let lastResult = null;
   let lastExplain = null;
+  // Идёт ли сборка прямо сейчас. Нужна отдельная переменная, а не состояние кнопки:
+  // кнопку включает обратно updateRunButtonState() при любом изменении настроек.
+  let buildInFlight = false;
+  // Настройки, с которыми запущена текущая сборка (флажки могут поменять по ходу).
+  let startedSignature = null;
   // Результат /api/inspect (metadata + validation) для ЛЕВОЙ колонки окон — исходная модель.
   let modelInspect = null;
   // То же самое для ПРАВОЙ колонки — собранная модель (/api/inspect-result после сборки).
@@ -350,6 +355,16 @@
   // кнопка не активна. С файлом и ≥1 флажком: до сборки — активна; после сборки — активна
   // только если настройки изменились (иначе пересборка дала бы тот же результат).
   function updateRunButtonState() {
+    // Сборка уже идёт — кнопка заблокирована, что бы человек ни менял в настройках.
+    // Раньше этой строки не было, и любая правка флажка ВОЗВРАЩАЛА кнопку в строй
+    // (сигнатура настроек разошлась с собранной → «есть что пересобирать»). Нажатие
+    // запускало вторую сборку поверх первой: два запроса на сервер, два результата,
+    // две одновременные загрузки в правый вьюпорт — и обе модели оставались в сцене.
+    if (buildInFlight) {
+      runBtn.disabled = true;
+      runBtn.title = t('btn.building');
+      return;
+    }
     if (!selectedFile || getSelectedFeatures().length === 0) {
       runBtn.disabled = true;
       runBtn.title = !selectedFile ? '' : t('btn.pickOption');
@@ -619,18 +634,16 @@
     return sec;
   }
 
-  // Треугольник с «?» — «на сайте нужно кое-что подключить». Один переиспользуемый
-  // индикатор вместо повторения одного и того же title у каждой опции
-  // (Meshopt/Draco/KTX2/Instance).
+  // «?» — «на сайте нужно кое-что подключить». Один переиспользуемый индикатор вместо
+  // повторения одного и того же title у каждой опции (Meshopt/Draco/KTX2/Instance).
   //
-  // Значки-предупреждения — одна семья: контурная фигура и знак внутри, без заливки.
-  // Треугольник с «?» — вопрос к площадке, круг с «!» — проблема (см. .model-alert
-  // и .ext-cost-badge). Фигуры разные, посадка и штрих одинаковые, поэтому рядом они
-  // читаются как один набор. Книжечка 📖 в семью не входит намеренно: это документация,
-  // а не предупреждение, и путать их нельзя.
+  // Значки-предупреждения — одна семья: только знак, без фигуры вокруг. «?» — вопрос к
+  // площадке, «!» — проблема (см. .model-alert и .ext-cost-badge). Различает их сам знак
+  // и цвет; размер, начертание и посадка общие. Книжечка 📖 в семью не входит намеренно:
+  // это документация, а не предупреждение, и путать их нельзя.
   function decoderWarning(id) {
     const w = document.createElement('span');
-    w.className = 'ext-decoder-warn icon-badge icon-triangle';
+    w.className = 'ext-decoder-warn icon-badge';
     w.textContent = '?';
     const note = t((id && DECODER_KEYS[id]) || DECODER_NOTE_KEY);
     w.title = note;
@@ -928,6 +941,9 @@
       setBusy('preview-original', 'busy.loading');
       try {
         const info = await window.OptiViewer.loadOriginal(file);
+        // Пока разбирался файл, человек мог бросить следующий: тогда эти данные уже
+        // не про ту модель, что на экране, и записывать их в общие переменные нельзя.
+        if (selectedFile !== file) return;
         originalStats = (info && info.stats) || null;
         renderOriginalStats(file.size, originalStats);
         // Определяем, что уже сжато в исходнике → авто-включаем флажки с бейджем [Source].
@@ -1004,7 +1020,6 @@
 
   function setModelIssue(issue) {
     modelIssue = issue || null;
-    renderModelIssue();
     renderModelList();
   }
 
@@ -1014,22 +1029,10 @@
     return t('issue.validation', { n: issue.count });
   }
 
-  // Знак на кнопках инспекции. Кнопки живут в разметке, поэтому знак — отдельный
-  // элемент рядом, а не в тексте: текст перерисовывается при смене языка и счётчиков.
-  function renderModelIssue() {
-    for (const btn of [btnMetadata, btnValidation]) {
-      const had = btn.parentElement.querySelector(`.model-alert[data-for="${btn.id}"]`);
-      if (had) had.remove();
-      if (!modelIssue) continue;
-      const alert = document.createElement('span');
-      alert.className = 'model-alert';
-      alert.dataset.for = btn.id;
-      alert.textContent = '!';
-      alert.title = issueTitle(modelIssue);
-      alert.setAttribute('aria-label', alert.title);
-      btn.insertAdjacentElement('afterend', alert);
-    }
-  }
+  // Знак стоит ТОЛЬКО в списке моделей (renderModelList). Пробовали ставить его ещё и
+  // на кнопки «Метаданные» и «Проверка» — три одинаковых знака на одном экране не
+  // усиливают сообщение, а размывают его: непонятно, три это разные беды или одна.
+  // Беда принадлежит модели, поэтому знак живёт там, где модель выбирают.
 
   // Счётчик на кнопке Validation: пока собранной модели нет — число проблем исходника;
   // после сборки — «было → стало», чтобы разница была видна не открывая окно.
@@ -1436,7 +1439,6 @@
       }
     }
     renderOriginalStats(rec.file.size, originalStats);
-    renderModelIssue();   // знак беды принадлежит модели, а не экрану
     applyDetection();
 
     // Результат уже собран — вернуть его на экран целиком, не пересобирая.
@@ -1491,7 +1493,6 @@
     if (window.OptiViewer) window.OptiViewer.reset();
     setPhase('status.ready', null);
     updateInspectButtons();
-    renderModelIssue();
   }
 
   // -----------------------------------------------------------------------
@@ -1680,8 +1681,11 @@
   }
 
   async function runOptimize() {
-    if (!selectedFile) return;
+    if (!selectedFile || buildInFlight) return;
 
+    buildInFlight = true;
+    // Снимок настроек на момент запуска — см. renderResult.
+    startedSignature = currentSettingsSignature();
     runBtn.disabled = true;
     setPhase(currentSourceId ? 'status.optimizing' : 'status.uploading', 'busy');
     setBusy('preview-optimized', currentSourceId ? 'busy.optimizing' : 'busy.uploading');
@@ -1727,6 +1731,7 @@
       if (es) es.close();
       showGenericError(t('log.noServer', { error: e.message }));
     } finally {
+      buildInFlight = false;
       setBusy('preview-optimized', null);
       updateRunButtonState();
       // Сложить результат в запись модели СРАЗУ, а не при следующем переключении:
@@ -1813,9 +1818,14 @@
     if (integrityFailed) logMessage('error', t('log.integrityFailed'));
 
     // Кнопку не прячем — можно менять флажки и пересобирать результат сколько угодно раз.
-    // Запоминаем настройки этой сборки: пока их не изменят, пересборка неактивна.
+    // Запоминаем настройки ЭТОЙ сборки: пока их не изменят, пересборка неактивна.
+    //
+    // Именно те, с которыми сборку запускали, а не те, что стоят сейчас. Человек успевает
+    // передвинуть флажки, пока идёт сборка, — и снимок текущих настроек означал бы
+    // «собрано ровно это», хотя собрано другое: кнопка «Пересобрать» гасла, и результат,
+    // не соответствующий флажкам на экране, выдавался за соответствующий.
     setText(runBtn, 'btn.rebuild');
-    lastBuildSignature = currentSettingsSignature();
+    lastBuildSignature = startedSignature ?? currentSettingsSignature();
 
     // Результат перезаписывается на сервере при каждом прогоне → анти-кэш в URL,
     // чтобы вьюпорт и скачивание всегда брали свежий вариант.
