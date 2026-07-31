@@ -98,6 +98,10 @@ window.I18N_CATALOGS.en = {
   // --- живой замер отрисовки в HUD вьюпортов ---
   // Показывается время кадра каждого вьюпорта, а не FPS: оба рисуются в одном
   // кадре, и раздельный счётчик кадров дал бы одинаковые числа. См. app.js renderPerf.
+  // --- полноэкранная подсветка при перетаскивании ---
+  'dropOverlay.title': 'Drop the model anywhere',
+  'dropOverlay.sub': '.glb',
+
   'perf.draw': 'DRAW',
   'perf.ms': 'ms',
   'perf.fps': 'fps',

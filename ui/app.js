@@ -38,6 +38,7 @@
   const statsAfter = $('stats-after');
   const perfBefore = $('perf-before');
   const perfAfter = $('perf-after');
+  const dropOverlay = $('drop-overlay');
   const deltaBadge = $('delta-badge');
 
   const failBanner = $('fail-banner');
@@ -1105,28 +1106,63 @@
 
   dropzone.addEventListener('click', () => fileInput.click());
 
-  // Перетаскивание слушает ВЕСЬ сайдбар, а не только зону сброса.
+  // -----------------------------------------------------------------------
+  // Перетаскивание: цель — ВСЁ ОКНО, а не зона сброса и не сайдбар.
   //
-  // Причина: сама зона исчезает, как только модель загружена (см. showDropzone) —
-  // список моделей ценнее большого пустого прямоугольника. Если бы обработчики
-  // висели на ней, вместе с ней пропала бы и возможность перетащить следующую
-  // модель, и единственным способом заменить файл осталась бы кнопка «+».
-  // Сайдбар остаётся на месте всегда, поэтому цель для броска тоже.
-  const dropTarget = document.querySelector('.outliner') || dropzone;
+  // Три причины, каждой хватило бы по отдельности:
+  //
+  // 1. Зона сброса исчезает, как только модель загружена (см. syncDropzone).
+  //    Держи обработчики на ней — вместе с ней пропала бы и возможность
+  //    перетащить следующую модель.
+  // 2. Человек целится туда, куда смотрит, а смотрит он на модель. Бросок на
+  //    вьюпорт или на панель настроек — самое естественное движение, и оно
+  //    обязано работать.
+  // 3. Без перехвата на уровне окна бросок мимо цели УВОДИТ СО СТРАНИЦЫ:
+  //    браузер по умолчанию открывает файл как документ, и вся работа теряется.
+  //    Это чинится только тем, что окно само гасит событие. Проверено 2026-07-31:
+  //    до этой правки drop на вьюпорте не перехватывал никто.
+  //
+  // dragenter/dragleave стреляют на КАЖДОМ элементе под курсором, поэтому голый
+  // dragleave гасил бы подсветку при переходе между соседними кнопками. Считаем
+  // глубину: подсветка снимается, только когда счётчик вернулся к нулю.
+  let dragDepth = 0;
 
-  dropTarget.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    dropTarget.classList.add('drag-over');
+  // Тянуть можно и выделенный текст, и ссылку — на них подсветка не нужна.
+  function isFileDrag(e) {
+    const types = e.dataTransfer && e.dataTransfer.types;
+    return !!types && Array.prototype.includes.call(types, 'Files');
+  }
+
+  function showDropOverlay(on) {
+    if (dropOverlay) dropOverlay.classList.toggle('hidden', !on);
+    document.body.classList.toggle('drag-active', on);
+  }
+
+  window.addEventListener('dragenter', (e) => {
+    if (!isFileDrag(e)) return;
+    dragDepth++;
+    showDropOverlay(true);
   });
-  // dragleave стреляет и при переходе между дочерними элементами внутри сайдбара.
-  // relatedTarget — куда курсор ушёл; если он всё ещё внутри, подсветку не снимаем,
-  // иначе она мигает при каждом пересечении внутренней границы.
-  dropTarget.addEventListener('dragleave', (e) => {
-    if (!dropTarget.contains(e.relatedTarget)) dropTarget.classList.remove('drag-over');
-  });
-  dropTarget.addEventListener('drop', (e) => {
+
+  // preventDefault на dragover обязателен: без него drop не случится вовсе,
+  // браузер сочтёт, что бросать сюда нельзя, и откроет файл сам.
+  window.addEventListener('dragover', (e) => {
+    if (!isFileDrag(e)) return;
     e.preventDefault();
-    dropTarget.classList.remove('drag-over');
+    e.dataTransfer.dropEffect = 'copy';
+  });
+
+  window.addEventListener('dragleave', (e) => {
+    if (!isFileDrag(e)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) showDropOverlay(false);
+  });
+
+  window.addEventListener('drop', (e) => {
+    e.preventDefault(); // иначе браузер откроет .glb как документ
+    dragDepth = 0;
+    showDropOverlay(false);
+    if (!isFileDrag(e)) return;
     const file = e.dataTransfer.files && e.dataTransfer.files[0];
     handleFile(file);
   });

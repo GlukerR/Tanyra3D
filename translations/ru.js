@@ -94,6 +94,10 @@ window.I18N_CATALOGS.ru = {
   'busy.optimizing': 'Сборка',
 
   // --- живой замер отрисовки в HUD вьюпортов ---
+  // --- полноэкранная подсветка при перетаскивании ---
+  'dropOverlay.title': 'Бросайте модель в любое место',
+  'dropOverlay.sub': '.glb',
+
   'perf.draw': 'КАДР',
   'perf.ms': 'мс',
   'perf.fps': 'кадр/с',

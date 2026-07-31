@@ -27,6 +27,19 @@
 
 <main class="workspace">
 
+  <!-- Полноэкранная подсветка при перетаскивании файла в окно.
+       Лежит поверх всего и ничего не ловит мышью (pointer-events: none) — сами
+       события слушает window, см. app.js. Нужна потому, что бросить модель можно
+       куда угодно: на вьюпорты, на панель настроек, на сайдбар. Без подсветки
+       человеку негде увидеть, что окно вообще готово принять файл. -->
+  <div id="drop-overlay" class="drop-overlay hidden" aria-hidden="true">
+    <div class="drop-overlay-inner">
+      <div class="drop-overlay-icon">⤓</div>
+      <p class="drop-overlay-title" data-i18n="dropOverlay.title">Drop the model anywhere</p>
+      <p class="drop-overlay-sub" data-i18n="dropOverlay.sub">.glb</p>
+    </div>
+  </div>
+
   <!-- LEFT: model load zone (later — a multi-model list) -->
   <aside class="outliner">
     <div class="outliner-head">
