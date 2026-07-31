@@ -122,17 +122,28 @@ function formatters(lang) {
 
 const { fmtMB, fmtInt } = formatters(DEFAULT_LANG);
 
-function deltaPct(before, after) {
-  if (!before) return 0;
-  return Math.round(((after - before) / before) * 100);
+// Величина изменения в процентах, без знака: «18» / «220» / «0.06».
+//
+// Точность подбирается по величине, и это не педантизм. Округление до целого прятало
+// настоящие изменения: 6 380 → 6 376 байт — это −0.06 %, а показанный ноль рядом с
+// зелёной строкой читается как «инструмент ничего не сделал». Чем меньше изменение,
+// тем больше знаков; если и двух мало — говорим «меньше сотой доли», но не ноль.
+function pctMagnitude(before, after) {
+  if (!before) return '0';
+  const abs = Math.abs(((after - before) / before) * 100);
+  const shown = abs.toFixed(abs >= 1 ? 0 : abs >= 0.1 ? 1 : 2);
+  return Number(shown) === 0 && abs > 0 ? '<0.01' : shown;
 }
 
-// «−18%» / «+220%» / «no change»
+// «−18%» / «+220%» / «0%». Ноль — только когда числа совпали ровно: словами «без
+// изменений» подписывать результат нельзя там, где что-то изменилось.
 function pctText(before, after) {
-  const p = deltaPct(before, after);
-  if (p === 0) return 'no change';
-  return p < 0 ? `−${Math.abs(p)}%` : `+${p}%`;
+  if (!before || after === before) return '0%';
+  return (after < before ? '−' : '+') + pctMagnitude(before, after) + '%';
 }
+
+// Порог раздела «главные улучшения»: ниже процента хвастаться нечем (см. highlights).
+const HIGHLIGHT_MIN_PCT = 1;
 
 // «4×» / «4.5×» — множитель для нейтрального объяснения падения VRAM
 function timesLess(before, after) {
@@ -304,17 +315,23 @@ export function explainResult(runResult, platformId, lang = DEFAULT_LANG) {
   }
 
   // --- highlights: главные улучшения человеческим языком ---
+  //
+  // Это раздел похвальбы, и у него есть порог. Замер в итоге и в HUD — точный, там
+  // «−0.06 %» законно; здесь — заявка на достижение, и «Файл легче на 0 %» дискредитирует
+  // весь список: если приложение хвалится ничем, читать его перестают. Не дотянуло до
+  // порога — строки просто нет.
   const highlights = [];
+  const gainPct = (b, a) => (b ? ((b - a) / b) * 100 : 0);
 
-  if (after.fileBytes < before.fileBytes) {
-    highlights.push(t('hi.fileLighter', { pct: Math.abs(deltaPct(before.fileBytes, after.fileBytes)) }));
+  if (gainPct(before.fileBytes, after.fileBytes) >= HIGHLIGHT_MIN_PCT) {
+    highlights.push(t('hi.fileLighter', { pct: Math.round(gainPct(before.fileBytes, after.fileBytes)) }));
   } else if (fileGrew && vramDropped) {
     const tl = timesLess(before.gpuBytes, after.gpuBytes);
     highlights.push(tl ? t('hi.vramTimesLess', { times: tl }) : t('hi.vramDropped'));
   }
 
-  if (vramDropped && !(fileGrew)) {
-    highlights.push(t('hi.vramPct', { pct: Math.abs(deltaPct(before.gpuBytes, after.gpuBytes)) }));
+  if (!fileGrew && gainPct(before.gpuBytes, after.gpuBytes) >= HIGHLIGHT_MIN_PCT) {
+    highlights.push(t('hi.vramPct', { pct: Math.round(gainPct(before.gpuBytes, after.gpuBytes)) }));
   }
 
   if (after.drawCalls < before.drawCalls) {

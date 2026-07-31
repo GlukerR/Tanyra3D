@@ -44,7 +44,6 @@
   const perfBefore = $('perf-before');
   const perfAfter = $('perf-after');
   const dropOverlay = $('drop-overlay');
-  const deltaBadge = $('delta-badge');
 
   const failBanner = $('fail-banner');
   const failValidation = $('fail-validation');
@@ -249,6 +248,11 @@
   let modelInspect = null;
   // То же самое для ПРАВОЙ колонки — собранная модель (/api/inspect-result после сборки).
   let resultInspect = null;
+  // Беда С САМОЙ МОДЕЛЬЮ, а не с нашей работой: файл не читается или в нём ошибки
+  // по стандарту glTF. Отдельное состояние, потому что показывать её надо там, где
+  // человек выбирает модель, а не там, где он читает отчёт о сборке.
+  // null | { kind: 'unreadable' | 'validation', count?, detail? }
+  let modelIssue = null;
   // URL готового результата (GLB) и предлагаемое имя без расширения — для окна экспорта.
   // Формат (glb/json) и расширение выбираются в окне; экспортёры добавляются там же.
   let resultDownloadUrl = null;
@@ -291,6 +295,7 @@
     { key: 'lastResult', get: () => lastResult, set: (v) => { lastResult = v; } },
     { key: 'lastExplain', get: () => lastExplain, set: (v) => { lastExplain = v; } },
     { key: 'modelInspect', get: () => modelInspect, set: (v) => { modelInspect = v; } },
+    { key: 'modelIssue', get: () => modelIssue, set: (v) => { modelIssue = v; } },
     { key: 'resultInspect', get: () => resultInspect, set: (v) => { resultInspect = v; } },
     { key: 'resultDownloadUrl', get: () => resultDownloadUrl, set: (v) => { resultDownloadUrl = v; } },
     { key: 'resultExportBase', get: () => resultExportBase, set: (v) => { resultExportBase = v; } },
@@ -374,11 +379,19 @@
     return Number(n).toLocaleString(t('unit.locale'));
   }
 
+  // Процент изменения. Правило то же, что в assistant.mjs (pctText): словами «без
+  // изменений» результат не подписываем — там, где что-то изменилось, стоит число,
+  // и точность подбирается по величине. Округление до целого прятало настоящие
+  // изменения: 6 380 → 6 376 байт это −0.06 %, а показанный ноль рядом с ЗЕЛЁНОЙ
+  // строкой читается как «инструмент ничего не сделал». Ноль — только при точном
+  // совпадении чисел.
   function pctText(before, after) {
     if (!before) return '';
-    const p = Math.round(((after - before) / before) * 100);
-    if (p === 0) return t('pct.noChange');
-    return p < 0 ? `−${Math.abs(p)}%` : `+${p}%`;
+    if (after === before) return '0%';
+    const abs = Math.abs(((after - before) / before) * 100);
+    const shown = abs.toFixed(abs >= 1 ? 0 : abs >= 0.1 ? 1 : 2);
+    const magnitude = Number(shown) === 0 ? '<0.01' : shown;
+    return (after < before ? '−' : '+') + magnitude + '%';
   }
 
   // Категория находки → ключ каталога. Именно ключ, а не готовая строка: таблица
@@ -606,12 +619,19 @@
     return sec;
   }
 
-  // ⚠ — предупреждение «нужен доп. декодер на сайте». Один переиспользуемый индикатор
-  // вместо повторения одного и того же title у каждой опции (Meshopt/Draco/KTX2/Instance).
+  // Треугольник с «?» — «на сайте нужно кое-что подключить». Один переиспользуемый
+  // индикатор вместо повторения одного и того же title у каждой опции
+  // (Meshopt/Draco/KTX2/Instance).
+  //
+  // Значки-предупреждения — одна семья: контурная фигура и знак внутри, без заливки.
+  // Треугольник с «?» — вопрос к площадке, круг с «!» — проблема (см. .model-alert
+  // и .ext-cost-badge). Фигуры разные, посадка и штрих одинаковые, поэтому рядом они
+  // читаются как один набор. Книжечка 📖 в семью не входит намеренно: это документация,
+  // а не предупреждение, и путать их нельзя.
   function decoderWarning(id) {
     const w = document.createElement('span');
-    w.className = 'ext-decoder-warn';
-    w.textContent = '⚠';
+    w.className = 'ext-decoder-warn icon-badge icon-triangle';
+    w.textContent = '?';
     const note = t((id && DECODER_KEYS[id]) || DECODER_NOTE_KEY);
     w.title = note;
     w.setAttribute('aria-label', note);
@@ -928,6 +948,7 @@
 
   async function inspectModel(file) {
     modelInspect = null;
+    setModelIssue(null);
     btnMetadata.disabled = true;
     btnValidation.disabled = true;
     updateInspectButtons();
@@ -941,6 +962,12 @@
       // его данные устаревшим ответом.
       if (selectedFile !== file) return;
       if (!res.ok) {
+        // Сервер не смог даже прочитать файл. Раньше это была одна строка в журнале,
+        // и модель в списке выглядела как все остальные — человек шёл собирать
+        // заведомо битый файл. Теперь она помечена.
+        let detail = '';
+        try { detail = ((await res.json()) || {}).error || ''; } catch (e) { /* тело не JSON */ }
+        setModelIssue({ kind: 'unreadable', detail });
         logMessage('warn', t('log.inspectFailed', { status: res.status }));
         return;
       }
@@ -950,15 +977,57 @@
       if (data.sourceId) currentSourceId = data.sourceId; // сборка переиспользует исходник
       btnMetadata.disabled = false;
       btnValidation.disabled = false;
-      updateInspectButtons();
       const n = (data.validation || []).filter((m) => !m.explainedBy).length;
+      // Ошибка по стандарту — это дефект САМОЙ модели, а не замечание к ней:
+      // предупреждения и подсказки валидатора в счёт не идут.
+      const errors = (data.validation || []).filter((m) => !m.explainedBy && m.severity === 0).length;
+      setModelIssue(errors ? { kind: 'validation', count: errors } : null);
+      updateInspectButtons();
       logMessage('info', n
         ? t('log.sourceInspected', { n })
         : t('log.sourceInspected', { n: 0 }));
       logBlindSpots(data.validation);
     } catch (e) {
       // инспекция недоступна — кнопки выключены, сборка всё равно работает
+      setModelIssue({ kind: 'unreadable', detail: e.message });
       logMessage('warn', t('log.inspectUnavailable', { error: e.message }));
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // Красный «!» — проблема САМОЙ МОДЕЛИ
+  //
+  // Отдельный знак, не путать с красным знаком цены у галочки оптимизации: тот говорит
+  // «мы сделали, и вот чего это стоило», этот — «файл пришёл таким». Ставится там, где
+  // человек про модель думает: у неё в списке и на кнопках её инспекции.
+  // ---------------------------------------------------------------
+
+  function setModelIssue(issue) {
+    modelIssue = issue || null;
+    renderModelIssue();
+    renderModelList();
+  }
+
+  function issueTitle(issue) {
+    if (!issue) return '';
+    if (issue.kind === 'unreadable') return t('issue.unreadable', { detail: issue.detail || '' });
+    return t('issue.validation', { n: issue.count });
+  }
+
+  // Знак на кнопках инспекции. Кнопки живут в разметке, поэтому знак — отдельный
+  // элемент рядом, а не в тексте: текст перерисовывается при смене языка и счётчиков.
+  function renderModelIssue() {
+    for (const btn of [btnMetadata, btnValidation]) {
+      const had = btn.parentElement.querySelector(`.model-alert[data-for="${btn.id}"]`);
+      if (had) had.remove();
+      if (!modelIssue) continue;
+      const alert = document.createElement('span');
+      alert.className = 'model-alert';
+      alert.dataset.for = btn.id;
+      alert.textContent = '!';
+      alert.title = issueTitle(modelIssue);
+      alert.setAttribute('aria-label', alert.title);
+      btn.insertAdjacentElement('afterend', alert);
     }
   }
 
@@ -1226,7 +1295,6 @@
     setText(runBtn, 'btn.build');
     // Правый HUD пуст до сборки; левый заполняется базовыми данными модели в handleFile.
     statsAfter.innerHTML = '';
-    deltaBadge.textContent = '';
     [summarySection, analysisSection, budgetsSection, warningsSection,
       appliedSection, skippedSection, validationSection].forEach((s) => s.classList.add('hidden'));
   }
@@ -1276,6 +1344,18 @@
 
       li.appendChild(icon);
       li.appendChild(name);
+      // Знак беды у самой модели. В списке он нужнее всего: человек выбирает, с чем
+      // работать, ещё до того, как откроет проверку. Активная модель берёт состояние
+      // из живой переменной — в записи оно лежит только после captureActiveModel().
+      const issue = rec.id === activeModelId ? modelIssue : rec.state.modelIssue;
+      if (issue) {
+        const alert = document.createElement('span');
+        alert.className = 'model-alert';
+        alert.textContent = '!';
+        alert.title = issueTitle(issue);
+        alert.setAttribute('aria-label', alert.title);
+        li.appendChild(alert);
+      }
       li.appendChild(size);
       li.appendChild(remove);
       li.addEventListener('click', () => selectModel(rec.id));
@@ -1356,6 +1436,7 @@
       }
     }
     renderOriginalStats(rec.file.size, originalStats);
+    renderModelIssue();   // знак беды принадлежит модели, а не экрану
     applyDetection();
 
     // Результат уже собран — вернуть его на экран целиком, не пересобирая.
@@ -1389,7 +1470,6 @@
   // модели: при переключении оно уже загружено из записи и затирать его нельзя.
   function clearResultPanels() {
     statsAfter.innerHTML = '';
-    deltaBadge.textContent = '';
     downloadBtn.classList.add('hidden');
     exportWindow.classList.add('hidden');
     irreversibleWarning.classList.add('hidden');
@@ -1411,6 +1491,7 @@
     if (window.OptiViewer) window.OptiViewer.reset();
     setPhase('status.ready', null);
     updateInspectButtons();
+    renderModelIssue();
   }
 
   // -----------------------------------------------------------------------
@@ -1861,11 +1942,11 @@
       }
       statsAfter.appendChild(row);
     }
-
-    const fileDelta = pctText(before.fileBytes, after.fileBytes);
-    deltaBadge.textContent = fileDelta;
-    deltaBadge.classList.remove('good', 'neutral');
-    deltaBadge.classList.add(after.fileBytes <= before.fileBytes ? 'good' : 'neutral');
+    // Общего вердикта над строками здесь нет и не будет. Он стоял сверху и считался по
+    // ОДНОМУ размеру файла: KTX2 даёт файл +26 % при меньших видеопамяти, вершинах,
+    // отрисовках, материалах и текстурах — и жёлтая плашка сверху объявляла это
+    // ухудшением, перекрывая пять зелёных строк под собой. Одним числом такой размен не
+    // выражается; пусть человек читает строки, они не врут.
   }
 
   function hudLine(label, value, valClass) {
