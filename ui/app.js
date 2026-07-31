@@ -1640,6 +1640,12 @@
     renderBudgets(explain && explain.budgetChecks);
     renderWarnings(explain && explain.warnings);
     renderAppliedSkipped(result.applied, result.skipped);
+    // Красный знак цены у галочки: правило само измерило, во что обошлась его работа
+    // (kind:'cost' + feature в записях skipped). Рисуется ПОСЛЕ отчёта — иначе его
+    // снёс бы перерендер панели опций, а отдельного вызова в runOptimize нет намеренно:
+    // смена языка тоже перерисовывает отчёт (reexplainLastResult → renderReport),
+    // и бейджи должны пережить её.
+    renderCostBadges(result.skipped);
   }
 
   function renderResult(data) {
