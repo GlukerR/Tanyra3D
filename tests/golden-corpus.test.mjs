@@ -796,6 +796,9 @@ describe('Golden Corpus — Draco Compressed Input 01: re-decompression + safe',
     expect(result.metrics.after.fileBytes).toBeLessThan(result.metrics.before.fileBytes);
   });
 
+  // ⚠️ CRITICAL — KTX2 раздувает текстуры на +1 403 % (5 KB → 71 KB) на мелкой текстуре.
+  // Контейнер KTX2 весит больше картинки. Если правило перестало возвращать cost —
+  // красный ! пропадёт из UI, и пользователь не узнает цену до скачивания.
   it('ktx2 сообщает цену: kind=cost с feature=ktx2 в skipped', async () => {
     // KTX2 на мелкой текстуре (5 KB) даёт 71 KB — служебные данные контейнера
     // весят больше самой картинки. Правило само замеряет рост и возвращает cost[]:
@@ -953,6 +956,9 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
     expect((json.extensionsUsed || []).includes('EXT_mesh_gpu_instancing')).toBe(true);
   });
 
+  // ⚠️ CRITICAL — join раздувает файл на +82 % (8 624 → 15 704), размножая общую
+  // геометрию в 12 копий. Если тест «починить» (ожидать сжатия), оптимизатор
+  // начнёт врать: делать вид, что уменьшил, а реально — раздул.
   it('["safe","join"] сводит к 1/1/1, но ФАЙЛ РАСТЁТ (ожидаемо, 8 624 → 15 704)', async () => {
     // join разворачивает 12 экземпляров в 12 копий геометрии внутри одного меша —
     // это справедливо дороже исходного файла (где geometry хранится один раз +
@@ -969,6 +975,9 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
     expect(result.metrics.after.fileBytes).toBeGreaterThan(result.metrics.before.fileBytes);
   });
 
+  // ⚠️ CRITICAL — join размножает хранимую геометрию на +1 100 % (+13 KB). Правило
+  // возвращает cost[] — движок передаёт как kind:'cost'. Если cost-канал сломается,
+  // UI не покажет красный ! у галочки Join, и пользователь не заметит раздутия.
   it('join сообщает цену: kind=cost с feature=join в skipped', async () => {
     // join разворачивает общую геометрию в копии — файл растёт, но 11 отрисовок
     // экономятся. Правило само замеряет рост хранимой геометрии (>5 %) и
@@ -1174,6 +1183,10 @@ describe('Golden Corpus — Unlinked Duplicates 01: identical geometry without n
   // ['safe','join'] — файл растёт (как и на Linked Duplicates)
   // ----------------------------------------------------------
 
+  // ⚠️ CRITICAL — join раздувает файл на модели БЕЗ нормалей (44 808 → крупнее).
+  // Шесть копий геометрии запекаются в один меш — файл обязан вырасти.
+  // Если тест упадёт (файл перестал расти) — join сломался и молча удаляет
+  // дубликаты, которые оптимизатор не имеет права трогать.
   it('["safe","join"]: файл стал БОЛЬШЕ исходного (ожидаемо, не дефект)', async () => {
     const { result } = await runAndRead('Unlinked Duplicates 01.glb', {
       advancedFeatures: ['safe', 'join'],

@@ -308,6 +308,9 @@ describe('listRules — detailed', () => {
 // решение.
 
 describeIfModels(['Dirty Cube 01.glb'], 'skipped feature field', () => {
+  // ⚠️ CRITICAL — KTX2 раздувает текстуры на Dirty Cube 01 на +239 % (51 KB → 175 KB).
+  // Проверяется контракт: feature-поле обязано быть у каждой cost-записи.
+  // Без него UI не привяжет красный ! к галочке KTX2 — пользователь не увидит цену.
   it('cost entries in skipped have a non-empty feature field from a valid set', async () => {
     // Dirty Cube 01: 5 текстур, KTX2 даёт cost (51 KB → 175 KB, +239 %).
     const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
