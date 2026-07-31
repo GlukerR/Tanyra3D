@@ -308,6 +308,55 @@ describe('Golden Corpus — join invariant', () => {
   );
 });
 
+// ---------- ПРОГОН ПО ВСЕМ МОДЕЛЯМ: safe+join не раздувает файл ----------
+//
+// Автоматический сторож вместо ручных ⚠️ CRITICAL-маркеров: новая модель корпуса,
+// которая под safe+join раздувается свыше порога, валит прогон сразу — раздувателя
+// видно по имени, «чинить» тест не приходится вслепую.
+//
+// Измерения по корпусу на 2026-07-31:
+//   — почти все модели под safe+join СЖИМАЮТСЯ (до −89 % на Orphan Texture Cube);
+//   — легитимный рост — единицы процентов (Draco Compressed Input +10.5 % — это
+//     снятие входного сжатия, join там не применяется);
+//   — единственный раздув внутри GOLDEN_MODELS — ABeautifulGame (+84 %), вынесен
+//     в KNOWN_JOIN_GROWTH ниже.
+//
+// Порог 25 %: выше него любой рост — уже не «шум кодера», а раздув, который надо
+// объяснить. Число намеренно одно и то же во всех ветках, чтобы правило нельзя
+// было обойти, подменив флаг в одном месте.
+const JOIN_GROWTH_PCT = 25;
+
+// Модели, где рост после safe+join — ОЖИДАЕМАЯ цена объединения, а не дефект.
+// ABeautifulGame: общая геометрия, и join без instance запекает её в копии
+// (+84 %; история — docs/ВОПРОСЫ_И_ОТВЕТЫ.md). Правило честно сообщает cost,
+// поэтому тест сюда её не тянет: падать на задокументированном поведении нельзя,
+// а молча обходить исключение — тем более: убрать модель отсюда — значит признать,
+// что её рост надо чинить, а не документировать.
+const KNOWN_JOIN_GROWTH = new Set([
+  'ABeautifulGame.glb',
+]);
+
+describe('Golden Corpus — safe+join does not bloat the file', () => {
+  eachModel(
+    `file after safe+join is smaller or grows ≤ ${JOIN_GROWTH_PCT}%`,
+    GOLDEN_MODELS.filter((m) => isSafeEligible(m) && !KNOWN_JOIN_GROWTH.has(m)),
+    async (modelName) => {
+      const result = await optimizeFile(modelPath(modelName), {
+        advancedFeatures: ['safe', 'join'],
+        dryRun: true,
+      });
+      expect(result.status).toBe('ok');
+      // Инвариант про ЦЕНУ объединения: файл после safe+join обязан быть меньше
+      // исходного либо расти в пределах порога. Проверяем на всех моделях, а не
+      // только там, где join применился: внезапный рост даже «без участия join»
+      // (например, из-за снятия входного сжатия) — тоже сигнал, его надо увидеть.
+      const limit = Math.ceil(result.metrics.before.fileBytes * (1 + JOIN_GROWTH_PCT / 100));
+      expect(result.metrics.after.fileBytes).toBeLessThanOrEqual(limit);
+    },
+
+  );
+});
+
 // ---------- DEFENSE-IN-DEPTH: safe ЯВНО что-то делает на грязных моделях ----------
 // Ловушка 2 TEST_AGENT_PROMPT: инвариант «validation без fail» на чистках,
 // которые могут быть silent no-op, проходит тривиально. Поэтому отдельный describe
