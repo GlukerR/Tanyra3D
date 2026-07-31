@@ -968,6 +968,23 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
     expect(result.metrics.after.meshes).toBe(1);
     expect(result.metrics.after.fileBytes).toBeGreaterThan(result.metrics.before.fileBytes);
   });
+
+  it('join сообщает цену: kind=cost с feature=join в skipped', async () => {
+    // join разворачивает общую геометрию в копии — файл растёт, но 11 отрисовок
+    // экономятся. Правило само замеряет рост хранимой геометрии (>5 %) и
+    // возвращает cost[]: движок передаёт как kind:'cost' с feature:'join',
+    // чтобы UI показал красный ! у галочки Join.
+    const result = await optimizeFile(modelPath('Linked Duplicates Grid 01.glb'), {
+      advancedFeatures: ['safe', 'join'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    const costEntries = result.skipped.filter((s) => s.kind === 'cost');
+    const joinCost = costEntries.find((s) => s.feature === 'join');
+    expect(joinCost).toBeDefined();
+    expect(joinCost.ruleId).toBe('scene/join');
+    expect(joinCost.text).toMatch(/copied shared geometry|размножило общую геометрию/i);
+  });
 });
 
 // ============================================================================
