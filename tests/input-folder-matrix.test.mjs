@@ -38,6 +38,7 @@ const COMBOS = [
   { name: 'safe+draco',         flags: ['safe', 'draco'] },
   { name: 'safe+ktx2',          flags: ['safe', 'ktx2'] },
   { name: 'safe+resample',      flags: ['safe', 'resample'] },
+  { name: 'safe+draco+ktx2',    flags: ['safe', 'draco', 'ktx2'] },
 ];
 
 const GROWTH_LIMIT_PCT = 25; // порог роста файла (кроме ktx2)
