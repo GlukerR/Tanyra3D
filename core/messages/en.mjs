@@ -19,6 +19,9 @@ export default {
 
   // --- engine-level messages ---
   'feature.notEnabled': ({ feature }) => `feature "${feature}" is not enabled (advancedFeatures: ['${feature}'])`,
+  // Строка «что пропущено — почему». Собрана сообщением, а не склейкой в коде: разделитель
+  // между частями — часть языка, и другому он может понадобиться другой.
+  'engine.skipped.line': ({ title, reason }) => `${title} — ${reason}`,
 
   // --- input compression ---
   'engine.inputCompression.found': ({ codecs }) => `input geometry is already compressed (${codecs}) — decompressed on load`,

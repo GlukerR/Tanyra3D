@@ -33,10 +33,42 @@ export { AUTOFIX_MAX_TIER, ENGINE_META, compareBaseline };
 
 const asLines = (v) => (v == null ? [] : Array.isArray(v) ? v : [v]);
 
-// Правила возвращают строки как { messageId, data }; движок рендерит их через i18n
-// перед записью в RunResult (text по-прежнему готовая строка — контракт §4b). Готовые
-// строки (сообщения самого движка) пропускаются как есть.
-const renderLines = (v, locale) => asLines(v).map((x) => (typeof x === 'string' ? x : render(x.messageId, x.data, locale)));
+// Строки правил приходят как { messageId, data } и рендерятся здесь: text в отчёте —
+// по-прежнему готовая строка (контракт §4b). Вместе с ней сохраняется РЕЦЕПТ строки —
+// тот же messageId и data.
+//
+// Зачем рецепт. Без него отчёт навсегда остаётся на языке, на котором собрали: человек
+// переключает язык, итог и подписи переводятся, а списки сделанного и пропущенного —
+// нет, и половина экрана остаётся чужой. Пересобирать модель ради перевода нельзя —
+// смена языка не работа, а перерисовка. По рецепту те же строки собираются из готового
+// результата за микросекунды (localizeResult в core/i18n.mjs).
+//
+// Готовая строка (без messageId) идёт как есть: пересобирать её не из чего.
+const entriesOf = (v, locale) => asLines(v).map((x) => (typeof x === 'string'
+  ? { text: x, ref: null }
+  : { text: render(x.messageId, x.data, locale), ref: { messageId: x.messageId, data: x.data ?? {} } }));
+
+// Рецепты складываются в ОДНО поле i18n: { поле записи → рецепт }. Отдельными ключами
+// messageId/data было бы не выразить, что у skipped рецепт нужен и тексту, и причине.
+// Записи без рецептов поля не получают вовсе — пустой ключ только мусорил бы отчёт.
+const withRefs = (rec, refs) => {
+  const i18n = {};
+  for (const [field, ref] of Object.entries(refs)) if (ref) i18n[field] = ref;
+  if (Object.keys(i18n).length) rec.i18n = i18n;
+  return rec;
+};
+
+// Ссылка на заголовок правила: у правил с titleKey он переводится, у остальных — нет.
+const titleRef = (meta) => (meta.titleKey ? { messageId: meta.titleKey, data: {} } : meta.title);
+
+// Строка «Заголовок правила — причина». Собирается сообщением, а не склейкой на месте:
+// иначе половина строки (заголовок) была бы непереводимой при смене языка, а тире между
+// частями стало бы намертво зашитым в код разделителем, который другому языку может и
+// не подойти.
+const skipLine = (meta, reason) => ({
+  messageId: 'engine.skipped.line',
+  data: { title: titleRef(meta), reason },
+});
 
 // Топологическая сортировка по meta.runAfter (устойчивая: при равенстве — порядок массива).
 // Зависимости на выключенные правила считаются выполненными.
@@ -93,7 +125,11 @@ async function runFile(addon, src, dstName, o, result) {
   const progress = o.onProgress || (() => {});
   const log = o.log;
   const locale = o.locale;
-  const addFound = (meta, v) => { for (const text of asLines(v)) result.findings.push({ ruleId: meta.id, category: meta.category, severity: meta.severity, fixSafety: meta.fixSafety, text }); };
+  const addFound = (meta, v) => {
+    for (const e of entriesOf(v, locale)) {
+      result.findings.push(withRefs({ ruleId: meta.id, category: meta.category, severity: meta.severity, fixSafety: meta.fixSafety, text: e.text }, { text: e.ref }));
+    }
+  };
   // kind — почему пропущено. Нужен потребителю отчёта, чтобы отличать «пользователь
   // не включал» и «включено, но делать было нечего» от «отказались по безопасности».
   // Первые два для человека — не предупреждение, а тишина: показывать их наравне с
@@ -108,22 +144,28 @@ async function runFile(addon, src, dstName, o, result) {
   // feature — та самая галочка (advancedFeatures), а не ruleId. Без неё интерфейсу
   // пришлось бы держать свою таблицу «правило → флажок», то есть знание движка,
   // которое разъедется при первом же переименовании правила.
+  // reason принимает и готовую строку, и { messageId, data } — тогда причина тоже
+  // переживает смену языка. Пропущенный reason означает «причина и есть сам текст».
   const addSkipped = (meta, v, reason, kind = 'nothing') => {
-    for (const text of asLines(v)) {
-      result.skipped.push({ ruleId: meta.id, feature: meta.feature ?? null, text, reason: reason ?? text, kind });
+    const r = reason == null ? null : entriesOf(reason, locale)[0];
+    for (const e of entriesOf(v, locale)) {
+      result.skipped.push(withRefs(
+        { ruleId: meta.id, feature: meta.feature ?? null, text: e.text, reason: r ? r.text : e.text, kind },
+        { text: e.ref, reason: r ? r.ref : e.ref },
+      ));
     }
   };
   // over — переопределение полей обратимости для отдельных строк (lossy-ветки правил,
   // см. res.irreversible): базовое поведение правила может быть без потерь, а форсированное — нет
   const addApplied = (meta, v, over = {}) => {
-    for (const text of asLines(v)) {
-      result.applied.push({
+    for (const e of entriesOf(v, locale)) {
+      result.applied.push(withRefs({
         ruleId: meta.id,
         fixSafety: meta.fixSafety,
         reversible: over.reversible ?? meta.reversible ?? false,
         dataLoss: over.dataLoss ?? meta.dataLoss ?? 'none',
-        text,
-      });
+        text: e.text,
+      }, { text: e.ref }));
     }
   };
 
@@ -149,11 +191,13 @@ async function runFile(addon, src, dstName, o, result) {
   const strippedCodecs = addon.stripInputCompression(ctx.document);
   if (strippedCodecs.length) {
     const codecs = strippedCodecs.join(', ');
-    addFound(ENGINE_META.inputCompression, render('engine.inputCompression.found', { codecs }, locale));
+    addFound(ENGINE_META.inputCompression, { messageId: 'engine.inputCompression.found', data: { codecs } });
+    // Вложенная подстановка: note — само сообщение, а не готовая строка. Иначе при
+    // смене языка внешняя фраза перевелась бы, а её хвост остался прежним.
     const reencodeNote = o.compress
-      ? render('engine.inputCompression.reencode', { codec: o.codec }, locale)
-      : render('engine.inputCompression.noCompress', {}, locale);
-    addApplied(ENGINE_META.inputCompression, render('engine.inputCompression.applied', { codecs, note: reencodeNote }, locale));
+      ? { messageId: 'engine.inputCompression.reencode', data: { codec: o.codec } }
+      : { messageId: 'engine.inputCompression.noCompress', data: {} };
+    addApplied(ENGINE_META.inputCompression, { messageId: 'engine.inputCompression.applied', data: { codecs, note: reencodeNote } });
   }
 
   // ==========================================================================
@@ -197,25 +241,24 @@ async function runFile(addon, src, dstName, o, result) {
         // Правила-бандлы без единого feature (например safe-чистка на много правил
         // одновременно) остаются тихими — как и раньше.
         if (rule.meta.feature) {
-          const reason = render('feature.notEnabled', { feature: rule.meta.feature }, locale);
-          const titleText = rule.meta.titleKey ? render(rule.meta.titleKey, {}, locale) : rule.meta.title;
-          addSkipped(rule.meta, `${titleText} — ${reason}`, reason, 'disabled');
+          const reason = { messageId: 'feature.notEnabled', data: { feature: rule.meta.feature } };
+          addSkipped(rule.meta, skipLine(rule.meta, reason), reason, 'disabled');
         }
         continue;
       }
-      if (!rule.fix) { addFound(rule.meta, renderLines(finding.text, locale)); continue; }
+      if (!rule.fix) { addFound(rule.meta, finding.text); continue; }
       const decision = rule.canFix ? rule.canFix(finding, ctx) : { safe: true };
       if (!decision.safe) {
-        const reason = decision.messageId ? render(decision.messageId, decision.data, locale) : (decision.reason || '');
-        const titleText = rule.meta.titleKey ? render(rule.meta.titleKey, {}, locale) : rule.meta.title;
-        addSkipped(rule.meta, `${titleText} — ${reason}`, reason, 'unsafe');
+        const reason = decision.messageId
+          ? { messageId: decision.messageId, data: decision.data || {} }
+          : (decision.reason || '');
+        addSkipped(rule.meta, skipLine(rule.meta, reason), reason, 'unsafe');
         continue;
       }
       const tier = finding.fixSafety || rule.meta.fixSafety;
       if (TIER_RANK[tier] > TIER_RANK[AUTOFIX_MAX_TIER] && !decision.force) {
-        const reason = render('engine.policy.safetyLevel', { tier }, locale);
-        const titleText = rule.meta.titleKey ? render(rule.meta.titleKey, {}, locale) : rule.meta.title;
-        addSkipped(rule.meta, `${titleText} — ${reason}`, reason, 'policy');
+        const reason = { messageId: 'engine.policy.safetyLevel', data: { tier } };
+        addSkipped(rule.meta, skipLine(rule.meta, reason), reason, 'policy');
         continue;
       }
       planned.push({ rule, finding });
@@ -230,16 +273,16 @@ async function runFile(addon, src, dstName, o, result) {
       progress({ type: 'rule', phase: 3, ruleId: rule.meta.id, title: titleText });
       log(`      • ${titleText}`);
       const res = (await rule.fix(finding, ctx)) || {};
-      addFound(rule.meta, renderLines(res.found, locale));
-      addSkipped(rule.meta, renderLines(res.skipped, locale));
+      addFound(rule.meta, res.found);
+      addSkipped(rule.meta, res.skipped);
       // res.cost — «правило отработало, но дорого»: результат вырос. Отдельный канал,
       // а не res.skipped, потому что смысл противоположный: там «не сделали», здесь
       // «сделали, и вот цена». Интерфейс вешает по таким записям красный знак прямо
       // на галочку, которая эту цену назначила (поле feature).
-      addSkipped(rule.meta, renderLines(res.cost, locale), undefined, 'cost');
-      addApplied(rule.meta, renderLines(res.details ?? res.detail, locale));
+      addSkipped(rule.meta, res.cost, undefined, 'cost');
+      addApplied(rule.meta, res.details ?? res.detail);
       // строки с безвозвратной потерей данных (§4d) — UI предупредит перед скачиванием
-      addApplied(rule.meta, renderLines(res.irreversible, locale), { reversible: false, dataLoss: 'significant' });
+      addApplied(rule.meta, res.irreversible, { reversible: false, dataLoss: 'significant' });
     }
   };
 

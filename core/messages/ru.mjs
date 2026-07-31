@@ -17,6 +17,7 @@ export default {
 
   // --- engine-level messages ---
   'feature.notEnabled': ({ feature }) => `возможность "${feature}" не включена (advancedFeatures: ['${feature}'])`,
+  'engine.skipped.line': ({ title, reason }) => `${title} — ${reason}`,
 
   // --- input compression ---
   'engine.inputCompression.found': ({ codecs }) => `входная геометрия уже сжата (${codecs}) — распакована при загрузке`,

@@ -42,6 +42,9 @@ await ensureEmptyDir(RESULTS_DIR);
 // ---- Ядро (обязательный контракт §4b ARCHITECTURE.md) ----
 const core = await import('./optimize2.mjs');
 const { optimizeFile, inspectFile, exportJson, VERSION } = core;
+// Каталоги сообщений правил регистрирует аддон при импорте ядра выше — поэтому
+// localizeResult здесь умеет пересобрать строки отчёта на любом подключённом языке.
+const { localizeResult } = await import('./core/i18n.mjs');
 
 // ---- Ассистент (появляется параллельно; graceful-фолбэк, если модуля ещё нет) ----
 let assistant = null;
@@ -405,7 +408,13 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, 400, { error: 'Malformed JSON body' });
         return;
       }
-      sendJSON(res, 200, { explain: explainResultSafe(payload && payload.result, platformId, langOf(url)) });
+      // Смена языка в интерфейсе приходит сюда: перерисовать отчёт, ничего не пересобирая.
+      // Строки правил в готовом результате пересобираются из messageId (localizeResult),
+      // и уже ЛОКАЛИЗОВАННЫЙ результат идёт в explainResult — иначе предупреждения,
+      // которые ассистент собирает из этих же строк, остались бы на прежнем языке.
+      const lang = langOf(url);
+      const localized = localizeResult(payload && payload.result, lang);
+      sendJSON(res, 200, { explain: explainResultSafe(localized, platformId, lang), result: localized });
       return;
     }
 

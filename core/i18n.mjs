@@ -49,6 +49,64 @@ export function render(messageId, data = {}, locale = BASE_LOCALE) {
     const why = cat ? `missing message '${messageId}'` : `no catalog for locale '${locale}'`;
     throw new Error(`i18n: ${why} for locale '${locale}'`);
   }
-  if (typeof tpl === 'function') return tpl(data);
-  return String(tpl).replace(/\{(\w+)\}/g, (_, k) => (k in data ? String(data[k]) : `{${k}}`));
+  const values = resolveNested(data, locale);
+  if (typeof tpl === 'function') return tpl(values);
+  return String(tpl).replace(/\{(\w+)\}/g, (_, k) => (k in values ? String(values[k]) : `{${k}}`));
+}
+
+/**
+ * Подстановка сама может быть сообщением: { messageId, data }. Так собираются строки из
+ * кусков — «Входное сжатие снято: draco — перекодировано с нуля». Разворачиваем перед
+ * подстановкой, иначе вложенный кусок пришлось бы рендерить заранее, и при пересборке на
+ * другом языке он остался бы на прежнем: внешняя фраза переведена, хвост — нет.
+ */
+function resolveNested(data, locale) {
+  let out = data;
+  for (const [k, v] of Object.entries(data)) {
+    if (!v || typeof v !== 'object' || !v.messageId) continue;
+    if (out === data) out = { ...data };
+    out[k] = render(v.messageId, v.data || {}, locale);
+  }
+  return out;
+}
+
+// Списки отчёта, строки которых собраны из messageId (см. renderLines в core/engine.mjs).
+const LOCALIZED_LISTS = ['applied', 'skipped', 'findings'];
+
+/**
+ * Пересобрать тексты готового результата на другом языке.
+ *
+ * Смена языка в интерфейсе не имеет права запускать обработку заново: это перерисовка,
+ * а не работа. Записи отчёта несут рецепт своих строк (поле i18n: поле записи → messageId
+ * и data), поэтому те же строки собираются из готового результата за микросекунды.
+ * Запись без рецепта — сообщение, которого не из чего пересобрать, — остаётся как есть:
+ * недоперевод видно, но ничего не теряется и ничего не падает.
+ *
+ * Функция чистая: исходный результат не трогается, возвращается копия.
+ *
+ * @param {object} result
+ * @param {string} locale
+ * @returns {object}
+ */
+export function localizeResult(result, locale) {
+  if (!result || !locale) return result;
+  const out = { ...result };
+  for (const key of LOCALIZED_LISTS) {
+    const list = result[key];
+    if (!Array.isArray(list)) continue;
+    out[key] = list.map((rec) => {
+      if (!rec || !rec.i18n) return rec;
+      const next = { ...rec };
+      for (const [field, ref] of Object.entries(rec.i18n)) {
+        if (!ref || !ref.messageId) continue;
+        try {
+          next[field] = render(ref.messageId, ref.data || {}, locale);
+        } catch (e) {
+          /* ключа нет ни в одном каталоге — прежний текст лучше пустого места */
+        }
+      }
+      return next;
+    });
+  }
+  return out;
 }
