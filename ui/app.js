@@ -999,7 +999,9 @@
   // (настройки не слетают при новой модели/возврате платформы). Иначе — рекомендуемые
   // дефолты + авто-флажки по источнику. Бейджи [Source] показываем всегда по текущей модели.
   function applyDetection() {
-    extensionsList.querySelectorAll('.ext-source-badge, .ext-advised-badge').forEach((b) => b.remove());
+    // Знак цены снимается тоже: он относится к ПРОШЛОЙ сборке. Оставить его на новой
+    // модели значило бы обвинить галочку в том, чего на этой модели ещё не случилось.
+    extensionsList.querySelectorAll('.ext-source-badge, .ext-advised-badge, .ext-cost-badge').forEach((b) => b.remove());
 
     // Режим «Советуем» (по умолчанию): каждая модель сбрасывает флажки под себя —
     // под то, что в ней уже есть, и под то, что ей нужно. Иначе выбор, сделанный
@@ -1074,6 +1076,31 @@
     // а здесь наоборот — в файле этого нет, но содержимое просит включить. Одинаковый
     // значок на двух разных утверждениях обесценил бы оба.
     else if (hasSharedGeometry()) badgeAdvised('instance', lastDetection.opportunity);
+  }
+
+  // Красный знак у галочки, которая назначила цену: правило само измерило, во что
+  // обошлась его работа, и назвало свою фичу (поле feature в записи skipped).
+  //
+  // Именно у галочки, а не только в отчёте: человек смотрит на «+1064 %» и ищет
+  // виноватого среди семи флажков. Отчёт он прочтёт потом — если вообще прочтёт,
+  // а решение принимает здесь и сейчас.
+  function renderCostBadges(skipped) {
+    extensionsList.querySelectorAll('.ext-cost-badge').forEach((b) => b.remove());
+    for (const s of skipped || []) {
+      if (!s || s.kind !== 'cost' || !s.feature) continue;
+      // Геометрия — не чекбокс, а строка выбора кодека: ищем оба варианта разметки.
+      const cb = document.getElementById(`ext-${s.feature}`);
+      const container = (cb && cb.closest('.ext-row'))
+        || document.querySelector(`.opt-radio-row[data-geom="${s.feature}"]`);
+      if (!container || container.querySelector('.ext-cost-badge')) continue;
+      const anchor = container.querySelector('.ext-label') || container.querySelector('.opt-radio-text') || container;
+      const badge = document.createElement('span');
+      badge.className = 'ext-cost-badge';
+      badge.textContent = '!';
+      badge.title = s.text;               // текст правила, с числами и советом
+      badge.setAttribute('aria-label', s.text);
+      anchor.appendChild(badge);
+    }
   }
 
   function badgeAdvised(id, opp) {
@@ -1651,6 +1678,7 @@
     }
 
     renderReport(result, explain);
+    renderCostBadges(result.skipped);
     integrityWarning.classList.toggle('hidden', !integrityFailed);
     if (integrityFailed) logMessage('error', t('log.integrityFailed'));
 

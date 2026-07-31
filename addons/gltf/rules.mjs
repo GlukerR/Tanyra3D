@@ -344,18 +344,20 @@ export const RULES = [
         // переиспользованный N раз, обязан стать N отдельными копиями. Если это
         // случилось, человек должен узнать цену прямо здесь, а не гадать, почему
         // файл вырос при неизменном числе треугольников.
-        const skipped = [];
+        const cost = [];
         if (gAfter > gBefore * 1.05) {
-          skipped.push({
+          cost.push({
             messageId: 'join.expandedShared',
             data: {
-              mb: ((gAfter - gBefore) / 1048576).toFixed(1),
+              // Байты, а не готовые мегабайты: на мелкой модели «+0.0 МБ» выглядит
+              // как поломка. Единицы выбирает каталог сообщений — там же, где язык.
+              bytes: gAfter - gBefore,
               pct: Math.round((gAfter - gBefore) / gBefore * 100),
               dcSaved: b.drawCalls - a.drawCalls,
             },
           });
         }
-        return { found: [{ messageId: 'join.found', data: { drawCalls: b.drawCalls, nodes: b.nodes } }], details, skipped };
+        return { found: [{ messageId: 'join.found', data: { drawCalls: b.drawCalls, nodes: b.nodes } }], details, cost };
       }
       return {};
     },
@@ -465,6 +467,19 @@ export const RULES = [
     },
     async fix(finding, ctx) {
       const out = { found: [], skipped: [], details: [] };
+      // Вес картинок до перекодирования — чтобы в конце сказать, во что обошёлся KTX2.
+      // Мерить надо здесь, внутри правила: снаружи видно только итоговый файл, а в нём
+      // смешаны все включённые оптимизации, и приписать рост конкретной галочке уже
+      // нельзя — останется гадание.
+      const imageBytes = () => {
+        let n = 0;
+        for (const tex of ctx.document.getRoot().listTextures()) {
+          const img = tex.getImage();
+          if (img) n += img.byteLength;
+        }
+        return n;
+      };
+      const imgBefore = imageBytes();
       // data-текстуры (нормали/occlusion/roughness) — UASTC: ETC1S мылит нормали и даёт
       // ступеньки на roughness. Цветовые (baseColor/emissive/прочее) — ETC1S: в разы
       // легче в файле при той же экономии VRAM. Regex и glob должны совпадать по смыслу.
@@ -539,6 +554,24 @@ export const RULES = [
         if (dataTex.length) out.details.push({ messageId: 'ktx2.done.data', data: { n: dataTex.length, list: named(dataTex) } });
       } else {
         out.details.push({ messageId: 'ktx2.done.uastc', data: { n: needKtx } });
+      }
+
+      // Цена KTX2. На большой текстуре он выигрывает и в файле, и в видеопамяти; на
+      // мелкой служебные данные контейнера весят больше самой картинки, и по файлу
+      // выходит проигрыш при честном выигрыше по памяти. Замер на
+      // `Draco Compressed Input 01`: 6 380 → 74 264 байта (+1064 %) при видеопамяти
+      // 5.3 → 1.3 МБ (−75 %). Порог вдвое, а не «любой рост»: небольшой рост — обычная
+      // плата за экономию видеопамяти, и кричать о нём значит приучить не читать.
+      const imgAfter = imageBytes();
+      if (imgBefore > 0 && imgAfter > imgBefore * 2) {
+        out.cost = [{
+          messageId: 'ktx2.grewFile',
+          data: {
+            beforeKb: Math.round(imgBefore / 1024),
+            afterKb: Math.round(imgAfter / 1024),
+            pct: Math.round((imgAfter - imgBefore) / imgBefore * 100),
+          },
+        }];
       }
       return out;
     },

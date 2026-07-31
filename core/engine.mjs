@@ -102,8 +102,16 @@ async function runFile(addon, src, dstName, o, result) {
   //   'nothing'  — правило отработало, менять было нечего
   //   'unsafe'   — правило отказалось: небезопасно на этой модели
   //   'policy'   — уровень риска выше того, что применяется автоматически
+  //   'cost'     — правило отработало, но дорого: результат вырос, и человеку надо
+  //                показать цену рядом с той галочкой, которая её назначила
+  //
+  // feature — та самая галочка (advancedFeatures), а не ruleId. Без неё интерфейсу
+  // пришлось бы держать свою таблицу «правило → флажок», то есть знание движка,
+  // которое разъедется при первом же переименовании правила.
   const addSkipped = (meta, v, reason, kind = 'nothing') => {
-    for (const text of asLines(v)) result.skipped.push({ ruleId: meta.id, text, reason: reason ?? text, kind });
+    for (const text of asLines(v)) {
+      result.skipped.push({ ruleId: meta.id, feature: meta.feature ?? null, text, reason: reason ?? text, kind });
+    }
   };
   // over — переопределение полей обратимости для отдельных строк (lossy-ветки правил,
   // см. res.irreversible): базовое поведение правила может быть без потерь, а форсированное — нет
@@ -224,6 +232,11 @@ async function runFile(addon, src, dstName, o, result) {
       const res = (await rule.fix(finding, ctx)) || {};
       addFound(rule.meta, renderLines(res.found, locale));
       addSkipped(rule.meta, renderLines(res.skipped, locale));
+      // res.cost — «правило отработало, но дорого»: результат вырос. Отдельный канал,
+      // а не res.skipped, потому что смысл противоположный: там «не сделали», здесь
+      // «сделали, и вот цена». Интерфейс вешает по таким записям красный знак прямо
+      // на галочку, которая эту цену назначила (поле feature).
+      addSkipped(rule.meta, renderLines(res.cost, locale), undefined, 'cost');
       addApplied(rule.meta, renderLines(res.details ?? res.detail, locale));
       // строки с безвозвратной потерей данных (§4d) — UI предупредит перед скачиванием
       addApplied(rule.meta, renderLines(res.irreversible, locale), { reversible: false, dataLoss: 'significant' });

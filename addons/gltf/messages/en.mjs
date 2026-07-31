@@ -7,6 +7,11 @@
 
 const where = ({ sem, mesh }) => `${sem} (mesh "${mesh || '—'}")`;
 
+// Единицы по величине: «+0.0 MB» на мелкой модели читается как поломка.
+const size = (bytes) => (bytes >= 1048576
+  ? `${(bytes / 1048576).toFixed(1)} MB`
+  : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+
 export default {
   // --- structure/dedup ---
   'dedup.safe': () => 'merging identical resources is structurally safe',
@@ -59,10 +64,16 @@ export default {
     `Meshes joined (flatten+join): draw calls ${dcBefore} → ${dcAfter}, nodes ${nodesBefore} → ${nodesAfter}`,
   // Цена объединения на модели с общей геометрией. Формулировка без обвинений:
   // человек выбрал опцию сознательно, ему нужна цифра и подсказка, а не выговор.
-  'join.expandedShared': ({ mb, pct, dcSaved }) =>
-    `Join copied shared geometry: +${mb} MB (+${pct}%) of stored geometry bought ${dcSaved} fewer draw calls. `
+  'join.expandedShared': ({ bytes, pct, dcSaved }) =>
+    `Join copied shared geometry: +${size(bytes)} (+${pct}%) of stored geometry bought ${dcSaved} fewer draw calls. `
     + `Meshes reused by several nodes must be baked into separate copies. If this model is built on repeats, `
     + `GPU instancing gives the same result without the extra bytes.`,
+
+  'ktx2.grewFile': ({ beforeKb, afterKb, pct }) =>
+    `KTX2 made the textures heavier: ${beforeKb} KB → ${afterKb} KB (+${pct}%). `
+    + `PNG and JPEG are compressed for transfer and unpacked before they reach the GPU; KTX2 stays compressed in video memory. `
+    + `On a large texture it wins on both — on a small one the container overhead outweighs the picture itself. `
+    + `Video memory still went down, so keep KTX2 only if that is what you are optimising for.`,
 
   // --- structure/prune-final ---
   'pruneFinal.safe': () => 'only resources orphaned by previous fixes are removed',

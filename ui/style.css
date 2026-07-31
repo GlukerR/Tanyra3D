@@ -1422,6 +1422,25 @@ details[open] > .collapsible-summary::before {
   white-space: nowrap;
 }
 
+/* Знак цены — эта галочка сильно увеличила результат. Красный кружок, а не значок
+   в ряд с остальными: «В модели» и «Советуем» сообщают факты, этот требует решения. */
+.ext-cost-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--error, #f2544b);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  vertical-align: middle;
+}
+
 /* KTX2 — раскрывающийся селектор режима (UASTC / ETC1S) */
 .ktx2-mode {
   margin: 8px 0 0 22px;
