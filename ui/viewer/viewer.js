@@ -74,7 +74,36 @@ function detectSource(gltf) {
     draco: used.includes('KHR_draco_mesh_compression'),
     meshopt: used.includes('EXT_meshopt_compression'),
     ktx2: used.includes('KHR_texture_basisu') || hasKtx2Mime,
+    instance: used.includes('EXT_mesh_gpu_instancing'),
+    // Не «что уже сделано», а «что напрашивается» — см. detectOpportunity.
+    opportunity: detectOpportunity(json),
   };
+}
+
+// Возможности, которые видно по содержимому модели. Это ДРУГОЕ, чем detectSource:
+// там «в файле уже есть, мы сохраняем», здесь «в файле этого нет, но стоит включить».
+// Смешивать нельзя — иначе значок [Source] перестанет что-либо означать.
+//
+// Пока одна возможность: общая геометрия. Несколько узлов ссылаются на один меш —
+// это Alt+D из Blender (связанные дубликаты) или результат дедупликации. Такая модель
+// выигрывает от GPU-инстансинга и ПРОИГРЫВАЕТ от объединения мешей: join обязан
+// запечь трансформ каждого узла в вершины, то есть размножить общую геометрию в копии.
+// Замерено на ABeautifulGame: join в одиночку +84 %, он же после instance — 0 %.
+function detectOpportunity(json) {
+  const nodes = json.nodes || [];
+  const users = new Map();
+  for (const n of nodes) {
+    if (n.mesh == null) continue;
+    users.set(n.mesh, (users.get(n.mesh) || 0) + 1);
+  }
+  let sharedMeshes = 0;
+  let sharedNodes = 0;
+  for (const count of users.values()) {
+    if (count < 2) continue;
+    sharedMeshes++;
+    sharedNodes += count;
+  }
+  return { sharedMeshes, sharedNodes };
 }
 
 /**

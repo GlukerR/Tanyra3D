@@ -321,7 +321,7 @@ const result = await optimizeFile(srcPath, {
                                      //   'safe'          — чистка без потерь (dedup, prune, weld, вырожденные)
                                      //   'meshopt' | 'draco' — сжатие геометрии (выбор кодека)
                                      //   'join'          — flatten + объединение мешей
-                                     //   'instance'      — EXT_mesh_gpu_instancing
+                                     //   'instance'      — EXT_mesh_gpu_instancing (порог: 2 узла на меш)
                                      //   'resample'      — прореживание ключей анимации
                                      //   'ktx2'          — текстуры в KTX2/UASTC
                                      //   'strip-colors'  — удалить все COLOR_n

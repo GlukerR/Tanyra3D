@@ -934,7 +934,7 @@
   // (настройки не слетают при новой модели/возврате платформы). Иначе — рекомендуемые
   // дефолты + авто-флажки по источнику. Бейджи [Source] показываем всегда по текущей модели.
   function applyDetection() {
-    extensionsList.querySelectorAll('.ext-source-badge').forEach((b) => b.remove());
+    extensionsList.querySelectorAll('.ext-source-badge, .ext-advised-badge').forEach((b) => b.remove());
 
     const saved = savedSelections[platformSelect.value];
     if (saved) restoreSelection(saved);
@@ -959,7 +959,18 @@
       if (lastDetection.draco) geometryChoice = 'draco';
       else if (lastDetection.meshopt) geometryChoice = 'meshopt';
       if (lastDetection.ktx2) setCheck('ktx2', true);
+      // Модель построена на общей геометрии → инстансинг обязателен, и не столько ради
+      // отрисовок, сколько ради того, чтобы join не размножил эту геометрию в копии.
+      // Join включён по умолчанию, поэтому без этой строки шахматная доска из коробки
+      // получала бы +84 % к весу. Замеры — в docs/ВОПРОСЫ_И_ОТВЕТЫ.md.
+      if (hasSharedGeometry()) setCheck('instance', true);
     }
+  }
+
+  // Общая геометрия найдена в модели: несколько узлов на один меш.
+  function hasSharedGeometry() {
+    const opp = lastDetection && lastDetection.opportunity;
+    return !!(opp && opp.sharedMeshes > 0);
   }
 
   // Восстановить последний выбор пользователя на этой платформе. Геометрия, которой на
@@ -989,6 +1000,23 @@
     if (lastDetection.draco) badgeGeometry('draco');
     else if (lastDetection.meshopt) badgeGeometry('meshopt');
     if (lastDetection.ktx2) badgeCheck('ktx2');
+    if (lastDetection.instance) badgeCheck('instance');
+    // Отдельный значок, а не [Source]: [Source] означает «в файле уже есть, сохраняем»,
+    // а здесь наоборот — в файле этого нет, но содержимое просит включить. Одинаковый
+    // значок на двух разных утверждениях обесценил бы оба.
+    else if (hasSharedGeometry()) badgeAdvised('instance', lastDetection.opportunity);
+  }
+
+  function badgeAdvised(id, opp) {
+    const cb = document.getElementById(`ext-${id}`);
+    const container = cb && cb.closest('.ext-row');
+    if (!container || container.querySelector('.ext-advised-badge')) return;
+    const anchor = container.querySelector('.ext-label') || container;
+    const badge = document.createElement('span');
+    badge.className = 'ext-advised-badge';
+    badge.textContent = t('ext.advised');
+    badge.title = t('ext.advised.shared', { meshes: opp.sharedMeshes, nodes: opp.sharedNodes });
+    anchor.appendChild(badge);
   }
 
   // Взаимоисключение геометрии — чекбоксы, не radio-группа (нужно уметь снимать выбор

@@ -60,6 +60,10 @@ export default {
   'join.found': ({ drawCalls, nodes }) => `лишние отрисовки и узлы: отрисовок за кадр ${drawCalls}, узлов ${nodes}`,
   'join.done': ({ dcBefore, dcAfter, nodesBefore, nodesAfter }) =>
     `Меши объединены: отрисовок за кадр ${dcBefore} → ${dcAfter}, узлов ${nodesBefore} → ${nodesAfter}`,
+  'join.expandedShared': ({ mb, pct, dcSaved }) =>
+    `Объединение размножило общую геометрию: +${mb} МБ (+${pct}%) хранимых данных ради ${dcSaved} отрисовок меньше. `
+    + `Меш, который использовали несколько узлов, приходится запекать в отдельные копии. `
+    + `Если модель построена на повторах, GPU-инстансинг даёт то же самое без лишнего веса.`,
 
   // --- structure/prune-final ---
   'pruneFinal.safe': () => 'удаляются только ресурсы, осиротевшие после предыдущих правок',

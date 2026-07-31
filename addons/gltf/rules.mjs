@@ -308,7 +308,11 @@ export const RULES = [
   {
     meta: {
       id: 'scene/join', category: 'scene', title: 'Mesh join (flatten + join)', titleKey: 'rule.sceneJoin',
-      severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['geometry/orphan-vertices'], touches: ['geometry', 'node'],
+      // runAfter включает scene/instance НАМЕРЕННО, и это не косметика порядка.
+      // Инстансированные узлы несут EXT_mesh_gpu_instancing, и join их не трогает —
+      // то есть instance, отработав первым, физически защищает общую геометрию от
+      // разворачивания в копии. Обратный порядок стоил бы на ABeautifulGame +84 %.
+      severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['geometry/orphan-vertices', 'scene/instance'], touches: ['geometry', 'node'],
       reversible: false, dataLoss: 'significant', // §4d: структура узлов и имена частей теряются безвозвратно
       reversalNote: 'Node hierarchy and separate parts are merged — they cannot be restored from the result. To keep parts, use --keep-parts.',
       feature: 'join', // отдельный флажок (структурно, необратимо)
@@ -318,14 +322,40 @@ export const RULES = [
     canFix() { return { safe: true, messageId: 'join.safe', data: {} }; },
     async fix(finding, ctx) {
       const m = () => { const r = collectMetrics(ctx.document, 0); return { drawCalls: r.drawCalls, nodes: r.nodes, meshes: r.meshes }; };
+      // Байты ХРАНИМОЙ геометрии — не то же самое, что метрика vertices.
+      // Та считает вершины как рисуемые, с учётом переиспользования мешей, и потому
+      // при разворачивании общей геометрии не меняется вовсе: было «хранится один раз,
+      // рисуется восемь», стало «хранится восемь раз, рисуется восемь». Рост видно
+      // только здесь, в сумме буферов аксессоров.
+      const geomBytes = () => {
+        let n = 0;
+        for (const a of ctx.document.getRoot().listAccessors()) n += a.getArray().byteLength;
+        return n;
+      };
       const b = m();
+      const gBefore = geomBytes();
       await ctx.document.transform(fns.flatten(), fns.join());
       const a = m();
+      const gAfter = geomBytes();
+
       if (b.drawCalls > a.drawCalls || b.nodes > a.nodes || b.meshes > a.meshes) {
-        return {
-          found: [{ messageId: 'join.found', data: { drawCalls: b.drawCalls, nodes: b.nodes } }],
-          details: [{ messageId: 'join.done', data: { dcBefore: b.drawCalls, dcAfter: a.drawCalls, nodesBefore: b.nodes, nodesAfter: a.nodes } }],
-        };
+        const details = [{ messageId: 'join.done', data: { dcBefore: b.drawCalls, dcAfter: a.drawCalls, nodesBefore: b.nodes, nodesAfter: a.nodes } }];
+        // Объединение запекает трансформ каждого узла в вершины, поэтому меш,
+        // переиспользованный N раз, обязан стать N отдельными копиями. Если это
+        // случилось, человек должен узнать цену прямо здесь, а не гадать, почему
+        // файл вырос при неизменном числе треугольников.
+        const skipped = [];
+        if (gAfter > gBefore * 1.05) {
+          skipped.push({
+            messageId: 'join.expandedShared',
+            data: {
+              mb: ((gAfter - gBefore) / 1048576).toFixed(1),
+              pct: Math.round((gAfter - gBefore) / gBefore * 100),
+              dcSaved: b.drawCalls - a.drawCalls,
+            },
+          });
+        }
+        return { found: [{ messageId: 'join.found', data: { drawCalls: b.drawCalls, nodes: b.nodes } }], details, skipped };
       }
       return {};
     },
@@ -347,7 +377,19 @@ export const RULES = [
     async fix(finding, ctx) {
       const root = ctx.document.getRoot();
       const b = { nodes: root.listNodes().length, dc: collectMetrics(ctx.document, 0).drawCalls };
-      await ctx.document.transform(fns.instance());
+      // min: 2, а не библиотечные 5.
+      //
+      // Порог решает не только «стоит ли овчинка выделки», но и КОГО инстансинг
+      // защитит от scene/join: инстансированный узел несёт EXT_mesh_gpu_instancing,
+      // и join его уже не трогает. Меш, переиспользованный 2–4 раза, при пороге 5
+      // оставался незащищённым — и join разворачивал его в отдельные копии.
+      //
+      // Замерено 2026-07-31 на всех 34 моделях корпуса (dedup → instance → flatten →
+      // join): min 2 не хуже min 5 НИГДЕ и заметно лучше на трёх. ABeautifulGame —
+      // +20 % против −14 % при одинаковых 15 draw calls, то есть 34 процентных пункта
+      // из-за одной цифры; Dirty Cube 01 −5 % → −11 %; MosquitoInAmber2 −2 % → −9 %.
+      // На остальных 31 результат совпал байт в байт.
+      await ctx.document.transform(fns.instance({ min: 2 }));
       const a = { nodes: root.listNodes().length, dc: collectMetrics(ctx.document, 0).drawCalls };
       if (a.nodes < b.nodes || a.dc < b.dc) {
         return {

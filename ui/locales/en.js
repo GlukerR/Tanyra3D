@@ -130,6 +130,11 @@ window.I18N_CATALOGS.en = {
   'ext.impact': 'Impact: {text}',
   'ext.source': 'Source',
   'ext.source.title': 'This technology was already used in the imported model',
+  // «Советуем» — противоположное утверждение: в модели этого НЕТ, но содержимое просит.
+  'ext.advised': 'Advised',
+  'ext.advised.shared': ({ meshes, nodes }) =>
+    `This model shares geometry: ${nodes} nodes reuse ${meshes} mesh(es). GPU instancing draws them in one call — `
+    + `and, just as importantly, protects that geometry from Join meshes, which would otherwise have to bake it into separate copies.`,
   'ktx2.mode': 'Mode:',
   'decoder.legend': 'Marks options that need extra decoder/engine support to display correctly',
   'decoder.meshopt': 'Install the Meshopt decoder on the target site/engine.',

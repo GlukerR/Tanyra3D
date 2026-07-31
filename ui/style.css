@@ -1290,6 +1290,23 @@ details[open] > .collapsible-summary::before {
   white-space: nowrap;
 }
 
+/* Бейдж «Советуем» — технологии в модели НЕТ, но содержимое просит её включить.
+   Цвет намеренно другой, чем у [Source]: это разные утверждения, и если оба будут
+   выглядеть одинаково, человек перестанет различать «уже есть» и «стоит добавить». */
+.ext-advised-badge {
+  margin-left: 6px;
+  font-size: 9px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(126, 217, 160, 0.12);
+  color: var(--success, #7ed9a0);
+  border: 1px solid rgba(126, 217, 160, 0.32);
+  white-space: nowrap;
+}
+
 /* KTX2 — раскрывающийся селектор режима (UASTC / ETC1S) */
 .ktx2-mode {
   margin: 8px 0 0 22px;

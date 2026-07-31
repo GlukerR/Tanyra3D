@@ -861,21 +861,53 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
     }
   });
 
-  it('["instance"] в одиночку не срабатывает (применяется только после dedup)', async () => {
-    // До dedup — 4 РАЗНЫХ меша с 3 родителями каждый, порог правила — 5.
-    // Поэтому scene/instance пишет «no repeated meshes to instance» и не
-    // применяется. Это самый ценный тест из корпуса: сломайся порядок правил
-    // — упадёт именно здесь. Подробнее — задание §7 «Порядок правил».
+  it('["instance"] в одиночку срабатывает при пороге 2: узлы 12 → 4, меши не трогаются', async () => {
+    // До dedup — 4 РАЗНЫХ меша с 3 родителями каждый.
+    //
+    // ИСТОРИЯ ЭТОГО ТЕСТА. Раньше он утверждал обратное: «instance в одиночку НЕ
+    // срабатывает», потому что порог правила был библиотечный, min 5, и три родителя
+    // его не брали. 2026-07-31 порог опущен до 2 — не ради лишних отрисовок, а потому
+    // что незаинстансированный общий меш беззащитен перед scene/join: тому приходится
+    // запекать трансформ каждого узла в вершины, то есть размножать геометрию в копии.
+    // На ABeautifulGame это стоило +84 % к файлу. Разбор — docs/ВОПРОСЫ_И_ОТВЕТЫ.md.
+    //
+    // Теперь инстансинг берёт каждый меш отдельным батчем: 4 меша × 3 узла → 4 узла.
+    // Меши при этом НЕ схлопываются — их связывает dedup, а не instance.
     const result = await optimizeFile(modelPath('Linked Duplicates Grid 01.glb'), {
       advancedFeatures: ['instance'],
       dryRun: true,
     });
     expect(result.status).toBe('ok');
-    expect(result.applied.length).toBe(0);
-    // Узлов и мешей не должно поменяться — инстансинг не сработал.
+    expect(result.applied.map((a) => a.ruleId)).toEqual(['scene/instance']);
     expect(result.metrics.after.meshes).toBe(4);
-    expect(result.metrics.after.nodes).toBe(12);
-    expect(result.metrics.after.drawCalls).toBe(12);
+    expect(result.metrics.after.nodes).toBe(4);
+    expect(result.metrics.after.drawCalls).toBe(4);
+    expect(result.metrics.after.triangles).toBe(144);
+  });
+
+  // Главный сторож всей правки 2026-07-31. Порядок instance → join закреплён через
+  // runAfter, и ломается он молча: файл просто начинает расти, тесты на треугольники
+  // и валидацию при этом остаются зелёными. Поэтому проверяем БАЙТЫ.
+  it('join после instance не раздувает файл (порядок правил + порог)', async () => {
+    const src = modelPath('Linked Duplicates Grid 01.glb');
+    const withInstance = await optimizeFile(src, {
+      advancedFeatures: ['safe', 'instance', 'join'], dryRun: true,
+    });
+    expect(withInstance.status).toBe('ok');
+    // Инстансинг схлопнул сцену до одного узла — джойнить уже нечего, и правило
+    // до применения не доходит. Это и есть защита: join физически не трогает
+    // узлы с EXT_mesh_gpu_instancing.
+    expect(withInstance.applied.map((a) => a.ruleId)).not.toContain('scene/join');
+    expect(withInstance.metrics.after.fileBytes)
+      .toBeLessThan(withInstance.metrics.before.fileBytes);
+
+    // Без instance тот же join разворачивает общую геометрию и файл РАСТЁТ.
+    // Это не дефект, а цена объединения — и ровно поэтому instance включается сам.
+    const withoutInstance = await optimizeFile(src, {
+      advancedFeatures: ['safe', 'join'], dryRun: true,
+    });
+    expect(withoutInstance.metrics.after.fileBytes)
+      .toBeGreaterThan(withInstance.metrics.after.fileBytes);
   });
 
   it('["safe"] мерджит 4 меша в 1 (dc/nodes не трогает)', async () => {

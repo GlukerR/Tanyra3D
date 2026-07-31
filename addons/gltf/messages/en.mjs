@@ -57,6 +57,12 @@ export default {
   'join.found': ({ drawCalls, nodes }) => `extra draw calls / nodes: draw calls ${drawCalls}, nodes ${nodes}`,
   'join.done': ({ dcBefore, dcAfter, nodesBefore, nodesAfter }) =>
     `Meshes joined (flatten+join): draw calls ${dcBefore} → ${dcAfter}, nodes ${nodesBefore} → ${nodesAfter}`,
+  // Цена объединения на модели с общей геометрией. Формулировка без обвинений:
+  // человек выбрал опцию сознательно, ему нужна цифра и подсказка, а не выговор.
+  'join.expandedShared': ({ mb, pct, dcSaved }) =>
+    `Join copied shared geometry: +${mb} MB (+${pct}%) of stored geometry bought ${dcSaved} fewer draw calls. `
+    + `Meshes reused by several nodes must be baked into separate copies. If this model is built on repeats, `
+    + `GPU instancing gives the same result without the extra bytes.`,
 
   // --- structure/prune-final ---
   'pruneFinal.safe': () => 'only resources orphaned by previous fixes are removed',
