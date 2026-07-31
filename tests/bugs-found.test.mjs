@@ -99,46 +99,41 @@ describeIfModels(['parkergirl.glb'], 'TESTBUG-007 (закрыт) — parkergirl 
 });
 
 // requireAnimationPointer LOCAL — обе модели на disk.
-describeIfModels(['AnimationPointerUVs.glb', 'PotOfCoalsAnimationPointer.glb'], 'TESTBUG-006 — KHR_animation_pointer models fail under safe-cleanup', () => {
-  // Отличается от audit-BUG-002 (тот был исключительно про passthrough):
-  //   на passthrough (advancedFeatures:[]) ОБЕ модели возвращают 'ok'
-  //   (валидатор пишет warning "Missing optional extension" в stderr, ловушка 3);
-  //   НО на ['safe'] (и ['safe','join']) обе возвращают 'fail' — safe-cleanup
-  //   ломает baseline-checkpoint валидации, вероятно из-за bufferView'ов,
-  //   скрытых внутри KHR_animation_pointer.
-  // Продокументировано на main @ ed0936c (2026-07-27).
+describeIfModels(['AnimationPointerUVs.glb', 'PotOfCoalsAnimationPointer.glb'], 'TESTBUG-006 (ЗАКРЫТ 2026-07-31) — KHR_animation_pointer models survive safe-cleanup', () => {
+  // ИСТОРИЯ ДЕФЕКТА.
+  // Задокументирован на main @ ed0936c (2026-07-27): обе модели с
+  // KHR_animation_pointer возвращали 'fail' на ['safe'] — safe-cleanup
+  // ломал baseline-checkpoint, потому что структурные правила (dedup,
+  // prune-unused) переставляли/удаляли свойства, не видя ссылок по
+  // индексу из неизвестного расширения.
   //
-  // Проверям не только status==='fail' (это ловит любой fail), а КОРЕНЬ fail:
-  // в валидации должна быть fail-строка про baseline-checkpoint. Если safe-cleanup
-  // сломается по ДРУГОЙ причине (напр. всегда-fail из-за config), этот тест упадёт
-  // и мы узнаем, что дефект или ушёл, или переродился в другую форму.
+  // 2026-07-31 дефект закрыт: структурные правила (structure/dedup,
+  // structure/prune-unused, structure/prune-final, scene/join, scene/instance)
+  // теперь отказываются с { safe: false } и messageId
+  // 'unsupportedExtension.refuse', когда в файле объявлено неизвестное
+  // расширение. Модели больше не ломаются: status='ok', анимации целы,
+  // неструктурные правила (weld) продолжают работать.
+  //
+  // Теперь это регресс: если структурные правила снова начнут трогать
+  // модели с неизвестным расширением — тест покраснеет.
   const affectedModels = ['AnimationPointerUVs.glb', 'PotOfCoalsAnimationPointer.glb'];
-  // it.each → eachModel: при отсутствии модели её тест пропускается индивидуально,
-  // а не 'весь describe' целиком. Это полезно для случая, когда только часть
-  // аффекторных моделей локально недоступна.
-  eachModel('safe-cleanup fail (baseline-checkpoint)', affectedModels, async (name) => {
+  eachModel('safe-cleanup returns ok, animations preserved', affectedModels, async (name) => {
     const result = await optimizeFile(modelPath(name), {
       advancedFeatures: ['safe'],
       dryRun: true,
     });
-    // TESTBUG-006: documented defect — safe-cleanup fails on KHR_animation_pointer.
-    // Проверка НА status (не на валидации) — в проводке НА этом коммите main @ ed0936c
-    // (post-fix от 8fc510e) реальная причина fail показывала уровень в `validation[]`,
-    // но конкретный текст (`baseline`/нет) меняется между версиями. Если safe-cleanup
-    // починят — `status` станет 'ok', и этот тест упадёт с диагностикой ниже. Это
-    // намеренный behavior: TESTBUG — это sentinel на "дефект ещё воспроизводится".
-    if (result.status !== 'fail') {
-      throw new Error(
-        `TESTBUG-006 may be FIXED for ${name}: status=${result.status}. ` +
-        `error=${result.error || '(none)'}. ` +
-        `validation=${JSON.stringify(result.validation)}. ` +
-        `Update TESTBUG-006 to reflect new behavior.`,
-      );
-    }
-    // Если всё-таки fail — другие (result.validation или result.error) тоже должны
-    // давать какой-то даигностический сигнал, иначе мы пропускаем silent regression
-    // в fail-механизме.
-    const hasDiagnostic = result.validation.some((v) => v.level === 'fail') || !!result.error;
-    expect(hasDiagnostic).toBe(true);
+    // Дефект закрыт: status обязан быть 'ok', анимации не теряются.
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.animations).toBe(result.metrics.before.animations);
+    // Структурные правила ОБЯЗАНЫ отказаться с kind:'unsafe'.
+    // Движок оборачивает canFix-сообщение в engine.skipped.line —
+    // проверяем по тексту, а не по messageId правила.
+    const refused = result.skipped.filter((s) =>
+      s.kind === 'unsafe' && s.text && s.text.includes('does not understand'),
+    );
+    expect(refused.length).toBeGreaterThanOrEqual(1);
+    // Среди отказавшихся должен быть structure/prune-final (самый опасный —
+    // удаляет «осиротевшие» ресурсы, не видя ссылок из KHR_animation_pointer).
+    expect(refused.some((s) => s.ruleId === 'structure/prune-final')).toBe(true);
   });
 });

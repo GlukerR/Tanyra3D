@@ -70,11 +70,12 @@ const GOLDEN_MODELS = [
 // «Missing optional extension» в stderr, статус остаётся ok.
 const KNOWN_FAILING = new Set([]);
 
-// Модели, которые ломаются на safe-cleanup (но проходят passthrough):
-// KHR_animation_pointer — задокументировано в TESTBUG-006 (bugs-found.test.mjs).
+// Модели, которые ломаются на safe-cleanup (но проходят passthrough).
+// 2026-07-31: множество опустело — KHR_animation_pointer больше не валит
+// safe-cleanup (структурные правила отказываются при неизвестном расширении,
+// см. addons/gltf/rules.mjs: refuseIfUnsupported). Удалять множество не стал:
+// при следующем дефекте оно послужит шаблоном.
 const KNOWN_FAILING_UNDER_SAFE = new Set([
-  'AnimationPointerUVs.glb',
-  'PotOfCoalsAnimationPointer.glb',
 ]);
 
 // Модели, у которых даже в passthrough (advancedFeatures:[]) движок применяет
@@ -308,38 +309,21 @@ describe('Golden Corpus — join invariant', () => {
   );
 });
 
-// ---------- ПРОГОН ПО ВСЕМ МОДЕЛЯМ: safe+join не раздувает файл ----------
+// ИСТОРИЯ: раньше здесь было исключение ABeautifulGame.glb (+84 % под
+// safe+join), вынесенное в KNOWN_JOIN_GROWTH. 2026-07-31 объединение мешей
+// перестало размножать общую геометрию (меши с >1 пользователем исключаются
+// через filter), модель больше не растёт — исключение не нужно. Набор удалён.
 //
-// Автоматический сторож вместо ручных ⚠️ CRITICAL-маркеров: новая модель корпуса,
-// которая под safe+join раздувается свыше порога, валит прогон сразу — раздувателя
-// видно по имени, «чинить» тест не приходится вслепую.
-//
-// Измерения по корпусу на 2026-07-31:
-//   — почти все модели под safe+join СЖИМАЮТСЯ (до −89 % на Orphan Texture Cube);
-//   — легитимный рост — единицы процентов (Draco Compressed Input +10.5 % — это
-//     снятие входного сжатия, join там не применяется);
-//   — единственный раздув внутри GOLDEN_MODELS — ABeautifulGame (+84 %), вынесен
-//     в KNOWN_JOIN_GROWTH ниже.
-//
-// Порог 25 %: выше него любой рост — уже не «шум кодера», а раздув, который надо
-// объяснить. Число намеренно одно и то же во всех ветках, чтобы правило нельзя
-// было обойти, подменив флаг в одном месте.
-const JOIN_GROWTH_PCT = 25;
-
-// Модели, где рост после safe+join — ОЖИДАЕМАЯ цена объединения, а не дефект.
-// ABeautifulGame: общая геометрия, и join без instance запекает её в копии
-// (+84 %; история — docs/ВОПРОСЫ_И_ОТВЕТЫ.md). Правило честно сообщает cost,
-// поэтому тест сюда её не тянет: падать на задокументированном поведении нельзя,
-// а молча обходить исключение — тем более: убрать модель отсюда — значит признать,
-// что её рост надо чинить, а не документировать.
-const KNOWN_JOIN_GROWTH = new Set([
-  'ABeautifulGame.glb',
-]);
+// Порог 11 %: измеренный максимум по корпусу — +10.5 % на Draco Compressed
+// Input 01 (safe снимает входное сжатие, обратно не сжимает без флажка draco).
+// Это не рост от объединения, а цена распаковки. Остальные модели — сжатие
+// или ноль.
+const JOIN_GROWTH_PCT = 11;
 
 describe('Golden Corpus — safe+join does not bloat the file', () => {
   eachModel(
     `file after safe+join is smaller or grows ≤ ${JOIN_GROWTH_PCT}%`,
-    GOLDEN_MODELS.filter((m) => isSafeEligible(m) && !KNOWN_JOIN_GROWTH.has(m)),
+    GOLDEN_MODELS.filter((m) => isSafeEligible(m)),
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
         advancedFeatures: ['safe', 'join'],
@@ -349,7 +333,8 @@ describe('Golden Corpus — safe+join does not bloat the file', () => {
       // Инвариант про ЦЕНУ объединения: файл после safe+join обязан быть меньше
       // исходного либо расти в пределах порога. Проверяем на всех моделях, а не
       // только там, где join применился: внезапный рост даже «без участия join»
-      // (например, из-за снятия входного сжатия) — тоже сигнал, его надо увидеть.
+      // (например, из-за снятия входного сжатия на Draco Compressed Input) —
+      // тоже сигнал, его надо увидеть.
       const limit = Math.ceil(result.metrics.before.fileBytes * (1 + JOIN_GROWTH_PCT / 100));
       expect(result.metrics.after.fileBytes).toBeLessThanOrEqual(limit);
     },
@@ -970,8 +955,10 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
     expect(withInstance.metrics.after.fileBytes)
       .toBeLessThan(withInstance.metrics.before.fileBytes);
 
-    // Без instance тот же join разворачивает общую геометрию и файл РАСТЁТ.
-    // Это не дефект, а цена объединения — и ровно поэтому instance включается сам.
+    // ИСТОРИЯ: раньше здесь было «join разворачивает общую геометрию и файл РАСТЁТ».
+    // 2026-07-31 join перестал трогать общие меши — и без instance, и с ним файл
+    // сжимается. Разница между ветками теперь в отрисовках (12 vs 1), а не в байтах.
+    // Инвариант прежний: instance защищает от размножения геометрии, отрисовки падают.
     const withoutInstance = await optimizeFile(src, {
       advancedFeatures: ['safe', 'join'], dryRun: true,
     });
@@ -1005,43 +992,38 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
     expect((json.extensionsUsed || []).includes('EXT_mesh_gpu_instancing')).toBe(true);
   });
 
-  // ⚠️ CRITICAL — join раздувает файл на +82 % (8 624 → 15 704), размножая общую
-  // геометрию в 12 копий. Если тест «починить» (ожидать сжатия), оптимизатор
-  // начнёт врать: делать вид, что уменьшил, а реально — раздул.
-  it('["safe","join"] сводит к 1/1/1, но ФАЙЛ РАСТЁТ (ожидаемо, 8 624 → 15 704)', async () => {
-    // join разворачивает 12 экземпляров в 12 копий геометрии внутри одного меша —
-    // это справедливо дороже исходного файла (где geometry хранится один раз +
-    // 12 узлов с трансформами). Тест закрепляет это как ожидаемое поведение с
-    // комментарием — следующий человек не пойдёт «чинить» grow.
+  // ИСТОРИЯ ЭТОГО ТЕСТА. Раньше он утверждал: «['safe','join'] сводит к 1/1/1,
+  // но ФАЙЛ РАСТЁТ (ожидаемо, 8 624 → 15 704)». 2026-07-31 объединение мешей
+  // перестало размножать общую геометрию: меш с 12 пользователями исключается из
+  // join через filter, файл больше не растёт (8 624 → 3 108, −64 %).
+  // join.keptShared сообщает, что 1 меш оставлен нетронутым.
+  it('["safe","join"] больше не раздувает файл: общая геометрия исключена, nodes=12, dc=12', async () => {
     const result = await optimizeFile(modelPath('Linked Duplicates Grid 01.glb'), {
       advancedFeatures: ['safe', 'join'],
       dryRun: true,
     });
     expect(result.status).toBe('ok');
-    expect(result.metrics.after.nodes).toBe(1);
-    expect(result.metrics.after.drawCalls).toBe(1);
+    // join пропустил общий меш (12 пользователей) — узлы и отрисовки не тронуты.
+    expect(result.metrics.after.nodes).toBe(12);
+    expect(result.metrics.after.drawCalls).toBe(12);
     expect(result.metrics.after.meshes).toBe(1);
-    expect(result.metrics.after.fileBytes).toBeGreaterThan(result.metrics.before.fileBytes);
+    // Файл СЖАЛСЯ, а не вырос — это и есть исправление раздувания.
+    expect(result.metrics.after.fileBytes).toBeLessThan(result.metrics.before.fileBytes);
   });
 
-  // ⚠️ CRITICAL — join размножает хранимую геометрию на +1 100 % (+13 KB). Правило
-  // возвращает cost[] — движок передаёт как kind:'cost'. Если cost-канал сломается,
-  // UI не покажет красный ! у галочки Join, и пользователь не заметит раздутия.
-  it('join сообщает цену: kind=cost с feature=join в skipped', async () => {
-    // join разворачивает общую геометрию в копии — файл растёт, но 11 отрисовок
-    // экономятся. Правило само замеряет рост хранимой геометрии (>5 %) и
-    // возвращает cost[]: движок передаёт как kind:'cost' с feature:'join',
-    // чтобы UI показал красный ! у галочки Join.
+  // Сторож join.keptShared. Если join перестанет исключать общую геометрию,
+  // файл снова начнёт расти, а keptShared исчезнет из skipped.
+  it('join.keptShared: в skipped есть запись с messageId=join.keptShared и meshes>0', async () => {
     const result = await optimizeFile(modelPath('Linked Duplicates Grid 01.glb'), {
       advancedFeatures: ['safe', 'join'],
       dryRun: true,
     });
     expect(result.status).toBe('ok');
-    const costEntries = result.skipped.filter((s) => s.kind === 'cost');
-    const joinCost = costEntries.find((s) => s.feature === 'join');
-    expect(joinCost).toBeDefined();
-    expect(joinCost.ruleId).toBe('scene/join');
-    expect(joinCost.text).toMatch(/copied shared geometry|размножило общую геометрию/i);
+    const kept = result.skipped.find((s) =>
+      s.i18n && s.i18n.text && s.i18n.text.messageId === 'join.keptShared',
+    );
+    expect(kept).toBeDefined();
+    expect(kept.i18n.text.data.meshes).toBeGreaterThan(0);
   });
 });
 
@@ -1232,16 +1214,17 @@ describe('Golden Corpus — Unlinked Duplicates 01: identical geometry without n
   // ['safe','join'] — файл растёт (как и на Linked Duplicates)
   // ----------------------------------------------------------
 
-  // ⚠️ CRITICAL — join раздувает файл на модели БЕЗ нормалей (44 808 → крупнее).
-  // Шесть копий геометрии запекаются в один меш — файл обязан вырасти.
-  // Если тест упадёт (файл перестал расти) — join сломался и молча удаляет
-  // дубликаты, которые оптимизатор не имеет права трогать.
-  it('["safe","join"]: файл стал БОЛЬШЕ исходного (ожидаемо, не дефект)', async () => {
+  // ИСТОРИЯ ЭТОГО ТЕСТА. Раньше он утверждал: «["safe","join"]: файл стал БОЛЬШЕ
+  // исходного (ожидаемо, не дефект)» — шесть копий геометрии запекались в один
+  // меш. 2026-07-31 join перестал трогать меши с >1 пользователем: после dedup
+  // (6→1 меш) join видит общий меш с 6 владельцами и исключает его. Файл больше
+  // не растёт (44 808 → 12 976, −71 %).
+  it('["safe","join"]: файл СЖАЛСЯ — общая геометрия исключена из join', async () => {
     const { result } = await runAndRead('Unlinked Duplicates 01.glb', {
       advancedFeatures: ['safe', 'join'],
     });
     expect(result.status).toBe('ok');
-    expect(result.metrics.after.fileBytes).toBeGreaterThan(result.metrics.before.fileBytes);
+    expect(result.metrics.after.fileBytes).toBeLessThan(result.metrics.before.fileBytes);
   });
 
   // ----------------------------------------------------------
@@ -1379,6 +1362,79 @@ describe('Golden Corpus — Preinstanced Grid 01: pre-instanced model survives p
       expect(result.status).toBe('ok');
       expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
     }
+  });
+});
+
+// ============================================================================
+// ТЕСТЫ НА ОТКАЗ ПО НЕИЗВЕСТНОМУ РАСШИРЕНИЮ (задание 2026-07-31-умное-объединение §3)
+// ============================================================================
+//
+// Структурные правила (dedup, prune-unused, prune-final, join, instance)
+// отказываются работать на моделях с неизвестным расширением, возвращая
+// { safe: false } с messageId 'unsupportedExtension.refuse'.
+//
+// AnimationPointerUVs и PotOfCoalsAnimationPointer — образцы Khronos с
+// KHR_animation_pointer, в репозиторий не коммитятся (LOCAL).
+// eachModel пропускает отсутствующие модели — на чистом клоне тесты зелёные.
+
+describe('Golden Corpus — structural rules refuse on unknown extension', () => {
+
+  eachModel(
+    'AnimationPointerUVs + safe: status=ok, анимации целы, weld работает',
+    ['AnimationPointerUVs.glb'],
+    async (modelName) => {
+      const result = await optimizeFile(modelPath(modelName), {
+        advancedFeatures: ['safe'],
+        dryRun: true,
+      });
+      expect(result.status).toBe('ok');
+      // Анимации не должны теряться (раньше падали 1 → 0).
+      expect(result.metrics.after.animations).toBe(result.metrics.before.animations);
+      // В skipped должны быть отказы structure/prune-final с kind='unsafe'.
+      // Движок оборачивает canFix-сообщение в engine.skipped.line —
+      // проверяем по тексту, а не по messageId правила.
+      const refused = result.skipped.filter((s) =>
+        s.kind === 'unsafe' && s.text && s.text.includes('does not understand'),
+      );
+      expect(refused.length).toBeGreaterThanOrEqual(1);
+      expect(refused.some((s) => s.ruleId === 'structure/prune-final')).toBe(true);
+      // Неструктурные правила (weld) по-прежнему работают.
+      expect(result.applied.some((a) => a.ruleId === 'geometry/weld')).toBe(true);
+    },
+  );
+
+  eachModel(
+    'PotOfCoalsAnimationPointer + safe+join+draco: status=ok, анимации целы',
+    ['PotOfCoalsAnimationPointer.glb'],
+    async (modelName) => {
+      const result = await optimizeFile(modelPath(modelName), {
+        advancedFeatures: ['safe', 'join', 'draco'],
+        dryRun: true,
+      });
+      expect(result.status).toBe('ok');
+      expect(result.metrics.after.animations).toBe(result.metrics.before.animations);
+      // join и draco не должны молча игнорировать отказ — skipped должен
+      // содержать отказы структурных правил.
+      const refused = result.skipped.filter((s) =>
+        s.kind === 'unsafe' && s.text && s.text.includes('does not understand'),
+      );
+      expect(refused.length).toBeGreaterThanOrEqual(1);
+    },
+  );
+
+  // Обязательная проверка: на модели БЕЗ неизвестных расширений отказов
+  // unsupportedExtension.refuse быть не должно. Без этого тест пройдёт и
+  // в случае, когда отказ срабатывает на всех моделях подряд.
+  it('Dirty Cube 01 + safe: ни одной записи unsupportedExtension.refuse в skipped', async () => {
+    const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    const refused = result.skipped.filter((s) =>
+      s.kind === 'unsafe' && s.text && s.text.includes('does not understand'),
+    );
+    expect(refused.length).toBe(0);
   });
 });
 
