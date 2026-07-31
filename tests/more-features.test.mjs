@@ -296,3 +296,44 @@ describe('listRules — detailed', () => {
     expect(uniqueIds.size).toBe(ids.length);
   });
 });
+
+// ================================================================
+// skipped feature: engine проставляет meta.feature в записи skipped
+// ================================================================
+//
+// core/engine.mjs (addSkipped) обязан копировать meta.feature в каждую
+// запись skipped, чтобы UI мог привязать cost-предупреждение к конкретной
+// галочке. Без поля feature интерфейс не знает, на какую галочку вешать
+// красный ! — и cost-запись остаётся в отчёте, но не там, где принимается
+// решение.
+
+describeIfModels(['Dirty Cube 01.glb'], 'skipped feature field', () => {
+  it('cost entries in skipped have a non-empty feature field from a valid set', async () => {
+    // Dirty Cube 01: 5 текстур, KTX2 даёт cost (51 KB → 175 KB, +239 %).
+    const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
+      advancedFeatures: ['ktx2'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+
+    // Собираем эталонный набор feature-имён из правил движка.
+    const validFeatures = new Set(
+      listRules()
+        .filter((r) => typeof r.feature === 'string' && r.feature.length > 0)
+        .map((r) => r.feature),
+    );
+    expect(validFeatures.size).toBeGreaterThan(0);
+
+    const costEntries = result.skipped.filter((s) => s.kind === 'cost');
+    expect(costEntries.length).toBeGreaterThan(0);
+
+    for (const entry of costEntries) {
+      // Поле feature обязательно: без него UI не знает, на какую галочку вешать !.
+      expect(entry).toHaveProperty('feature');
+      expect(typeof entry.feature).toBe('string');
+      expect(entry.feature.length).toBeGreaterThan(0);
+      // Значение должно быть из реального набора фич правил — не опечатка, не null.
+      expect(validFeatures.has(entry.feature)).toBe(true);
+    }
+  });
+});
