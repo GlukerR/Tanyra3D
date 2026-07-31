@@ -74,9 +74,32 @@
   function apply(root) {
     const scope = root || document;
     for (const [attr, set] of ATTRS) {
-      for (const el of scope.querySelectorAll(`[${attr}]`)) set(el, t(el.getAttribute(attr)));
+      for (const el of scope.querySelectorAll(`[${attr}]`)) set(el, t(el.getAttribute(attr), params(el, attr)));
     }
     document.documentElement.lang = lang;
+  }
+
+  // Подстановки динамической подписи хранятся на самом элементе, по атрибуту:
+  // у текста и у подсказки они разные (⊞ Metadata (12) при подсказке без чисел).
+  function params(el, attr) {
+    return el.__i18n && el.__i18n[attr];
+  }
+
+  // Подпись, которую ставит не разметка, а код.
+  //
+  // Помечаем элемент тем же атрибутом, что и статику, — иначе apply() при смене
+  // языка перерисует его по ключу ИЗ РАЗМЕТКИ и откатит подпись к исходной:
+  // «Пересобрать» снова станет «Собрать», статус сборки — «Готово», а счётчик
+  // замечаний на кнопке Validation просто исчезнет. Смена языка обязана менять
+  // слова и только слова.
+  function mark(el, attr, key, values) {
+    if (!el) return;
+    el.setAttribute(attr, key);
+    const bag = el.__i18n || (el.__i18n = {});
+    if (values) bag[attr] = values;
+    else delete bag[attr];
+    const pair = ATTRS.find(([a]) => a === attr);
+    if (pair) pair[1](el, t(key, values));
   }
 
   function setLang(next) {
@@ -96,6 +119,9 @@
     plural,
     apply,
     setLang,
+    setText: (el, key, values) => mark(el, 'data-i18n', key, values),
+    setTitle: (el, key, values) => mark(el, 'data-i18n-title', key, values),
+    setAria: (el, key, values) => mark(el, 'data-i18n-aria', key, values),
     get lang() { return lang; },
     languages: known,
     onChange(fn) { if (typeof fn === 'function') listeners.push(fn); },

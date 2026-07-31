@@ -22,6 +22,8 @@ window.I18N_CATALOGS.ru = {
   'outliner.metadata.title': 'Метаданные файла (сцены, меши, материалы…)',
   'outliner.validation': '✓ Проверка',
   'outliner.validation.title': 'Отчёт проверки glTF по стандарту Khronos',
+  'outliner.validation.count': '✓ Проверка ({n})',
+  'outliner.validation.range': '✓ Проверка ({from} → {to})',
   'dropzone.title': 'Перетащите сюда 3D-модель',
   'dropzone.sub': 'или нажмите + · пока только .glb',
   'dropzone.rejected': 'Пока поддерживается только .glb',

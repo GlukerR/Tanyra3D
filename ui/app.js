@@ -9,6 +9,11 @@
   // Короткий доступ к каталогу строк (ui/i18n.js). Тексты интерфейса берутся ТОЛЬКО
   // отсюда — иначе смена языка оставляет островки английского.
   const t = (key, params) => window.I18n.t(key, params);
+  // Подпись, которую ставит код, а не разметка. Отличается от `el.textContent = t(...)`
+  // тем, что элемент запоминает ключ: смена языка перерисует его сама и не откатит на
+  // ключ из разметки. Всё, что меняется по ходу работы (кнопка сборки, строка статуса,
+  // счётчики на кнопках окон), обязано ставиться через это.
+  const setText = (el, key, params) => window.I18n.setText(el, key, params);
   // Язык отчёта запрашивается у сервера явно: тексты итога, планов и описаний опций
   // живут в assistant.mjs и profiles/*.json, клиент их не хранит.
   const langParam = () => `lang=${encodeURIComponent(window.I18n.lang)}`;
@@ -470,7 +475,10 @@
   }
 
   // Отчёт пересказывается на сервере из того же результата: explainResult() — чистая
-  // функция, файлы ей не нужны, поэтому пересобирать модель не требуется.
+  // функция, файлы ей не нужны, поэтому пересобирать модель не требуется. Оттуда же
+  // приходит result со строками правил на новом языке — они собраны из messageId,
+  // а не переведены заново (см. localizeResult в core/i18n.mjs). Модель при смене
+  // языка не перезаливается и не пересобирается: меняются слова, не результат.
   async function reexplainLastResult() {
     if (!lastResult) return;
     try {
@@ -481,6 +489,7 @@
       if (res.ok) {
         const data = await res.json();
         if (data && data.explain) lastExplain = data.explain;
+        if (data && data.result) lastResult = data.result;
       }
     } catch (e) {
       /* отчёт останется на прежнем языке — лучше, чем пустая панель */
@@ -531,7 +540,10 @@
   // на каждом значке, только объясняет, что вообще значит ⚠).
   const DECODER_NOTE_KEY = 'decoder.legend';
 
-  async function loadExtensions(platformId) {
+  // `keep` — снимок выбора, который надо вернуть после пересборки панели (см.
+  // relabelExtensions). Без него панель заново решает, что включить, а это уже не
+  // перерисовка, а изменение настроек.
+  async function loadExtensions(platformId, keep) {
     extensions = [];
     extensionsList.innerHTML = '';
     // Подсказка живёт в <body> и переживает пересборку панели — но кнопка, к которой
@@ -580,7 +592,7 @@
     if (decoderLegend) decoderLegend.classList.toggle('hidden', !extensions.some((e) => NEEDS_DECODER.has(e.id)));
     extensionsPanel.classList.remove('hidden');
     // панель пересобрана → дефолты платформы + авто-флажки [Source] + состояние кнопки
-    applyDetection();
+    applyDetection(keep);
     updateRunButtonState();
   }
 
@@ -953,15 +965,16 @@
   // Счётчик на кнопке Validation: пока собранной модели нет — число проблем исходника;
   // после сборки — «было → стало», чтобы разница была видна не открывая окно.
   function updateInspectButtons() {
-    if (!modelInspect) { btnValidation.textContent = '✓ Validation'; return; }
+    if (!modelInspect) { setText(btnValidation, 'outliner.validation'); return; }
     // считаем только настоящие проблемы: сообщения, объяснённые слепотой валидатора
     // к расширениям, дефектами модели не являются (см. explainedBy в addons/gltf).
     const real = (data) => (data.validation || []).filter((m) => !m.explainedBy).length;
     const src = real(modelInspect);
     const dst = resultInspect ? real(resultInspect) : null;
     // Обе стороны чистые — не мусорим нулями в подписи.
-    if (!src && !dst) { btnValidation.textContent = '✓ Validation'; return; }
-    btnValidation.textContent = dst === null ? `✓ Validation (${src})` : `✓ Validation (${src} → ${dst})`;
+    if (!src && !dst) { setText(btnValidation, 'outliner.validation'); return; }
+    if (dst === null) setText(btnValidation, 'outliner.validation.count', { n: src });
+    else setText(btnValidation, 'outliner.validation.range', { from: src, to: dst });
   }
 
   // Инспекция собранного файла для правой колонки окон. Тот же формат, что и у исходника,
@@ -998,7 +1011,7 @@
   // Если пользователь уже что-то выбирал на этой платформе — ВОССТАНАВЛИВАЕМ его выбор
   // (настройки не слетают при новой модели/возврате платформы). Иначе — рекомендуемые
   // дефолты + авто-флажки по источнику. Бейджи [Source] показываем всегда по текущей модели.
-  function applyDetection() {
+  function applyDetection(keep) {
     // Знак цены снимается тоже: он относится к ПРОШЛОЙ сборке. Оставить его на новой
     // модели значило бы обвинить галочку в том, чего на этой модели ещё не случилось.
     extensionsList.querySelectorAll('.ext-source-badge, .ext-advised-badge, .ext-cost-badge').forEach((b) => b.remove());
@@ -1007,11 +1020,19 @@
     // под то, что в ней уже есть, и под то, что ей нужно. Иначе выбор, сделанный
     // однажды на одной модели, молча переезжает на все следующие, и человек не
     // понимает, почему совет не сработал. Режим «Мой выбор» оставляет всё как было.
+    //
+    // keep перебивает оба режима: панель пересобрали не из-за новой модели, а чтобы
+    // перечитать подписи (смена языка), и выбор обязан пережить это дословно.
     const saved = savedSelections[platformSelect.value];
-    if (saved && adviceMode === 'manual') restoreSelection(saved);
+    if (keep) restoreSelection(keep);
+    else if (saved && adviceMode === 'manual') restoreSelection(saved);
     else applyDefaultSelection();
 
     showDetectionBadges();
+    // Знак цены относится к показанному результату, а не к сборке, которая только что
+    // прошла: пока на экране тот же результат, знак обязан быть на месте. Иначе он
+    // пропадал при каждой пересборке панели — переключении модели, смене языка.
+    if (lastResult) renderCostBadges(lastResult.skipped);
     syncGeometryRadio();
     syncKtx2ModeUI();
     toggleKtx2Mode(!!(document.getElementById('ext-ktx2') && document.getElementById('ext-ktx2').checked));
@@ -1055,14 +1076,33 @@
     }
   }
 
-  // Снимок текущего выбора → память платформы. Зовётся только при ЯВНОМ действии
-  // пользователя (не из applyDefaultSelection), иначе дефолты затирали бы «последний выбор».
-  function rememberSelection() {
-    savedSelections[platformSelect.value] = {
+  // Снимок того, что сейчас стоит в панели. Это ВЕСЬ её изменяемый состав: флажки,
+  // выбранный кодек геометрии, режим KTX2. Значки ([Source], «Советуем», знак цены)
+  // сюда не входят — они выводятся из lastDetection и lastResult и рисуются заново.
+  function currentSelection() {
+    return {
       geometryChoice,
       ktx2Mode,
       checked: [...extensionsList.querySelectorAll('.ext-checkbox:checked')].map((cb) => cb.value),
     };
+  }
+
+  // Снимок текущего выбора → память платформы. Зовётся только при ЯВНОМ действии
+  // пользователя (не из applyDefaultSelection), иначе дефолты затирали бы «последний выбор».
+  function rememberSelection() {
+    savedSelections[platformSelect.value] = currentSelection();
+  }
+
+  // Перечитать панель опций на другом языке.
+  //
+  // Подписи и описания опций приходят с сервера (assistant.mjs), поэтому обойтись
+  // подменой текста на месте нельзя — панель собирается заново. Но пересборка не имеет
+  // права ничего решать: снимаем выбор до неё и возвращаем дословно после. Смена языка
+  // меняет слова, а не настройки сборки.
+  async function relabelExtensions() {
+    if (!platformSelect.value) return;
+    const keep = extensionsList.querySelector('.ext-checkbox') ? currentSelection() : undefined;
+    await loadExtensions(platformSelect.value, keep);
   }
 
   // Бейджи [Source] — по текущей модели, информационно (что уже было в импортированном файле).
@@ -1183,7 +1223,7 @@
     irreversibleWarning.classList.add('hidden');
     integrityWarning.classList.add('hidden');
     failBanner.classList.add('hidden');
-    runBtn.textContent = t('btn.build');
+    setText(runBtn, 'btn.build');
     // Правый HUD пуст до сборки; левый заполняется базовыми данными модели в handleFile.
     statsAfter.innerHTML = '';
     deltaBadge.textContent = '';
@@ -1323,8 +1363,8 @@
       renderReport(lastResult, lastExplain);
       const integrityFailed = lastResult.status === 'fail';
       integrityWarning.classList.toggle('hidden', !integrityFailed);
-      setPhase(integrityFailed ? t('status.failed') : t('status.ready'), integrityFailed ? 'fail' : null);
-      runBtn.textContent = t('btn.rebuild');
+      setPhase(integrityFailed ? 'status.failed' : 'status.ready', integrityFailed ? 'fail' : null);
+      setText(runBtn, 'btn.rebuild');
       if (resultDownloadUrl) {
         downloadBtn.classList.remove('hidden');
         renderIrreversibleWarning(lastResult.applied);
@@ -1338,8 +1378,8 @@
         }
       }
     } else {
-      runBtn.textContent = t('btn.build');
-      setPhase(t('status.ready'), null);
+      setText(runBtn, 'btn.build');
+      setPhase('status.ready', null);
     }
     updateInspectButtons();
     updateRunButtonState();
@@ -1366,10 +1406,10 @@
     statsBefore.innerHTML = '';
     chosenFileLabel.textContent = '';
     runBtn.disabled = true;
-    runBtn.textContent = t('btn.build');
+    setText(runBtn, 'btn.build');
     if (stageHint) stageHint.classList.remove('hidden');
     if (window.OptiViewer) window.OptiViewer.reset();
-    setPhase(t('status.ready'), null);
+    setPhase('status.ready', null);
     updateInspectButtons();
   }
 
@@ -1501,8 +1541,11 @@
   // Статус-бар
   // ---------------------------------------------------------------
 
-  function setPhase(text, mode) {
-    phaseStatus.textContent = text;
+  // Принимает КЛЮЧ, а не готовую строку: статус живёт на экране долго, и при смене
+  // языка его надо перерисовать. Готовую строку перерисовать нельзя — она уже забыла,
+  // из чего собрана, и i18n откатил бы статус к «Готово» из разметки.
+  function setPhase(key, mode, params) {
+    setText(phaseStatus, key, params);
     statusDot.classList.remove('busy', 'fail');
     if (mode === 'busy') statusDot.classList.add('busy');
     if (mode === 'fail') statusDot.classList.add('fail');
@@ -1510,10 +1553,10 @@
 
   function onProgressEvent(e) {
     if (e.type === 'phase') {
-      setPhase(t('status.phase', { n: e.phase, name: e.name }), 'busy');
+      setPhase('status.phase', 'busy', { n: e.phase, name: e.name });
       logMessage('debug', `Phase ${e.phase}: ${e.name}`);
     } else if (e.type === 'rule') {
-      setPhase(t('status.rule', { title: e.title }), 'busy');
+      setPhase('status.rule', 'busy', { title: e.title });
       logMessage('debug', `Rule: ${e.title}`);
     }
   }
@@ -1559,7 +1602,7 @@
     if (!selectedFile) return;
 
     runBtn.disabled = true;
-    setPhase(currentSourceId ? t('status.optimizing') : t('status.uploading'), 'busy');
+    setPhase(currentSourceId ? 'status.optimizing' : 'status.uploading', 'busy');
     setBusy('preview-optimized', currentSourceId ? 'busy.optimizing' : 'busy.uploading');
     const feats = getSelectedFeatures();
     logMessage('info', t('log.buildStarted', {
@@ -1614,7 +1657,7 @@
   }
 
   function showGenericError(message) {
-    setPhase(t('status.error'), 'fail');
+    setPhase('status.error', 'fail');
     logMessage('error', message);
     showWindow(failBanner);
     failBanner.querySelector('.fail-title').textContent = t('fail.generic');
@@ -1666,7 +1709,7 @@
     }
 
     const integrityFailed = result.status === 'fail';
-    setPhase(integrityFailed ? t('status.failed') : t('status.ready'), integrityFailed ? 'fail' : null);
+    setPhase(integrityFailed ? 'status.failed' : 'status.ready', integrityFailed ? 'fail' : null);
     failBanner.classList.add('hidden');
 
     // Применённые правила — раньше итога, чтобы в свёрнутой панели логов (она показывает
@@ -1690,7 +1733,7 @@
 
     // Кнопку не прячем — можно менять флажки и пересобирать результат сколько угодно раз.
     // Запоминаем настройки этой сборки: пока их не изменят, пересборка неактивна.
-    runBtn.textContent = t('btn.rebuild');
+    setText(runBtn, 'btn.rebuild');
     lastBuildSignature = currentSettingsSignature();
 
     // Результат перезаписывается на сервере при каждом прогоне → анти-кэш в URL,
@@ -1736,7 +1779,7 @@
   }
 
   function renderFail(result, explain) {
-    setPhase(t('status.failed'), 'fail');
+    setPhase('status.failed', 'fail');
     logMessage('error', t('log.notWritten'));
     showWindow(failBanner);
     failBanner.querySelector('.fail-title').textContent = t('fail.notWritten');
@@ -2680,14 +2723,23 @@
     animPollId = requestAnimationFrame(tick);
   }
 
+  // Подпись кнопки воспроизведения зависит от состояния, а не от разметки: «Пауза»
+  // при игре, «Пуск» на паузе. Отдельной функцией — чтобы смена языка перечитала её,
+  // не трогая само состояние.
+  function refreshAnimLabels() {
+    if (!animPlayBtn) return;
+    const playing = animPlayBtn.classList.contains('is-on');
+    window.I18n.setTitle(animPlayBtn, playing ? 'vp.pause' : 'vp.play');
+    window.I18n.setAria(animPlayBtn, playing ? 'vp.pause' : 'vp.play');
+  }
+
   if (animPlayBtn) {
     animPlayBtn.addEventListener('click', () => {
       const playing = !animPlayBtn.classList.contains('is-on');
       animPlayBtn.classList.toggle('is-on', playing);
       animPlayBtn.setAttribute('aria-pressed', String(playing));
       animPlayBtn.textContent = playing ? '⏸' : '▶';
-      animPlayBtn.title = t(playing ? 'vp.pause' : 'vp.play');
-      animPlayBtn.setAttribute('aria-label', animPlayBtn.title);
+      refreshAnimLabels();
       if (window.OptiViewer) window.OptiViewer.setAnimationPlaying(playing);
     });
   }
@@ -2764,18 +2816,28 @@
 
   // Статику переводит сам i18n по атрибутам; всё, что нарисовано из JS, надо
   // перерисовать — оно осталось на прежнем языке.
-  window.I18n.onChange(() => {
+  //
+  // Смена языка — перерисовка, и только. Ни одна строка ниже не имеет права принять
+  // решение за пользователя: флажки, выбранная платформа, значки, открытые окна, уже
+  // собранный результат остаются как были. Модель не перезагружается и не пересобирается.
+  window.I18n.onChange(async () => {
     renderLangSwitch();
     updateRunButtonState();
     updateLogsBar();
     renderDecoderLegend();
     refreshBusyLabels(); // язык могли переключить посреди долгой сборки
+    refreshAnimLabels();
+    renderModelList();
     if (!logsWindow.classList.contains('hidden')) renderLogsWindow();
-    reloadPlatformTitles();
-    loadExtensions(platformSelect.value);
-    reexplainLastResult();
+    await reloadPlatformTitles();
+    // Строго по порядку: панель пересобирается, и отчёт должен ложиться на готовую
+    // панель. Иначе знак цены успевал нарисоваться до пересборки и исчезал вместе
+    // со старой разметкой — гонка, которая проявлялась через раз.
+    await relabelExtensions();
+    await reexplainLastResult();
     if (!validationWindow.classList.contains('hidden')) renderValidationWindow();
     if (!metadataWindow.classList.contains('hidden')) renderMetadataWindow();
+    updateInspectButtons();
     logMessage('debug', t('log.langChanged', { name: t('lang.name') }));
   });
 

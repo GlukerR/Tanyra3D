@@ -21,6 +21,9 @@ window.I18N_CATALOGS.en = {
   'outliner.metadata.title': 'Asset metadata (scenes, meshes, materials…)',
   'outliner.validation': '✓ Validation',
   'outliner.validation.title': 'Khronos glTF validation report',
+  // Счётчик замечаний на самой кнопке: до сборки — сколько в исходнике, после — было → стало.
+  'outliner.validation.count': '✓ Validation ({n})',
+  'outliner.validation.range': '✓ Validation ({from} → {to})',
   'dropzone.title': 'Drop a 3D model here',
   'dropzone.sub': 'or click + · .glb for now',
   'dropzone.rejected': 'Only .glb is supported for now',
