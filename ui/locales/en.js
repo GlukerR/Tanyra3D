@@ -94,6 +94,18 @@ window.I18N_CATALOGS.en = {
   'busy.loading': 'Loading',
   'busy.uploading': 'Uploading',
   'busy.optimizing': 'Building',
+
+  // --- живой замер отрисовки в HUD вьюпортов ---
+  // Показывается время кадра каждого вьюпорта, а не FPS: оба рисуются в одном
+  // кадре, и раздельный счётчик кадров дал бы одинаковые числа. См. app.js renderPerf.
+  'perf.draw': 'DRAW',
+  'perf.ms': 'ms',
+  'perf.fps': 'fps',
+  'perf.faster': 'lighter',
+  'perf.slower': 'heavier',
+  'perf.title': 'Time this viewport spends preparing one frame, median over 60 frames. '
+    + 'Measured on this machine, not on a visitor device — read it as a relative figure: '
+    + 'how much lighter the model became, not what people will get.',
   'status.ready': 'Ready',
   'status.error': 'Error',
   'status.uploading': 'Uploading file…',

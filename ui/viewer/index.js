@@ -41,6 +41,17 @@ function createViewer(canvas) {
   return new Viewer(canvas);
 }
 
+// Окно замера нагрузки на отрисовку: 60 кадров — примерно секунда на 60-герцовом
+// мониторе. Короче — цифра дёргается и её невозможно читать; длиннее — реакция на
+// смену модели становится заметно вялой. Подробности замера — у DualViewport._pushPerf.
+const PERF_WINDOW = 60;
+
+function median(arr) {
+  const s = Array.from(arr).sort((a, b) => a - b);
+  const mid = s.length >> 1;
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+}
+
 /**
  * Один слот сравнения: панель `.vp-pane` с <canvas> и строкой статуса.
  * Лениво создаёт движок при первой загрузке (когда контейнер уже виден и имеет размер).
@@ -154,6 +165,18 @@ class DualViewport {
     this._animTime = 0;
     this._animClipIndex = 0; // выбранный клип переживает загрузку новой модели
     this._exposure = 1;      // 1.0 — как отдаёт three.js без поправки
+    // Кольцевые буферы замера отрисовки; заполняются в _pushPerf каждый кадр.
+    this._perf = {
+      left: new Float64Array(PERF_WINDOW),
+      right: new Float64Array(PERF_WINDOW),
+      frame: new Float64Array(PERF_WINDOW),
+      i: 0,
+    };
+  }
+
+  /** Сбросить окно замера — после загрузки новой модели прежние кадры уже не про неё. */
+  _resetPerf() {
+    this._perf.i = 0;
   }
 
   _init() {
@@ -206,12 +229,67 @@ class DualViewport {
       const dt = Math.min((now - prev) / 1000, 0.1); // клип времени: вкладка была свёрнута
       prev = now;
       this._advanceAnimation(dt);
+      // Время каждого вьюпорта меряется отдельно, время кадра — общее.
+      // Почему именно так — см. комментарий у _perf ниже.
+      const t0 = performance.now();
       this.left.renderFrame();
+      const t1 = performance.now();
       this.right.renderFrame();
+      const t2 = performance.now();
+      this._pushPerf(t0, t1, t2, dt);
       this._rafId = requestAnimationFrame(tick);
     };
     prev = performance.now();
     this._rafId = requestAnimationFrame(tick);
+  }
+
+  // -----------------------------------------------------------------------
+  // Замер нагрузки на отрисовку.
+  //
+  // ВАЖНО, почему здесь НЕ «FPS слева» и «FPS справа». Оба вьюпорта рисуются
+  // в ОДНОМ кадре одного requestAnimationFrame (см. tick выше) — кадр у них
+  // общий физически. Считать кадры отдельно по вьюпортам значит получить два
+  // одинаковых числа по построению: они всегда совпадут, что бы ни показала
+  // оптимизация. А само число почти всегда упрётся в частоту монитора: rAF
+  // не даёт рисовать чаще, и на настольной видеокарте обе сцены успевают в
+  // бюджет кадра. Пользователь увидел бы «60 и 60» и прочитал бы это как
+  // «оптимизация ничего не дала».
+  //
+  // Различается — время, которое занимает renderFrame() каждого вьюпорта.
+  // Оно растёт с числом вызовов отрисовки и переключений состояния, то есть
+  // ровно с тем, что и правит оптимизация. Мерится в одном кадре, на одной
+  // машине, в одну и ту же секунду — это честное сравнение «до/после».
+  //
+  // Чего это число НЕ значит: это время работы CPU по подготовке и отправке
+  // кадра, а не время самой видеокарты (WebGL асинхронен, дожидаться его
+  // пришлось бы принудительной синхронизацией, которая исказит замер).
+  // И это машина автора, а не телефон посетителя сайта. Показатель
+  // относительный: во сколько раз легче стало, а не «столько будет у людей».
+  //
+  // Медиана по окну в 60 кадров, а не среднее: одиночная задержка от сборщика
+  // мусора или переключения вкладки не должна дёргать цифру.
+  // -----------------------------------------------------------------------
+
+  _pushPerf(t0, t1, t2, dt) {
+    const p = this._perf;
+    p.left[p.i % PERF_WINDOW] = t1 - t0;
+    p.right[p.i % PERF_WINDOW] = t2 - t1;
+    p.frame[p.i % PERF_WINDOW] = dt * 1000;
+    p.i++;
+  }
+
+  /**
+   * Нагрузка на отрисовку за последние PERF_WINDOW кадров.
+   * `null`, пока окно не набралось — показывать половину замера хуже, чем ничего.
+   */
+  getPerf() {
+    const p = this._perf;
+    if (p.i < PERF_WINDOW) return null;
+    return {
+      leftMs: median(p.left),
+      rightMs: median(p.right),
+      fps: 1000 / Math.max(median(p.frame), 0.001), // общий на оба вьюпорта
+    };
   }
 
   // -----------------------------------------------------------------------
@@ -331,6 +409,7 @@ class DualViewport {
   }
 
   _afterLoad() {
+    this._resetPerf(); // сцена сменилась — прежние кадры мерили другую модель
     if (this.left.viewer && this.right.viewer) this._linkCameras();
     this._applyAnimSelection();
     this._applyExposure();
@@ -408,6 +487,7 @@ class DualViewport {
 
   reset() {
     this._stopLoop();
+    this._resetPerf();
     this._unlinkCameras();
     if (this.left) this.left.reset();
     if (this.right) this.right.reset();
@@ -434,6 +514,9 @@ window.OptiViewer = {
   // Экспозиция — одна на оба вьюпорта, см. _applyExposure.
   setExposure: (v) => dual.setExposure(v),
   getExposure: () => dual.getExposure(),
+  // Нагрузка на отрисовку: { leftMs, rightMs, fps } либо null, пока окно замера
+  // не набралось. Почему не «FPS слева / FPS справа» — см. DualViewport._pushPerf.
+  getPerf: () => dual.getPerf(),
   // Уведомление «модель загрузилась/сменилась/сброшена» — по нему UI перестраивает
   // панели, вместо того чтобы опрашивать состав модели каждый кадр.
   setOnLoaded: (fn) => dual.setOnLoaded(fn),

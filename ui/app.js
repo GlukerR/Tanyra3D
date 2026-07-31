@@ -36,6 +36,8 @@
 
   const statsBefore = $('stats-before');
   const statsAfter = $('stats-after');
+  const perfBefore = $('perf-before');
+  const perfAfter = $('perf-after');
   const deltaBadge = $('delta-badge');
 
   const failBanner = $('fail-banner');
@@ -144,6 +146,75 @@
       const label = node.querySelector('.vp-busy-label');
       if (label) label.textContent = t(key);
     }
+  }
+
+  // -----------------------------------------------------------------------
+  // Живой замер нагрузки на отрисовку в HUD обоих вьюпортов.
+  //
+  // Показывается время кадра каждого вьюпорта в миллисекундах, а НЕ «FPS слева»
+  // и «FPS справа»: кадр у обоих общий, оба рисуются в одном requestAnimationFrame,
+  // и раздельный счётчик кадров дал бы два одинаковых числа при любой оптимизации.
+  // Разбор — в комментарии у DualViewport._pushPerf (ui/viewer/index.js).
+  //
+  // Обновление раз в 500 мс, а не каждый кадр: цифра, меняющаяся 60 раз в секунду,
+  // нечитаема, а запись в DOM в цикле отрисовки — лишняя работа в самом горячем месте.
+  const PERF_TICK_MS = 500;
+  let perfTimer = null;
+
+  function initPerfMeter() {
+    if (!perfBefore || !perfAfter || perfTimer != null) return;
+    perfTimer = setInterval(renderPerf, PERF_TICK_MS);
+    renderPerf();
+  }
+
+  function renderPerf() {
+    const perf = window.OptiViewer && typeof window.OptiViewer.getPerf === 'function'
+      ? window.OptiViewer.getPerf()
+      : null;
+    if (!perf) { // окно замера ещё не набралось или сцены нет
+      perfBefore.innerHTML = '';
+      perfAfter.innerHTML = '';
+      return;
+    }
+    // fps общий на оба вьюпорта, поэтому показывается один раз — слева.
+    setPerfLine(perfBefore, perf.leftMs, `${Math.round(perf.fps)} ${t('perf.fps')}`);
+    setPerfLine(perfAfter, perf.rightMs, deltaText(perf.leftMs, perf.rightMs));
+  }
+
+  // Во сколько раз правый вьюпорт легче левого.
+  //
+  // Два порога, оба нужны:
+  //
+  // 1. PERF_RATIO_FLOOR_MS. Браузер огрубляет performance.now() до 0.1 мс — защита от
+  //    атак по времени. На лёгкой сцене замер выходит 0.1–0.4 мс, то есть считанные
+  //    отсчёта часов, и «×3» там означает разницу в две единицы младшего разряда, а не
+  //    трёхкратный выигрыш. Ниже 1 мс отношение не показываем вовсе: сами миллисекунды
+  //    остаются на виду, а вот множитель на таком замере — выдумка.
+  // 2. Пять процентов. Даже выше порога мелкая разница — дрожание, а не результат.
+  const PERF_RATIO_FLOOR_MS = 1;
+
+  function deltaText(leftMs, rightMs) {
+    if (!(leftMs > 0) || !(rightMs > 0)) return '';
+    if (leftMs < PERF_RATIO_FLOOR_MS && rightMs < PERF_RATIO_FLOOR_MS) return '';
+    const ratio = leftMs / rightMs;
+    if (ratio > 1.05) return `×${ratio.toFixed(1)} ${t('perf.faster')}`;
+    if (ratio < 0.95) return `×${(1 / ratio).toFixed(1)} ${t('perf.slower')}`;
+    return '';
+  }
+
+  function setPerfLine(host, ms, note) {
+    host.innerHTML = '';
+    // Один знак после запятой, а не два: часы браузера огрублены до 0.1 мс,
+    // и «0.30» рисовало бы точность, которой у замера нет.
+    const row = hudLine(t('perf.draw'), `${ms.toFixed(1)} ${t('perf.ms')}`, null);
+    row.title = t('perf.title');
+    if (note) {
+      const extra = document.createElement('span');
+      extra.className = 'hud-val perf-note';
+      extra.textContent = note;
+      row.appendChild(extra);
+    }
+    host.appendChild(row);
   }
 
   let selectedFile = null;
@@ -996,6 +1067,18 @@
   }
 
   // Список моделей слева. Пока одна модель за раз; позже — несколько с выбором.
+  // Большая зона сброса нужна ровно до первой модели: пока список пуст, это
+  // единственная заметная подсказка, что от человека вообще хотят файл. Как только
+  // модель загружена, она превращается в пустой прямоугольник, занимающий половину
+  // сайдбара, — и уступает место списку. Заменить модель по-прежнему можно двумя
+  // способами: кнопкой «+» в шапке и броском файла на сайдбар (см. dropTarget).
+  //
+  // Когда список станет многомодельным, менять здесь ничего не придётся: условие
+  // «список пуст» уже сформулировано правильно.
+  function syncDropzone() {
+    dropzone.classList.toggle('hidden', modelList.children.length > 0);
+  }
+
   function renderModelList(file) {
     modelList.innerHTML = '';
     const li = document.createElement('li');
@@ -1014,20 +1097,36 @@
     li.appendChild(name);
     li.appendChild(size);
     modelList.appendChild(li);
+    syncDropzone();
   }
 
   chooseFileBtn.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
 
   dropzone.addEventListener('click', () => fileInput.click());
-  dropzone.addEventListener('dragover', (e) => {
+
+  // Перетаскивание слушает ВЕСЬ сайдбар, а не только зону сброса.
+  //
+  // Причина: сама зона исчезает, как только модель загружена (см. showDropzone) —
+  // список моделей ценнее большого пустого прямоугольника. Если бы обработчики
+  // висели на ней, вместе с ней пропала бы и возможность перетащить следующую
+  // модель, и единственным способом заменить файл осталась бы кнопка «+».
+  // Сайдбар остаётся на месте всегда, поэтому цель для броска тоже.
+  const dropTarget = document.querySelector('.outliner') || dropzone;
+
+  dropTarget.addEventListener('dragover', (e) => {
     e.preventDefault();
-    dropzone.classList.add('drag-over');
+    dropTarget.classList.add('drag-over');
   });
-  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
-  dropzone.addEventListener('drop', (e) => {
+  // dragleave стреляет и при переходе между дочерними элементами внутри сайдбара.
+  // relatedTarget — куда курсор ушёл; если он всё ещё внутри, подсветку не снимаем,
+  // иначе она мигает при каждом пересечении внутренней границы.
+  dropTarget.addEventListener('dragleave', (e) => {
+    if (!dropTarget.contains(e.relatedTarget)) dropTarget.classList.remove('drag-over');
+  });
+  dropTarget.addEventListener('drop', (e) => {
     e.preventDefault();
-    dropzone.classList.remove('drag-over');
+    dropTarget.classList.remove('drag-over');
     const file = e.dataTransfer.files && e.dataTransfer.files[0];
     handleFile(file);
   });
@@ -2286,6 +2385,7 @@
   window.I18n.apply();
   renderLangSwitch();
   initBusyIndicators();
+  initPerfMeter();
 
   loadPlatforms();
 })();

@@ -100,6 +100,10 @@
         <header class="vp-hud vp-hud-left">
           <span class="vp-label" data-i18n="vp.original">ORIGINAL MESH</span>
           <div class="vp-stats" id="stats-before"></div>
+          <!-- Живой замер отрисовки. Отдельный контейнер, а не строка внутри
+               #stats-before: тот перерисовывается целиком через innerHTML при
+               каждой сборке, и живая строка пропадала бы вместе с ним. -->
+          <div class="vp-stats vp-perf" id="perf-before"></div>
         </header>
         <div class="viewer-status hidden"></div>
       </div>
@@ -117,6 +121,7 @@
           <span class="vp-label accent" data-i18n="vp.optimized">OPTIMIZED MESH</span>
           <span id="delta-badge" class="delta-badge"></span>
           <div class="vp-stats" id="stats-after"></div>
+          <div class="vp-stats vp-perf" id="perf-after"></div>
         </header>
         <div class="viewer-status hidden"></div>
       </div>

@@ -422,6 +422,19 @@ body {
 .hud-val.better { color: var(--success); }
 .hud-val.worse { color: var(--warning); }
 
+/* Живой замер отрисовки — отдельная строка под метриками модели, отбитая линией.
+   Она принципиально другого рода: метрики выше посчитаны ядром и неизменны для
+   этого файла, а здесь — сиюминутное состояние ЭТОЙ машины, меняющееся дважды в
+   секунду. Смешивать их в один столбик значит выдавать замер за характеристику
+   модели. Пустой контейнер не должен рисовать разделитель — отсюда :not(:empty). */
+.vp-perf:not(:empty) {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--outline-variant, var(--outline));
+  opacity: 0.85;
+}
+.perf-note { color: var(--outline); }
+
 .delta-badge {
   display: inline-block;
   margin-top: 6px;
@@ -576,6 +589,16 @@ body.resizing { cursor: col-resize; user-select: none; }
   cursor: pointer;
 }
 
+/* Подсветка цели броска. Слушает весь сайдбар (см. dropTarget в app.js), поэтому и
+   подсвечивается сайдбар: после загрузки модели зоны сброса на экране уже нет, а
+   бросить файл всё ещё можно — без подсветки это было бы никак не видно.
+   Пока зона видна, она подсвечивается вместе с ним — цель броска читается однозначно. */
+.outliner.drag-over {
+  background: rgba(192, 193, 255, 0.06);
+  box-shadow: inset 0 0 0 2px var(--primary-container);
+}
+
+.outliner.drag-over .dropzone,
 .dropzone.drag-over {
   border-color: var(--primary-container);
   background: rgba(192, 193, 255, 0.06);
