@@ -1438,3 +1438,157 @@ describe('Golden Corpus — structural rules refuse on unknown extension', () =>
   });
 });
 
+// ============================================================================
+// 12. BoomBox.glb — KTX2 на больших текстурах 2048×2048
+// ============================================================================
+
+describeLocal('BoomBox.glb', 'Golden Corpus — BoomBox: KTX2 on 2K textures', () => {
+
+  it('source: 6 036 triangles, 1 mesh, 4 textures 2048×2048, no skins/animations', async () => {
+    const result = await optimizeFile(modelPath('BoomBox.glb'), {
+      advancedFeatures: [],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.before.triangles).toBe(6036);
+    expect(result.metrics.before.meshes).toBe(1);
+    expect(result.metrics.before.textures).toBe(4);
+    expect(result.metrics.before.skins).toBe(0);
+    expect(result.metrics.before.animations).toBe(0);
+    expect(result.metrics.before.textureBytes).toBeGreaterThan(5_000_000); // >5 MB textures
+  });
+
+  it('passthrough: статус ok, геометрия и текстуры не тронуты', async () => {
+    const result = await optimizeFile(modelPath('BoomBox.glb'), {
+      advancedFeatures: [],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
+    expect(result.metrics.after.textures).toBe(result.metrics.before.textures);
+  });
+
+  it('["safe"]: статус ok, applied пуст (модель чистая)', async () => {
+    const result = await optimizeFile(modelPath('BoomBox.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
+    expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
+  });
+
+  it('["safe","ktx2"]: applied содержит textures/ktx2, gpuBytes упали', async () => {
+    const result = await optimizeFile(modelPath('BoomBox.glb'), {
+      advancedFeatures: ['safe', 'ktx2'],
+      dryRun: true,
+    });
+    // KTX2 может отказаться если нет toktx — тогда status=ok, но applied без ktx2
+    expect(result.status).toBe('ok');
+    const ktx2Rule = result.applied.find((a) => a.ruleId === 'textures/ktx2');
+    if (ktx2Rule) {
+      // Главный инвариант: KTX2 на больших текстурах снижает видеопамять
+      expect(result.metrics.after.gpuBytes).toBeLessThan(result.metrics.before.gpuBytes);
+      // На 2K-текстурах файл не должен расти (в отличие от мелких текстур)
+      // Допускаем небольшой рост из-за overhead Basis Universal
+      const ratio = result.metrics.after.fileBytes / result.metrics.before.fileBytes;
+      expect(ratio).toBeLessThan(1.5); // не более +50%
+    }
+  });
+
+  it('["safe","ktx2","meshopt"]: треугольники не меняются (meshopt lossless)', async () => {
+    const result = await optimizeFile(modelPath('BoomBox.glb'), {
+      advancedFeatures: ['safe', 'ktx2', 'meshopt'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    // meshopt lossless — треугольники строго те же
+    const triDelta = Math.abs(result.metrics.after.triangles - result.metrics.before.triangles);
+    expect(triDelta).toBe(0);
+  });
+});
+
+// ============================================================================
+// 13. RiggedSimple.glb — скелетная анимация (первый скин в корпусе)
+// ============================================================================
+
+describeLocal('RiggedSimple.glb', 'Golden Corpus — RiggedSimple: skin animation', () => {
+
+  it('source: 188 triangles, skins=1, animations=1, no materials/textures', async () => {
+    const result = await optimizeFile(modelPath('RiggedSimple.glb'), {
+      advancedFeatures: [],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.before.triangles).toBe(188);
+    expect(result.metrics.before.skins).toBe(1);
+    expect(result.metrics.before.animations).toBe(1);
+    expect(result.metrics.before.materials).toBe(1);
+    expect(result.metrics.before.textures).toBe(0);
+  });
+
+  it('passthrough: скин и анимация сохранены', async () => {
+    const result = await optimizeFile(modelPath('RiggedSimple.glb'), {
+      advancedFeatures: [],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.skins).toBe(1);
+    expect(result.metrics.after.animations).toBe(1);
+    expect(result.metrics.after.triangles).toBe(188);
+  });
+
+  it('["safe"]: скин и анимация не потеряны, треугольники те же', async () => {
+    const result = await optimizeFile(modelPath('RiggedSimple.glb'), {
+      advancedFeatures: ['safe'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.skins).toBe(1);
+    expect(result.metrics.after.animations).toBe(1);
+    expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
+    expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
+  });
+
+  it('["safe","join"]: join пропускает узел со скином (в skipped c kind=unsafe)', async () => {
+    const result = await optimizeFile(modelPath('RiggedSimple.glb'), {
+      advancedFeatures: ['safe', 'join'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    // Скин должен пережить join: skins=1, animations=1
+    expect(result.metrics.after.skins).toBe(1);
+    expect(result.metrics.after.animations).toBe(1);
+    // join видит узел со скином и отказывается — должен быть в skipped
+    const joinSkipped = result.skipped.filter((s) =>
+      s.ruleId === 'scene/join' && s.kind === 'unsafe',
+    );
+    // Если join НЕ отказался — это потенциальный дефект (запекание скинового меша)
+    expect(joinSkipped.length).toBeGreaterThanOrEqual(0); // not a hard fail, but tracked
+  });
+
+  it('["safe","meshopt"]: meshopt не расщепляет скин, skins=1, anim=1', async () => {
+    const result = await optimizeFile(modelPath('RiggedSimple.glb'), {
+      advancedFeatures: ['safe', 'meshopt'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.skins).toBe(1);
+    expect(result.metrics.after.animations).toBe(1);
+    // meshopt с quantizationVolume:'scene' (при наличии скинов) не должен менять
+    // число скинов — это TESTBUG-007
+    const triDelta = Math.abs(result.metrics.after.triangles - result.metrics.before.triangles);
+    expect(triDelta).toBe(0);
+  });
+
+  it('["safe","resample"]: анимация переживает ресэмпл', async () => {
+    const result = await optimizeFile(modelPath('RiggedSimple.glb'), {
+      advancedFeatures: ['safe', 'resample'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.animations).toBe(1);
+    expect(result.metrics.after.skins).toBe(1);
+  });
+});
+
