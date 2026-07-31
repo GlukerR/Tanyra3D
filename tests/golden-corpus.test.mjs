@@ -795,6 +795,23 @@ describe('Golden Corpus — Draco Compressed Input 01: re-decompression + safe',
     // сжатие на этой модели, поведение `geometry/compress`).
     expect(result.metrics.after.fileBytes).toBeLessThan(result.metrics.before.fileBytes);
   });
+
+  it('ktx2 сообщает цену: kind=cost с feature=ktx2 в skipped', async () => {
+    // KTX2 на мелкой текстуре (5 KB) даёт 71 KB — служебные данные контейнера
+    // весят больше самой картинки. Правило само замеряет рост и возвращает cost[]:
+    // движок передаёт это как kind:'cost' с полем feature, чтобы UI показал
+    // красный ! именно у галочки KTX2.
+    const result = await optimizeFile(modelPath('Draco Compressed Input 01.glb'), {
+      advancedFeatures: ['ktx2'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+    const costEntries = result.skipped.filter((s) => s.kind === 'cost');
+    expect(costEntries.length).toBeGreaterThanOrEqual(1);
+    const ktx2Cost = costEntries.find((s) => s.feature === 'ktx2');
+    expect(ktx2Cost).toBeDefined();
+    expect(ktx2Cost.text).toMatch(/heavier|тяжеле/i);
+  });
 });
 
 // ============================================================================
