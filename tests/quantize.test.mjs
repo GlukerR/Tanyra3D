@@ -368,6 +368,73 @@ describe('Квантование × join — инвариант сочетани
 });
 
 // ============================================================================
+// РАЗДЕЛ 8. Сочетание ['safe','quantize','instance'] и трио с join.
+// ============================================================================
+// Вопрос 2026-08-01: защищает ли инстансинг общую геометрию от join-разворачивания
+// в трио safe+quantize+join+instance?
+//
+// Механика: scene/instance идёт в первом проходе, scene/join — после него
+// (runAfter включает 'scene/instance'), то есть join гарантированно видит уже
+// инстансированные узлы. Узел с EXT_mesh_gpu_instancing join не трогает — поэтому
+// там, где инстансинг РЕАЛЬНО применился, join воздерживается и выигрыш
+// квантования сохраняется байт-в-байт (замерено на Linked Duplicates Grid 01 и
+// Unlinked Duplicates 01: трио = safe+quantize+instance).
+//
+// Instance Grid 01 — исключение иного рода: у модели НЕТ общей геометрии
+// (625 отдельных узлов × своя копия меша, ни один меш не имеет ≥2 родителей),
+// поэтому scene/instance нечего инстансировать — правило воздерживается. join
+// при этом flatten+join схлопывает 625 копий в одну (draw calls 625 → 1), и
+// квантование применяется уже к склеенной геометрии: относительный выигрыш падает
+// (геометрия −100 % → −41 %, файл −79 % → −58 %), но итог всё равно строго легче
+// исходника.
+//
+// Вывод: инстансинг защищает от join-разворачивания ровно там, где есть что
+// защищать (общая геометрия); на модели без общей геометрии он бессилен, и трио
+// ведёт себя как пара quantize+join. Это не дефект — это цена flatten+join на
+// модели из независимых копий.
+
+describe('Квантование × instance — инвариант сочетания на корпусе', () => {
+  eachModel('safe+quantize+join+instance: треугольники и скины целы, расширение в required, итог легче исходника', QUANTIZE_CORPUS, async (name) => {
+    const outDir = tmpOutDir();
+    const before = await accessorBytes(modelPath(name));
+    const result = await optimizeFile(modelPath(name), {
+      advancedFeatures: ['safe', 'quantize', 'join', 'instance'],
+      dryRun: false,
+      outDir,
+    });
+
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
+    expect(result.metrics.after.skins).toBe(result.metrics.before.skins);
+    expect(await requiredExtensions(result.file.dst)).toContain('KHR_mesh_quantization');
+    expect(validatorDidNotWorsen(result)).toBe(true);
+    // трио никогда не раздувает геометрию сверх исходника
+    expect(await accessorBytes(result.file.dst)).toBeLessThan(before);
+  });
+
+  it('Instance Grid 01 — нет общей геометрии: instance воздержался, join применился, итог легче исходника', async () => {
+    const outDir = tmpOutDir();
+    const before = await accessorBytes(modelPath('Instance Grid 01.glb'));
+    const result = await optimizeFile(modelPath('Instance Grid 01.glb'), {
+      advancedFeatures: ['safe', 'quantize', 'join', 'instance'],
+      dryRun: false,
+      outDir,
+    });
+
+    expect(result.status).toBe('ok');
+    // инстансировать нечего — ни один меш не имеет ≥2 родителей (625 отдельных копий)
+    expect(result.applied.some((a) => a.ruleId === 'scene/instance')).toBe(false);
+    // join схлопнул 625 копий в одну
+    expect(result.applied.some((a) => a.ruleId === 'scene/join')).toBe(true);
+    // квантование отработало поверх склеенной геометрии
+    expect(result.applied.some((a) => a.ruleId === 'geometry/quantize')).toBe(true);
+    expect(await requiredExtensions(result.file.dst)).toContain('KHR_mesh_quantization');
+    // итог строго легче исходника: выигрыш съеден частично, но не весь
+    expect(await accessorBytes(result.file.dst)).toBeLessThan(before);
+  });
+});
+
+// ============================================================================
 // РАЗДЕЛ 5. Отчёт переживает смену языка (Правило 8).
 // ============================================================================
 // Смена языка — перерисовка, а не работа: записи applied/skipped пересобираются из
