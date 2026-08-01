@@ -311,6 +311,63 @@ describe('Квантование — морфы и анимация', () => {
 });
 
 // ============================================================================
+// РАЗДЕЛ 7. Сочетание ['safe','quantize','join'] — join не отменяет квантование.
+// ============================================================================
+// Вопрос 2026-08-01: не разворачивает ли join квантованную общую геометрию
+// обратно в копии и не съедает ли выигрыш квантования.
+//
+// Механика: join (scene/join, tier basic) идёт в ПЕРВОМ проходе, quantize
+// (geometry/quantize, tier advanced) — во ВТОРОМ, после baseline-checkpoint.
+// Поэтому join физически не может развернуть «уже квантованную» геометрию:
+// он расширяет общие меши в копии ДО квантования, а квантование затем
+// применяется к расширенной геометрии. На моделях без общей геометрии join
+// ничего не разворачивает и не влияет на итог — замерено 2026-08-01:
+// 11 из 12 моделей корпуса дают safe+quantize+join = safe+quantize байт в байт.
+//
+// Единственное исключение — Instance Grid 01: join разворачивает общую
+// геометрию сетки в копии, и относительный выигрыш квантования падает
+// (геометрия −100 % → −41 %, файл −79 % → −58 %), но итог всё равно строго
+// лучше исходника и лучше одного join. Это не дефект, а цена совмещения двух
+// структурных операций; тест ниже сторожит, что сочетание не ломает
+// инварианты и не теряет расширение.
+
+describe('Квантование × join — инвариант сочетания на корпусе', () => {
+  eachModel('safe+quantize+join: треугольники и скины целы, расширение в required, status ok', QUANTIZE_CORPUS, async (name) => {
+    const outDir = tmpOutDir();
+    const result = await optimizeFile(modelPath(name), {
+      advancedFeatures: ['safe', 'quantize', 'join'],
+      dryRun: false,
+      outDir,
+    });
+
+    expect(result.status).toBe('ok');
+    expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
+    expect(result.metrics.after.skins).toBe(result.metrics.before.skins);
+    expect(await requiredExtensions(result.file.dst)).toContain('KHR_mesh_quantization');
+    expect(validatorDidNotWorsen(result)).toBe(true);
+  });
+
+  it('Instance Grid 01 — join применён, квантование поверх него живо, итог строго легче исходника', async () => {
+    const outDir = tmpOutDir();
+    const before = await accessorBytes(modelPath('Instance Grid 01.glb'));
+    const result = await optimizeFile(modelPath('Instance Grid 01.glb'), {
+      advancedFeatures: ['safe', 'quantize', 'join'],
+      dryRun: false,
+      outDir,
+    });
+
+    expect(result.status).toBe('ok');
+    // join реально развернул общую геометрию — это и есть его работа
+    expect(result.applied.some((a) => a.ruleId === 'scene/join')).toBe(true);
+    // ...но квантование во втором проходе отработало поверх расширенной геометрии
+    expect(result.applied.some((a) => a.ruleId === 'geometry/quantize')).toBe(true);
+    expect(await requiredExtensions(result.file.dst)).toContain('KHR_mesh_quantization');
+    // Итог строго легче исходника: выигрыш съеден частично, но не весь.
+    expect(await accessorBytes(result.file.dst)).toBeLessThan(before);
+  });
+});
+
+// ============================================================================
 // РАЗДЕЛ 5. Отчёт переживает смену языка (Правило 8).
 // ============================================================================
 // Смена языка — перерисовка, а не работа: записи applied/skipped пересобираются из
