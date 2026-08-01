@@ -137,3 +137,51 @@ describeIfModels(['AnimationPointerUVs.glb', 'PotOfCoalsAnimationPointer.glb'], 
     expect(refused.some((s) => s.ruleId === 'structure/prune-final')).toBe(true);
   });
 });
+
+// TESTBUG-008 — ОТКРЫТ 2026-08-01 (задание 2026-08-01-квантование, раздел 3).
+//
+//   ОЖИДАНИЕ (по заданию, таблица «Отказы»): `['safe','meshopt','quantize']` →
+//   правило воздерживается, в `skipped` строка «геометрия уже упакована (meshopt)»
+//   (`quantize.skipped.compressed`, `data.codec === 'meshopt'`).
+//
+//   ФАКТ на 2026-08-01: движок отвечает `quantize.skipped.already` («Геометрия уже
+//   квантована — второй проход только добавил бы потерь») БЕЗ codec в данных.
+//
+//   Шаг воспроизведения:
+//     optimizeFile('fixtures/models/Dirty Cube 01.glb',
+//       { advancedFeatures: ['safe','meshopt','quantize'], dryRun: true })
+//     → status 'ok'; applied НЕ содержит geometry/quantize;
+//       skipped содержит geometry/quantize с messageId 'quantize.skipped.already'.
+//
+//   Причина: geometry/compress (meshopt) идёт раньше geometry/quantize и сам
+//   применяет KHR_mesh_quantization — документ уже несёт расширение, и ПЕРВАЯ
+//   проверка правила («уже квантована») срабатывает раньше ветки «compressed».
+//   Для draco ветка работает (`quantize.skipped.compressed` + codec 'draco',
+//   проверено на Dirty Cube 01) — рассинхрон только с meshopt.
+//
+//   Воздержание есть (правило не применяется, потерь нет) — расходится только
+//   текст причины. Движок по заданию НЕ чиним. Тест-сентинел оставлен красным:
+//   когда поведение поправят (порядок проверок / охват meshopt-кейса), тест
+//   позеленеет. Отчёт о расхождении — внизу файла задания.
+describeIfModels(['Dirty Cube 01.glb'], 'TESTBUG-008 (открыт) — meshopt+quantize объясняет воздержание codec-специфично', () => {
+  // Dirty Cube 01 — репо-модель, присутствует всегда; guard оставлен для симметрии с реестром.
+  const isPresent = fs.existsSync(modelPath('Dirty Cube 01.glb'));
+  const fn = isPresent ? it : it.skip;
+  fn("['safe','meshopt','quantize'] — в skipped «геометрия уже упакована (meshopt)»", async () => {
+    const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
+      advancedFeatures: ['safe', 'meshopt', 'quantize'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+
+    // Воздержание — часть контракта, держится даже при дефекте.
+    expect(result.applied.some((a) => a.ruleId === 'geometry/quantize')).toBe(false);
+    const skip = result.skipped.find((s) => s.ruleId === 'geometry/quantize');
+    expect(skip).toBeDefined();
+
+    // ОЖИДАНИЕ по заданию. Факт 2026-08-01: 'quantize.skipped.already' без codec —
+    // тест красный, дефект воспроизводится (см. историю выше).
+    expect(skip.i18n.text.messageId).toBe('quantize.skipped.compressed');
+    expect(skip.i18n.text.data.codec).toBe('meshopt');
+  });
+});
