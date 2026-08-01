@@ -265,6 +265,18 @@
           <label class="export-format"><input type="radio" name="export-format" value="json"> <span data-i18n-html="export.json"><b>glTF JSON</b> — self-contained .gltf with embedded data</span></label>
         </div>
         <p class="export-hint" data-i18n="export.hint">Saves to your browser's downloads folder.</p>
+        <!-- Выгрузку не запрещаем никогда: файл существует, человек вправе его забрать.
+             Но если результат не сошёлся с исходником, сказать об этом надо там, где
+             палец уже над «Сохранить», а не только в панели справа, которую к этому
+             моменту могли свернуть. Список заполняет app.js теми же строками проверки. -->
+        <div id="export-alert" class="export-alert hidden">
+          <p class="export-alert-title">
+            <span class="icon-badge export-alert-mark" aria-hidden="true">!</span>
+            <span data-i18n="export.integrity.title">Result differs from the source</span>
+          </p>
+          <ul id="export-alert-details" class="integrity-details"></ul>
+          <p class="export-alert-note" data-i18n="export.integrity.note">The file is complete and will be saved as is — decide for yourself whether the difference is acceptable.</p>
+        </div>
         <button type="button" id="export-save" class="btn-primary" data-i18n="export.save">Save</button>
       </div>
     </div>
@@ -354,19 +366,29 @@
            не должно уезжать из вида при прокрутке. Перечень конкретных правок сюда
            НЕ выводится — он в «Анализе», иначе закреплённый блок разрастался и
            закрывал панель. -->
-      <!-- Проверка целостности не пройдена. Файл при этом записан и скачать его можно:
-           решение, годится ли расхождение, за человеком. Плашка красная и стоит выше
-           жёлтой — это более серьёзная новость, чем потеря данных по плану. -->
+      <!-- Две закреплённые плашки. Закреплённое нельзя ни свернуть, ни прокрутить мимо,
+           поэтому здесь только заголовок и одна строка: что произошло и где смотреть.
+           Абзац на закреплённом месте — это абзац, который человек прочитает один раз,
+           а мешать будет всегда; кто понимает, ради чего он включил сжатие, тот его и
+           не читает. Подробности живут в правой панели: расхождения — в разделе
+           «Проверка целостности», перечень необратимых правок — в «Анализе». Оба
+           раздела сворачиваются. -->
       <div id="integrity-warning" class="integrity-warning hidden">
         <p class="integrity-title" data-i18n="insp.integrityFailed.title">Integrity check failed</p>
-        <p class="integrity-text" data-i18n="insp.integrityFailed.text">The file was written and can be downloaded, but the result differs from the source in ways the components promise not to change. Compare both viewports before shipping it.</p>
+        <p class="integrity-text" data-i18n="insp.integrityFailed.text">the result differs from the source</p>
       </div>
       <div id="irreversible-warning" class="irreversible-warning hidden">
         <p class="irreversible-title" data-i18n="insp.irreversible.title">Irreversible changes applied</p>
-        <p class="irreversible-text" data-i18n="insp.irreversible.text">Keep the source file — this data cannot be restored from the result. See Analysis for the list.</p>
+        <p class="irreversible-text" data-i18n="insp.irreversible.text">the list is in Analysis</p>
       </div>
       <button id="run-btn" class="btn-primary" data-i18n="btn.build" disabled>Build Optimized Model</button>
-      <button id="download-btn" class="btn-primary btn-download hidden" data-i18n="btn.download" data-window-trigger>DOWNLOAD RESULT</button>
+      <!-- Подпись — во вложенном span, а не на самой кнопке: значок «!» рядом с ней
+           поставлен разметкой, а перевод статики переписывает textContent элемента с
+           data-i18n целиком. Ключ на кнопке стёр бы значок при первой же смене языка. -->
+      <button id="download-btn" class="btn-primary btn-download hidden" data-window-trigger>
+        <span class="btn-download-label" data-i18n="btn.download">DOWNLOAD RESULT</span>
+        <span id="download-alert" class="icon-badge download-alert hidden" aria-hidden="true">!</span>
+      </button>
     </div>
   </aside>
 

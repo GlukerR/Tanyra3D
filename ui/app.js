@@ -100,6 +100,9 @@
   const exportSave = $('export-save');
   const irreversibleWarning = $('irreversible-warning');
   const integrityWarning = $('integrity-warning');
+  const downloadAlert = $('download-alert');
+  const exportAlert = $('export-alert');
+  const exportAlertDetails = $('export-alert-details');
   const validationCount = $('validation-count');
 
   const statusDot = $('status-dot');
@@ -523,6 +526,9 @@
       /* отчёт останется на прежнем языке — лучше, чем пустая панель */
     }
     renderReport(lastResult, lastExplain);
+    // Строки расхождения — часть того же результата и берутся из него же: без этой
+    // строки они оставались на языке сборки, хотя весь отчёт вокруг уже переведён.
+    renderIntegrity(lastResult);
   }
 
   function updatePlatformDescription() {
@@ -1293,7 +1299,7 @@
     downloadBtn.classList.add('hidden');
     exportWindow.classList.add('hidden');
     irreversibleWarning.classList.add('hidden');
-    integrityWarning.classList.add('hidden');
+    renderIntegrity(null); // прячет плашку, значок на кнопке и блок в окне выгрузки разом
     failBanner.classList.add('hidden');
     setText(runBtn, 'btn.build');
     // Правый HUD пуст до сборки; левый заполняется базовыми данными модели в handleFile.
@@ -1445,8 +1451,8 @@
     if (lastResult && lastExplain) {
       renderReport(lastResult, lastExplain);
       const integrityFailed = lastResult.status === 'fail';
-      integrityWarning.classList.toggle('hidden', !integrityFailed);
-      setPhase(integrityFailed ? 'status.failed' : 'status.ready', integrityFailed ? 'fail' : null);
+      renderIntegrity(lastResult);
+      setPhase(integrityFailed ? 'status.doneWithIssue' : 'status.ready', integrityFailed ? 'fail' : null);
       setText(runBtn, 'btn.rebuild');
       if (resultDownloadUrl) {
         downloadBtn.classList.remove('hidden');
@@ -1475,7 +1481,7 @@
     downloadBtn.classList.add('hidden');
     exportWindow.classList.add('hidden');
     irreversibleWarning.classList.add('hidden');
-    integrityWarning.classList.add('hidden');
+    renderIntegrity(null); // прячет плашку, значок на кнопке и блок в окне выгрузки разом
     failBanner.classList.add('hidden');
     [summarySection, analysisSection, budgetsSection, warningsSection,
       appliedSection, skippedSection, validationSection].forEach((s) => s.classList.add('hidden'));
@@ -1752,7 +1758,7 @@
     // Кнопку не прячем; прогон не удался — разрешаем повтор даже с теми же настройками.
     lastBuildSignature = null;
     irreversibleWarning.classList.add('hidden');
-    integrityWarning.classList.add('hidden');
+    renderIntegrity(null); // прячет плашку, значок на кнопке и блок в окне выгрузки разом
   }
 
   // ---------------------------------------------------------------
@@ -1795,7 +1801,7 @@
     }
 
     const integrityFailed = result.status === 'fail';
-    setPhase(integrityFailed ? 'status.failed' : 'status.ready', integrityFailed ? 'fail' : null);
+    setPhase(integrityFailed ? 'status.doneWithIssue' : 'status.ready', integrityFailed ? 'fail' : null);
     failBanner.classList.add('hidden');
 
     // Применённые правила — раньше итога, чтобы в свёрнутой панели логов (она показывает
@@ -1814,8 +1820,10 @@
 
     renderReport(result, explain);
     renderCostBadges(result.skipped);
-    integrityWarning.classList.toggle('hidden', !integrityFailed);
-    if (integrityFailed) logMessage('error', t('log.integrityFailed'));
+    renderIntegrity(result);
+    // warn, а не error: файл собран и лежит готовый. Красная строка в журнале рядом с
+    // работающей кнопкой выгрузки — сообщение о несуществующей поломке.
+    if (integrityFailed) logMessage('warn', t('log.integrityFailed'));
 
     // Кнопку не прячем — можно менять флажки и пересобирать результат сколько угодно раз.
     // Запоминаем настройки ЭТОЙ сборки: пока их не изменят, пересборка неактивна.
@@ -1851,7 +1859,7 @@
       resultDownloadUrl = null;
       downloadBtn.classList.add('hidden');
       irreversibleWarning.classList.add('hidden');
-      integrityWarning.classList.add('hidden');
+      renderIntegrity(null); // прячет плашку, значок на кнопке и блок в окне выгрузки разом
       resultInspect = null;
       runToken++; // инвалидирует inspectResult() предыдущей сборки, если он ещё летит
       updateInspectButtons();
@@ -1867,6 +1875,50 @@
   function renderIrreversibleWarning(applied) {
     const lossy = (applied || []).filter((a) => a.reversible === false && a.dataLoss === 'significant');
     irreversibleWarning.classList.toggle('hidden', !lossy.length);
+  }
+
+  // Результат не сошёлся с исходником — сказать об этом громко и в трёх местах СРАЗУ,
+  // но ничего при этом не запрещать.
+  //
+  // Действие выполняется всегда: файл собран, записан и выгружается по первому нажатию.
+  // Отказ выдавать результат означал бы, что программа решила за человека, — а решает он:
+  // на одной модели девятнадцать треугольников из ста девяноста пяти тысяч не значат
+  // ничего, на другой это дырка в видимом месте. Наше дело — назвать расхождение точно,
+  // числами, и не дать пройти мимо него случайно.
+  //
+  // Три места, и у каждого своя мера подробности:
+  //   • плашка в панели — заголовок и одна строка, она закреплена и мешать не должна;
+  //   • значок на кнопке — чтобы не уйти с экрана, не заметив;
+  //   • блок в окне выгрузки — там числа целиком: окно открывают намеренно, ровно за
+  //     этим, и это последняя точка, где ещё можно передумать.
+  // Полный разбор — в сворачиваемом разделе «Проверка целостности» правой панели.
+  // Строки берём из result.validation как есть: их собрал движок, они несут рецепт i18n
+  // и переживают смену языка (core/i18n.mjs, LOCALIZED_LISTS).
+  function renderIntegrity(result) {
+    const failed = (result && result.status === 'fail')
+      ? (result.validation || []).filter((v) => v.level === 'fail')
+      : [];
+    const show = failed.length > 0;
+
+    integrityWarning.classList.toggle('hidden', !show);
+    downloadAlert.classList.toggle('hidden', !show);
+    exportAlert.classList.toggle('hidden', !show);
+    if (show) {
+      window.I18n.setTitle(downloadBtn, 'btn.download.alert');
+    } else {
+      // Снимаем и подсказку, и метку ключа: без второго apply() при смене языка
+      // вернул бы подсказку на кнопку, у которой уже нечего предупреждать.
+      downloadBtn.removeAttribute('data-i18n-title');
+      downloadBtn.removeAttribute('title');
+    }
+
+    exportAlertDetails.innerHTML = '';
+    if (!show) return;
+    for (const v of failed) {
+      const li = document.createElement('li');
+      li.textContent = v.text;
+      exportAlertDetails.appendChild(li);
+    }
   }
 
   function renderFail(result, explain) {
@@ -1889,7 +1941,7 @@
     downloadBtn.classList.add('hidden');
     exportWindow.classList.add('hidden');
     irreversibleWarning.classList.add('hidden');
-    integrityWarning.classList.add('hidden');
+    renderIntegrity(null); // прячет плашку, значок на кнопке и блок в окне выгрузки разом
     resultInspect = null; // собранного файла нет — правая колонка окон пуста
     runToken++; // инвалидирует inspectResult() предыдущей (успешной) сборки, если он ещё летит
     updateInspectButtons();
@@ -2230,9 +2282,10 @@
     // раскрывать список, чтобы узнать ответ на главный вопрос — цела ли модель.
     const failed = validation.filter((v) => v.level === 'fail').length;
     if (validationCount) {
-      validationCount.textContent = failed
-        ? `— ${failed} failed`
-        : `— all ${validation.length} passed`;
+      // Через setText, а не textContent: иначе вердикт застревал на языке сборки —
+      // строка собиралась в коде по-английски и смену языка не переживала (Правило 8).
+      if (failed) setText(validationCount, 'insp.validation.failed', { n: failed });
+      else setText(validationCount, 'insp.validation.allPassed', { n: validation.length });
       validationCount.className = failed ? 'check-verdict is-fail' : 'check-verdict is-ok';
     }
 

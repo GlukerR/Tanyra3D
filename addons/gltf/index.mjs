@@ -149,10 +149,16 @@ function stripInputCompression(doc) {
 // (compareBaseline). При любом level:'fail' движок не записывает .glb.
 async function validate({ ctx, before, after, glbBytes, src, result, advancedPlannedIds, addFound, log }) {
   const v = result.validation;
-  // vp — обёртка для записей валидации. Принимает либо messageId + data (рендерит через
-  // i18n), либо готовую строку (совместимость с compareBaseline и др.).
+  // vp — обёртка для записей валидации. Принимает messageId + data и кладёт в запись
+  // не только готовую строку, но и рецепт (поле i18n) — по нему localizeResult() соберёт
+  // её заново на другом языке. Без рецепта строки проверки застревали на языке сборки,
+  // а именно их интерфейс показывает у кнопки выгрузки — то есть в самом важном месте.
   const locale = ctx.opts.locale;
-  const vp = (level, messageId, data = {}) => v.push({ level, text: render(messageId, data, locale) });
+  const vp = (level, messageId, data = {}) => v.push({
+    level,
+    text: render(messageId, data, locale),
+    i18n: { text: { messageId, data } },
+  });
 
   // материалы резолвятся: ни один примитив не ссылается на удалённый материал
   let materialsOk = true;

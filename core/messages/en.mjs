@@ -11,6 +11,9 @@ export default {
     `${k} changed during encoding (was ${baseline} at checkpoint, now ${after}) — `
     + 'the codec re-indexed/welded vertices (e.g. Draco calls weld before compression). '
     + 'Triangles and mesh topology are preserved; writing is not blocked. For animated models the strict keys (skins, animations) protect the structure.',
+  // Подставляется в {cause} строкой ниже — отдельным сообщением, чтобы переводилась.
+  'check.cause.secondPass': ({ ids }) => `second-pass extensions (${ids}) or file writing`,
+  'check.cause.writeOnly': () => 'file writing (no second-pass fixes were applied)',
   'check.baselineHardMismatch': ({ k, baseline, after, cause }) =>
     `Component guarantee violated: ${k} changed after the extensions (was ${baseline} at checkpoint, now ${after}). `
     + "Per the components' official docs (ARCHITECTURE.md §0a) Draco/Meshopt/KTX2 do not change mesh structure. "

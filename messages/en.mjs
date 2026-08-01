@@ -32,7 +32,9 @@ export default {
   // --- итог ---
   'summary.done': ({ fileBefore, fileAfter, filePct, vramBefore, vramAfter, vramPct }) =>
     `Done. File: ${fileBefore} → ${fileAfter} (${filePct}); texture video memory: ${vramBefore} → ${vramAfter} (${vramPct}).`,
-  'summary.failPrefix': () => 'Result check did not pass — the optimized file was not written. ',
+  'summary.doneWithIssue': ({ fileBefore, fileAfter, filePct, vramBefore, vramAfter, vramPct }) =>
+    'Done, but the result differs from the source — see the integrity check for details. '
+    + `File: ${fileBefore} → ${fileAfter} (${filePct}); texture video memory: ${vramBefore} → ${vramAfter} (${vramPct}).`,
   'summary.fileGrewVramDropped': () => ' The file got slightly heavier but video memory dropped: the GPU texture format weighs more in the file yet takes far less on the GPU.',
 
   // --- главные улучшения ---

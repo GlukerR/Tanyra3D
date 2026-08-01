@@ -299,17 +299,18 @@ export function explainResult(runResult, platformId, lang = DEFAULT_LANG) {
   const fileGrew = after.fileBytes > before.fileBytes;
   const vramDropped = after.gpuBytes < before.gpuBytes;
 
-  let summary = t('summary.done', {
+  // Одно сообщение целиком под каждый исход, а не приставка к общему: склеивать строки
+  // в коде нельзя (Правило 8) — разделитель и порядок слов принадлежат языку.
+  const sizes = {
     fileBefore: fmtMB(before.fileBytes),
     fileAfter: fmtMB(after.fileBytes),
     filePct: pctText(before.fileBytes, after.fileBytes),
     vramBefore: fmtMB(before.gpuBytes),
     vramAfter: fmtMB(after.gpuBytes),
     vramPct: pctText(before.gpuBytes, after.gpuBytes),
-  });
-  if (rr.status === 'fail') {
-    summary = t('summary.failPrefix') + summary;
-  } else if (fileGrew && vramDropped) {
+  };
+  let summary = t(rr.status === 'fail' ? 'summary.doneWithIssue' : 'summary.done', sizes);
+  if (rr.status !== 'fail' && fileGrew && vramDropped) {
     // рост файла при падении VRAM — не ошибка, объясняем нейтрально
     summary += t('summary.fileGrewVramDropped');
   }

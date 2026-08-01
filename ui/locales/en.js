@@ -60,6 +60,10 @@ window.I18N_CATALOGS.en = {
   'export.json': '<b>glTF JSON</b> — self-contained .gltf with embedded data',
   'export.hint': "Saves to your browser's downloads folder.",
   'export.save': 'Save',
+  // Предупреждение в самом окне выгрузки. Выгрузка при этом не блокируется — см.
+  // комментарий в index.html: файл есть, забрать его человек вправе, наше дело — сказать.
+  'export.integrity.title': 'Result differs from the source',
+  'export.integrity.note': 'The file is complete and will be saved as is — decide for yourself whether the difference is acceptable.',
 
   'fail.notWritten': 'File not written',
   'fail.text': 'The model failed the integrity check — the source file is untouched.',
@@ -80,14 +84,23 @@ window.I18N_CATALOGS.en = {
   'insp.warnings': 'Warnings',
   'insp.done': 'What was done',
   'insp.skipped': 'What was skipped',
+  // Закреплённые плашки: заголовок + одна строка. Подробности — в сворачиваемых
+  // разделах правой панели, см. комментарий в index.html.
   'insp.integrityFailed.title': 'Integrity check failed',
-  'insp.integrityFailed.text': 'The file was written and can be downloaded, but the result differs from the source in ways the components promise not to change. Compare both viewports before shipping it.',
+  'insp.integrityFailed.text': 'the result differs from the source',
+  // Вердикт в заголовке свёрнутого раздела проверки. Раньше собирался в коде по-английски
+  // и от смены языка не менялся — Правило 8.
+  'insp.validation.failed': ({ n }) => `— ${n} failed`,
+  'insp.validation.allPassed': ({ n }) => `— all ${n} passed`,
   'insp.irreversible.title': 'Irreversible changes applied',
-  'insp.irreversible.text': 'Keep the source file — this data cannot be restored from the result. See Analysis for the list.',
+  'insp.irreversible.text': 'the list is in Analysis',
 
   'btn.build': 'Build Optimized Model',
   'btn.rebuild': 'Rebuild with New Settings',
   'btn.download': 'DOWNLOAD RESULT',
+  // Без «файл всё равно можно сохранить»: кнопка активна и подсвечена — это и так видно,
+  // а лишняя оговорка делает подсказку длиннее самой новости.
+  'btn.download.alert': 'The result differs from the source — open to see what exactly.',
   'btn.pickOption': 'Select an optimization to build',
   'btn.changeSetting': 'Change a setting to rebuild',
   'btn.building': 'Building — wait for it to finish',
@@ -139,7 +152,12 @@ window.I18N_CATALOGS.en = {
   'status.error': 'Error',
   'status.uploading': 'Uploading file…',
   'status.optimizing': 'Optimizing…',
+  // status.failed — файла НЕТ: обработка сорвалась (см. renderFail).
+  // status.doneWithIssue — файл есть, но результат не сошёлся с исходником. Это не
+  // ошибка: ошибка — когда сделать не удалось, а здесь удалось, и вопрос лишь в том,
+  // устраивает ли человека расхождение. Разные состояния — разные слова.
   'status.failed': 'File failed validation',
+  'status.doneWithIssue': 'Done — the result needs a look',
   'status.phase': 'Phase {n}: {name}',
   'status.rule': 'Rule: {title}',
 
@@ -223,7 +241,7 @@ window.I18N_CATALOGS.en = {
   'log.buildFinishedSize': ({ before, after, pct }) => `Build finished — ${before} → ${after} (${pct})`,
   'log.applied': ({ text }) => `Applied: ${text}`,
   'log.exported': ({ name, format }) => `Exported ${name} (${format})`,
-  'log.integrityFailed': 'Integrity check failed — the file was written anyway, check the result before using it.',
+  'log.integrityFailed': 'The result differs from the source — the file is written and can be downloaded, check it before using it.',
   'log.notWritten': 'File not written — the model failed the integrity check.',
   'log.serverError': ({ status }) => `The server responded with an error (${status}).`,
   'log.noServer': ({ error }) => `Could not reach the server: ${error}`,

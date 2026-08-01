@@ -1091,6 +1091,36 @@ body.resizing { cursor: col-resize; user-select: none; }
 }
 .export-format b { color: var(--on-surface); font-weight: 600; }
 .export-hint { margin: 0 0 14px; font-size: 11px; color: var(--outline); }
+
+/* Предупреждение прямо над «Сохранить». Кнопку не блокирует и не перекрашивает:
+   выгрузка разрешена всегда, задача блока — чтобы её не сделали не глядя. */
+.export-alert {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--alert);
+  background: rgba(255, 59, 48, 0.08);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.export-alert-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--alert);
+}
+
+.export-alert-mark { color: var(--alert); cursor: inherit; }
+
+.export-alert-note {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--on-surface-variant);
+}
+
 #export-save { width: 100%; }
 
 .fail-text {
@@ -1672,6 +1702,28 @@ details[open] > .collapsible-summary::before {
   color: var(--on-surface-variant);
 }
 
+/* Дословные строки проверки, которые не сошлись, — с числами. Только в окне выгрузки:
+   в закреплённой плашке им не место, она обязана оставаться в две строки. Длинную
+   строку здесь не обрезаем — ради этих чисел окно и открывают. */
+.integrity-details {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.integrity-details li {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--on-surface);
+  padding-left: 9px;
+  border-left: 1px solid var(--alert);
+}
+
+.integrity-details:empty { display: none; }
+
 .irreversible-warning {
   border-left: 2px solid var(--warning);
   background: rgba(251, 191, 36, 0.08);
@@ -1750,6 +1802,17 @@ details[open] > .collapsible-summary::before {
 }
 
 .btn-download:hover:not(:disabled) { background: var(--surface-container-highest); opacity: 1; }
+
+/* Значок на кнопке выгрузки. Кнопка остаётся обычной и рабочей — красная рамка и
+   красная заливка сказали бы «сюда нельзя», а сюда можно и нужно: файл готов.
+   Меняется ровно одно — рядом с подписью появляется знак, мимо которого не пройти. */
+.btn-download { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.btn-download-label { line-height: 1; }
+
+.download-alert {
+  color: var(--alert);
+  cursor: inherit;
+}
 
 .btn-secondary {
   display: flex;

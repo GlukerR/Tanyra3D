@@ -36,9 +36,13 @@ export function compareBaseline(baseline, after, keys, { advancedPlannedIds = []
   if (broken.length === 0) {
     return [{ level: 'pass', messageId: 'check.baselineMatch', data: { keys: keys.join(', ') } }];
   }
+  // Причина — вложенное сообщение, а не английский кусок, склеенный здесь: она
+  // подставляется внутрь переведённой фразы, и склейка оставляла в русском тексте
+  // «Вероятная причина: second-pass extensions (…) or file writing». render() разворачивает
+  // такие подстановки сам (resolveNested в core/i18n.mjs).
   const cause = advancedPlannedIds.length
-    ? `second-pass extensions (${advancedPlannedIds.join(', ')}) or file writing`
-    : 'file writing (no second-pass fixes were applied)';
+    ? { messageId: 'check.cause.secondPass', data: { ids: advancedPlannedIds.join(', ') } }
+    : { messageId: 'check.cause.writeOnly', data: {} };
   return broken.map((k) => (soft.has(k)
     ? {
       level: 'info',
