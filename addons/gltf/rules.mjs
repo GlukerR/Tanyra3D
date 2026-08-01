@@ -36,6 +36,12 @@ import { GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 const DATA_SLOT_RE = /normal|occlusion|roughness/i;
 const DATA_SLOT_GLOB = '*{normal,Normal,occlusion,Occlusion,metallicRoughness,Roughness}*';
 
+// Форматы, которые остаются сжатыми В ВИДЕОПАМЯТИ. Только для них верно «это уже
+// формат для видеокарты» — причина, по которой переводить их в WebP бессмысленно.
+// AVIF, BMP, TGA сюда НЕ входят: они распаковываются в ту же несжатую RGBA, что и
+// PNG, и не трогаем мы их по другой причине — просто не берёмся перекодировать.
+const GPU_FORMATS = new Set(['ktx2', 'ktx', 'basis', 'dds']);
+
 // Текстура «цветная» (данные в sRGB), если так сказала сама модель — ребро графа
 // помечено isColor, — ИЛИ если имя слота содержит color/emissive.
 //
@@ -448,18 +454,7 @@ export const RULES = [
     canFix(finding, ctx) { return refuseIfUnsupported(ctx) || { safe: true, messageId: 'join.safe', data: {} }; },
     async fix(finding, ctx) {
       const m = () => { const r = collectMetrics(ctx.document, 0); return { drawCalls: r.drawCalls, nodes: r.nodes, meshes: r.meshes }; };
-      // Байты ХРАНИМОЙ геометрии — не то же самое, что метрика vertices.
-      // Та считает вершины как рисуемые, с учётом переиспользования мешей, и потому
-      // при разворачивании общей геометрии не меняется вовсе: было «хранится один раз,
-      // рисуется восемь», стало «хранится восемь раз, рисуется восемь». Рост видно
-      // только здесь, в сумме буферов аксессоров.
-      const geomBytes = () => {
-        let n = 0;
-        for (const a of ctx.document.getRoot().listAccessors()) n += a.getArray().byteLength;
-        return n;
-      };
       const b = m();
-      const gBefore = geomBytes();
 
       // УМНОЕ ОБЪЕДИНЕНИЕ: сливаем только то, что сливается без потерь.
       //
@@ -484,7 +479,6 @@ export const RULES = [
       await ctx.document.transform(fns.join({ filter: (node) => !shared.has(node.getMesh()) }));
 
       const a = m();
-      const gAfter = geomBytes();
 
       // Оставленная общая геометрия — не молчаливый отказ: человек видит меньше
       // сэкономленных отрисовок, чем ожидал, и должен знать, почему и что включить.
@@ -494,24 +488,21 @@ export const RULES = [
 
       if (b.drawCalls > a.drawCalls || b.nodes > a.nodes || b.meshes > a.meshes) {
         const details = [{ messageId: 'join.done', data: { dcBefore: b.drawCalls, dcAfter: a.drawCalls, nodesBefore: b.nodes, nodesAfter: a.nodes } }];
-        // Объединение запекает трансформ каждого узла в вершины, поэтому меш,
-        // переиспользованный N раз, обязан стать N отдельными копиями. Если это
-        // случилось, человек должен узнать цену прямо здесь, а не гадать, почему
-        // файл вырос при неизменном числе треугольников.
-        const cost = [];
-        if (gAfter > gBefore * 1.05) {
-          cost.push({
-            messageId: 'join.expandedShared',
-            data: {
-              // Байты, а не готовые мегабайты: на мелкой модели «+0.0 МБ» выглядит
-              // как поломка. Единицы выбирает каталог сообщений — там же, где язык.
-              bytes: gAfter - gBefore,
-              pct: Math.round((gAfter - gBefore) / gBefore * 100),
-              dcSaved: b.drawCalls - a.drawCalls,
-            },
-          });
-        }
-        return { found: [{ messageId: 'join.found', data: { drawCalls: b.drawCalls, nodes: b.nodes } }], details, cost, skipped: keptShared };
+        // Здесь была строка «объединение размножило общую геометрию: +N байт».
+        // Убрана 2026-08-01 как ложная в обе стороны (TESTBUG-009):
+        //
+        //  1. Размножить общую геометрию join больше НЕ МОЖЕТ — общие меши
+        //     исключены фильтром выше и до объединения не доходят. На Dirty Cube
+        //     сообщение выпадало при shared.size === 0, то есть называло причиной
+        //     то, чего не происходило.
+        //  2. Рост измерялся в окне самого transform-а, а сразу за join идёт
+        //     structure/prune-final и временные копии убирает. Замер 2026-08-01:
+        //     геометрия 2648 → 1880 байт, то есть на треть МЕНЬШЕ, — а строка в
+        //     это время сообщала «+960 байт (+36 %)».
+        //
+        // Настоящую цену человек видит в общем итоге сборки (было → стало), а
+        // почему сэкономлено меньше отрисовок, чем он ждал, объясняет join.keptShared.
+        return { found: [{ messageId: 'join.found', data: { drawCalls: b.drawCalls, nodes: b.nodes } }], details, skipped: keptShared };
       }
       return { skipped: keptShared };
     },
@@ -641,11 +632,15 @@ export const RULES = [
       // Перекодированные в PNG копим и отчитываемся ОДНОЙ строкой в конце: строка
       // на каждую текстуру давала тринадцать одинаковых записей подряд.
       const toPng = new Map(); // исходный mime → сколько штук
+      // Уже-KTX2 копим группой по той же причине (Правило 9): на модели, которую
+      // прогнали вторым заходом, строка на текстуру давала столько же одинаковых
+      // записей, сколько текстур. Одна на класс случаев.
+      const alreadyKtx2 = [];
       for (const tex of ctx.document.getRoot().listTextures()) {
         const mime = tex.getMimeType();
         const name = tex.getName() || '';
         if (mime === 'image/ktx2') {
-          out.skipped.push({ messageId: 'ktx2.skipped.already', data: { name: name || '—' } });
+          alreadyKtx2.push(name || '—');
           continue;
         }
         if (mime === 'image/webp' || mime === 'image/jpeg') {
@@ -659,6 +654,9 @@ export const RULES = [
         if (DATA_SLOT_RE.test(slots)) dataTex.push(name);
         else colorTex.push(name);
       }
+      // Одна текстура — называем её по имени; несколько — только счёт (как у WebP).
+      if (alreadyKtx2.length === 1) out.skipped.push({ messageId: 'ktx2.skipped.already', data: { name: alreadyKtx2[0] } });
+      else if (alreadyKtx2.length > 1) out.skipped.push({ messageId: 'ktx2.skipped.already.many', data: { n: alreadyKtx2.length } });
       for (const [mime, n] of toPng) {
         out.details.push({ messageId: 'ktx2.done.toPng', data: { n, from: mime.replace('image/', '') } });
       }
@@ -762,7 +760,8 @@ export const RULES = [
       // Пропуски копим группами, а не пишем строкой на текстуру: на ABeautifulGame
       // это давало двадцать одинаковых строк подряд, на L-330 — одиннадцать.
       const skips = { already: [], noMime: [], jpegData: [] };
-      const byFormat = new Map(); // mime без "image/" → имена текстур
+      const byFormat = new Map(); // формат для видеокарты: mime без "image/" → имена
+      const byUnsupported = new Map(); // прочие форматы, которые мы не кодируем
       for (const tex of ctx.document.getRoot().listTextures()) {
         const mime = tex.getMimeType() || '';
         const name = tex.getName() || '—';
@@ -771,10 +770,16 @@ export const RULES = [
         // не сказала, что у неё внутри. Кодировать вслепую нельзя, и врать про
         // причину тоже: у этого случая своя строка.
         if (!mime) { skips.noMime.push(name); continue; }
+        // Не всё, что мы не умеем кодировать, — «формат для видеокарты». KTX2 и
+        // DDS остаются сжатыми в видеопамяти, и это настоящая причина не трогать
+        // их. AVIF, BMP, TGA распаковываются в ту же RGBA, что PNG: там причина
+        // другая — мы просто не берёмся их перекодировать. Разные причины —
+        // разные строки, иначе отчёт объясняет неправдой.
         if (!CONVERTIBLE.has(mime)) {
           const short = mime.replace('image/', '');
-          if (!byFormat.has(short)) byFormat.set(short, []);
-          byFormat.get(short).push(name);
+          const bucket = GPU_FORMATS.has(short) ? byFormat : byUnsupported;
+          if (!bucket.has(short)) bucket.set(short, []);
+          bucket.get(short).push(name);
           continue;
         }
         // Тот же раздел, что у KTX2: нормали, occlusion и roughness — это ЧИСЛА,
@@ -800,6 +805,7 @@ export const RULES = [
       reportSkips(skips.noMime, 'webp.skipped.noMime');
       reportSkips(skips.jpegData, 'webp.skipped.jpegData');
       for (const [mime, names] of byFormat) reportSkips(names, 'webp.skipped.format', { mime });
+      for (const [mime, names] of byUnsupported) reportSkips(names, 'webp.skipped.unsupported', { mime });
 
       if (!cands.length) return out;
 
@@ -924,13 +930,19 @@ export const RULES = [
     async fix(finding, ctx) {
       const root = ctx.document.getRoot();
 
+      // Поверх Draco/Meshopt квантовать нечего: оба уже упаковали числа по-своему.
+      //
+      // Эта проверка идёт ПЕРВОЙ, и порядок здесь — не вкус (TESTBUG-008). Meshopt
+      // сам кладёт в документ KHR_mesh_quantization, поэтому при обратном порядке
+      // человек получал «геометрия уже квантована» вместо настоящей причины — он
+      // сам только что выбрал Meshopt. Причина, которую человек может изменить,
+      // важнее той, которая просто описывает состояние файла.
+      if (ctx.opts.compress) {
+        return { skipped: [{ messageId: 'quantize.skipped.compressed', data: { codec: ctx.opts.codec } }] };
+      }
       // Уже квантована — второй проход только добавит потерь, ничего не выиграв.
       if (root.listExtensionsUsed().some((e) => e.extensionName === 'KHR_mesh_quantization')) {
         return { skipped: [{ messageId: 'quantize.skipped.already', data: {} }] };
-      }
-      // Поверх Draco/Meshopt квантовать нечего: оба уже упаковали числа по-своему.
-      if (ctx.opts.compress) {
-        return { skipped: [{ messageId: 'quantize.skipped.compressed', data: { codec: ctx.opts.codec } }] };
       }
 
       const geomBytes = () => {

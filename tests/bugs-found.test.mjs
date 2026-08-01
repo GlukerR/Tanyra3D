@@ -138,7 +138,9 @@ describeIfModels(['AnimationPointerUVs.glb', 'PotOfCoalsAnimationPointer.glb'], 
   });
 });
 
-// TESTBUG-008 — ОТКРЫТ 2026-08-01 (задание 2026-08-01-квантование, раздел 3).
+// TESTBUG-008 — ЗАКРЫТ 2026-08-01 (задание 2026-08-01-квантование, раздел 3).
+//
+//   ИСТОРИЯ ДЕФЕКТА.
 //
 //   ОЖИДАНИЕ (по заданию, таблица «Отказы»): `['safe','meshopt','quantize']` →
 //   правило воздерживается, в `skipped` строка «геометрия уже упакована (meshopt)»
@@ -159,11 +161,13 @@ describeIfModels(['AnimationPointerUVs.glb', 'PotOfCoalsAnimationPointer.glb'], 
 //   Для draco ветка работает (`quantize.skipped.compressed` + codec 'draco',
 //   проверено на Dirty Cube 01) — рассинхрон только с meshopt.
 //
-//   Воздержание есть (правило не применяется, потерь нет) — расходится только
-//   текст причины. Движок по заданию НЕ чиним. Тест-сентинел оставлен красным:
-//   когда поведение поправят (порядок проверок / охват meshopt-кейса), тест
-//   позеленеет. Отчёт о расхождении — внизу файла задания.
-describeIfModels(['Dirty Cube 01.glb'], 'TESTBUG-008 (открыт) — meshopt+quantize объясняет воздержание codec-специфично', () => {
+//   ЗАКРЫТ 2026-08-01: проверка «уже упакована (codec)» переставлена ПЕРВОЙ,
+//   до проверки «уже квантована». Порядок теперь несёт смысл — человеку называют
+//   причину, которую он может изменить (он сам выбрал Meshopt), а не описание
+//   состояния файла, к которому его выбор и привёл.
+//
+//   Теперь это регресс: если проверки снова поменяют местами — тест покраснеет.
+describeIfModels(['Dirty Cube 01.glb'], 'TESTBUG-008 (ЗАКРЫТ 2026-08-01) — meshopt+quantize объясняет воздержание codec-специфично', () => {
   // Dirty Cube 01 — репо-модель, присутствует всегда; guard оставлен для симметрии с реестром.
   const isPresent = fs.existsSync(modelPath('Dirty Cube 01.glb'));
   const fn = isPresent ? it : it.skip;
@@ -179,15 +183,16 @@ describeIfModels(['Dirty Cube 01.glb'], 'TESTBUG-008 (открыт) — meshopt+
     const skip = result.skipped.find((s) => s.ruleId === 'geometry/quantize');
     expect(skip).toBeDefined();
 
-    // ОЖИДАНИЕ по заданию. Факт 2026-08-01: 'quantize.skipped.already' без codec —
-    // тест красный, дефект воспроизводится (см. историю выше).
+    // Причина названа codec-специфично, а не общим «уже квантована».
     expect(skip.i18n.text.messageId).toBe('quantize.skipped.compressed');
     expect(skip.i18n.text.data.codec).toBe('meshopt');
   });
 });
 
-// TESTBUG-009 — ОТКРЫТ 2026-08-01 (аудит взаимоисключающих пар: ktx2+webp,
+// TESTBUG-009 — ЗАКРЫТ 2026-08-01 (аудит взаимоисключающих пар: ktx2+webp,
 // quantize+draco, join+instance).
+//
+// ИСТОРИЯ ДЕФЕКТА.
 //
 // ОЖИДАНИЕ (комментарий в rules.mjs, scene/join): «runAfter включает scene/instance
 // НАМЕРЕННО... Инстансированные узлы несут EXT_mesh_gpu_instancing, и join их не
@@ -213,13 +218,19 @@ describeIfModels(['Dirty Cube 01.glb'], 'TESTBUG-008 (открыт) — meshopt+
 //     skipped: scene/join с messageId 'join.expandedShared'
 //     (data: bytes=960, pct=36, dcSaved=0).
 //
-// Причина (гипотеза, движок не правим): join.expandedShared измеряется в окне
-// самого transform-а (до/после flatten+join) и ловит временный рост геометрии,
-// который потом убирает structure/prune-final — финальный файл легче, чем у
-// одного instance, а сообщение остаётся. Воздержание есть только на моделях, где
-// после instance общих мешей не остаётся вовсе (Linked/Unlinked Duplicates — join
-// воздерживается корректно); на Dirty Cube остаток «не-инстансированной» общей
-// геометрии даёт ложное срабатывание.
+// ЗАКРЫТ 2026-08-01: строка `join.expandedShared` убрана из движка целиком —
+// она врала в обе стороны, и гипотеза выше подтвердилась замером (_work/join-*-probe):
+//
+//   1. Ни одного общего меша join на этой модели НЕ ПОЛУЧАЛ: после instance
+//      shared.size === 0, общие меши исключены фильтром. Сообщение называло
+//      причиной то, чего не происходило.
+//   2. Рост мерился в окне самого transform-а, а сразу за join идёт
+//      structure/prune-final. Итог: геометрия 2648 → 1880 байт на ['join'] и
+//      2684 → 1916 на ['join','instance'] — МЕНЬШЕ, чем было, — пока строка
+//      сообщала «+960 байт (+36 %)».
+//
+// Меньшую экономию отрисовок объясняет join.keptShared, настоящий вес — общий
+// итог сборки. Теперь это регресс: вернётся ложная строка — тест покраснеет.
 //
 // Аудит остальных пар (2026-08-01) — расхождений НЕТ, заявки не нужны:
 //   - quantize+draco: задание (стр. 76) ждёт «уже упакована (draco)» — движок
@@ -228,10 +239,7 @@ describeIfModels(['Dirty Cube 01.glb'], 'TESTBUG-008 (открыт) — meshopt+
 //     уступает „уже GPU-формат“ (mime ktx2)» — факт совпадает
 //     (webp.skipped.format / webp.skipped.noMime после ktx2-прохода).
 //
-// Тест-сентинел оставлен красным: когда join перестанет разворачивать защищённую
-// инстансингом геометрию (или сообщение перестанет врать про финальный файл),
-// тест позеленеет. Движок по правилам НЕ чиним.
-describeIfModels(['Dirty Cube 01.glb'], 'TESTBUG-009 (открыт) — join+instance: join не разворачивает защищённую инстансингом общую геометрию', () => {
+describeIfModels(['Dirty Cube 01.glb'], 'TESTBUG-009 (ЗАКРЫТ 2026-08-01) — join+instance: join не разворачивает защищённую инстансингом общую геометрию', () => {
   // Dirty Cube 01 — репо-модель, присутствует всегда; guard для симметрии с реестром.
   const isPresent = fs.existsSync(modelPath('Dirty Cube 01.glb'));
   const fn = isPresent ? it : it.skip;
@@ -245,10 +253,8 @@ describeIfModels(['Dirty Cube 01.glb'], 'TESTBUG-009 (открыт) — join+ins
     // Инстансинг реально применился — общую геометрию (Cube.002, 3 родителя) защищать есть чем.
     expect(result.applied.some((a) => a.ruleId === 'scene/instance')).toBe(true);
 
-    // ОЖИДАНИЕ: join НЕ разворачивает то, что защитил инстансинг → в skipped НЕТ
-    // join.expandedShared. Факт 2026-08-01: запись ЕСТЬ ({bytes:960, pct:36,
-    // dcSaved:0}) при живом инстансинге в выходе и меньшей итоговой геометрии —
-    // тест красный, дефект воспроизводится (см. историю выше).
+    // join НЕ разворачивает то, что защитил инстансинг, и не заявляет обратного:
+    // ложной строки join.expandedShared в отчёте больше нет.
     const expanded = result.skipped.find(
       (s) => s.ruleId === 'scene/join' && s.i18n?.text?.messageId === 'join.expandedShared',
     );

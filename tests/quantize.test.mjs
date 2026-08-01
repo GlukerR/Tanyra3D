@@ -203,12 +203,10 @@ describe('Квантование — отказы', () => {
     expect(skip.i18n.text.data.codec).toBe('draco');
   });
 
-  // По заданию — «то же, с meshopt» (quantize.skipped.compressed, codec meshopt).
-  // На 2026-08-01 движок отвечает quantize.skipped.already: meshopt сам кладёт
-  // KHR_mesh_quantization в документ, и первая проверка правила («уже квантована»)
-  // срабатывает раньше, чем «уже упакована (codec)». Воздержание есть (главное),
-  // текст причины расходится с заданием — тест оставлен ПО ЗАДАНИЮ и красный;
-  // подробности в отчёте в файле задания. Не подгоняем под текущий вывод.
+  // То же, с meshopt. Здесь был TESTBUG-008: meshopt сам кладёт в документ
+  // KHR_mesh_quantization, и проверка «уже квантована» срабатывала раньше ветки
+  // «уже упакована (codec)» — человеку называли следствие его выбора вместо самого
+  // выбора. Закрыт 2026-08-01 перестановкой проверок (см. tests/bugs-found.test.mjs).
   it("['safe','meshopt','quantize'] — воздержалось, в skipped «геометрия уже упакована (meshopt)»", async () => {
     const outDir = tmpOutDir();
     const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {

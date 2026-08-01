@@ -7,11 +7,6 @@
 
 const where = ({ sem, mesh }) => `${sem} (mesh "${mesh || '—'}")`;
 
-// Единицы по величине: «+0.0 MB» на мелкой модели читается как поломка.
-const size = (bytes) => (bytes >= 1048576
-  ? `${(bytes / 1048576).toFixed(1)} MB`
-  : `${Math.max(1, Math.round(bytes / 1024))} KB`);
-
 export default {
   // --- structure/dedup ---
   'dedup.safe': () => 'merging identical resources is structurally safe',
@@ -79,10 +74,10 @@ export default {
   // человек выбрал опцию сознательно, ему нужна цифра и подсказка, а не выговор.
   'join.keptShared': ({ meshes }) =>
     `Left alone: ${meshes} mesh(es) shared by several nodes. Joining them would bake the same geometry into a separate copy per node — the file would grow instead of shrinking. Turn on GPU instancing to cut their draw calls without the extra bytes.`,
-  'join.expandedShared': ({ bytes, pct, dcSaved }) =>
-    `Join copied shared geometry: +${size(bytes)} (+${pct}%) of stored geometry bought ${dcSaved} fewer draw calls. `
-    + `Meshes reused by several nodes must be baked into separate copies. If this model is built on repeats, `
-    + `GPU instancing gives the same result without the extra bytes.`,
+  // 'join.expandedShared' removed 2026-08-01 together with the record itself
+  // (TESTBUG-009): shared meshes no longer reach join at all, and the growth it
+  // measured was undone by the final cleanup right after — the line called geometry
+  // "copied" while it ended up a third lighter. join.keptShared explains the rest.
 
   'ktx2.grewFile': ({ beforeKb, afterKb, pct }) =>
     `KTX2 made the textures heavier: ${beforeKb} KB → ${afterKb} KB (+${pct}%). `
@@ -98,6 +93,7 @@ export default {
   'ktx2.noTools': () => 'toktx or gltf-transform CLI not found — textures left in their original format',
   'ktx2.safe': () => 'UASTC --level 2 --zstd 18 without RDO — near-lossless, user\'s choice',
   'ktx2.skipped.already': ({ name }) => `Texture "${name}": already KTX2 — not re-encoded (no extra loss)`,
+  'ktx2.skipped.already.many': ({ n }) => `${n} textures are already KTX2 — not re-encoded (no extra loss)`,
   // Одной строкой на все текстуры, а не строкой на каждую. Экспортёры почти никогда
   // не именуют текстуры, поэтому тринадцать одинаковых строк вида `Texture "—": …`
   // не сообщали ничего, кроме своего количества.
@@ -119,6 +115,10 @@ export default {
   'webp.skipped.already.many': ({ n }) => `${n} textures are already WebP — not re-encoded (no extra loss)`,
   'webp.skipped.format': ({ name, mime }) => `Texture "${name}": ${mime} is not converted to WebP — it is already a GPU format`,
   'webp.skipped.format.many': ({ n, mime }) => `${n} textures in ${mime} — not converted to WebP, that is already a GPU format`,
+  // Separate from the GPU-format case: AVIF, BMP, TGA unpack to the same
+  // uncompressed image PNG does — the reason is simply that we do not re-encode them.
+  'webp.skipped.unsupported': ({ name, mime }) => `Texture "${name}": we do not re-encode ${mime} — left as it was`,
+  'webp.skipped.unsupported.many': ({ n, mime }) => `${n} textures in ${mime} — we do not re-encode that format, left as they were`,
   'webp.skipped.noMime': ({ name }) => `Texture "${name}": the model does not state its format — not encoded blindly`,
   'webp.skipped.noMime.many': ({ n }) => `${n} textures with no stated format — not encoded blindly`,
   'webp.skipped.jpegData': ({ name }) => `Data texture "${name}" arrived as JPEG — left as it is: lossless would make it several times heavier, and data textures must not be encoded lossily`,
