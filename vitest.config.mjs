@@ -34,6 +34,25 @@ const threeRoot = path.resolve(__dirname, 'node_modules/three')
 // В production сервер (server.mjs) отдаёт их через express.static, но в тестовом
 // окружении dev-сервера Vite этих путей нет. Плагин читает файлы из
 // node_modules/three/ и отдаёт с корректным MIME-типом (особенно важно для .wasm).
+//
+// optimizedArtifactsPlugin — тот же приём для оптимизированных артефактов
+// браузерных тестов: tests/__optimized__/ раздаётся по /optimized/*. Файлы
+// генерирует node-контекст globalSetup (tests/instance-grid-build.setup.mjs),
+// а браузерный тест грузит их как обычные URL (см. tests/instance-grid-render.browser.test.mjs).
+const optimizedArtifactsPlugin = {
+  name: 'optimized-artifacts',
+  configureServer(viteServer) {
+    viteServer.middlewares.use('/optimized/', (req, res, next) => {
+      const relPath = (req.url || '').replace(/^\/+/, '')
+      if (!relPath || relPath.includes('..')) return next()
+      const filePath = path.resolve(__dirname, 'tests', '__optimized__', relPath)
+      if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) return next()
+      res.writeHead(200, { 'Content-Type': 'model/gltf-binary' })
+      res.end(fs.readFileSync(filePath))
+    })
+  },
+}
+
 const threeVendorPlugin = {
   name: 'three-vendor',
   configureServer(viteServer) {
@@ -81,7 +100,7 @@ export default defineConfig({
         // publicDir ДОЛЖЕН быть внутри проекта — при использовании projects
         // верхнеуровневые vite-опции не наследуются дочерними проектами.
         publicDir: 'fixtures/models',
-        plugins: [threeVendorPlugin],
+        plugins: [threeVendorPlugin, optimizedArtifactsPlugin],
         test: {
           name: 'browser',
           include: ['tests/**/*.browser.test.mjs'],
@@ -89,7 +108,9 @@ export default defineConfig({
           // globalSetup — smoke-гейт: golden-corpus существует и не пуст,
           // fixtures на месте. Мягче node-гейта (нет сравнения с baseline),
           // но предотвращает зелёный бейдж на пустом наборе.
-          globalSetup: ['tests/browser-baseline.setup.mjs'],
+          // instance-grid-build.setup.mjs — собирает оптимизированный Instance Grid
+          // для viewer-теста рендера (см. optimizedArtifactsPlugin выше).
+          globalSetup: ['tests/browser-baseline.setup.mjs', 'tests/instance-grid-build.setup.mjs'],
           testTimeout: 120_000,
           hookTimeout: 120_000,
           browser: {
