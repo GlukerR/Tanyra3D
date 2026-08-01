@@ -185,3 +185,73 @@ describeIfModels(['Dirty Cube 01.glb'], 'TESTBUG-008 (открыт) — meshopt+
     expect(skip.i18n.text.data.codec).toBe('meshopt');
   });
 });
+
+// TESTBUG-009 — ОТКРЫТ 2026-08-01 (аудит взаимоисключающих пар: ktx2+webp,
+// quantize+draco, join+instance).
+//
+// ОЖИДАНИЕ (комментарий в rules.mjs, scene/join): «runAfter включает scene/instance
+// НАМЕРЕННО... Инстансированные узлы несут EXT_mesh_gpu_instancing, и join их не
+// трогает — то есть instance, отработав первым, физически защищает общую геометрию
+// от разворачивания в копии». То есть на модели с общей геометрией пара
+// join+instance должна дать: instance инстансирует общий меш, join его НЕ
+// разворачивает — без строки join.expandedShared.
+//
+// ФАКТ на 2026-08-01: `['join','instance']` на Dirty Cube 01 (Cube.002 — общий меш,
+// 3 родительские ноды) → status 'ok'; applied содержит scene/instance (3 инстанса)
+// и scene/join (join.done: dcBefore=9 → dcAfter=9, т.е. 0 сэкономленных draw calls,
+// nodes 9 → 6); в skipped — scene/join → join.expandedShared {bytes:960, pct:36,
+// dcSaved:0} «Объединение размножило общую геометрию: +960 байт (+36%) ради 0
+// отрисовок меньше». При этом в выходе инстансинг ЖИВ (1 узел с
+// EXT_mesh_gpu_instancing, 3 инстанса), а суммарные байты геометрии МЕНЬШЕ, чем у
+// одного instance (1916 против 2684 accessor-байт; файл 18104 против 61640).
+// Текст причины противоречит фактическому результату.
+//
+// Шаг воспроизведения:
+//   optimizeFile('fixtures/models/Dirty Cube 01.glb',
+//     { advancedFeatures: ['join','instance'], dryRun: true })
+//   → status 'ok'; applied: scene/instance, scene/join;
+//     skipped: scene/join с messageId 'join.expandedShared'
+//     (data: bytes=960, pct=36, dcSaved=0).
+//
+// Причина (гипотеза, движок не правим): join.expandedShared измеряется в окне
+// самого transform-а (до/после flatten+join) и ловит временный рост геометрии,
+// который потом убирает structure/prune-final — финальный файл легче, чем у
+// одного instance, а сообщение остаётся. Воздержание есть только на моделях, где
+// после instance общих мешей не остаётся вовсе (Linked/Unlinked Duplicates — join
+// воздерживается корректно); на Dirty Cube остаток «не-инстансированной» общей
+// геометрии даёт ложное срабатывание.
+//
+// Аудит остальных пар (2026-08-01) — расхождений НЕТ, заявки не нужны:
+//   - quantize+draco: задание (стр. 76) ждёт «уже упакована (draco)» — движок
+//     отвечает quantize.skipped.compressed + codec 'draco' на всех моделях корпуса;
+//   - ktx2+webp: webp-задание (стр. 86–90, 193) ждёт «KTX2 применяется, WebP
+//     уступает „уже GPU-формат“ (mime ktx2)» — факт совпадает
+//     (webp.skipped.format / webp.skipped.noMime после ktx2-прохода).
+//
+// Тест-сентинел оставлен красным: когда join перестанет разворачивать защищённую
+// инстансингом геометрию (или сообщение перестанет врать про финальный файл),
+// тест позеленеет. Движок по правилам НЕ чиним.
+describeIfModels(['Dirty Cube 01.glb'], 'TESTBUG-009 (открыт) — join+instance: join не разворачивает защищённую инстансингом общую геометрию', () => {
+  // Dirty Cube 01 — репо-модель, присутствует всегда; guard для симметрии с реестром.
+  const isPresent = fs.existsSync(modelPath('Dirty Cube 01.glb'));
+  const fn = isPresent ? it : it.skip;
+  fn("['join','instance'] — в skipped нет join.expandedShared, инстансинг применился", async () => {
+    const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
+      advancedFeatures: ['join', 'instance'],
+      dryRun: true,
+    });
+    expect(result.status).toBe('ok');
+
+    // Инстансинг реально применился — общую геометрию (Cube.002, 3 родителя) защищать есть чем.
+    expect(result.applied.some((a) => a.ruleId === 'scene/instance')).toBe(true);
+
+    // ОЖИДАНИЕ: join НЕ разворачивает то, что защитил инстансинг → в skipped НЕТ
+    // join.expandedShared. Факт 2026-08-01: запись ЕСТЬ ({bytes:960, pct:36,
+    // dcSaved:0}) при живом инстансинге в выходе и меньшей итоговой геометрии —
+    // тест красный, дефект воспроизводится (см. историю выше).
+    const expanded = result.skipped.find(
+      (s) => s.ruleId === 'scene/join' && s.i18n?.text?.messageId === 'join.expandedShared',
+    );
+    expect(expanded).toBeUndefined();
+  });
+});
