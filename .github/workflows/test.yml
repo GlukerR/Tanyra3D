@@ -62,6 +62,25 @@ jobs:
             exit 1
           fi
 
+      # WebP-покрытие и сторож плотности отчёта (Правило 9) — обязательный гейт.
+      # Файлы уже входят в общий `npx vitest run` выше, но отдельный шаг делает их
+      # обязательность явной и несводимой к общему числу: если эти два файла
+      # пропадут из include или их набор целиком пропустится (на диске нет ни
+      # одной их модели) — шаг упадёт, а не молча позеленеет. Порог 10 против
+      # ~35 реально выполняемых на чистом клоне (webp: 4 репо-модели, плотность:
+      # 7 репо-моделей × 4 набора флагов + мета-тест + 2 теста механизма).
+      # Переиспользуем vitest-report.json: общий гейт выше уже прочитал его,
+      # а имя уже в .gitignore.
+      - name: Run webp + report-density tests (mandatory gate)
+        run: |
+          npx vitest run --project node tests/webp.test.mjs tests/report-density.test.mjs --reporter=default --reporter=json --outputFile=vitest-report.json
+          PASSED=$(node -e "console.log(require('./vitest-report.json').numPassedTests || 0)")
+          echo "Выполнено тестов (webp + плотность): $PASSED"
+          if [ "$PASSED" -lt 10 ]; then
+            echo "::error::Выполнено всего $PASSED тестов webp/плотности — набор почти целиком пропущен, это не зелёный прогон"
+            exit 1
+          fi
+
       # Проверка baseline-гейта: преднамеренно ломаем BASELINE_ITS и убеждаемся,
       # что vitest globalSetup валит suite с ненулевым exit-кодом. Если гейт
       # молча пропустит сломанный baseline — шаг красный (exit 1).
