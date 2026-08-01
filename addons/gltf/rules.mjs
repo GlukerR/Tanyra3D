@@ -25,6 +25,17 @@ import { render } from '../../core/i18n.mjs';
 import { collectMetrics, countTriangles, effectiveSkins, listSemantics } from './metrics.mjs';
 import { GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 
+// Раздел текстур на «данные» и «цвет». Нормали, occlusion и roughness — это ЧИСЛА,
+// закодированные картинкой, а не картинка: у них нет цветности, которую можно
+// незаметно огрубить. Поэтому оба текстурных правила обращаются с ними бережнее —
+// KTX2 даёт им UASTC вместо ETC1S (ETC1S мылит нормали и делает ступеньки на
+// roughness), WebP — lossless вместо обычного (лоссовый WebP режет цветность 4:2:0
+// и портит вектор нормали). Общее место, потому что раздел один и тот же: разъедутся
+// — модели начнут по-разному портиться в зависимости от выбранной галочки.
+// Regex и glob обязаны совпадать по смыслу: первый читает наш код, второй — toktx.
+const DATA_SLOT_RE = /normal|occlusion|roughness/i;
+const DATA_SLOT_GLOB = '*{normal,Normal,occlusion,Occlusion,metallicRoughness,Roughness}*';
+
 // Текстура «цветная» (данные в sRGB), если так сказала сама модель — ребро графа
 // помечено isColor, — ИЛИ если имя слота содержит color/emissive.
 //
@@ -209,11 +220,19 @@ export const RULES = [
       const semAfter = listSemantics(ctx.document);
       const a = { tex: root.listTextures().length, mat: root.listMaterials().length, skins: root.listSkins().length, effSkins: effectiveSkins(ctx.document) };
       const out = { found: [], details: [] };
-      for (const s of semBefore) {
-        if (!semAfter.has(s)) {
-          out.found.push({ messageId: 'prune.found.attribute', data: { sem: s } });
-          out.details.push({ messageId: 'prune.done.attribute', data: { sem: s } });
-        }
+      // Одна строка на ВСЕ убранные атрибуты, а не строка на каждый. Восемь неиспользуемых
+      // UV-каналов давали восемь одинаковых по смыслу записей, различавшихся только
+      // именем канала. Схлопывать их в интерфейсе нельзя честно: он видит готовые строки
+      // и, сложив их в «TEXCOORD_1 … ×8», называет один канал, а имеет в виду восемь.
+      // Правило знает весь список сразу — здесь это и есть правильное место.
+      const removedSem = [...semBefore].filter((s) => !semAfter.has(s)); // listSemantics отдаёт Set
+      if (removedSem.length === 1) {
+        out.found.push({ messageId: 'prune.found.attribute', data: { sem: removedSem[0] } });
+        out.details.push({ messageId: 'prune.done.attribute', data: { sem: removedSem[0] } });
+      } else if (removedSem.length > 1) {
+        const data = { n: removedSem.length, list: removedSem.join(', ') };
+        out.found.push({ messageId: 'prune.found.attributes', data });
+        out.details.push({ messageId: 'prune.done.attributes', data });
       }
       if (b.tex > a.tex) { out.found.push({ messageId: 'prune.found.textures', data: { n: b.tex - a.tex } }); out.details.push({ messageId: 'prune.done.textures', data: { n: b.tex - a.tex } }); }
       if (b.mat > a.mat) { out.found.push({ messageId: 'prune.found.materials', data: { n: b.mat - a.mat } }); out.details.push({ messageId: 'prune.done.materials', data: { n: b.mat - a.mat } }); }
@@ -251,6 +270,15 @@ export const RULES = [
     fix(finding, ctx) {
       const out = { found: [], skipped: [], details: [] };
       const el = [];
+      // Копим по атрибуту, а не отчитываемся на каждом меше: семь мешей с белым COLOR_0 —
+      // это одна находка про семь мешей, а не семь находок. Ключ — сам атрибут (COLOR_0
+      // и COLOR_1 смешивать нельзя) и то, что с ним решили сделать.
+      const buckets = new Map(); // `${sem}|${kind}` → { sem, kind, meshes: [] }
+      const note = (sem, kind, meshName) => {
+        const key = `${sem}|${kind}`;
+        if (!buckets.has(key)) buckets.set(key, { sem, kind, meshes: [] });
+        buckets.get(key).meshes.push(meshName);
+      };
       for (const mesh of ctx.document.getRoot().listMeshes()) {
         for (const prim of mesh.listPrimitives()) {
           for (const sem of prim.listSemantics()) {
@@ -262,20 +290,37 @@ export const RULES = [
               acc.getElement(i, el); // нормализованные float-значения
               if (el.some((v) => v < 0.999)) { allWhite = false; break; }
             }
-            const data = { sem, mesh: mesh.getName() || '—' };
+            const meshName = mesh.getName() || '—';
             if (allWhite) {
               prim.setAttribute(sem, null);
-              out.found.push({ messageId: 'vertexColors.found.white', data });
-              out.details.push({ messageId: 'vertexColors.done.white', data });
+              note(sem, 'white', meshName);
             } else if (ctx.opts.stripColors) {
               prim.setAttribute(sem, null); // lossy, но пользователь явно форсировал флагом
-              out.found.push({ messageId: 'vertexColors.found.painted', data });
-              (out.irreversible ??= []).push({ messageId: 'vertexColors.stripped', data });
+              note(sem, 'stripped', meshName);
             } else {
-              out.found.push({ messageId: 'vertexColors.found.painted', data });
-              out.skipped.push({ messageId: 'vertexColors.skipped', data });
+              note(sem, 'painted', meshName);
             }
           }
+        }
+      }
+      // Один меш — прежние сообщения с именем; несколько — множественные со списком.
+      // Отдельные ключи, а не склейка списка в те же строки: «меш Cube.014, Cube.017»
+      // на другом языке потребует другого слова и другого порядка (Правило 8).
+      for (const b of buckets.values()) {
+        const one = b.meshes.length === 1;
+        const data = one
+          ? { sem: b.sem, mesh: b.meshes[0] }
+          : { sem: b.sem, n: b.meshes.length, list: b.meshes.join(', ') };
+        const id = (base) => (one ? base : `${base}.many`);
+        if (b.kind === 'white') {
+          out.found.push({ messageId: id('vertexColors.found.white'), data });
+          out.details.push({ messageId: id('vertexColors.done.white'), data });
+        } else if (b.kind === 'stripped') {
+          out.found.push({ messageId: id('vertexColors.found.painted'), data });
+          (out.irreversible ??= []).push({ messageId: id('vertexColors.stripped'), data });
+        } else {
+          out.found.push({ messageId: id('vertexColors.found.painted'), data });
+          out.skipped.push({ messageId: id('vertexColors.skipped'), data });
         }
       }
       return out;
@@ -591,11 +636,6 @@ export const RULES = [
         return n;
       };
       const imgBefore = imageBytes();
-      // data-текстуры (нормали/occlusion/roughness) — UASTC: ETC1S мылит нормали и даёт
-      // ступеньки на roughness. Цветовые (baseColor/emissive/прочее) — ETC1S: в разы
-      // легче в файле при той же экономии VRAM. Regex и glob должны совпадать по смыслу.
-      const DATA_SLOT_RE = /normal|occlusion|roughness/i;
-      const DATA_SLOT_GLOB = '*{normal,Normal,occlusion,Occlusion,metallicRoughness,Roughness}*';
       const dataTex = [];
       const colorTex = [];
       // Перекодированные в PNG копим и отчитываемся ОДНОЙ строкой в конце: строка
@@ -681,6 +721,94 @@ export const RULES = [
             beforeKb: Math.round(imgBefore / 1024),
             afterKb: Math.round(imgAfter / 1024),
             pct: Math.round((imgAfter - imgBefore) / imgBefore * 100),
+          },
+        }];
+      }
+      return out;
+    },
+  },
+
+  {
+    meta: {
+      // WebP — второй ответ на текстуры, противоположный KTX2 по смыслу, и потому
+      // взаимоисключающий с ним (в интерфейсе — один выбор на двоих).
+      //
+      //   KTX2 остаётся сжатым НА ВИДЕОКАРТЕ: видеопамять падает в 4–8 раз, а файл
+      //   нередко растёт — на мелкой текстуре служебные данные контейнера весят больше
+      //   самой картинки (замерено: +1064 % на `Draco Compressed Input 01`).
+      //
+      //   WebP распаковывается в ту же несжатую RGBA: видеопамять НЕ меняется вовсе,
+      //   зато файл меньше JPEG/PNG. Это ответ на «страницу должно быстро открыть»,
+      //   а не на «модель не должна съесть память телефона».
+      //
+      // Расширение EXT_texture_webp ратифицировано Khronos, three.js понимает его
+      // из коробки, без отдельного декодера, — поэтому значка ⚠ у опции нет.
+      id: 'textures/webp', category: 'textures', title: 'Textures → WebP', titleKey: 'rule.texturesWebp',
+      severity: 'warn', fixSafety: 'perceptual', tier: 'advanced', feature: 'webp',
+      runAfter: ['structure/prune-final'], touches: ['texture'],
+      reversible: true, dataLoss: 'minor',
+      reversalNote: 'WebP can be decoded back to PNG, but lossy re-encoding is not undone.',
+      enabled: (opts) => !opts.noWebp,
+    },
+    analyze() { return [{ messageId: 'pipeline', data: {} }]; },
+    canFix() { return { safe: true, messageId: 'webp.safe', data: {} }; },
+    async fix(finding, ctx) {
+      const out = { found: [], skipped: [], details: [] };
+      const imageBytes = () => {
+        let n = 0;
+        for (const tex of ctx.document.getRoot().listTextures()) {
+          const img = tex.getImage();
+          if (img) n += img.byteLength;
+        }
+        return n;
+      };
+
+      // Что вообще можно кодировать. KTX2 (image/ktx2) не трогаем: это уже готовый
+      // формат для видеокарты, и «сжать» его в WebP значило бы распаковать обратно.
+      const CONVERTIBLE = new Set(['image/png', 'image/jpeg']);
+      const color = [];
+      const data = [];
+      for (const tex of ctx.document.getRoot().listTextures()) {
+        const mime = tex.getMimeType();
+        const name = tex.getName() || '';
+        if (mime === 'image/webp') { out.skipped.push({ messageId: 'webp.skipped.already', data: { name: name || '—' } }); continue; }
+        if (!CONVERTIBLE.has(mime)) { out.skipped.push({ messageId: 'webp.skipped.format', data: { name: name || '—', mime: mime.replace('image/', '') } }); continue; }
+        // Тот же раздел, что у KTX2: нормали, occlusion и roughness — это ЧИСЛА,
+        // а не картинка. Лоссовый WebP режет цветность (4:2:0) и портит вектор
+        // нормали, поэтому им — только lossless, цветным — обычное сжатие.
+        if (DATA_SLOT_RE.test(fns.listTextureSlots(tex).join(' '))) data.push(name);
+        else color.push(name);
+      }
+      if (!color.length && !data.length) return out;
+
+      const sharp = (await import('sharp')).default; // ленивый импорт: тот же путь, что у KTX2
+      const before = imageBytes();
+      if (color.length) {
+        await ctx.document.transform(fns.textureCompress({
+          encoder: sharp, targetFormat: 'webp', quality: 90,
+          slots: new RegExp(`^(?!.*(${DATA_SLOT_RE.source})).*$`, 'i'),
+        }));
+      }
+      if (data.length) {
+        await ctx.document.transform(fns.textureCompress({
+          encoder: sharp, targetFormat: 'webp', lossless: true,
+          slots: DATA_SLOT_RE,
+        }));
+      }
+      const after = imageBytes();
+
+      out.found.push({ messageId: 'webp.found', data: { n: color.length + data.length } });
+      if (color.length) out.details.push({ messageId: 'webp.done.color', data: { n: color.length } });
+      if (data.length) out.details.push({ messageId: 'webp.done.data', data: { n: data.length } });
+      // Честно сообщаем и о проигрыше: на уже пожатом JPEG WebP иногда даёт больше.
+      // Молчать об этом значит выдавать за выигрыш то, что им не является.
+      if (before > 0 && after > before) {
+        out.cost = [{
+          messageId: 'webp.grewFile',
+          data: {
+            beforeKb: Math.round(before / 1024),
+            afterKb: Math.round(after / 1024),
+            pct: Math.round((after - before) / before * 100),
           },
         }];
       }

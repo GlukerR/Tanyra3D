@@ -28,10 +28,14 @@ export default {
   // --- structure/prune-unused ---
   'prune.safe': () => 'удаляются только ресурсы, на которые не осталось ссылок',
   'prune.found.attribute': ({ sem }) => `атрибут ${sem} не используется ни одним материалом`,
+  // Множественный вариант. Отдельным ключом, а не списком в той же фразе: «атрибут» и
+  // «атрибуты» — разные слова, и в другом языке разница может быть ещё заметнее.
+  'prune.found.attributes': ({ n, list }) => `не используются ни одним материалом атрибутов: ${n} (${list})`,
   'prune.found.textures': ({ n }) => `неиспользуемых текстур: ${n}`,
   'prune.found.materials': ({ n }) => `неиспользуемых материалов: ${n}`,
   'prune.found.emptySkins': ({ n }) => `пустых скинов (у мешей нет JOINTS/WEIGHTS): ${n}`,
   'prune.done.attribute': ({ sem }) => `Атрибут ${sem}: не используется ни одним материалом — удалён`,
+  'prune.done.attributes': ({ n, list }) => `Неиспользуемые атрибуты удалены: ${n} (${list})`,
   'prune.done.textures': ({ n }) => `Текстуры: удалено неиспользуемых — ${n}`,
   'prune.done.materials': ({ n }) => `Материалы: удалено неиспользуемых — ${n}`,
   'prune.done.emptySkins': ({ n }) => `Удалено пустых скинов: ${n} — деформации нет, анимация идёт через иерархию узлов`,
@@ -43,6 +47,13 @@ export default {
   'vertexColors.done.white': (d) => `${where(d)}: все значения белые — удалены, вид не изменился`,
   'vertexColors.stripped': (d) => `${where(d)}: РАСКРАШЕННЫЕ, удалены по флагу --strip-vertex-colors — вид может измениться`,
   'vertexColors.skipped': (d) => `${where(d)}: настоящая раскраска — НЕ удалена, влияет на вид. Принудительно: --strip-vertex-colors`,
+  // Те же сообщения, когда мешей несколько: имя одного меша заменяется их числом и
+  // перечнем. Одна строка вместо семи одинаковых.
+  'vertexColors.found.white.many': ({ sem, n, list }) => `${sem}: все значения белые — на картинку не влияют; мешей: ${n} (${list})`,
+  'vertexColors.found.painted.many': ({ sem, n, list }) => `${sem}: настоящая раскраска вершин; мешей: ${n} (${list})`,
+  'vertexColors.done.white.many': ({ sem, n, list }) => `${sem}: все значения белые — удалены, вид не изменился; мешей: ${n} (${list})`,
+  'vertexColors.stripped.many': ({ sem, n, list }) => `${sem}: РАСКРАШЕННЫЕ, удалены по флагу --strip-vertex-colors — вид может измениться; мешей: ${n} (${list})`,
+  'vertexColors.skipped.many': ({ sem, n, list }) => `${sem}: настоящая раскраска — НЕ удалена, влияет на вид. Принудительно: --strip-vertex-colors; мешей: ${n} (${list})`,
 
   // --- geometry/weld ---
   'weld.safe': () => 'склеиваются только полностью совпадающие вершины',
@@ -98,6 +109,18 @@ export default {
   'ktx2.log.skipped': () => '        все текстуры уже KTX2 либо их нет — кодирование пропущено',
   'ktx2.log.encoding': ({ n, mixed }) => `        кодирование KTX2 (${n}, режим ${mixed ? 'смешанный: ETC1S+UASTC' : 'uastc'})`,
 
+  // --- textures/webp ---
+  'webp.safe': () => 'цветные текстуры с качеством 90, карты данных (нормали/occlusion/roughness) — без потерь',
+  'webp.skipped.already': ({ name }) => `Текстура «${name}»: уже WebP — не перекодирована (лишних потерь нет)`,
+  'webp.skipped.format': ({ name, mime }) => `Текстура «${name}»: ${mime} в WebP не переводится — это уже формат для видеокарты`,
+  'webp.found': ({ n }) => `текстур в PNG или JPEG: ${n} — именно они и кодируются`,
+  'webp.done.color': ({ n }) => `Цветных текстур → WebP, качество 90: ${n} — файл меньше, видеопамять та же`,
+  'webp.done.data': ({ n }) => `Карт данных → WebP без потерь: ${n} — нормали и roughness это числа, огрубление цветности их искажает`,
+  'webp.grewFile': ({ beforeKb, afterKb, pct }) =>
+    `WebP сделал текстуры тяжелее: ${beforeKb} КБ → ${afterKb} КБ (+${pct}%). `
+    + `Так бывает на фотографиях, уже пожатых в JPEG: перекодирование не возвращает того, что JPEG уже выбросил. `
+    + `Оставьте текстуры как есть — или попробуйте KTX2, если экономите видеопамять.`,
+
   // --- geometry/compress ---
   'compress.safe': () => 'сжатие упаковывает данные вершин, количество полигонов не меняется',
   'compress.done': ({ codec }) => `Геометрия сжата (${codec}) — количество полигонов не изменилось`,
@@ -140,5 +163,6 @@ export default {
   'rule.animationResample': () => 'Передискретизация анимаций',
   'rule.structurePruneFinal': () => 'Чистка осиротевших ресурсов',
   'rule.texturesKtx2': () => 'Текстуры → KTX2/UASTC',
+  'rule.texturesWebp': () => 'Текстуры → WebP',
   'rule.geometryCompress': () => 'Сжатие геометрии',
 };

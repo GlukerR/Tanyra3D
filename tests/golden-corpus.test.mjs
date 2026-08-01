@@ -547,7 +547,7 @@ describe('Golden Corpus — Dirty Cube 01: safe does real work', () => {
     )).toBe(true);
   });
 
-  it('prune-unused удаляет TEXCOORD_1…5 по одному', async () => {
+  it('prune-unused сообщает обо всех убранных TEXCOORD_1…5 одной строкой', async () => {
     const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
       advancedFeatures: ['safe'],
       dryRun: true,
@@ -555,18 +555,24 @@ describe('Golden Corpus — Dirty Cube 01: safe does real work', () => {
     expect(result.status).toBe('ok');
     // Из спецификации: материалы используют только TEXCOORD_0 →
     // TEXCOORD_1, TEXCOORD_2, …, TEXCOORD_5 должны попасть в prune.
-    // Каждое — отдельная запись в applied, текст вида
-    // «Attribute TEXCOORD_<n>: not used by any material — removed».
-    const pruneAttrLines = result.applied
+    //
+    // 2026-08-01: правило перестало писать строку НА КАЖДЫЙ атрибут и пишет одну
+    // со списком (messageId 'prune.done.attributes'). Тест раньше требовал ровно
+    // обратного — «каждое отдельной записью». Требование снято сознательно: пять
+    // записей, различавшихся одним словом, разрастались в панели во столько же
+    // окошек, и найти среди них что-то другое было нельзя. Проверяемая СУТЬ не
+    // изменилась и проверяется по-прежнему: названы должны быть все пять каналов.
+    const pruneText = result.applied
       .filter((a) => a.ruleId === 'structure/prune-unused')
       .map((a) => a.text)
-      .filter((t) => /Attribute TEXCOORD_\d/i.test(t));
-    // Хотя бы 5 разных TEXCOORD-каналов должно быть упомянуто.
-    expect(pruneAttrLines.length).toBeGreaterThanOrEqual(5);
-    // Конкретно 1..5 — должны быть представлены все пять.
+      .join('\n');
     for (const sem of ['TEXCOORD_1', 'TEXCOORD_2', 'TEXCOORD_3', 'TEXCOORD_4', 'TEXCOORD_5']) {
-      expect(pruneAttrLines.some((t) => t.includes(sem))).toBe(true);
+      expect(pruneText).toContain(sem);
     }
+    // И именно одной строкой, а не пятью: ради этого всё и делалось.
+    const attrLines = result.applied
+      .filter((a) => a.ruleId === 'structure/prune-unused' && /TEXCOORD_\d/.test(a.text));
+    expect(attrLines).toHaveLength(1);
   });
 
   it('камеры и лайты реально есть в файле (sanity для следующей проверки)', async () => {

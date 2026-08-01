@@ -76,6 +76,7 @@ const ADVANCED_FEATURES = {
   instance: 'GPU instancing (EXT_mesh_gpu_instancing) — repeated meshes as instances',
   resample: 'resample animations — drop redundant keyframes (lossless)',
   ktx2: 'textures → KTX2 (needs browser/engine support)',
+  webp: 'textures → WebP (EXT_texture_webp; smaller file, video memory unchanged)',
   'strip-colors': 'removal of painted vertex colors (lossy)',
 };
 
@@ -108,6 +109,11 @@ function normalizeOpts(opts = {}) {
     // KTX2 по умолчанию ВЫКЛЮЧЕН (advanced). Приоритет: фича 'ktx2' > явный boolean noKtx
     // (legacy) > default true.
     noKtx: adv.includes('ktx2') ? false : (typeof opts.noKtx === 'boolean' ? opts.noKtx : true),
+    // WebP — тоже opt-in и тоже про текстуры, но противоположный KTX2 по смыслу
+    // (меньше файл против меньше видеопамяти). Взаимоисключение делает интерфейс:
+    // движок обязан честно выполнить то, что попросили, даже если попросили оба, —
+    // молча отменять выбор он не вправе.
+    noWebp: adv.includes('webp') ? false : (typeof opts.noWebp === 'boolean' ? opts.noWebp : true),
     stripColors: !!opts.stripColors || adv.includes('strip-colors'),
     dryRun: !!opts.dryRun,
     // §4b: opts.locale можно добавлять свободно (default 'en'). Неизвестная локаль

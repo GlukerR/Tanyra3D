@@ -556,10 +556,36 @@
     { titleKey: 'group.cleanup', kind: 'checks', ids: ['safe', 'strip-colors'] },
     { titleKey: 'group.structural', kind: 'checks', ids: ['join', 'instance'] },
     { titleKey: 'group.geometry', kind: 'geometry' },
-    { titleKey: 'group.textures', kind: 'checks', ids: ['ktx2'] },
+    { titleKey: 'group.textures', kind: 'checks', ids: ['ktx2', 'webp'] },
     { titleKey: 'group.animation', kind: 'checks', ids: ['resample'] },
   ];
   const NEEDS_DECODER = new Set(['meshopt', 'draco', 'ktx2', 'instance']);
+
+  // Взаимоисключающие флажки: включили один — второй гаснет.
+  //
+  // KTX2 и WebP делают с текстурами противоположное и оба разом не имеют смысла.
+  // KTX2 остаётся сжатым в видеопамяти (её в 4–8 раз меньше), но файл на мелкой
+  // текстуре растёт. WebP уменьшает файл, а до видеокарты доходит распакованным —
+  // видеопамять не меняется вовсе. Включить оба значит перекодировать текстуры
+  // дважды и получить последний по порядку.
+  //
+  // Гасим ЗДЕСЬ, а не в движке: движок обязан честно выполнить то, что попросили.
+  // Отменять чужой выбор молча — не его дело; выбор делают в интерфейсе.
+  const EXCLUSIVE_GROUPS = [['ktx2', 'webp']];
+
+  function clearExclusivePartners(id) {
+    for (const group of EXCLUSIVE_GROUPS) {
+      if (!group.includes(id)) continue;
+      for (const other of group) {
+        if (other === id) continue;
+        const box = document.getElementById(`ext-${other}`);
+        if (box && box.checked) {
+          box.checked = false;
+          box.dispatchEvent(new Event('input', { bubbles: true })); // раскрывашки режима слушают его
+        }
+      }
+    }
+  }
   // ⚠ — не документация, а требование к разработчику (нужно подключить декодер на сайте).
   // 📖 остаётся отдельным значком «пояснение, как это работает» — их нельзя путать.
   // Текст — что именно установить, отдельно на каждую технологию (не один и тот же текст
@@ -841,7 +867,16 @@
     checkbox.className = 'ext-checkbox';
     checkbox.value = ext.id;
     checkbox.id = `ext-${ext.id}`;
-    checkbox.addEventListener('change', onOptionChanged);
+    checkbox.addEventListener('change', () => {
+      // Гасим партнёра ДО пересчёта: getSelectedFeatures() читает флажки, и порядок
+      // здесь решает, попадут ли в сборку оба текстурных правила сразу.
+      if (checkbox.checked) clearExclusivePartners(ext.id);
+      // KTX2 могли погасить не его собственным кликом, а выбором WebP — селектор
+      // режима должен уехать вместе с ним. Свой обработчик у флажка KTX2 (ниже)
+      // на чужой клик не срабатывает.
+      toggleKtx2Mode(!!(document.getElementById('ext-ktx2') || {}).checked);
+      onOptionChanged();
+    });
 
     const titleSpan = document.createElement('span');
     titleSpan.textContent = ext.title || ext.id;
@@ -2076,8 +2111,11 @@
     analysisSection.classList.toggle('hidden', !hasAny);
     if (!hasAny) return;
 
+    // Счётчик в заголовке — через каталог: собирался в коде по-английски и смену
+    // языка не переживал (Правило 8).
     const notableCount = (findings || []).filter((f) => f.severity === 'error' || f.severity === 'warn').length;
-    issuesCount.textContent = notableCount ? `${notableCount} important` : `${(findings || []).length}`;
+    if (notableCount) setText(issuesCount, 'issues.countImportant', { n: notableCount });
+    else setText(issuesCount, 'issues.countPlain', { n: (findings || []).length });
 
     issuesList.innerHTML = '';
 
@@ -2110,27 +2148,41 @@
     for (const f of findings || []) {
       const key = `${f.category}|${f.severity}`;
       if (!buckets.has(key)) buckets.set(key, { category: f.category, severity: f.severity, items: [] });
-      buckets.get(key).items.push({ ruleId: f.ruleId, text: f.text });
+      // i18n переносим вместе с текстом: по нему condense() узнаёт одинаковые находки
+      // (см. там же). Без него в схлопывание уходили голые строки, и восемь записей
+      // об одном и том же оставались восемью строками.
+      buckets.get(key).items.push({ ruleId: f.ruleId, text: f.text, i18n: f.i18n });
     }
 
+    // Одна карточка на всю пару «категория + важность», а внутри список строк.
+    //
+    // Раньше карточка заводилась на КАЖДУЮ строку, и заголовок категории повторялся
+    // столько же раз: восемь неиспользуемых атрибутов давали восемь окошек с одним и
+    // тем же словом «Сцена» над каждым. Панель разрасталась на пустом месте, а найти
+    // в ней что-то становилось тем труднее, чем больше находок, — то есть ровно тогда,
+    // когда это нужнее всего. Категория пишется один раз, находки идут под ней.
     for (const b of buckets.values()) {
+      const lines = condense(b.items);
+      if (!lines.length) continue;
       const sev = b.severity === 'error' ? 'sev-error' : b.severity === 'warn' ? 'sev-warn' : 'sev-info';
-      for (const line of condense(b.items)) {
-        const card = document.createElement('div');
-        card.className = `issue-card ${sev}`;
 
-        const title = document.createElement('p');
-        title.className = 'issue-title';
-        title.textContent = CATEGORY_KEYS[b.category] ? t(CATEGORY_KEYS[b.category]) : (b.category || t('cat.other'));
+      const card = document.createElement('div');
+      card.className = `issue-card ${sev}`;
 
-        const text = document.createElement('p');
-        text.className = 'issue-text';
-        text.textContent = line;
+      const title = document.createElement('p');
+      title.className = 'issue-title';
+      title.textContent = CATEGORY_KEYS[b.category] ? t(CATEGORY_KEYS[b.category]) : (b.category || t('cat.other'));
+      card.appendChild(title);
 
-        card.appendChild(title);
-        card.appendChild(text);
-        issuesList.appendChild(card);
+      const ul = document.createElement('ul');
+      ul.className = 'issue-sublist';
+      for (const line of lines) {
+        const li = document.createElement('li');
+        li.textContent = line;
+        ul.appendChild(li);
       }
+      card.appendChild(ul);
+      issuesList.appendChild(card);
     }
   }
 
@@ -2230,7 +2282,14 @@
       const text = String(it.text || '');
       const names = [];
       const template = text.replace(/"([^"]*)"/g, (_, n) => { names.push(n); return NAME_SLOT; });
-      const key = (it.ruleId || '') + '|' + template;
+      // Ключ группировки — messageId, если запись несёт рецепт i18n. Он точен и не
+      // зависит от языка: две записи с одним messageId — одна и та же находка про разные
+      // объекты, что бы ни стояло в подстановках. Шаблон по кавычкам остаётся запасным
+      // путём для записей без рецепта; он ловил различия только ВНУТРИ кавычек, поэтому
+      // восемь строк «атрибут TEXCOORD_N не используется» (имя без кавычек) так и
+      // оставались восемью строками.
+      const messageId = it.i18n && it.i18n.text && it.i18n.text.messageId;
+      const key = (it.ruleId || '') + '|' + (messageId || template);
       if (!groups.has(key)) groups.set(key, { template, names: [], count: 0 });
       const g = groups.get(key);
       g.count += 1;
@@ -2245,19 +2304,23 @@
         out.push(g.template.replace(new RegExp(NAME_SLOT, 'g'), () => `"${g.names[i++] ?? '—'}"`));
         continue;
       }
-      // Количество — префиксом, имена — на месте того самого имени. Читается как
-      // обычная фраза: «5× COLOR_0 (mesh Fringe, Paisley, …): PAINTED, removed…».
-      // Складывать количество внутрь скобок пробовали — получалось «mesh 5: Fringe»,
-      // что похоже на номер меша, а не на их число.
+      // Количество — суффиксом: «…не используется ни одним материалом ×8». Стояло
+      // префиксом («8× …»), но строка при этом начиналась с числа, и глаз, идущий по
+      // левому краю списка, читал сначала счётчики и только потом суть. Суть важнее.
+      //
+      // Имена — на месте того самого имени. Складывать количество внутрь скобок
+      // пробовали: получалось «mesh 5: Fringe», похожее на номер меша, а не на их число.
       const shown = g.names.slice(0, MAX_NAMES).join(', ');
       const rest = g.names.length - MAX_NAMES;
-      const list = g.names.length ? `${shown}${rest > 0 ? ` and ${rest} more` : ''}` : '—';
+      // «и ещё N» — через каталог: строка склеивалась в коде по-английски и от смены
+      // языка не менялась (Правило 8).
+      const list = g.names.length ? (rest > 0 ? t('issues.andMore', { shown, rest }) : shown) : '—';
       let first = true;
       const body = g.template.replace(new RegExp(NAME_SLOT, 'g'), () => {
         if (first) { first = false; return list; }
         return '—';
       });
-      out.push(`${g.count}× ${body}`);
+      out.push(`${body} ×${g.count}`);
     }
     return out;
   }

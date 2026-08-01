@@ -25,10 +25,13 @@ export default {
   // --- structure/prune-unused ---
   'prune.safe': () => 'only resources with no remaining references are removed',
   'prune.found.attribute': ({ sem }) => `attribute ${sem} is not used by any material`,
+  // Множественный вариант — отдельным ключом, а не списком в той же фразе.
+  'prune.found.attributes': ({ n, list }) => `${n} attributes are not used by any material (${list})`,
   'prune.found.textures': ({ n }) => `unused textures: ${n}`,
   'prune.found.materials': ({ n }) => `unused materials: ${n}`,
   'prune.found.emptySkins': ({ n }) => `empty skins (meshes have no JOINTS/WEIGHTS): ${n}`,
   'prune.done.attribute': ({ sem }) => `Attribute ${sem}: not used by any material — removed (prune)`,
+  'prune.done.attributes': ({ n, list }) => `Removed ${n} unused attributes (${list})`,
   'prune.done.textures': ({ n }) => `Textures: removed ${n} unused`,
   'prune.done.materials': ({ n }) => `Materials: removed ${n} unused`,
   'prune.done.emptySkins': ({ n }) => `Removed ${n} empty skins — no deformation, animation runs through the node hierarchy`,
@@ -40,6 +43,12 @@ export default {
   'vertexColors.done.white': (d) => `${where(d)}: all values white — removed, look unchanged`,
   'vertexColors.stripped': (d) => `${where(d)}: PAINTED, removed via --strip-vertex-colors flag — look may change`,
   'vertexColors.skipped': (d) => `${where(d)}: real painting — NOT removed, affects the look. Force with: --strip-vertex-colors`,
+  // Те же сообщения, когда мешей несколько.
+  'vertexColors.found.white.many': ({ sem, n, list }) => `${sem}: all values white — no visual effect; ${n} meshes (${list})`,
+  'vertexColors.found.painted.many': ({ sem, n, list }) => `${sem}: real vertex painting; ${n} meshes (${list})`,
+  'vertexColors.done.white.many': ({ sem, n, list }) => `${sem}: all values white — removed, look unchanged; ${n} meshes (${list})`,
+  'vertexColors.stripped.many': ({ sem, n, list }) => `${sem}: PAINTED, removed via --strip-vertex-colors flag — look may change; ${n} meshes (${list})`,
+  'vertexColors.skipped.many': ({ sem, n, list }) => `${sem}: real painting — NOT removed, affects the look. Force with: --strip-vertex-colors; ${n} meshes (${list})`,
 
   // --- geometry/weld ---
   'weld.safe': () => 'only identical vertices are welded',
@@ -104,6 +113,18 @@ export default {
   'ktx2.log.skipped': () => '        all textures are already KTX2 or absent — encoding skipped',
   'ktx2.log.encoding': ({ n, mixed }) => `        KTX2 encoding (${n}, mode ${mixed ? 'mixed: ETC1S+UASTC' : 'uastc'})`,
 
+  // --- textures/webp ---
+  'webp.safe': () => 'color textures at quality 90, data textures (normal/occlusion/roughness) lossless',
+  'webp.skipped.already': ({ name }) => `Texture "${name}": already WebP — not re-encoded (no extra loss)`,
+  'webp.skipped.format': ({ name, mime }) => `Texture "${name}": ${mime} is not converted to WebP — it is already a GPU format`,
+  'webp.found': ({ n }) => `${n} texture${n === 1 ? ' is' : 's are'} PNG or JPEG — these are the ones being encoded`,
+  'webp.done.color': ({ n }) => `${n} color texture${n === 1 ? '' : 's'} → WebP, quality 90 — smaller file, video memory unchanged`,
+  'webp.done.data': ({ n }) => `${n} data texture${n === 1 ? '' : 's'} → WebP lossless — normals and roughness are numbers, lossy chroma would distort them`,
+  'webp.grewFile': ({ beforeKb, afterKb, pct }) =>
+    `WebP made the textures heavier: ${beforeKb} KB → ${afterKb} KB (+${pct}%). `
+    + `It happens on photos already compressed as JPEG: re-encoding cannot undo what JPEG has already thrown away. `
+    + `Leave the textures as they are, or try KTX2 if video memory is what you are optimising for.`,
+
   // --- geometry/compress ---
   'compress.safe': () => 'compression packs vertex data, polygon count does not change',
   'compress.done': ({ codec }) => `Geometry compressed (${codec}) — polygon count unchanged`,
@@ -146,5 +167,6 @@ export default {
   'rule.animationResample': () => 'Resample animations',
   'rule.structurePruneFinal': () => 'Cleanup of orphaned resources',
   'rule.texturesKtx2': () => 'Textures → KTX2/UASTC',
+  'rule.texturesWebp': () => 'Textures → WebP',
   'rule.geometryCompress': () => 'Geometry compression',
 };

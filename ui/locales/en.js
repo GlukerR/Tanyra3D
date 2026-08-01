@@ -195,6 +195,9 @@ window.I18N_CATALOGS.en = {
   'cat.performance': 'Performance',
   'cat.other': 'Finding',
   'issues.irreversible': 'Irreversible changes ({n})',
+  'issues.andMore': ({ shown, rest }) => `${shown} and ${rest} more`,
+  'issues.countImportant': ({ n }) => `${n} important`,
+  'issues.countPlain': ({ n }) => String(n),
   'issues.irreversible.hint': 'This data cannot be restored from the result — keep the source file.',
 
   // --- окна инспекции ---

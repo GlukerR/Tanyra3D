@@ -176,6 +176,9 @@ window.I18N_CATALOGS.ru = {
   'cat.performance': 'Производительность',
   'cat.other': 'Находка',
   'issues.irreversible': 'Необратимые изменения ({n})',
+  'issues.andMore': ({ shown, rest }) => `${shown} и ещё ${rest}`,
+  'issues.countImportant': ({ n }) => `важных: ${n}`,
+  'issues.countPlain': ({ n }) => String(n),
   'issues.irreversible.hint': 'Эти данные из результата не восстановить — сохраните исходный файл.',
 
   // --- окна инспекции ---

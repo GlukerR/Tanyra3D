@@ -72,6 +72,26 @@
       "opts": { "noKtx": false }
     },
     {
+      "id": "webp",
+      "title": {
+        "en": "WebP compression",
+        "ru": "Сжатие WebP"
+      },
+      "description": {
+        "en": "Converts PNG/JPEG textures to WebP (EXT_texture_webp): the file gets smaller, video memory stays the same. Three.js reads it out of the box, no extra decoder.",
+        "ru": "Переводит текстуры PNG/JPEG в WebP (EXT_texture_webp): файл становится меньше, видеопамять остаётся прежней. Three.js читает его из коробки, отдельный декодер не нужен."
+      },
+      "impact": {
+        "en": "Smaller download — the page opens faster. Video memory is unchanged: WebP is unpacked before it reaches the GPU.",
+        "ru": "Файл меньше — страница открывается быстрее. Видеопамять не меняется: WebP распаковывается до попадания в видеокарту."
+      },
+      "reversible": true,
+      "dataLoss": "minor",
+      "opts": {
+        "noWebp": false
+      }
+    },
+    {
       "id": "draco",
       "title": "Draco compression",
       "description": "Minimal file weight (often −50% on geometry). Decodes slower than Meshopt but is supported everywhere.",
