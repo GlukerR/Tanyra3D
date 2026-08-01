@@ -182,8 +182,8 @@ window.I18N_CATALOGS.en = {
   'decoder.legend': 'Marks options that need extra decoder/engine support to display correctly',
   'decoder.meshopt': 'Install the Meshopt decoder on the target site/engine.',
   'decoder.draco': 'Install the Draco decoder on the target site/engine.',
-  'decoder.ktx2': 'Install a KTX2 (Basis Universal) transcoder on the target site/engine.',
-  'decoder.instance': 'Target site/engine must support EXT_mesh_gpu_instancing.',
+  'decoder.ktx2': 'Install the KTX2 transcoder on the target site/engine.',
+  'decoder.instance': 'The target site/engine must be able to draw copies on the graphics card.',
 
   // --- категории находок ---
   'cat.geometry': 'Geometry',

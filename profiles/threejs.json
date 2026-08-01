@@ -116,8 +116,8 @@
         "ru": "GPU-инстансинг"
       },
       "description": {
-        "en": "Turns repeated meshes into GPU instances (EXT_mesh_gpu_instancing) — fewer draw calls. Requires the extension to be supported on the target site.",
-        "ru": "Превращает повторяющиеся меши в копии на стороне видеокарты (EXT_mesh_gpu_instancing) — меньше отдельных отрисовок. Целевой сайт должен поддерживать это расширение."
+        "en": "Turns repeated meshes into copies drawn by the graphics card — fewer separate draws per frame. The target site has to support this.",
+        "ru": "Превращает повторяющиеся меши в копии на стороне видеокарты — меньше отдельных отрисовок за кадр. Сайт должен это поддерживать."
       },
       "impact": {
         "en": "Fewer draw calls when the scene repeats meshes.",
@@ -156,8 +156,8 @@
         "ru": "Сжатие KTX2"
       },
       "description": {
-        "en": "Converts textures to a GPU format: saves up to ~80% of video memory. Requires KTX2Loader support in Three.js (or basisu in another engine).",
-        "ru": "Переводит текстуры в формат для видеокарты: экономит до ~80% видеопамяти. Требует поддержки KTX2Loader в Three.js (или basisu в другом движке)."
+        "en": "Converts textures to a format the graphics card keeps compressed: up to ~80% less video memory. The site has to be able to open such textures — without that the model will not show.",
+        "ru": "Переводит текстуры в формат, который видеокарта держит сжатым: видеопамяти нужно до ~80% меньше. Сайт должен уметь открывать такие текстуры — иначе модель не покажется."
       },
       "impact": {
         "en": "The file may grow 5–10%, but texture video memory drops several-fold.",
@@ -176,8 +176,8 @@
         "ru": "Сжатие WebP"
       },
       "description": {
-        "en": "Converts PNG/JPEG textures to WebP (EXT_texture_webp): the file gets smaller, video memory stays the same. Three.js reads it out of the box, no extra decoder.",
-        "ru": "Переводит текстуры PNG/JPEG в WebP (EXT_texture_webp): файл становится меньше, видеопамять остаётся прежней. Three.js читает его из коробки, отдельный декодер не нужен."
+        "en": "Repacks the model's textures so the file gets smaller — video memory stays the same. Textures already prepared for the graphics card are left alone. The site needs nothing extra to open this.",
+        "ru": "Пережимает текстуры модели — файл становится меньше, видеопамяти нужно столько же. Текстуры, уже подготовленные для видеокарты, остаются как есть. Сайту ничего доустанавливать не нужно."
       },
       "impact": {
         "en": "Smaller download — the page opens faster. Video memory is unchanged: WebP is unpacked before it reaches the GPU.",

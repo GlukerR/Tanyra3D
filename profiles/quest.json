@@ -49,7 +49,7 @@
     {
       "id": "instance",
       "title": "GPU instancing",
-      "description": "Turns repeated meshes into GPU instances (EXT_mesh_gpu_instancing) — fewer draw calls. Requires the extension to be supported on the target site.",
+      "description": "Turns repeated meshes into copies drawn by the graphics card — fewer separate draws per frame. The app has to support this.",
       "impact": "Fewer draw calls when the scene repeats meshes.",
       "reversible": true,
       "dataLoss": "none",
@@ -67,7 +67,7 @@
     {
       "id": "ktx2",
       "title": "KTX2 compression",
-      "description": "Converts textures to a GPU format: saves up to ~80% of video memory — especially valuable for Quest with its shared memory. Requires KTX2 (basisu) support in the app.",
+      "description": "Converts textures to a format the graphics card keeps compressed: up to ~80% less video memory — especially valuable for Quest with its shared memory. The app has to be able to open such textures — without that the model will not show.",
       "impact": "The file may grow 5–10%, but texture video memory drops several-fold.",
       "opts": { "noKtx": false }
     },
@@ -78,8 +78,8 @@
         "ru": "Сжатие WebP"
       },
       "description": {
-        "en": "Converts PNG/JPEG textures to WebP (EXT_texture_webp): the file gets smaller, video memory stays the same. Three.js reads it out of the box, no extra decoder.",
-        "ru": "Переводит текстуры PNG/JPEG в WebP (EXT_texture_webp): файл становится меньше, видеопамять остаётся прежней. Three.js читает его из коробки, отдельный декодер не нужен."
+        "en": "Repacks the model's textures so the file gets smaller — video memory stays the same. Textures already prepared for the graphics card are left alone. The app needs nothing extra to open this.",
+        "ru": "Пережимает текстуры модели — файл становится меньше, видеопамяти нужно столько же. Текстуры, уже подготовленные для видеокарты, остаются как есть. Приложению ничего доустанавливать не нужно."
       },
       "impact": {
         "en": "Smaller download — the page opens faster. Video memory is unchanged: WebP is unpacked before it reaches the GPU.",
