@@ -795,15 +795,21 @@
     return btn;
   }
 
-  // Геометрия — Meshopt/Draco, взаимоисключающие. Нет отдельного пункта "None": обе
-  // технологии выключены = геометрия не сжимается. Клик по уже активному пункту гасит
+  // Геометрия — Meshopt/Draco/квантование, взаимоисключающие. Нет отдельного пункта
+  // "None": все выключены = геометрия не сжимается. Клик по уже активному пункту гасит
   // его (checkbox, не radio — только radio-группа не даёт снять выбор повторным кликом).
+  //
+  // Квантование стоит в этой же группе, потому что это третий ответ на тот же вопрос
+  // «чем уменьшить геометрию», а не добавка к первым двум: Draco квантует сам, Meshopt
+  // тянет то же расширение внутри себя. Единственное отличие — ему не нужен декодер,
+  // поэтому его нет в NEEDS_DECODER и значок ему не ставится.
   function renderGeometryGroup(byId) {
-    if (!byId.meshopt && !byId.draco) return null;
+    if (!byId.meshopt && !byId.draco && !byId.quantize) return null;
     const sec = optSection(t('group.geometry'));
     const opts = [
       byId.meshopt && { v: 'meshopt', ext: byId.meshopt, label: byId.meshopt.title },
       byId.draco && { v: 'draco', ext: byId.draco, label: byId.draco.title },
+      byId.quantize && { v: 'quantize', ext: byId.quantize, label: byId.quantize.title },
     ].filter(Boolean);
     for (const o of opts) {
       const row = document.createElement('div');
@@ -945,6 +951,7 @@
     const feats = [];
     if (geometryChoice === 'meshopt') feats.push('meshopt');
     else if (geometryChoice === 'draco') feats.push('draco');
+    else if (geometryChoice === 'quantize') feats.push('quantize');
     for (const cb of extensionsList.querySelectorAll('.ext-checkbox:checked')) feats.push(cb.value);
     return feats;
   }
@@ -1397,7 +1404,12 @@
       const issue = rec.id === activeModelId ? modelIssue : rec.state.modelIssue;
       if (issue) {
         const alert = document.createElement('span');
-        alert.className = 'model-alert';
+        // Красный — только когда файл не открылся. Нарушения стандарта в файле,
+        // который читается и рисуется, — жёлтые: смотреть стоит, но работать можно.
+        // Красным они кричали «модель сломана» о персонаже, который нормально
+        // выглядит и бегает (chibi_zenitsu — 142 нарушения byteStride в анимации,
+        // three.js их прощает).
+        alert.className = issue.kind === 'unreadable' ? 'model-alert' : 'model-alert is-warn';
         alert.textContent = '!';
         alert.title = issueTitle(issue);
         alert.setAttribute('aria-label', alert.title);

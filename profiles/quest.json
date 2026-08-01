@@ -99,6 +99,13 @@
       "opts": { "codec": "draco" }
     },
     {
+      "id": "quantize",
+      "title": "Quantization",
+      "description": "Quantization means writing vertex coordinates with fewer digits: instead of a long precise number, a shorter approximate one. The geometry gets lighter and the app needs nothing extra to open it — unlike Draco and Meshopt. Coordinates become slightly coarser: on a small detailed model that can show up as tiny gaps.",
+      "impact": "Geometry drops by a third to a half. The gain shows up in the file only when the weight is in the geometry, not in the textures.",
+      "opts": { "quantize": true }
+    },
+    {
       "id": "strip-colors",
       "title": "Remove vertex colors",
       "description": "Removes painted vertex colors. Enable only if vertex colors are not visible in the model (white channels are removed without this option too).",

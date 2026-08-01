@@ -892,4 +892,69 @@ export const RULES = [
       return { details: [{ messageId: 'compress.done', data: { codec: ctx.opts.codec } }] };
     },
   },
+
+  {
+    meta: {
+      // Квантование — третий способ уменьшить геометрию и единственный, которому НЕ нужен
+      // декодер: числа координат переписываются 16- и 8-битными вместо 32-битных, а
+      // three.js читает такую геометрию сам. Поэтому значка «нужен декодер» у опции нет.
+      //
+      // Но расширение попадает в extensionsRequired: движок, который его не знает,
+      // откажется открыть файл целиком. Это не декодер, а требование к движку, и в
+      // описании опции оно сказано словами.
+      //
+      // Взаимоисключение с Draco и Meshopt делает интерфейс (одна группа «Геометрия»),
+      // но правило проверяет и само: у Draco своё встроенное квантование, Meshopt тянет
+      // это же расширение внутри себя, и поверх них квантовать нечего — замерено на
+      // `r 250` (уже с Draco): геометрия −50 %, а ФАЙЛ +3 %.
+      //
+      // tier advanced по той же причине, что у geometry/compress: правило обязано идти
+      // после baseline-checkpoint, иначе снимок берётся с уже квантованной модели и
+      // сверка фазы 4 сравнивает результат сам с собой.
+      id: 'geometry/quantize', category: 'geometry', title: 'Geometry quantization', titleKey: 'rule.geometryQuantize',
+      severity: 'info', fixSafety: 'numeric', tier: 'advanced',
+      runAfter: ['textures/ktx2', 'structure/prune-final'], touches: ['geometry', 'accessor'],
+      reversible: true, dataLoss: 'minor', // §4d: разворачивается обратно в float32, но выброшенные разряды не возвращаются
+      reversalNote: 'Quantized geometry unpacks back to float32, but the precision dropped in quantization does not come back.',
+      feature: 'quantize',
+      enabled: (o) => o.quantize,
+    },
+    analyze() { return [{ messageId: 'pipeline', data: {} }]; },
+    canFix() { return { safe: true, messageId: 'quantize.safe', data: {} }; },
+    async fix(finding, ctx) {
+      const root = ctx.document.getRoot();
+
+      // Уже квантована — второй проход только добавит потерь, ничего не выиграв.
+      if (root.listExtensionsUsed().some((e) => e.extensionName === 'KHR_mesh_quantization')) {
+        return { skipped: [{ messageId: 'quantize.skipped.already', data: {} }] };
+      }
+      // Поверх Draco/Meshopt квантовать нечего: оба уже упаковали числа по-своему.
+      if (ctx.opts.compress) {
+        return { skipped: [{ messageId: 'quantize.skipped.compressed', data: { codec: ctx.opts.codec } }] };
+      }
+
+      const geomBytes = () => {
+        let n = 0;
+        for (const a of root.listAccessors()) n += a.getArray()?.byteLength || 0;
+        return n;
+      };
+      const before = geomBytes();
+
+      // Тот же сторож, что в geometry/compress, и по той же причине (TESTBUG-007):
+      // область квантования «на каждый меш» требует своего компенсирующего
+      // преобразования, а у скина оно живёт в inverseBindMatrices — общий скин при
+      // этом расщепляется по числу мешей. Замерено на `parkergirl`: 1 скин → 14.
+      // 'scene' даёт одну область на всю сцену, скин остаётся общим.
+      const hasSkins = root.listSkins().length > 0;
+      await ctx.document.transform(fns.quantize(hasSkins ? { quantizationVolume: 'scene' } : {}));
+
+      const after = geomBytes();
+      const details = [{
+        messageId: 'quantize.done',
+        data: { pct: before > 0 ? Math.round((before - after) / before * 100) : 0 },
+      }];
+      if (hasSkins) details.push({ messageId: 'quantize.done.scene', data: {} });
+      return { details };
+    },
+  },
 ];

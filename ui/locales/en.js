@@ -133,7 +133,7 @@ window.I18N_CATALOGS.en = {
   'models.remove': 'Remove from list',
   // Беда с самой моделью, а не с нашей работой (красный круг с «!»).
   'issue.unreadable': ({ detail }) => `This file cannot be read as a GLB${detail ? ` — ${detail}` : ''}. It looks truncated or corrupted: re-export it or download it again.`,
-  'issue.validation': ({ n }) => `The model breaks the glTF standard: ${n} error(s). This came with the file — check them before optimizing.`,
+  'issue.validation': ({ n }) => `The model breaks the glTF standard: ${n} error(s). It opened and renders here, but another engine may refuse to show it. This came with the file — see "Validation".`,
   'models.built': 'Already built',
 
   // --- полноэкранная подсветка при перетаскивании ---

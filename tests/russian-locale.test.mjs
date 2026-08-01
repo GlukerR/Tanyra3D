@@ -38,6 +38,7 @@ const ALLOWED_LATIN = new Set([
 
   // --- Названия правил / CLI-флаги ---
   'dedup', 'prune', 'weld', 'join', 'resample', 'instance',
+  'quantize',                          // id фичи в «advancedFeatures: ['quantize']»
   'orphan', 'degenerate', 'compress',
   'safe', 'strip', 'cleanup',
   'flatten',                           // из "flatten + join" в названии правила

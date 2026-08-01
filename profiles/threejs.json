@@ -210,6 +210,26 @@
       }
     },
     {
+      "id": "quantize",
+      "title": {
+        "en": "Quantization",
+        "ru": "Квантование"
+      },
+      "description": {
+        "en": "Quantization means writing vertex coordinates with fewer digits: instead of a long precise number, a shorter approximate one. The geometry gets lighter and the site needs nothing extra to open it — unlike Draco and Meshopt. Coordinates become slightly coarser: on a small detailed model that can show up as tiny gaps.",
+        "ru": "Квантование — это запись координат вершин меньшим числом знаков: вместо длинного точного числа более короткое приблизительное. Геометрия становится легче, и сайту, в отличие от Draco и Meshopt, ничего доустанавливать не нужно. Координаты при этом чуть грубее: на мелкой детализированной модели это может проявиться крошечными щелями."
+      },
+      "impact": {
+        "en": "Geometry drops by a third to a half. The gain shows up in the file only when the weight is in the geometry, not in the textures.",
+        "ru": "Геометрия легче на треть-половину. На размере файла это заметно там, где вес именно в геометрии, а не в текстурах."
+      },
+      "reversible": true,
+      "dataLoss": "minor",
+      "opts": {
+        "quantize": true
+      }
+    },
+    {
       "id": "strip-colors",
       "title": {
         "en": "Remove vertex colors",

@@ -72,6 +72,7 @@ const ADVANCED_FEATURES = {
   safe: 'safe lossless cleanup: dedup, prune unused, weld, remove degenerate/orphan geometry',
   meshopt: 'Meshopt geometry compression',
   draco: 'Draco geometry compression (instead of Meshopt)',
+  quantize: 'geometry quantization (KHR_mesh_quantization) — smaller geometry, no decoder needed',
   join: 'join meshes / flatten scene — fewer draw calls (structural, irreversible)',
   instance: 'GPU instancing (EXT_mesh_gpu_instancing) — repeated meshes as instances',
   resample: 'resample animations — drop redundant keyframes (lossless)',
@@ -99,6 +100,11 @@ function normalizeOpts(opts = {}) {
     safe: adv.includes('safe') || !!opts.safe, // безопасная чистка (бандл)
     compress, // сжимать ли геометрию вообще
     codec: draco ? 'draco' : 'meshopt', // какой кодек — если compress включён
+    // Квантование — третий способ сжать геометрию, единственный без декодера. Одна
+    // группа с Draco/Meshopt в интерфейсе, но движок не отменяет чужой выбор молча:
+    // если попросили и то и другое, правило само скажет, что поверх сжатия квантовать
+    // нечего (та же логика, что у пары KTX2/WebP).
+    quantize: adv.includes('quantize') || !!opts.quantize,
     join: (adv.includes('join') || !!opts.join) && !opts.keepParts, // склейка мешей — отдельный флажок
     instance: adv.includes('instance') || !!opts.instance, // GPU-инстансинг (нужен декодер на сайте)
     resample: adv.includes('resample') || !!opts.resample, // чистка кадров анимации (без потерь)

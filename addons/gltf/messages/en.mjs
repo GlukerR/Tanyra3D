@@ -133,6 +133,13 @@ export default {
   'compress.safe': () => 'compression packs vertex data, polygon count does not change',
   'compress.done': ({ codec }) => `Geometry compressed (${codec}) — polygon count unchanged`,
 
+  // --- geometry/quantize ---
+  'quantize.safe': () => 'coordinates are written with fewer digits, polygon count does not change; the site needs nothing extra',
+  'quantize.done': ({ pct }) => `Geometry quantized: the data is ${pct}% lighter — polygons untouched, no decoder needed on the site`,
+  'quantize.done.scene': () => 'One quantization range for the whole scene — per-mesh ranges would have broken the skeleton binding apart',
+  'quantize.skipped.already': () => 'Geometry is already quantized — a second pass would only add loss',
+  'quantize.skipped.compressed': ({ codec }) => `Geometry is already packed (${codec}) — this method adds nothing on top of it`,
+
   // --- integrity checks (validate) ---
   'check.geometryEmpty': () => 'no triangle geometry before or after',
   'check.geometryPresent': () => 'geometry is present',
@@ -173,4 +180,5 @@ export default {
   'rule.texturesKtx2': () => 'Textures → KTX2/UASTC',
   'rule.texturesWebp': () => 'Textures → WebP',
   'rule.geometryCompress': () => 'Geometry compression',
+  'rule.geometryQuantize': () => 'Geometry quantization',
 };
