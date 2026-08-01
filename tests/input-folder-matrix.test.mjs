@@ -22,6 +22,8 @@ import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
+import gltfAddon from '../addons/gltf/index.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -38,6 +40,7 @@ const COMBOS = [
   { name: 'safe+draco',         flags: ['safe', 'draco'] },
   { name: 'safe+ktx2',          flags: ['safe', 'ktx2'] },
   { name: 'safe+resample',      flags: ['safe', 'resample'] },
+  { name: 'safe+webp',          flags: ['safe', 'webp'] },
   { name: 'safe+draco+ktx2',    flags: ['safe', 'draco', 'ktx2'] },
 ];
 
@@ -62,6 +65,21 @@ const skipReason = shouldRun
   : 'FULL_MATRIX не установлен. Запусти: FULL_MATRIX=1 npx vitest run tests/input-folder-matrix.test.mjs';
 
 // ---- Вспомогательные функции ----
+
+// Общий io — тот же, что у аддона (webp.test.mjs). Вес КАРТИНОК меряем им, а не
+// метрикой textureBytes: та обнуляется целиком, если хоть у одной текстуры нет
+// картинки (fns.inspect падает на null image). Инвариант задания требует именно
+// сумму getImage().byteLength по всем текстурам — doc.getRoot().listTextures().
+const ioPromise = gltfAddon.createIO();
+
+/** Суммарный вес картинок документа: Σ getImage().byteLength (задание, дословно) */
+async function imageBytesOf(file) {
+  const io = await ioPromise;
+  const doc = await io.read(file);
+  let bytes = 0;
+  for (const t of doc.getRoot().listTextures()) bytes += t.getImage()?.byteLength || 0;
+  return bytes;
+}
 
 /** Все ли ключи метрик присутствуют и не null/NaN */
 function metricsAreSound(m) {
@@ -108,11 +126,17 @@ matrixDescribe(`Input folder — matrix: ${inputModels.length} models × ${COMBO
           const modelFullPath = path.join(INPUT_DIR, modelName);
           expect(fs.existsSync(modelFullPath)).toBe(true);
 
+          // webp меряет картинки по ЗАПИСАННОМУ файлу (инвариант ниже), поэтому
+          // эта комбинация пишет результат во временный каталог, а не в dryRun.
+          const isWebp = combo.flags.includes('webp');
+          const tmpOutDir = isWebp ? fs.mkdtempSync(path.join(os.tmpdir(), 'matrix-webp-')) : null;
+
           let result;
           try {
             result = await optimizeFile(modelFullPath, {
               advancedFeatures: combo.flags,
-              dryRun: true,
+              dryRun: !isWebp,
+              outDir: tmpOutDir || undefined,
             });
           } catch (e) {
             // Инвариант 1: исключений наружу быть не должно
@@ -121,50 +145,73 @@ matrixDescribe(`Input folder — matrix: ${inputModels.length} models × ${COMBO
             );
           }
 
-          // Инвариант 2: status определён и одно из допустимых
-          expect(result.status, `status undefined on ${modelName} / ${combo.name}`).toBeDefined();
-          expect(['ok', 'fail', 'skip']).toContain(result.status);
+          // Весь блок проверок — в try/finally: временный каталог webp удаляем
+          // ПОСЛЕ того, как из него прочитан result.file.dst (инвариант картинок).
+          try {
+            // Инвариант 2: status определён и одно из допустимых
+            expect(result.status, `status undefined on ${modelName} / ${combo.name}`).toBeDefined();
+            expect(['ok', 'fail', 'skip']).toContain(result.status);
 
-          if (result.status === 'ok') {
-            // Инвариант 3: метрики заполнены
-            expect(metricsAreSound(result.metrics.before),
-              `metrics.before broken on ${modelName} / ${combo.name}`).toBe(true);
-            expect(metricsAreSound(result.metrics.after),
-              `metrics.after broken on ${modelName} / ${combo.name}`).toBe(true);
+            if (result.status === 'ok') {
+              // Инвариант 3: метрики заполнены
+              expect(metricsAreSound(result.metrics.before),
+                `metrics.before broken on ${modelName} / ${combo.name}`).toBe(true);
+              expect(metricsAreSound(result.metrics.after),
+                `metrics.after broken on ${modelName} / ${combo.name}`).toBe(true);
 
-            // Инвариант 4: треугольники не выросли
-            const triBefore = result.metrics.before.triangles;
-            const triAfter = result.metrics.after.triangles;
-            expect(triAfter,
-              `triangles grew ${triBefore} → ${triAfter} on ${modelName} / ${combo.name}`
-            ).toBeLessThanOrEqual(triBefore);
+              // Инвариант 4: треугольники не выросли
+              const triBefore = result.metrics.before.triangles;
+              const triAfter = result.metrics.after.triangles;
+              expect(triAfter,
+                `triangles grew ${triBefore} → ${triAfter} on ${modelName} / ${combo.name}`
+              ).toBeLessThanOrEqual(triBefore);
 
-            // Инвариант 5: файл не вырос >25% (кроме ktx2)
-            if (!combo.flags.includes('ktx2')) {
-              const fileBefore = result.metrics.before.fileBytes;
-              const fileAfter = result.metrics.after.fileBytes;
-              const limit = Math.ceil(fileBefore * (1 + GROWTH_LIMIT_PCT / 100));
-              expect(fileAfter,
-                `file grew >${GROWTH_LIMIT_PCT}%: ${fileBefore} → ${fileAfter} on ${modelName} / ${combo.name}`
-              ).toBeLessThanOrEqual(limit);
-            } else {
-              // ktx2: gpuBytes должен уменьшиться
-              const gpuBefore = result.metrics.before.gpuBytes;
-              const gpuAfter = result.metrics.after.gpuBytes;
-              // Если текстур не было — gpuBytes может быть 0=0, это не ошибка
-              if (gpuBefore > 0) {
-                expect(gpuAfter,
-                  `gpuBytes grew under ktx2: ${gpuBefore} → ${gpuAfter} on ${modelName}`
-                ).toBeLessThan(gpuBefore);
+              // Инвариант 5: файл не вырос >25% (кроме ktx2)
+              if (!combo.flags.includes('ktx2')) {
+                const fileBefore = result.metrics.before.fileBytes;
+                const fileAfter = result.metrics.after.fileBytes;
+                const limit = Math.ceil(fileBefore * (1 + GROWTH_LIMIT_PCT / 100));
+                expect(fileAfter,
+                  `file grew >${GROWTH_LIMIT_PCT}%: ${fileBefore} → ${fileAfter} on ${modelName} / ${combo.name}`
+                ).toBeLessThanOrEqual(limit);
+              } else {
+                // ktx2: gpuBytes должен уменьшиться
+                const gpuBefore = result.metrics.before.gpuBytes;
+                const gpuAfter = result.metrics.after.gpuBytes;
+                // Если текстур не было — gpuBytes может быть 0=0, это не ошибка
+                if (gpuBefore > 0) {
+                  expect(gpuAfter,
+                    `gpuBytes grew under ktx2: ${gpuBefore} → ${gpuAfter} on ${modelName}`
+                  ).toBeLessThan(gpuBefore);
+                }
+              }
+
+              // ИНВАРИАНТ WEBP (задание 2026-08-01-webp-стресс-input, строже 25%):
+              // суммарный вес КАРТИНОК после не может быть больше, чем до. Правило
+              // кодирует каждую текстуру отдельно и возвращает исходник, если WebP
+              // оказался тяжелее, — поэтому рост означает дефект движка, а не
+              // особенность модели. Меряем именно картинки, не файл: на модели с
+              // крошечными текстурами файл может подрасти на служебных данных
+              // контейнера, и это нормально.
+              if (isWebp) {
+                const imgBefore = await imageBytesOf(modelFullPath);
+                const imgAfter = await imageBytesOf(result.file.dst);
+                expect(imgAfter,
+                  `images grew: ${imgBefore} → ${imgAfter} bytes on ${modelName} / ${combo.name}`
+                ).toBeLessThanOrEqual(imgBefore);
               }
             }
-          }
 
-          if (result.status === 'fail') {
-            // Инвариант 6: есть причина отказа
-            expect(hasFailReason(result),
-              `fail без причины на ${modelName} / ${combo.name}`
-            ).toBe(true);
+            if (result.status === 'fail') {
+              // Инвариант 6: есть причина отказа
+              expect(hasFailReason(result),
+                `fail без причины на ${modelName} / ${combo.name}`
+              ).toBe(true);
+            }
+          } finally {
+            if (tmpOutDir) {
+              try { fs.rmSync(tmpOutDir, { recursive: true, force: true }); } catch { /* ОС подчистит */ }
+            }
           }
         },
         TEST_TIMEOUT_MS,
