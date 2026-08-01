@@ -99,6 +99,7 @@ const DENSITY_FLAG_SETS = [
   ['webp'],
   ['safe', 'webp'],
   ['safe', 'join', 'instance'],
+  ['safe', 'quantize'], // задание 2026-08-01-квантование, раздел 6: правило выдаёт максимум две строки на модель
 ];
 
 /**
