@@ -24,7 +24,12 @@
 // Оригинал приходит из publicDir (fixtures/models) как /Instance%20Grid%2001.glb.
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { createViewer, disposeViewer } from './helpers/viewer-test-utils.mjs'
+import {
+  createViewer,
+  disposeViewer,
+  snapshotPixels,
+  diffStats,
+} from './helpers/viewer-test-utils.mjs'
 
 const ORIG_URL = '/Instance%20Grid%2001.glb'
 const OPT_URL = '/optimized/instance-grid-sqj.glb'
@@ -32,54 +37,6 @@ const OPT_URL = '/optimized/instance-grid-sqj.glb'
 // Инварианты исходника (из metric-отчёта, см. instance-grid-build.setup.mjs).
 const ORIG_TRIANGLES = 7500
 const ORIG_DRAW_CALLS = 625
-
-// Снимок пикселей WebGL-буфера сразу после renderFrame(). Читаем до композитинга —
-// preserveDrawingBuffer у рендерера нет, но в том же макротаске буфер ещё на месте.
-function snapshotPixels(viewer) {
-  const gl = viewer.renderer.getContext()
-  const w = gl.drawingBufferWidth
-  const h = gl.drawingBufferHeight
-  const px = new Uint8Array(w * h * 4)
-  gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px)
-  return { w, h, px }
-}
-
-// Доля пикселей, где суммарное расхождение каналов (R+G+B) больше порога.
-// Порог 12 = в среднем по 4 на канал — это уже видимая разница, не шум сглаживания.
-// Возвращает также число «экстремальных» пикселей (d > 60) — они могут быть
-// одиночными (субпиксельный сдвиг кромки силуэта), поэтому считаются долей,
-// а не запрещаются вовсе.
-function diffStats(a, b, threshold = 12, extreme = 60) {
-  const n = a.px.length
-  let over = 0
-  let extremeCount = 0
-  let total = 0
-  let maxDiff = 0
-  let sumDiff = 0
-  let lit = 0 // нарисованные (непрозрачные) пиксели — модель должна быть видна
-  for (let i = 0; i < n; i += 4) {
-    total++
-    if (a.px[i + 3] > 8) lit++
-    const d =
-      Math.abs(a.px[i] - b.px[i]) +
-      Math.abs(a.px[i + 1] - b.px[i + 1]) +
-      Math.abs(a.px[i + 2] - b.px[i + 2])
-    sumDiff += d
-    maxDiff = Math.max(maxDiff, d)
-    if (d > threshold) over++
-    if (d > extreme) extremeCount++
-  }
-  return {
-    over,
-    total,
-    overPct: (over / total) * 100,
-    meanDiff: sumDiff / total,
-    maxDiff,
-    extremeCount,
-    extremePct: (extremeCount / total) * 100,
-    litPct: (lit / total) * 100,
-  }
-}
 
 describe('Instance Grid 01 — safe+quantize+join: рендер без артефактов, позиции те же (browser)', () => {
   /** @type {HTMLCanvasElement} */

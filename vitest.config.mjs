@@ -110,7 +110,12 @@ export default defineConfig({
           // но предотвращает зелёный бейдж на пустом наборе.
           // instance-grid-build.setup.mjs — собирает оптимизированный Instance Grid
           // для viewer-теста рендера (см. optimizedArtifactsPlugin выше).
-          globalSetup: ['tests/browser-baseline.setup.mjs', 'tests/instance-grid-build.setup.mjs'],
+          // parkergirl-build.setup.mjs — то же для скин-анимации/морфов parkergirl.
+          globalSetup: [
+            'tests/browser-baseline.setup.mjs',
+            'tests/instance-grid-build.setup.mjs',
+            'tests/parkergirl-build.setup.mjs',
+          ],
           testTimeout: 120_000,
           hookTimeout: 120_000,
           browser: {

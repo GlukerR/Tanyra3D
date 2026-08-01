@@ -80,3 +80,63 @@ export function teardownDualViewportDOM() {
 export function resetAnimationClipIndex() {
   window.OptiViewer?.selectAnimationClip?.(0)
 }
+
+/**
+ * Снимок пикселей WebGL-буфера сразу после renderFrame(). Читаем до композитинга —
+ * preserveDrawingBuffer у рендерера нет, но в том же макротаске буфер ещё на месте.
+ *
+ * @param {import('../../ui/viewer/viewer.js').Viewer} viewer
+ * @returns {{ w: number, h: number, px: Uint8Array }}
+ */
+export function snapshotPixels(viewer) {
+  const gl = viewer.renderer.getContext()
+  const w = gl.drawingBufferWidth
+  const h = gl.drawingBufferHeight
+  const px = new Uint8Array(w * h * 4)
+  gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px)
+  return { w, h, px }
+}
+
+/**
+ * Сравнение двух кадров (snapshotPixels). Возвращает:
+ *   overPct    — доля пикселей, где суммарное расхождение каналов (R+G+B) > threshold
+ *   meanDiff   — среднее суммарное расхождение каналов по всем пикселям
+ *   maxDiff    — максимальное расхождение одного пикселя
+ *   extremePct — доля пикселей с расхождением > extreme (субпиксельный сдвиг кромки)
+ *   litPct     — доля непрозрачных пикселей (модель должна быть видна в кадре)
+ *
+ * Порог 12 = в среднем по 4 на канал — это уже видимая разница, не шум сглаживания.
+ * «Экстремальные» (d > 60) могут быть одиночными — субпиксельный сдвиг кромки силуэта
+ * переключает единичный пиксель целиком, поэтому считаются долей, а не запрещаются вовсе.
+ */
+export function diffStats(a, b, threshold = 12, extreme = 60) {
+  const n = a.px.length
+  let over = 0
+  let extremeCount = 0
+  let total = 0
+  let maxDiff = 0
+  let sumDiff = 0
+  let lit = 0 // нарисованные (непрозрачные) пиксели — модель должна быть видна
+  for (let i = 0; i < n; i += 4) {
+    total++
+    if (a.px[i + 3] > 8) lit++
+    const d =
+      Math.abs(a.px[i] - b.px[i]) +
+      Math.abs(a.px[i + 1] - b.px[i + 1]) +
+      Math.abs(a.px[i + 2] - b.px[i + 2])
+    sumDiff += d
+    maxDiff = Math.max(maxDiff, d)
+    if (d > threshold) over++
+    if (d > extreme) extremeCount++
+  }
+  return {
+    over,
+    total,
+    overPct: (over / total) * 100,
+    meanDiff: sumDiff / total,
+    maxDiff,
+    extremeCount,
+    extremePct: (extremeCount / total) * 100,
+    litPct: (lit / total) * 100,
+  }
+}
