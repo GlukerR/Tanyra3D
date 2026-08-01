@@ -114,16 +114,20 @@ export default {
   'ktx2.log.encoding': ({ n, mixed }) => `        KTX2 encoding (${n}, mode ${mixed ? 'mixed: ETC1S+UASTC' : 'uastc'})`,
 
   // --- textures/webp ---
-  'webp.safe': () => 'color textures at quality 90, data textures (normal/occlusion/roughness) lossless',
+  'webp.safe': () => 'color textures at quality 90, data textures (normal/occlusion/roughness) lossless; anything that gets heavier is left as it was',
   'webp.skipped.already': ({ name }) => `Texture "${name}": already WebP — not re-encoded (no extra loss)`,
+  'webp.skipped.already.many': ({ n }) => `${n} textures are already WebP — not re-encoded (no extra loss)`,
   'webp.skipped.format': ({ name, mime }) => `Texture "${name}": ${mime} is not converted to WebP — it is already a GPU format`,
+  'webp.skipped.format.many': ({ n, mime }) => `${n} textures in ${mime} — not converted to WebP, that is already a GPU format`,
+  'webp.skipped.noMime': ({ name }) => `Texture "${name}": the model does not state its format — not encoded blindly`,
+  'webp.skipped.noMime.many': ({ n }) => `${n} textures with no stated format — not encoded blindly`,
+  'webp.skipped.jpegData': ({ name }) => `Data texture "${name}" arrived as JPEG — left as it is: lossless would make it several times heavier, and data textures must not be encoded lossily`,
+  'webp.skipped.jpegData.many': ({ n }) => `${n} data textures arrived as JPEG — left as they are: lossless would make them several times heavier, and data textures must not be encoded lossily`,
+  'webp.skipped.failed': ({ name, reason }) => `Texture "${name}" could not be encoded (${reason}) — left as it was, the build was not interrupted`,
+  'webp.keptOriginal': ({ n }) => `${n} texture${n === 1 ? '' : 's'} kept in the original format — WebP came out heavier, and WebP only ever wins on file size`,
   'webp.found': ({ n }) => `${n} texture${n === 1 ? ' is' : 's are'} PNG or JPEG — these are the ones being encoded`,
   'webp.done.color': ({ n }) => `${n} color texture${n === 1 ? '' : 's'} → WebP, quality 90 — smaller file, video memory unchanged`,
   'webp.done.data': ({ n }) => `${n} data texture${n === 1 ? '' : 's'} → WebP lossless — normals and roughness are numbers, lossy chroma would distort them`,
-  'webp.grewFile': ({ beforeKb, afterKb, pct }) =>
-    `WebP made the textures heavier: ${beforeKb} KB → ${afterKb} KB (+${pct}%). `
-    + `It happens on photos already compressed as JPEG: re-encoding cannot undo what JPEG has already thrown away. `
-    + `Leave the textures as they are, or try KTX2 if video memory is what you are optimising for.`,
 
   // --- geometry/compress ---
   'compress.safe': () => 'compression packs vertex data, polygon count does not change',

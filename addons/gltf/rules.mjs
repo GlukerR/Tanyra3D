@@ -18,7 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import * as fns from '@gltf-transform/functions';
-import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
+import { ALL_EXTENSIONS, EXTTextureWebP } from '@gltf-transform/extensions';
 import { MeshoptEncoder } from 'meshoptimizer';
 
 import { render } from '../../core/i18n.mjs';
@@ -754,64 +754,98 @@ export const RULES = [
     canFix() { return { safe: true, messageId: 'webp.safe', data: {} }; },
     async fix(finding, ctx) {
       const out = { found: [], skipped: [], details: [] };
-      const imageBytes = () => {
-        let n = 0;
-        for (const tex of ctx.document.getRoot().listTextures()) {
-          const img = tex.getImage();
-          if (img) n += img.byteLength;
-        }
-        return n;
-      };
 
       // Что вообще можно кодировать. KTX2 (image/ktx2) не трогаем: это уже готовый
       // формат для видеокарты, и «сжать» его в WebP значило бы распаковать обратно.
       const CONVERTIBLE = new Set(['image/png', 'image/jpeg']);
-      const color = [];
-      const data = [];
+      const cands = [];
+      // Пропуски копим группами, а не пишем строкой на текстуру: на ABeautifulGame
+      // это давало двадцать одинаковых строк подряд, на L-330 — одиннадцать.
+      const skips = { already: [], noMime: [], jpegData: [] };
+      const byFormat = new Map(); // mime без "image/" → имена текстур
       for (const tex of ctx.document.getRoot().listTextures()) {
-        const mime = tex.getMimeType();
-        const name = tex.getName() || '';
-        if (mime === 'image/webp') { out.skipped.push({ messageId: 'webp.skipped.already', data: { name: name || '—' } }); continue; }
-        if (!CONVERTIBLE.has(mime)) { out.skipped.push({ messageId: 'webp.skipped.format', data: { name: name || '—', mime: mime.replace('image/', '') } }); continue; }
+        const mime = tex.getMimeType() || '';
+        const name = tex.getName() || '—';
+        if (mime === 'image/webp') { skips.already.push(name); continue; }
+        // Пустой mime — не «неизвестный формат для видеокарты», а модель, которая
+        // не сказала, что у неё внутри. Кодировать вслепую нельзя, и врать про
+        // причину тоже: у этого случая своя строка.
+        if (!mime) { skips.noMime.push(name); continue; }
+        if (!CONVERTIBLE.has(mime)) {
+          const short = mime.replace('image/', '');
+          if (!byFormat.has(short)) byFormat.set(short, []);
+          byFormat.get(short).push(name);
+          continue;
+        }
         // Тот же раздел, что у KTX2: нормали, occlusion и roughness — это ЧИСЛА,
         // а не картинка. Лоссовый WebP режет цветность (4:2:0) и портит вектор
         // нормали, поэтому им — только lossless, цветным — обычное сжатие.
-        if (DATA_SLOT_RE.test(fns.listTextureSlots(tex).join(' '))) data.push(name);
-        else color.push(name);
+        const isData = DATA_SLOT_RE.test(fns.listTextureSlots(tex).join(' '));
+        // Карта данных, пришедшая в JPEG, — тупик в обе стороны: без потерь она
+        // станет в разы тяжелее (lossless честно сохраняет и артефакты JPEG),
+        // а лоссово её кодировать нельзя по той же причине, что и любую другую
+        // карту данных. Оставляем как есть. Замерено на PotOfCoals: пять таких
+        // карт давали +139 % к весу картинок.
+        if (isData && mime === 'image/jpeg') { skips.jpegData.push(name); continue; }
+        cands.push({ tex, name, mime, isData });
       }
-      if (!color.length && !data.length) return out;
+
+      // Одна текстура — называем её по имени; несколько — только счёт. Перечислять
+      // десяток безымянных «—» смысла нет, а строка отчёта становится нечитаемой.
+      const reportSkips = (names, id, extra = {}) => {
+        if (names.length === 1) out.skipped.push({ messageId: id, data: { name: names[0], ...extra } });
+        else if (names.length > 1) out.skipped.push({ messageId: `${id}.many`, data: { n: names.length, ...extra } });
+      };
+      reportSkips(skips.already, 'webp.skipped.already');
+      reportSkips(skips.noMime, 'webp.skipped.noMime');
+      reportSkips(skips.jpegData, 'webp.skipped.jpegData');
+      for (const [mime, names] of byFormat) reportSkips(names, 'webp.skipped.format', { mime });
+
+      if (!cands.length) return out;
 
       const sharp = (await import('sharp')).default; // ленивый импорт: тот же путь, что у KTX2
-      const before = imageBytes();
-      if (color.length) {
-        await ctx.document.transform(fns.textureCompress({
-          encoder: sharp, targetFormat: 'webp', quality: 90,
-          slots: new RegExp(`^(?!.*(${DATA_SLOT_RE.source})).*$`, 'i'),
-        }));
-      }
-      if (data.length) {
-        await ctx.document.transform(fns.textureCompress({
-          encoder: sharp, targetFormat: 'webp', lossless: true,
-          slots: DATA_SLOT_RE,
-        }));
-      }
-      const after = imageBytes();
 
-      out.found.push({ messageId: 'webp.found', data: { n: color.length + data.length } });
+      // Кодируем ПО ОДНОЙ и оставляем результат, только если он реально легче.
+      // Выигрыш WebP — исключительно в размере файла (видеопамять не меняется),
+      // поэтому текстура, потяжелевшая после кодирования, — это чистый проигрыш
+      // без единой компенсации. Возвращаем ей исходную картинку.
+      await Promise.all(cands.map(async (c) => {
+        const before = c.tex.getImage();
+        try {
+          await fns.compressTexture(c.tex, {
+            encoder: sharp, targetFormat: 'webp',
+            ...(c.isData ? { lossless: true } : { quality: 90 }),
+          });
+        } catch (e) {
+          // Битая или экзотическая картинка не должна ронять всю сборку.
+          c.failed = e && e.message ? e.message : String(e);
+          return;
+        }
+        const after = c.tex.getImage();
+        if (!after || after.byteLength >= before.byteLength) {
+          c.tex.setImage(before).setMimeType(c.mime);
+          c.reverted = true;
+        }
+      }));
+
+      // Расширение объявляем сами: transform этого больше не делает, а часть
+      // текстур могла вернуться в PNG/JPEG после отката.
+      const ext = ctx.document.createExtension(EXTTextureWebP);
+      if (ctx.document.getRoot().listTextures().some((t) => t.getMimeType() === 'image/webp')) ext.setRequired(true);
+      else ext.dispose();
+
+      const color = cands.filter((c) => !c.isData && !c.reverted && !c.failed);
+      const data = cands.filter((c) => c.isData && !c.reverted && !c.failed);
+      const kept = cands.filter((c) => c.reverted);
+      const failed = cands.filter((c) => c.failed);
+
+      out.found.push({ messageId: 'webp.found', data: { n: cands.length } });
       if (color.length) out.details.push({ messageId: 'webp.done.color', data: { n: color.length } });
       if (data.length) out.details.push({ messageId: 'webp.done.data', data: { n: data.length } });
-      // Честно сообщаем и о проигрыше: на уже пожатом JPEG WebP иногда даёт больше.
-      // Молчать об этом значит выдавать за выигрыш то, что им не является.
-      if (before > 0 && after > before) {
-        out.cost = [{
-          messageId: 'webp.grewFile',
-          data: {
-            beforeKb: Math.round(before / 1024),
-            afterKb: Math.round(after / 1024),
-            pct: Math.round((after - before) / before * 100),
-          },
-        }];
-      }
+      if (kept.length) out.skipped.push({ messageId: 'webp.keptOriginal', data: { n: kept.length } });
+      // Сбой кодирования — редкий и единичный случай, его называем поимённо:
+      // причина у каждой текстуры своя и она нужна для разбора.
+      for (const c of failed) out.skipped.push({ messageId: 'webp.skipped.failed', data: { name: c.name, reason: c.failed } });
       return out;
     },
   },
