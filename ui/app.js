@@ -1114,6 +1114,9 @@
     syncGeometryRadio();
     syncKtx2ModeUI();
     toggleKtx2Mode(!!(document.getElementById('ext-ktx2') && document.getElementById('ext-ktx2').checked));
+    // Панель пересобрана заново (смена языка) — заморозку надо наложить снова: новые
+    // элементы про идущую сборку ничего не знают и приходят доступными.
+    freezeSettings(buildInFlight);
     updateRunButtonState();
   }
 
@@ -1686,12 +1689,32 @@
     return res;
   }
 
+  // Настройки на время сборки замораживаются целиком: флажки, выбор площадки, режим
+  // текстур — всё, что влияет на результат.
+  //
+  // Причина не в защите от второй сборки (её держит buildInFlight), а в том, что
+  // человек читает. Сборка тяжёлой модели идёт минуту; за минуту флажки успевают
+  // передвинуть, и к моменту, когда отчёт наконец появляется, панель показывает уже
+  // не тот набор, которым он собран. Отчёт при этом верный — но проверить его не по
+  // чему, и «что конкретно мы делали» приходится вспоминать. Замороженная панель
+  // отвечает на этот вопрос сама: рядом с готовым отчётом стоят ровно те галочки,
+  // которые его дали.
+  //
+  // disabled, а не «клик игнорируем»: недоступный вид сам объясняет, что сейчас нельзя,
+  // и не создаёт впечатления, будто интерфейс не отвечает.
+  function freezeSettings(frozen) {
+    platformSelect.disabled = frozen;
+    for (const el of extensionsList.querySelectorAll('input, select, button')) el.disabled = frozen;
+    extensionsPanel.classList.toggle('is-frozen', frozen);
+  }
+
   async function runOptimize() {
     if (!selectedFile || buildInFlight) return;
 
     buildInFlight = true;
     // Снимок настроек на момент запуска — см. renderResult.
     startedSignature = currentSettingsSignature();
+    freezeSettings(true);
     runBtn.disabled = true;
     setPhase(currentSourceId ? 'status.optimizing' : 'status.uploading', 'busy');
     setBusy('preview-optimized', currentSourceId ? 'busy.optimizing' : 'busy.uploading');
@@ -1738,6 +1761,7 @@
       showGenericError(t('log.noServer', { error: e.message }));
     } finally {
       buildInFlight = false;
+      freezeSettings(false);
       setBusy('preview-optimized', null);
       updateRunButtonState();
       // Сложить результат в запись модели СРАЗУ, а не при следующем переключении:
