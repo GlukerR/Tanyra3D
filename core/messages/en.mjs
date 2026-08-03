@@ -22,6 +22,9 @@ export default {
 
   // --- engine-level messages ---
   'feature.notEnabled': ({ feature }) => `feature "${feature}" is not enabled (advancedFeatures: ['${feature}'])`,
+  // The feature was on, but there was nothing to change. Staying silent is not an
+  // option: the person ticked the box and must learn what became of it.
+  'engine.nothingToDo': () => 'turned on, but this model had nothing to change',
   // Строка «что пропущено — почему». Собрана сообщением, а не склейкой в коде: разделитель
   // между частями — часть языка, и другому он может понадобиться другой.
   'engine.skipped.line': ({ title, reason }) => `${title} — ${reason}`,

@@ -67,10 +67,16 @@ describe('animation/resample — models with animations', () => {
         expect(result.status).toBe('ok');
         // Должен быть хотя бы один applied-записи (либо ресэмпл, либо пропуск кадров).
         expect(result.applied.length).toBeGreaterThanOrEqual(0);
-        // applied может быть пуст при «no redundant keyframes» — это не ошибка.
+        // applied может быть пуст при «нет лишних кадров» — это не ошибка.
+        //
+        // ПОПРАВКА 2026-08-03: раньше здесь искалось английское слово «resample»
+        // в тексте записи. Это работало только потому, что правило клало в отчёт
+        // готовую английскую строку в обход каталога (Правило 8) — то есть тест
+        // сторожил дефект. Правило переведено на рецепты, опознаём по ruleId:
+        // он и есть устойчивый признак, а текст меняется вместе с языком.
         if (result.applied.length > 0) {
-          const anyResample = result.applied.some((a) => String(a.text || a).toLowerCase().includes('resample'));
-          const anySkipped = result.skipped.some((s) => String(s.text || '').includes('resample'));
+          const anyResample = result.applied.some((a) => a.ruleId === 'animation/resample');
+          const anySkipped = result.skipped.some((s) => s.ruleId === 'animation/resample');
           expect(anyResample || anySkipped).toBe(true);
         }
       });
@@ -160,19 +166,19 @@ describe('animation/resample — model without animations', () => {
     expect(result.applied.length).toBe(0);
   });
 
-  it('skipped содержит сообщение про "no animations to resample"', async () => {
+  // ПОПРАВКА 2026-08-03: искали подстроку «animations» + «resample» в тексте —
+  // то есть опознавали запись по непереведённой английской строке, которую правило
+  // клало в обход каталога. Теперь причина названа ключом, и он же проверяется:
+  // текст обязан меняться вместе с языком, ключ — нет.
+  it('skipped называет причину «нет анимаций» ключом каталога', async () => {
     const result = await optimizeFile(modelPath(modelName), {
       advancedFeatures: ['resample'],
       dryRun: true,
     });
     expect(result.status).toBe('ok');
-    const anyRelevant = result.skipped.some((s) => {
-      const text = String(s.text || '');
-      return text.includes('animations') && (text.includes('resample') || text.includes('Resample'));
-    });
-    // skipped может быть пустым, если другое правило не сработало.
-    // Но если skipped не пуст, среди записей должно быть что-то про анимации.
-    expect(anyRelevant || result.skipped.length === 0).toBe(true);
+    const rec = result.skipped.find((s) => s.ruleId === 'animation/resample');
+    expect(rec).toBeDefined();
+    expect(rec.i18n.text.messageId).toBe('resample.skipped.noAnimations');
   });
 
   it('треугольники и анимации не изменились (resample не трогает геометрию)', async () => {

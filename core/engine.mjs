@@ -277,6 +277,20 @@ async function runFile(addon, src, dstName, o, result) {
       progress({ type: 'rule', phase: 3, ruleId: rule.meta.id, title: titleText });
       log(`      • ${titleText}`);
       const res = (await rule.fix(finding, ctx)) || {};
+      // Включённая фича не может молча исчезнуть из отчёта. Правило, которому
+      // нечего было делать, раньше возвращало пустой результат — и человек,
+      // поставивший галочку, не находил о ней ни строчки: сработало? не сработало?
+      // Отвечаем за него один раз здесь, а не в каждом правиле по отдельности:
+      // так это верно и для правил, которых ещё нет.
+      //
+      // Спрашиваем только про правила с feature: правила-бандлы без галочки
+      // (safe-чистка) человек не включал поимённо, и молчать им можно.
+      const saidSomething = [res.found, res.skipped, res.cost, res.details, res.detail, res.irreversible]
+        .some((v) => (Array.isArray(v) ? v.length > 0 : v != null));
+      if (!saidSomething && rule.meta.feature) {
+        const reason = { messageId: 'engine.nothingToDo', data: { feature: rule.meta.feature } };
+        addSkipped(rule.meta, skipLine(rule.meta, reason), reason, 'nothing');
+      }
       addFound(rule.meta, res.found);
       addSkipped(rule.meta, res.skipped);
       // res.cost — «правило отработало, но дорого»: результат вырос. Отдельный канал,

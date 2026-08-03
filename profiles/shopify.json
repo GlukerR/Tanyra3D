@@ -100,6 +100,8 @@
       "title": "KTX2 compression",
       "description": "Converts textures to a format the graphics card keeps compressed: up to ~80% less video memory. The store's viewer has to be able to open such textures — without that the model will not show.",
       "impact": "The file may grow 5–10%, but texture video memory drops several-fold.",
+      "reversible": true,
+      "dataLoss": "minor",
       "opts": {
         "noKtx": false
       }
@@ -129,6 +131,8 @@
       "title": "Draco compression",
       "description": "Minimal file weight (often −50% on geometry). Decodes slower than Meshopt in the browser but is supported everywhere.",
       "impact": "The file is noticeably lighter; decoding on open is slower.",
+      "reversible": true,
+      "dataLoss": "none",
       "opts": {
         "codec": "draco"
       }
@@ -138,6 +142,8 @@
       "title": "Quantization",
       "description": "Quantization means writing vertex coordinates with fewer digits: instead of a long precise number, a shorter approximate one. The geometry gets lighter and the store's viewer needs nothing extra to open it — unlike Draco and Meshopt. Coordinates become slightly coarser: on a small detailed model that can show up as tiny gaps.",
       "impact": "Geometry drops by a third to a half. The gain shows up in the file only when the weight is in the geometry, not in the textures.",
+      "reversible": true,
+      "dataLoss": "minor",
       "opts": {
         "quantize": true
       }
@@ -147,6 +153,8 @@
       "title": "Remove vertex colors",
       "description": "Removes painted vertex colors. Enable only if vertex colors are not visible in the model (white channels are removed without this option too).",
       "impact": "Saves 5–20% of size if colors exist; may change the look if they were used.",
+      "reversible": false,
+      "dataLoss": "significant",
       "opts": {
         "stripColors": true
       }

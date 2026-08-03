@@ -540,11 +540,11 @@ export const RULES = [
       const a = { nodes: root.listNodes().length, dc: collectMetrics(ctx.document, 0).drawCalls };
       if (a.nodes < b.nodes || a.dc < b.dc) {
         return {
-          found: [`repeated meshes turned into GPU instances (EXT_mesh_gpu_instancing)`],
-          details: [`GPU instancing: draw calls ${b.dc} → ${a.dc}, nodes ${b.nodes} → ${a.nodes}`],
+          found: [{ messageId: 'instance.found', data: {} }],
+          details: [{ messageId: 'instance.done', data: { dcBefore: b.dc, dcAfter: a.dc, nodesBefore: b.nodes, nodesAfter: a.nodes } }],
         };
       }
-      return { skipped: ['no repeated meshes to instance'] };
+      return { skipped: [{ messageId: 'instance.skipped.nothing', data: {} }] };
     },
   },
 
@@ -561,13 +561,13 @@ export const RULES = [
     canFix() { return { safe: true }; },
     async fix(finding, ctx) {
       const root = ctx.document.getRoot();
-      if (!root.listAnimations().length) return { skipped: ['no animations to resample'] };
+      if (!root.listAnimations().length) return { skipped: [{ messageId: 'resample.skipped.noAnimations', data: {} }] };
       const bytes = () => root.listAccessors().reduce((s, a) => { const arr = a.getArray(); return s + (arr ? arr.byteLength : 0); }, 0);
       const before = bytes();
       await ctx.document.transform(fns.resample());
       const after = bytes();
-      if (after < before) return { details: [`Animation keyframes resampled — accessor data ${before} → ${after} bytes`] };
-      return { skipped: ['no redundant keyframes to resample — animation already minimal'] };
+      if (after < before) return { details: [{ messageId: 'resample.done', data: { pct: Math.round((before - after) / before * 100) } }] };
+      return { skipped: [{ messageId: 'resample.skipped.minimal', data: {} }] };
     },
   },
 

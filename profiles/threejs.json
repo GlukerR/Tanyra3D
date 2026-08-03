@@ -164,7 +164,7 @@
         "ru": "Файл может вырасти на 5–10%, зато видеопамяти под текстуры нужно в разы меньше."
       },
       "reversible": true,
-      "dataLoss": "none",
+      "dataLoss": "minor",
       "opts": {
         "noKtx": false
       }

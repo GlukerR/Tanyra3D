@@ -19,6 +19,9 @@ export default {
 
   // --- engine-level messages ---
   'feature.notEnabled': ({ feature }) => `возможность "${feature}" не включена (advancedFeatures: ['${feature}'])`,
+  // Включённая возможность отработала, но менять было нечего. Молчать в этом
+  // случае нельзя: человек поставил галочку и обязан узнать, что с ней стало.
+  'engine.nothingToDo': () => 'включено, но в этой модели менять было нечего',
   'engine.skipped.line': ({ title, reason }) => `${title} — ${reason}`,
 
   // --- input compression ---

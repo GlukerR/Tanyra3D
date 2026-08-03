@@ -79,6 +79,20 @@ export default {
   // measured was undone by the final cleanup right after — the line called geometry
   // "copied" while it ended up a third lighter. join.keptShared explains the rest.
 
+  // --- scene/instance ---
+  // The extension name (EXT_mesh_gpu_instancing) is deliberately absent here —
+  // Правило 10: it shows up in metadata and in the validator anyway, and in a
+  // report line it only gets in the way. What matters is fewer draw calls.
+  'instance.found': () => 'repeated meshes — they can be drawn with one command instead of one per copy',
+  'instance.done': ({ dcBefore, dcAfter, nodesBefore, nodesAfter }) =>
+    `Repeats collected into instances: draw calls ${dcBefore} → ${dcAfter}, nodes ${nodesBefore} → ${nodesAfter}`,
+  'instance.skipped.nothing': () => 'no repeated meshes — nothing to collect into instances',
+
+  // --- animation/resample ---
+  'resample.done': ({ pct }) => `Redundant keyframes removed: animation data ${pct}% lighter — the motion is unchanged`,
+  'resample.skipped.noAnimations': () => 'the model has no animations',
+  'resample.skipped.minimal': () => 'no redundant keyframes — the animation is already minimal',
+
   'ktx2.grewFile': ({ beforeKb, afterKb, pct }) =>
     `KTX2 made the textures heavier: ${beforeKb} KB → ${afterKb} KB (+${pct}%). `
     + `PNG and JPEG are compressed for transfer and unpacked before they reach the GPU; KTX2 stays compressed in video memory. `

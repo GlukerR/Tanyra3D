@@ -247,7 +247,9 @@ async function validate({ ctx, before, after, glbBytes, src, result, advancedPla
       // вход мог быть битым изначально — проверяем исходник и блокируем только НОВЫЕ ошибки
       const inRes = await validator.validateBytes(new Uint8Array(fs.readFileSync(src)));
       const inErrs = inRes.issues.numErrors;
-      if (inErrs > 0) addFound(ENGINE_META.inputValidation, render('engine.inputValidation.found', { n: inErrs }, locale));
+      // Рецепт, а не готовая строка: иначе запись не переживает смену языка
+      // (Правило 8) — движок разворачивает { messageId, data } сам.
+      if (inErrs > 0) addFound(ENGINE_META.inputValidation, { messageId: 'engine.inputValidation.found', data: { n: inErrs } });
       if (errs <= inErrs) {
         vp('info', 'check.validatorErrorsRemain', { errs, inErrs });
         for (const m of res.issues.messages.filter((m) => m.severity === 0).slice(0, 3)) {

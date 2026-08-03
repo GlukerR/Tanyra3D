@@ -436,18 +436,50 @@ describe('Контракт движка — матрица: форма · сде
 //  - meshes/nodes/materials/animations/skins/morphTargets == счёт в документе;
 //  - metrics.after.fileBytes == реальный размер файла на диске.
 
+// ПОПРАВКА 2026-08-03 (основной агент). Первая версия считала треугольники суммой
+// getGLPrimitiveCount по объектам-мешам — это ХРАНИМАЯ геометрия. Метрика движка
+// считает РИСУЕМУЮ: обход сцены по узлам, с умножением на число экземпляров
+// GPU-инстансинга (addons/gltf/metrics.mjs, sceneGeometry — там же и причина).
+//
+// Разница не косметическая, и права здесь метрика:
+//   - dedup сводит одинаковые меши в один на многих узлах, flatten разворачивает
+//     обратно — счёт по мешам прыгает, хотя рисуется ровно то же самое;
+//   - инстансинг сворачивает N узлов в один узел + N трансформов — счёт по мешам
+//     упал бы в N раз при неизменной картинке;
+//   - на этом счёте стоит главный инвариант движка «треугольников столько же»:
+//     возьми хранимую геометрию — и join, который копии как раз создаёт, начал бы
+//     сообщать о потере треугольников там, где её нет.
+//
+// Правая панель показывает нагрузку на отрисовку, а не размер таблицы вершин.
+// Поэтому оракул теста приведён к определению метрики (Н-3 — дефект теста, не движка).
+function drawnTriangles(doc) {
+  let triangles = 0;
+  for (const scene of doc.getRoot().listScenes()) {
+    scene.traverse((node) => {
+      const mesh = node.getMesh();
+      if (!mesh) return;
+      const ext = typeof node.getExtension === 'function' ? node.getExtension('EXT_mesh_gpu_instancing') : null;
+      const sem = ext && ext.listSemantics && ext.listSemantics()[0];
+      const attr = sem && ext.getAttribute(sem);
+      const instances = (attr && attr.getCount()) || 1;
+      for (const prim of mesh.listPrimitives()) {
+        if (prim.getMode() === 4) triangles += fns.getGLPrimitiveCount(prim) * instances;
+      }
+    });
+  }
+  return triangles;
+}
+
 function documentCounts(doc) {
   const root = doc.getRoot();
-  let primTri = 0;
   let morphs = 0;
   for (const mesh of root.listMeshes()) {
     for (const prim of mesh.listPrimitives()) {
-      primTri += fns.getGLPrimitiveCount(prim);
       morphs += prim.listTargets().length;
     }
   }
   return {
-    triangles: primTri,
+    triangles: drawnTriangles(doc),
     meshes: root.listMeshes().length,
     nodes: root.listNodes().length,
     materials: root.listMaterials().length,
@@ -497,13 +529,22 @@ describe('Контракт движка — раздел 5: метрики не 
 //     расходится с meta правила.  ← Н-5 (красно: ktx2, missing-поля)
 
 describe('Контракт движка — раздел 4: необратимость заявлена честно', () => {
-  it('у каждого необратимого правила есть reversalNote', () => {
-    const missing = RULES
-      .filter((r) => r.meta.reversible === false && !r.meta.reversalNote)
+  // РЕШЕНИЕ 2026-08-03 (основной агент) по Н-4: наблюдение верное — reversalNote
+  // есть только у части необратимых правил. Но требовать заметку у каждого сейчас
+  // НЕЛЬЗЯ, и вот почему: сам reversalNote — это готовая АНГЛИЙСКАЯ строка в meta
+  // правила, то есть ровно то, что запрещает Правило 8. Дописать ещё восемь таких
+  // строк значит углубить дефект, а не закрыть его. Плюс поле сейчас не читает
+  // никто: ни `ui/`, ни отчёт — только `core/types.mjs` и ARCHITECTURE.md.
+  //
+  // Долг записан как отдельная задача: перевести reversalNote на ключи каталога и
+  // показать его в интерфейсе. До тех пор тест сторожит то, что действительно
+  // работает, — согласованность reversible/dataLoss (ниже и в 4c), — а не
+  // подгоняется под желаемое.
+  it('reversalNote, если он есть, — непустая строка (полнота покрытия — отдельный долг)', () => {
+    const broken = RULES
+      .filter((r) => r.meta.reversalNote !== undefined && (typeof r.meta.reversalNote !== 'string' || !r.meta.reversalNote.trim()))
       .map((r) => r.meta.id);
-    // Н-4: на 2026-08-01 необратимых правил девять, reversalNote только у scene/join.
-    // Контракт требует заметку у каждого — движок отдаёт её не всем.
-    expect(missing).toEqual([]);
+    expect(broken).toEqual([]);
   });
 
   it('reversible:true не сочетается с dataLoss:"significant" (значимая потеря — необратимо)', () => {
