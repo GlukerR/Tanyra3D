@@ -21,6 +21,7 @@
   "devDependencies": {
     "@vitest/browser": "^4.1.10",
     "@vitest/browser-playwright": "^4.1.10",
+    "es-module-lexer": "^2.3.1",
     "playwright": "^1.62.0"
   }
 }

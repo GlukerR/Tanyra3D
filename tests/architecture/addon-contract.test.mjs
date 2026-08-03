@@ -1,0 +1,163 @@
+// tests/architecture/addon-contract.test.mjs — КОРОННЫЙ архитектурный гейт.
+//
+// Доказывает главное обещание проекта (АРХИТЕКТУРНЫЕ_ТЕСТЫ.md §5, гейт №1):
+// движок формат-агностичен, а контракт аддона живёт в коде, а не в документации.
+//
+// Три шага:
+//   1. Метод-сет аддона выводится из ИСХОДНИКА движка (сканируем core/engine.mjs
+//      на вызовы addon.*), а не из описания в ARCHITECTURE.md — иначе мок может
+//      недописать метод и тест упадёт по неверной причине.
+//   2. Из этого набора строится мок-аддон на ВЫДУМАННОМ формате (никакого glTF,
+//      three, gltf-transform — только node и собственные данные). Прогон
+//      runOptimize() на нём обязан пройти все пять фаз и вернуть status:'ok'.
+//      Это проверка архитектурного обещания, а не реализации.
+//   3. Реальный addons/gltf/index.mjs обязан реализовать каждый вызванный
+//      движком метод — контракт сверяется с исходником движка, а не с текстом.
+
+import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { fileURLToPath } from 'node:url';
+
+import { runOptimize } from '../../core/engine.mjs';
+import gltfAddon from '../../addons/gltf/index.mjs';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ENGINE_PATH = path.resolve(__dirname, '../../core/engine.mjs');
+
+// ----------------------------------------------------------------------------
+// Шаг 1: метод-сет из исходника движка (оракул — код, не документ).
+// ----------------------------------------------------------------------------
+
+/** Имена addon.*, которые движок реально вызывает (или читает как свойства). */
+function engineAddonApi() {
+  const src = fs.readFileSync(ENGINE_PATH, 'utf8')
+    // Комментарии убираем ДО поиска: иначе фраза вроде «мы зовём addon.validate»
+    // в комментарии сломала бы снимок контракта по неверной причине.
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '');
+  return [...new Set([...src.matchAll(/\baddon\.([A-Za-z_][A-Za-z0-9_]*)/g)].map((m) => m[1]))].sort();
+}
+
+// Список из §5.1 — что движок обязан звать. Если движок начнёт звать больше —
+// тест упадёт с просьбой дописать мок И проверить реальный аддон.
+const DOCUMENTED_API = [
+  'BASELINE_METRICS', 'baselineMetrics', 'collectMetrics', 'createIO',
+  'load', 'normalizeOpts', 'outputName', 'readBytes', 'rules',
+  'stripInputCompression', 'validate', 'writeBytes', 'writeReport',
+].sort();
+
+// ----------------------------------------------------------------------------
+// Мок-аддон на выдуманном формате. Метод-сет ДОЛЖЕН совпасть с движковым:
+// класс-мок строится из извлечённого набора, и тест ниже сверяет покрытие.
+// ----------------------------------------------------------------------------
+
+function makeMockAddon() {
+  return {
+    formats: ['mock'], // расширение выдуманного формата
+    rules: [], // без правил: весь контракт аддона должен работать и при пустом наборе
+    BASELINE_METRICS: [],
+    outputName: (src) => path.basename(src).replace(/\.[^.]+$/, '.mock'),
+    normalizeOpts: (opts = {}) => ({
+      outDir: String(opts.outDir || '.'),
+      force: !!opts.force,
+      dryRun: !!opts.dryRun,
+      onProgress: null,
+      log: () => {},
+      locale: 'en',
+      codec: 'mock',
+      advancedFeatures: [],
+    }),
+    createIO: async () => ({}),
+    load: async () => ({ kind: 'mock-doc' }),
+    writeBytes: async () => new Uint8Array([1, 2, 3]),
+    readBytes: async () => ({ kind: 'mock-doc' }),
+    collectMetrics: () => ({
+      fileBytes: 0, drawCalls: 0, triangles: 0, vertices: 0,
+      meshes: 0, materials: 0, textures: 0, nodes: 0, scenes: 0,
+      animations: 0, skins: 0, gpuBytes: 0, textureBytes: 0,
+    }),
+    baselineMetrics: () => ({}),
+    stripInputCompression: () => [],
+    validate: ({ result }) => {
+      // минимальная «проверка целостности»: без fail-записей движок пишет файл
+      result.validation.push({ level: 'pass', text: 'mock-validate: ok' });
+    },
+    writeReport: ({ name, opts }) => {
+      // отчёт тоже обязан писаться (фаза 5); имя возвращается движку
+      const reportName = name.replace(/\.mock$/, '.report.md');
+      fs.writeFileSync(path.join(opts.outDir, reportName), `# mock report\n`, 'utf8');
+      return reportName;
+    },
+  };
+}
+
+// ----------------------------------------------------------------------------
+// Шаг 3: реальный аддон обязан реализовать каждый вызванный движком метод.
+// ----------------------------------------------------------------------------
+
+describe('addon-contract — контракт аддона живёт в исходнике движка', () => {
+  it('движок вызывает ровно документированный набор addon.* (13 методов)', () => {
+    const api = engineAddonApi();
+    expect(api).toEqual(DOCUMENTED_API);
+  });
+
+  it('реальный addons/gltf/index.mjs реализует каждый вызванный движком метод', () => {
+    for (const name of engineAddonApi()) {
+      expect(gltfAddon, `gltfAddon.${name} отсутствует`).toHaveProperty(name);
+      // свойства-массивы отдельно: rules и BASELINE_METRICS — данные, не функции
+      if (name === 'rules' || name === 'BASELINE_METRICS') {
+        expect(Array.isArray(gltfAddon[name]), `gltfAddon.${name} должен быть массивом`).toBe(true);
+      } else {
+        expect(typeof gltfAddon[name], `gltfAddon.${name} должен быть функцией`).toBe('function');
+      }
+    }
+  });
+});
+
+// ----------------------------------------------------------------------------
+// Шаг 2: прогон движка на ВЫДУМАННОМ формате — главное обещание.
+// ----------------------------------------------------------------------------
+
+describe('addon-contract — движок работает на выдуманном формате (формат-агностичность)', () => {
+  it('runOptimize(мок-аддон, файл .mock) проходит все пять фаз и пишет результат', async () => {
+    const mockAddon = makeMockAddon();
+    // мок обязан покрыть весь извлечённый набор — если движок позовёт метод,
+    // которого в моке нет, runOptimize упадёт сам; проверяем это и явно
+    for (const name of engineAddonApi()) {
+      expect(mockAddon, `мок-аддон не реализует ${name}`).toHaveProperty(name);
+    }
+
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'addon-contract-'));
+    const src = path.join(tmp, 'scene.mock');
+    const outDir = path.join(tmp, 'out');
+    fs.writeFileSync(src, 'mock-format-bytes', 'utf8');
+
+    const result = await runOptimize(mockAddon, src, { outDir, force: true });
+
+    expect(result.status).toBe('ok');
+    expect(result.file.written).toBe(true);
+    expect(fs.existsSync(result.file.dst)).toBe(true);
+    expect(result.metrics.before).not.toBeNull();
+    expect(result.metrics.after).not.toBeNull();
+    // фаза 4 отработала: валидация содержит запись мока
+    expect(result.validation.some((v) => v.level === 'pass')).toBe(true);
+    // фаза 5 отработала: отчёт записан, путь отдан в контракте
+    expect(result.file.reportPath).toBeTruthy();
+    expect(fs.existsSync(result.file.reportPath)).toBe(true);
+  });
+
+  it('незнакомый методу аддон не валит процесс — движок превращает это в status:fail', async () => {
+    const mockAddon = makeMockAddon();
+    delete mockAddon.collectMetrics; // сломали контракт — движок должен пережить
+
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'addon-contract-'));
+    const src = path.join(tmp, 'broken.mock');
+    fs.writeFileSync(src, 'x', 'utf8');
+
+    const result = await runOptimize(mockAddon, src, { outDir: path.join(tmp, 'out'), force: true });
+    expect(result.status).toBe('fail');
+    expect(result.error).toMatch(/collectMetrics/);
+  });
+});
