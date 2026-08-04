@@ -40,19 +40,12 @@
 import { describe, it, expect } from 'vitest';
 import { optimizeFile } from '../optimize2.mjs';
 import { modelPath, eachModel } from './helpers/model-files.mjs';
+import { densityViolations, DENSITY_LIMIT } from './helpers/report-density.mjs';
 
-// ============================================================================
-// Белый список — почему это НЕ повтор (не пополнять, чтобы позеленить тест).
-// ============================================================================
-// engine.skipped.line: «Заголовок правила — причина». Одна строка на каждую
-// НЕВКЛЮЧЁННУЮ фичу (instance, join, resample, ktx2, meshopt, quantize, ...).
-// Их до восьми, но каждая называет СВОЮ фичу в причине — это перечень выбора
-// пользователя, а не повтор одного и того же сообщения. Новое правило может
-// добавить свою такую строку — это норм, белый список не трогаем.
-const DENSITY_WHITELIST = new Set(['engine.skipped.line']);
-
-// Порог: больше трёх записей с одним messageId в одном отчёте — красный.
-const DENSITY_LIMIT = 3;
+// Белый список, порог и функция densityViolations вынесены в tests/helpers/
+// report-density.mjs по заданию «сочетания фич»: сторож гоняет десятки наборов
+// флагов (tests/feature-combos.test.mjs), и дублировать функцию нельзя. Почему
+// белый список именно такой — см. в шапке хелпера.
 
 // ============================================================================
 // Корпус: GOLDEN_MODELS (24 из tests/golden-corpus.test.mjs) + модели
@@ -102,23 +95,7 @@ const DENSITY_FLAG_SETS = [
   ['safe', 'quantize'], // задание 2026-08-01-квантование, раздел 6: правило выдаёт максимум две строки на модель
 ];
 
-/**
- * Нарушения плотности одного отчёта: [[messageId, count], ...] для messageId,
- * повторённых чаще DENSITY_LIMIT и не входящих в белый список. Считает ВСЕ
- * списки отчёта, включая validation: записи проверки несут тот же рецепт
- * i18n.text.messageId (addons/gltf/index.mjs, vp()).
- */
-function densityViolations(result) {
-  const counts = new Map();
-  for (const list of [result.applied, result.skipped, result.findings, result.validation]) {
-    for (const rec of list) {
-      const id = rec.i18n?.text?.messageId;
-      if (!id || DENSITY_WHITELIST.has(id)) continue;
-      counts.set(id, (counts.get(id) || 0) + 1);
-    }
-  }
-  return [...counts.entries()].filter(([, n]) => n > DENSITY_LIMIT);
-}
+
 
 // ============================================================================
 // Сторож: корпус × наборы флагов, никакая запись не повторяется чаще 3 раз.
