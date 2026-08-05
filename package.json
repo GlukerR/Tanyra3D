@@ -19,8 +19,12 @@
     "draco3dgltf": "^1.5.7",
     "gltf-validator": "^2.0.0-dev.3.10",
     "meshoptimizer": "^0.22.0",
-    "sharp": "^0.33.0",
+    "sharp": "^0.35.3",
     "three": "^0.185.1"
+  },
+  "_comment_overrides": "ndarray-pixels (внутри @gltf-transform/functions) требует sharp ^0.34, а уязвимость GHSA-f88m-g3jw-g9cj закрыта только в 0.35. Своей зависимостью её не достать — она вложенная, поэтому override. Снять, когда gltf-transform обновит ndarray-pixels.",
+  "overrides": {
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
     "@vitest/browser": "^4.1.10",
