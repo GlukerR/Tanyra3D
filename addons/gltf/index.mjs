@@ -244,7 +244,16 @@ async function validate({ ctx, before, after, glbBytes, src, result, advancedPla
   if (before.scenes === after.scenes) vp('pass', 'check.scenesPreserved', { n: after.scenes });
   else vp('fail', 'check.scenesLost', { before: before.scenes, after: after.scenes });
   // 6. bounding box в пределах эпсилон (квантование кодека даёт микросдвиг — допуск 1% диагонали)
-  if (before.bounds && after.bounds) {
+  //
+  // Сначала отдельный случай: у модели БЕЗ геометрии габаритов не существует.
+  // getBounds() отдаёт для неё min = +Infinity, max = −Infinity, разность даёт NaN,
+  // а любое сравнение с NaN ложно — и проверка объявляла «модель смещена или
+  // разрушена» на сцене из пустых узлов, которую никто не трогал. Найдено 2026-08-04
+  // на `Empty Nodes 01` при закрытии дыры корпуса «модель без геометрии».
+  const noGeometry = before.triangles === 0 && after.triangles === 0;
+  if (noGeometry) {
+    vp('info', 'check.boundsNoGeometry');
+  } else if (before.bounds && after.bounds) {
     const diag = Math.hypot(...[0, 1, 2].map((i) => before.bounds.max[i] - before.bounds.min[i]));
     const eps = Math.max(1e-6, diag * 0.01);
     const ok = [0, 1, 2].every((i) =>

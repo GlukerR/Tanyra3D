@@ -34,3 +34,9 @@
 !models/Preinstanced Grid 01.glb
 !models/Truncated Broken 01.glb
 !models/Unlinked Duplicates 01.glb
+
+# Закрытие дыр реестра ситуаций, 2026-08-04 (_work/make-corpus-holes.mjs).
+!models/Empty Nodes 01.glb
+!models/Texture Only 01.glb
+!models/Two Scenes 01.glb
+!models/Pre KTX2 01.glb

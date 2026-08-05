@@ -143,6 +143,8 @@ export default {
   'webp.done.color': ({ n }) => `${n} color texture${n === 1 ? '' : 's'} → WebP, quality 90 — smaller file, video memory unchanged`,
   'webp.done.data': ({ n }) => `${n} data texture${n === 1 ? '' : 's'} → WebP lossless — normals and roughness are numbers, lossy chroma would distort them`,
 
+  'prune.refuse.wouldEmptyScene': ({ n }) => `the model has ${n} node${n === 1 ? '' : 's'} and no shapes at all — cleanup would take the whole scene away, so it is left alone`,
+
   // --- reversibility notes (meta.reversalNoteKey) ---
   // Until 2026-08-04 these were hard-coded English strings inside rule meta — a
   // Правило 8 breach in the rule's own description. Now they are keys like everything else.
@@ -212,6 +214,7 @@ export default {
   'check.boundsSkinnedQuantized': () => 'bounding box check skipped: the model is skinned and geometry is quantized — the compensation lives in the skin matrices, which getBounds() does not read. Shape and topology are verified by the other checks',
   'check.boundsChanged': () => 'bounding box changed — model shifted or collapsed',
   'check.boundsNotComputed': () => 'bounding box not computed (getBounds unavailable or no scene)',
+  'check.boundsNoGeometry': () => 'bounding box check skipped: the model has no geometry — there is nothing to measure',
   'check.materialsResolve': () => 'every material resolves',
   'check.materialsBroken': () => 'a primitive references a deleted material',
   'check.validatorZeroErrors': () => 'gltf-validator (Khronos): 0 errors',

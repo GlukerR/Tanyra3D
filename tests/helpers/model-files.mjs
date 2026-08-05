@@ -41,6 +41,14 @@ export const REPO_MODELS = new Set([
   'Preinstanced Grid 01.glb',
   'Truncated Broken 01.glb',
   'Unlinked Duplicates 01.glb',
+  // Закрытие дыр реестра ситуаций, 2026-08-04: у классов no-geometry,
+  // textures-only, multi-scene и pre-ktx2 не было ни одного представителя,
+  // и обещания движка для них не проверял никто. Первый же прогон нашёл два
+  // дефекта — см. sidecar-лицензии рядом.
+  'Empty Nodes 01.glb',
+  'Texture Only 01.glb',
+  'Two Scenes 01.glb',
+  'Pre KTX2 01.glb',
 ]);
 
 export function modelPath(name) {

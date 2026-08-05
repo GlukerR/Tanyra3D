@@ -161,6 +161,27 @@ function refuseIfUnsupported(ctx) {
   return { safe: false, messageId: 'unsupportedExtension.refuse', data: { list: list.join(', '), n: list.length } };
 }
 
+// Чистка не имеет права унести ВСЮ сцену.
+//
+// Найдено 2026-08-04, когда в корпус добавили представителей класса «модель без
+// геометрии» (`Empty Nodes 01`, `Two Scenes 01`): узел без меша для prune() —
+// «лист без содержимого», и на модели, где мешей нет вовсе, чистка удаляла все узлы
+// до единого. Дальше срабатывал сторож целостности, объявлял `boundsChanged` и
+// файл не писался — то есть человека спасали, но причину называли не ту: границы
+// изменились не сами, их обнулила чистка.
+//
+// Такие модели существуют не в теории: сцена из локаторов, пустой риг, экспорт, где
+// геометрия не выгрузилась. Правильный ответ — не трогать её и сказать почему, а не
+// разобрать и упереться в проверку.
+function refuseIfWouldEmptyScene(ctx) {
+  const root = ctx.document.getRoot();
+  const nodes = root.listNodes();
+  if (!nodes.length) return null;
+  const hasDrawable = nodes.some((n) => n.getMesh() || n.getCamera());
+  if (hasDrawable) return null;
+  return { safe: false, messageId: 'prune.refuse.wouldEmptyScene', data: { n: nodes.length } };
+}
+
 // Меши, на которые ссылается больше одного узла, — общая геометрия.
 //
 // Отличать её от обычной приходится по факту, а не по замыслу автора модели: связанные
@@ -217,7 +238,7 @@ export const RULES = [
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
     // Чистка удаляет то, на что «нет ссылок». Ссылку из неизвестного расширения она не
     // видит — и уносит вместе с мусором живые данные (замер: анимация 1 → 0).
-    canFix(finding, ctx) { return refuseIfUnsupported(ctx) || { safe: true, messageId: 'prune.safe', data: {} }; },
+    canFix(finding, ctx) { return refuseIfUnsupported(ctx) || refuseIfWouldEmptyScene(ctx) || { safe: true, messageId: 'prune.safe', data: {} }; },
     async fix(finding, ctx) {
       const root = ctx.document.getRoot();
       const semBefore = listSemantics(ctx.document);
@@ -582,7 +603,7 @@ export const RULES = [
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
     // Та же причина, что у structure/prune-unused: чистка не видит ссылок из
     // неизвестного расширения и уносит живые данные вместе с осиротевшими.
-    canFix(finding, ctx) { return refuseIfUnsupported(ctx) || { safe: true, messageId: 'pruneFinal.safe', data: {} }; },
+    canFix(finding, ctx) { return refuseIfUnsupported(ctx) || refuseIfWouldEmptyScene(ctx) || { safe: true, messageId: 'pruneFinal.safe', data: {} }; },
     async fix(finding, ctx) {
       const root = ctx.document.getRoot();
       const b = root.listAccessors().length;
