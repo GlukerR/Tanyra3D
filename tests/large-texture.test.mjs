@@ -198,7 +198,11 @@ describe('Large texture — 8K noise (8192×4096)', () => {
     expect(result.metrics.before.textures).toBe(1);
     expect(result.metrics.before.textureBytes).toBeGreaterThan(0);
     expect(result.metrics.after.textureBytes).toBeGreaterThan(0);
-  });
+    // Свой таймаут, а не общие 120 с: кодирование шумовой 8K-текстуры целиком
+    // упирается во внешний toktx, и в одиночку тест укладывается, а в полном
+    // прогоне — нет (замер 2026-08-04: 131 с при пороге 120). Падал ТАЙМАУТ, не
+    // утверждение: продукт тут ни при чём, времени не хватало процессу.
+  }, TIMEOUT_LONG);
 });
 
 // ---- 1×16384 (экстремальный узкий формат) ----
