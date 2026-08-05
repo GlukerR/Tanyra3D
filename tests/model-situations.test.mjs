@@ -268,7 +268,7 @@ describe('Класс vertex-colors — COLOR_0 не исчезает без яв
     const src = await io.read(modelPath(name));
     // «раскрашен» ли COLOR_0 (есть не-белые значения). Белый канал safe снимает
     // как lossless (множитель 1.0, картинка не меняется) — это другая ветка правила,
-    // не strip-colors (подробности — в отчёте задания, нюанс r 250).
+    // не strip-colors (подробности — в отчёте задания, нюанс Production Draco Webp 01).
     let painted = false;
     for (const m of src.getRoot().listMeshes()) {
       for (const p of m.listPrimitives()) {

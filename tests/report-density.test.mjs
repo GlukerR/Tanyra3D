@@ -33,8 +33,8 @@
 // повтор одного и того же. Белый список явный и не пополняется, чтобы тест
 // позеленел: новая запись — решение основного агента, а не способ обойти.
 //
-// Прогон 2026-08-01 по r 250, MosquitoInAmber2, ToyCar, SheenWoodLeatherSofa,
-// Е300, parkergirl под ['safe','join','instance'] не нашёл ни одного повтора
+// Прогон 2026-08-01 по Production Draco Webp 01, MosquitoInAmber2, ToyCar, SheenWoodLeatherSofa,
+// Production Multi UV 01, parkergirl под ['safe','join','instance'] не нашёл ни одного повтора
 // кроме исключения — сторож обязан быть зелёным на момент выдачи задания.
 
 import { describe, it, expect } from 'vitest';
@@ -49,7 +49,7 @@ import { densityViolations, DENSITY_LIMIT } from './helpers/report-density.mjs';
 
 // ============================================================================
 // Корпус: GOLDEN_MODELS (24 из tests/golden-corpus.test.mjs) + модели
-// с текстурами из задания webp-корпус (BoomBox, chibi_zenitsu, L-330,
+// с текстурами из задания webp-корпус (BoomBox, chibi_zenitsu, Production Many Materials 01,
 // Linked Duplicates Grid 01 — последняя без текстур, но в списке воздержания).
 // ============================================================================
 const DENSITY_CORPUS = [
@@ -81,7 +81,7 @@ const DENSITY_CORPUS = [
   // модели с текстурами из задания webp (локальные)
   'BoomBox.glb',
   'chibi_zenitsu.glb',
-  'L-330.glb',
+  'Production Many Materials 01.glb',
   'Linked Duplicates Grid 01.glb',
 ];
 

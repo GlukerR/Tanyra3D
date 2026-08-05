@@ -80,9 +80,9 @@ const MODEL_FILES = [
   'SheenWoodLeatherSofa.glb',
   'CommercialRefrigerator.glb',
   'CarConcept.glb',
-  'r 250.glb',
-  'Е300.glb',
-  'L-330.glb',
+  'Production Draco Webp 01.glb',
+  'Production Multi UV 01.glb',
+  'Production Many Materials 01.glb',
 ]
 
 const EXPECT_FAIL = new Set(['Truncated Broken 01.glb'])

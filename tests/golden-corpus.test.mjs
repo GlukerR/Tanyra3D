@@ -120,7 +120,7 @@ const APPLY_ON_PASSTHROUGH = new Set([
 //     vitest-отчёт укажет конкретное имя, без «failed to load suite».
 //   - LOCAL — 16 Khronos-эталонов (CC-BY / проприетарные), 2 крупные
 //     модели Александра (Cthulhu Stone 01, Lilith Character 01), 2 CC-BY-4.0
-//     персонажа (chibi_zenitsu, parkergirl), 3 клиентские (Е300, r 250, L-330).
+//     персонажа (chibi_zenitsu, parkergirl), 3 клиентские (Production Multi UV 01, Production Draco Webp 01, Production Many Materials 01).
 //     Для них eachModel создаёт `it.skip` с маркером [skipped: ...], чтобы
 //     `npx vitest run` после свежего `git clone` был зелёным.
 

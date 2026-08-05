@@ -174,7 +174,7 @@ matrixDescribe(`Input folder — matrix: ${inputModels.length} models × ${COMBO
               //
               //   2 (3).glb        0.73 → 2.86 МБ (+293 %)  снят EXT_meshopt_compression
               //   Ноутбук.glb      6.22 → 57.6 МБ (+827 %)  снят KHR_draco_mesh_compression
-              //   r 250.glb       15.3  → 27.5 МБ (+80 %)   снят KHR_draco_mesh_compression
+              //   Production Draco Webp 01.glb       15.3  → 27.5 МБ (+80 %)   снят KHR_draco_mesh_compression
               //
               // Движок снимает входную упаковку осознанно (ARCHITECTURE §6, «не
               // стекировать») и КАЖДЫЙ РАЗ сообщает об этом: engine.inputCompression.found

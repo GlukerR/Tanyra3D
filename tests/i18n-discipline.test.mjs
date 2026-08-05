@@ -88,7 +88,7 @@ const LOCAL_MODELS = [
   'MosquitoInAmber2.glb',
   'BoomBox.glb',
   'chibi_zenitsu.glb',
-  'L-330.glb',
+  'Production Many Materials 01.glb',
   'SheenWoodLeatherSofa.glb',
   'ToyCar.glb',
 ];

@@ -95,7 +95,7 @@ export const FLAG_SETS = [
 
 // Локальные модели (eachModel-семантика: отсутствует на чистом клоне — skip).
 // Классы случаев: скины+морфы (parkergirl, RiggedSimple), тяжёлая геометрия с
-// общими мешами (MosquitoInAmber2), текстуры (BoomBox, chibi_zenitsu, L-330,
+// общими мешами (MosquitoInAmber2), текстуры (BoomBox, chibi_zenitsu, Production Many Materials 01,
 // SheenWoodLeatherSofa, ToyCar).
 export const LOCAL_MODELS = [
   'parkergirl.glb',
@@ -103,7 +103,7 @@ export const LOCAL_MODELS = [
   'MosquitoInAmber2.glb',
   'BoomBox.glb',
   'chibi_zenitsu.glb',
-  'L-330.glb',
+  'Production Many Materials 01.glb',
   'SheenWoodLeatherSofa.glb',
   'ToyCar.glb',
 ];

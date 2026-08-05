@@ -108,12 +108,12 @@ describe('WebP — PNG-модели: конверсия работает', () =>
 // РАЗДЕЛ 2. Модели, на которых правило обязано воздержаться.
 // ============================================================================
 
-// 2a. L-330: 11 текстур, ВСЕ уже WebP — ни одной конверсии, одна строка skipped.
-describeIfModels(['L-330.glb'], 'WebP — L-330 (11 текстур уже WebP)', () => {
+// 2a. Production Many Materials 01: 11 текстур, ВСЕ уже WebP — ни одной конверсии, одна строка skipped.
+describeIfModels(['Production Many Materials 01.glb'], 'WebP — Production Many Materials 01 (11 текстур уже WebP)', () => {
   it('ни одной конверсии, вес картинок не изменился, в skipped ОДНА строка про «уже WebP»', async () => {
     const outDir = tmpOutDir();
-    const before = await inspectOutput(modelPath('L-330.glb'));
-    const result = await optimizeFile(modelPath('L-330.glb'), {
+    const before = await inspectOutput(modelPath('Production Many Materials 01.glb'));
+    const result = await optimizeFile(modelPath('Production Many Materials 01.glb'), {
       advancedFeatures: ['webp'],
       dryRun: false,
       outDir,

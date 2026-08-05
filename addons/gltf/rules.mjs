@@ -779,7 +779,7 @@ export const RULES = [
       const CONVERTIBLE = new Set(['image/png', 'image/jpeg']);
       const cands = [];
       // Пропуски копим группами, а не пишем строкой на текстуру: на ABeautifulGame
-      // это давало двадцать одинаковых строк подряд, на L-330 — одиннадцать.
+      // это давало двадцать одинаковых строк подряд, на Production Many Materials 01 — одиннадцать.
       const skips = { already: [], noMime: [], jpegData: [] };
       const byFormat = new Map(); // формат для видеокарты: mime без "image/" → имена
       const byUnsupported = new Map(); // прочие форматы, которые мы не кодируем
@@ -933,7 +933,7 @@ export const RULES = [
       // Взаимоисключение с Draco и Meshopt делает интерфейс (одна группа «Геометрия»),
       // но правило проверяет и само: у Draco своё встроенное квантование, Meshopt тянет
       // это же расширение внутри себя, и поверх них квантовать нечего — замерено на
-      // `r 250` (уже с Draco): геометрия −50 %, а ФАЙЛ +3 %.
+      // `Production Draco Webp 01` (уже с Draco): геометрия −50 %, а ФАЙЛ +3 %.
       //
       // tier advanced по той же причине, что у geometry/compress: правило обязано идти
       // после baseline-checkpoint, иначе снимок берётся с уже квантованной модели и

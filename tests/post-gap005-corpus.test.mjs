@@ -344,19 +344,19 @@ parkergirlDescribe('Post-GAP-005 corpus — parkergirl (local CC-BY-4.0): heavy 
 });
 
 // ============================================================================
-// 4. Клиентские модели Е300 / r 250 / L-330 (локальные, EXT_texture_webp)
+// 4. Клиентские модели Production Multi UV 01 / Production Draco Webp 01 / Production Many Materials 01 (локальные, EXT_texture_webp)
 // ============================================================================
 //
 // Ключевое отличие от золотого корпуса: ТЯЖЁЛЫЕ текстуры (одна модель —
 // 15 МБ текстур при 8 МБ геометрии). Если в системе нет `toktx` — KTX2
 // правило сообщает об этом в skipped и не валит запись.
 //
-// Таймаут 120s — клиентские модели тяжёлые (Е300 — 16 МБ, L-330 / r 250
+// Таймаут 120s — клиентские модели тяжёлые (Production Multi UV 01 — 16 МБ, Production Many Materials 01 / Production Draco Webp 01
 // около 8 МБ).
 
 describe('Post-GAP-005 corpus — клиентские модели, KTX2 graceful', () => {
 
-  const CLIENT_MODELS = ['Е300.glb', 'r 250.glb', 'L-330.glb'];
+  const CLIENT_MODELS = ['Production Multi UV 01.glb', 'Production Draco Webp 01.glb', 'Production Many Materials 01.glb'];
   for (const m of CLIENT_MODELS) {
     const p = modelPath(m);
     if (!fs.existsSync(p)) {
@@ -401,8 +401,8 @@ describe('Post-GAP-005 corpus — клиентские модели, KTX2 gracef
         if (result.status === 'ok') {
           // Под ['safe','ktx2'] welding на продакшен-моделях удаляет
           // вырожденные треугольники — это нормальная часть safe-cleanup.
-          // Измерено на коммите dbf6513: E300 triΔ=-213, r 250 triΔ=-66,
-          // L-330 triΔ=-7. Sentinel: |after - before| <= 250 — перекрывает
+          // Измерено на коммите dbf6513: E300 triΔ=-213, Production Draco Webp 01 triΔ=-66,
+          // Production Many Materials 01 triΔ=-7. Sentinel: |after - before| <= 250 — перекрывает
           // текущие weld-потери и срабатывает на внезапный рост или полную
           // потерю геометрии (бывшее симметричное ratio 0.95..1.05 имело
           // dead-tolerance в верхней половине: рост треугольников в этом
