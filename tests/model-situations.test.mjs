@@ -35,7 +35,7 @@ import { describe, it, expect } from 'vitest';
 import { optimizeFile } from '../optimize2.mjs';
 import gltfAddon from '../addons/gltf/index.mjs';
 import { effectiveSkins, sceneGeometry } from '../addons/gltf/metrics.mjs';
-import { modelPath, REPO_MODELS } from './helpers/model-files.mjs';
+import { modelPath, REPO_MODELS, itIfModel } from './helpers/model-files.mjs';
 import {
   eachSituation, modelsWith, situationsOf,
   SITUATION_IDS, KNOWN_HOLES, LOCAL_ONLY, situationCoverage,
@@ -118,11 +118,15 @@ describe('Реестр ситуаций — санити', () => {
     expect(sit).toContain('pre-webp');
   });
 
-  it('AnimationPointerUVs — unknown-extension распознаётся по СЫРОМУ файлу (библиотека отбрасывает расширение)', () => {
+  // Обе модели — локальные (в git не уходят). Реестр строится по ФАЙЛАМ, значит
+  // без файла ситуаций у модели нет вовсе, и утверждение о классе проверять не на
+  // чем: это пропуск с причиной, а не падение. Ровно тот же договор, что у
+  // eachModel — см. шапку файла: «на чистом клоне корпус обязан быть зелёным».
+  itIfModel('AnimationPointerUVs.glb', 'unknown-extension распознаётся по СЫРОМУ файлу (библиотека отбрасывает расширение)', () => {
     expect(situationsOf('AnimationPointerUVs.glb')).toContain('unknown-extension');
   });
 
-  it('parkergirl — скин и морфы вместе (тот случай, который ловил GAP-005)', () => {
+  itIfModel('parkergirl.glb', 'скин и морфы вместе (тот случай, который ловил GAP-005)', () => {
     const sit = situationsOf('parkergirl.glb');
     expect(sit).toContain('skinned');
     expect(sit).toContain('morphed');

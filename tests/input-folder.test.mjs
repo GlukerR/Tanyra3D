@@ -8,27 +8,18 @@
 //
 // Все тесты используют dryRun: true, чтобы не писать .glb файлы.
 // Цель: проверить, что ни одна модель не вызывает исключение (crash).
+//
+// Папки input/ нет на чистом клоне (она в .gitignore) — тогда весь файл
+// пропускается с причиной, см. tests/helpers/input-folder.mjs.
 
-import { describe, it, expect } from 'vitest';
+import { it, expect } from 'vitest';
 import { optimizeFile } from '../optimize2.mjs';
-import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, '..');
+import { INPUT_DIR, inputExists, inputModels as readInputModels, describeInput } from './helpers/input-folder.mjs';
 
-const INPUT_DIR = path.resolve(PROJECT_ROOT, 'input');
-
-/** Проверить, что папка input/ существует и не пуста */
-const inputExists = fs.existsSync(INPUT_DIR);
-let inputModels = [];
-if (inputExists) {
-  inputModels = fs.readdirSync(INPUT_DIR)
-    .filter((f) => f.endsWith('.glb') || f.endsWith('.gltf'))
-    .sort();
-}
-
+const inputModels = readInputModels();
 const inputModelCount = inputModels.length;
 
 // Известные проблемные модели — set пуст после audit-фикса BUG-006:
@@ -38,7 +29,7 @@ const inputModelCount = inputModels.length;
 const KNOWN_FAILING = new Set([]);
 
 // ---- Smoke: check that input folder has models ----
-describe('Input folder — basic checks', () => {
+describeInput('Input folder — basic checks', () => {
   it('input/ directory exists', () => {
     expect(inputExists).toBe(true);
   });
@@ -49,7 +40,7 @@ describe('Input folder — basic checks', () => {
 });
 
 // ---- Batch passthrough for ALL input models ----
-describe('Input folder — batch passthrough (default pipeline)', () => {
+describeInput('Input folder — batch passthrough (default pipeline)', () => {
 
   it.each(inputModels)(`passthrough: %s`, async (modelName) => {
     const modelFullPath = path.join(INPUT_DIR, modelName);
@@ -75,7 +66,7 @@ describe('Input folder — batch passthrough (default pipeline)', () => {
 });
 
 // ---- Safe cleanup + core invariant ----
-describe('Input folder — safe cleanup (core invariant)', () => {
+describeInput('Input folder — safe cleanup (core invariant)', () => {
 
   it.each(inputModels.filter((m) => !KNOWN_FAILING.has(m)))(
     `safe cleanup: %s`,
@@ -107,7 +98,7 @@ describe('Input folder — safe cleanup (core invariant)', () => {
 });
 
 // ---- Edge case: имена с пробелами и кириллицей ----
-describe('Input folder — edge case filenames', () => {
+describeInput('Input folder — edge case filenames', () => {
   const edgeNames = inputModels.filter((n) =>
     /[\s\(\)\[\]\{\}\&\+\=\%\#\@\!\,\;]/.test(n) ||
     /[а-яА-ЯёЁ]/.test(n),
@@ -136,7 +127,7 @@ describe('Input folder — edge case filenames', () => {
 });
 
 // ---- Статистика по размеру файлов ----
-describe('Input folder — file size statistics', () => {
+describeInput('Input folder — file size statistics', () => {
   it('generates size statistics for all input models', () => {
     const stats = inputModels.map((name) => {
       const p = path.join(INPUT_DIR, name);

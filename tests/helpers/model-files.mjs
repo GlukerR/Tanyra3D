@@ -4,11 +4,11 @@
 //   `fixtures/.gitignore` блокирует коммит всех *.glb/*.gltf/*.bin/*.png/*.jpg/*.webp
 //   — репозиторий публичный под Apache-2.0, у сторонних моделей своя лицензия.
 //
-// Исключения — одиннадцать собственных моделей автора, перечисленных ниже. Их можно
+// Исключения — пятнадцать собственных моделей автора, перечисленных ниже. Их можно
 // версионировать, потому что у них в sidecar-license.md явно сказано
 // «Можно ли распространять: да». Суммарно ~1.1 МБ.
 //
-// После `git clone` на диске есть только эти одиннадцать. Остальные 23 модели
+// После `git clone` на диске есть только эти пятнадцать. Остальные 26 моделей
 // (Khronos-эталоны, CC-BY-4.0 модели, клиентские) — у автора локально. Чтобы
 // `npx vitest run` после свежего clone был зелёным, тесты, ссылающиеся на
 // локальные модели, должны graceful-пропускаться, а не падать.
@@ -84,6 +84,21 @@ export function describeIfModels(required, describeName, fn) {
     ? describeName
     : `${describeName} [skipped: ${missing.length ? missing.join(', ') : 'models missing'}]`;
   return (allPresent ? describe : describe.skip)(label, fn);
+}
+
+/**
+ * Одиночный тест про ОДНУ модель. Модели нет на диске — `it.skip` с причиной.
+ * Для утверждений о конкретной модели внутри общего describe, где заводить
+ * отдельный describeLocal не за что.
+ *
+ *   itIfModel('parkergirl.glb', 'скин и морфы вместе', () => { ... });
+ */
+export function itIfModel(modelName, label, body, timeout) {
+  if (isPresent(modelName)) {
+    it(`${modelName} — ${label}`, body, timeout);
+  } else {
+    it.skip(`${modelName} — ${label} [skipped: ${modelName} missing locally]`, () => {}, timeout);
+  }
 }
 
 /**

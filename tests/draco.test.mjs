@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 import { modelPath, describeIfModels, eachModel } from './helpers/model-files.mjs';
+import { INPUT_DIR, inputModels as readInputModels, describeInput } from './helpers/input-folder.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -153,14 +154,8 @@ describe('Draco — golden corpus', () => {
 
 // ---- Draco: выборочно на input-папке ----
 
-describe('Draco — input folder (first 10 models)', () => {
-  const INPUT_DIR = path.resolve(PROJECT_ROOT, 'input');
-  const inputModels = fs.existsSync(INPUT_DIR)
-    ? fs.readdirSync(INPUT_DIR)
-        .filter((f) => f.endsWith('.glb'))
-        .sort()
-        .slice(0, 10)
-    : [];
+describeInput('Draco — input folder (first 10 models)', () => {
+  const inputModels = readInputModels({ limit: 10, ext: ['.glb'] });
 
   // Known-failing для Draco: некоторые модели не поддерживают Draco-кодирование
   // (обычно из-за особенностей геометрии: non-triangle примитивы, нестандартные

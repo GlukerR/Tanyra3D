@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 import { modelPath, describeIfModels, eachModel } from './helpers/model-files.mjs';
+import { INPUT_DIR, inputModels as readInputModels, describeInput } from './helpers/input-folder.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -457,14 +458,8 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco + strip-colors — all three'
 // Проверяем, что ktx2 не вызывает краша ни для одной из 10 первых моделей.
 // Модели без текстур проходят ok без ktx2 в applied — это нормально.
 
-describe('KTX2 — input folder (first 10 models)', () => {
-  const INPUT_DIR = path.resolve(PROJECT_ROOT, 'input');
-  const inputModels = fs.existsSync(INPUT_DIR)
-    ? fs.readdirSync(INPUT_DIR)
-        .filter((f) => f.endsWith('.glb'))
-        .sort()
-        .slice(0, 10)
-    : [];
+describeInput('KTX2 — input folder (first 10 models)', () => {
+  const inputModels = readInputModels({ limit: 10, ext: ['.glb'] });
 
   const knownFailing = new Set(['decepticon_fighter.glb', 'uttvm_core_guard.glb']);
   const models = inputModels.filter((m) => !knownFailing.has(m));
