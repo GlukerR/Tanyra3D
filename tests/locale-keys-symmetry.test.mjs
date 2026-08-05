@@ -53,6 +53,16 @@ function validatorCodes() {
   return codes;
 }
 
+// Тексты validator-каталогов: ключ → строка. Нужны, чтобы сторожить не только
+// наличие ключа, но и вид самой фразы.
+function extractTexts(filePath) {
+  const content = readFileSync(filePath, 'utf-8');
+  const out = new Map();
+  const re = /'(validator\.[A-Z0-9_]+)':\s*\(\)\s*=>\s*(['"])([\s\S]*?)\2\s*,/g;
+  for (const m of content.matchAll(re)) out.set(m[1], m[3]);
+  return out;
+}
+
 const uiEnKeys = extractKeys(uiEnPath);
 const uiRuKeys = extractKeys(uiRuPath);
 const valEnKeys = extractKeys(valEnPath);
@@ -211,5 +221,39 @@ describe('validator-каталоги ↔ пакет gltf-validator (ISSUES.md)',
   it('количество validator.* ключей равно числу кодов пакета', () => {
     expect(valEnKeys.length).toBe(packageCodes.size);
     expect(valRuKeys.length).toBe(packageCodes.size);
+  });
+});
+
+// ============================================================================
+// Вид самой фразы в validator-каталогах
+// ============================================================================
+// Каталог читает человек подряд, списком замечаний: строка без точки в конце
+// сливается со следующей. Правило 10 запрещает в тексте для человека
+// идентификаторы расширений, имена загрузчиков и движков — здесь это тоже
+// проверяется, потому что перевод пишется порциями и легко скатывается
+// обратно в технические имена.
+
+describe('validator-каталоги — вид фразы', () => {
+  const catalogs = [['validator-en.js', extractTexts(valEnPath)], ['validator-ru.js', extractTexts(valRuPath)]];
+
+  it.each(catalogs)('%s — каждая фраза заканчивается знаком конца предложения', (_name, texts) => {
+    const bad = [...texts].filter(([, v]) => !/[.!?…»)]$/.test(v.trim())).map(([k, v]) => `${k} :: ${v}`);
+    expect(bad, `Фразы без завершающего знака:\n  ${bad.join('\n  ')}`).toEqual([]);
+  });
+
+  it.each(catalogs)('%s — нет идентификаторов расширений, загрузчиков и движков (Правило 10)', (_name, texts) => {
+    const forbidden = /KHR_[A-Za-z_]+|EXT_[A-Za-z_]+|KTX2Loader|Three\.?js|basisu|Basis Universal/i;
+    const bad = [...texts].filter(([, v]) => forbidden.test(v)).map(([k, v]) => `${k} :: ${v}`);
+    expect(bad, `Технические имена в тексте для человека:\n  ${bad.join('\n  ')}`).toEqual([]);
+  });
+
+  it.each(catalogs)('%s — ни одна фраза не пуста', (_name, texts) => {
+    const bad = [...texts].filter(([, v]) => v.trim().length < 8).map(([k, v]) => `${k} :: ${v}`);
+    expect(bad, `Пустые или обрубленные фразы:\n  ${bad.join('\n  ')}`).toEqual([]);
+  });
+
+  it('разбор текстов не молчит: найдено столько же фраз, сколько ключей', () => {
+    expect(extractTexts(valEnPath).size).toBe(valEnKeys.length);
+    expect(extractTexts(valRuPath).size).toBe(valRuKeys.length);
   });
 });
