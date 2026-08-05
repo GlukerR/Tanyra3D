@@ -41,7 +41,7 @@ await ensureEmptyDir(RESULTS_DIR);
 
 // ---- Ядро (обязательный контракт §4b ARCHITECTURE.md) ----
 const core = await import('./optimize2.mjs');
-const { optimizeFile, inspectFile, exportJson, VERSION } = core;
+const { optimizeFile, inspectFile, exportJson, VERSION, exclusiveGroups } = core;
 // Каталоги сообщений правил регистрирует аддон при импорте ядра выше — поэтому
 // localizeResult здесь умеет пересобрать строки отчёта на любом подключённом языке.
 const { localizeResult } = await import('./core/i18n.mjs');
@@ -443,7 +443,13 @@ const server = http.createServer(async (req, res) => {
     // --- расширенные опции для платформы ---
     if (req.method === 'GET' && pathname === '/api/extensions') {
       const platformId = url.searchParams.get('platform') || '';
-      sendJSON(res, 200, { extensions: listExtensionsSafe(platformId, langOf(url)) });
+      // exclusiveGroups отдаём вместе со списком: интерфейс больше не держит свой
+      // список взаимоисключений, а читает объявление аддона. Два списка уже
+      // расходились — см. addons/gltf/index.mjs, EXCLUSIVE_FEATURES.
+      sendJSON(res, 200, {
+        extensions: listExtensionsSafe(platformId, langOf(url)),
+        exclusiveGroups: typeof exclusiveGroups === 'function' ? exclusiveGroups() : [],
+      });
       return;
     }
 

@@ -86,23 +86,56 @@ const ADVANCED_FEATURES = {
 // выбранный по прежнему правилу Draco, но передаёт движку проигравший выбор, чтобы
 // тот не исчезал из отчёта. Для следующей группы достаточно добавить такую же
 // декларацию — движок не знает ни GLTF, ни имён кодеков.
+// ЕДИНСТВЕННОЕ объявление групп на весь проект (2026-08-04). До этого списков было
+// два: `EXCLUSIVE_FEATURES` здесь и `EXCLUSIVE_GROUPS` в ui/app.js — независимые, и
+// уже разъехавшиеся: здесь была пара кодеков, там пара текстур, а группа геометрии
+// в интерфейсе жила третьим способом (geometryChoice). Разойдись они дальше —
+// интерфейс погасил бы одну галочку, а движок выбрал другую.
+//
+// Теперь список один, и интерфейс читает его через API. Новая фича объявляет свою
+// группу здесь один раз и получает поведение везде.
+//
+// `engineExplains` — кого объясняет САМ движок. Там, где причину уже называет
+// правило, и называет лучше (с именем кодека или формата), движок молчит: две
+// записи об одном — это Правило 9, толпа строк.
 const EXCLUSIVE_FEATURES = {
-  'geometry-codec': {
+  geometry: {
     ruleId: 'geometry/compress',
-    members: ['meshopt', 'draco'],
+    members: ['meshopt', 'draco', 'quantize'],
     // Это порядок совместимости v0.0.9, а не порядок флагов пользователя: оба
     // порядка ['meshopt', 'draco'] и ['draco', 'meshopt'] дают один файл.
-    priority: ['draco', 'meshopt'],
-    titleKeys: { meshopt: 'feature.meshopt', draco: 'feature.draco' },
+    priority: ['draco', 'meshopt', 'quantize'],
+    titleKeys: { meshopt: 'feature.meshopt', draco: 'feature.draco', quantize: 'rule.geometryQuantize' },
+    // Пару кодеков объяснить некому: meshopt и draco — две ветки ОДНОГО правила
+    // geometry/compress, и воздержаться там нечему. Квантование объясняет себя само
+    // (quantize.skipped.compressed, с именем кодека) — его сюда не берём.
+    engineExplains: ['meshopt', 'draco'],
+  },
+  'texture-format': {
+    ruleId: 'textures/webp',
+    members: ['ktx2', 'webp'],
+    priority: ['ktx2', 'webp'],
+    titleKeys: { ktx2: 'rule.texturesKtx2', webp: 'rule.texturesWebp' },
+    // Причину называет правило textures/webp: оно видит image/ktx2 и уступает
+    // с webp.skipped.format. Формат в строке точнее, чем общее «выбран другой».
+    engineExplains: [],
   },
 };
+
+/** Группы для интерфейса: [{ id, members }] — без внутренностей движка. */
+export function exclusiveGroups() {
+  return Object.entries(EXCLUSIVE_FEATURES).map(([id, d]) => ({ id, members: [...d.members] }));
+}
 
 function exclusiveConflicts(requested) {
   const conflicts = [];
   for (const [group, definition] of Object.entries(EXCLUSIVE_FEATURES)) {
     const selected = definition.priority.find((feature) => requested.has(feature));
     if (!selected) continue;
-    const rejected = definition.members.filter((feature) => feature !== selected && requested.has(feature));
+    const explains = definition.engineExplains || definition.members;
+    const rejected = definition.members
+      .filter((feature) => feature !== selected && requested.has(feature))
+      .filter((feature) => explains.includes(feature));
     if (!rejected.length) continue;
     conflicts.push({
       group,
@@ -126,7 +159,8 @@ function normalizeOpts(opts = {}) {
   // Компрессия геометрии — opt-in: флажок 'meshopt' или 'draco' (либо legacy codec/compress).
   const draco = opts.codec === 'draco' || adv.includes('draco');
   const compress = draco || adv.includes('meshopt') || !!opts.compress;
-  const requestedCodecs = new Set(adv.filter((feature) => EXCLUSIVE_FEATURES['geometry-codec'].members.includes(feature)));
+  const allMembers = Object.values(EXCLUSIVE_FEATURES).flatMap((d) => d.members);
+  const requestedCodecs = new Set(adv.filter((feature) => allMembers.includes(feature)));
   // Legacy-поля — такой же вход движка, как advancedFeatures: конфликт между
   // codec:'draco' и явным meshopt тоже нельзя прятать молча.
   if (opts.codec === 'draco') requestedCodecs.add('draco');
@@ -583,6 +617,7 @@ const gltfAddon = {
   rules: RULES,
   BASELINE_METRICS,
   ADVANCED_FEATURES,
+  exclusiveGroups, // единственное объявление взаимоисключений — читает и интерфейс
   TOKTX, // для CLI-баннера (наличие toktx)
   outputName,
   normalizeOpts,

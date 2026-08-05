@@ -236,14 +236,34 @@ export function planFor(platformId, lang = DEFAULT_LANG) {
 // getAvailableExtensions(platformId) — расширенные опции платформы (opt-in)
 // ----------------------------------------------------------------------------
 
+// Текст опции берётся ИЗ КАТАЛОГА по её id, а не из профиля.
+//
+// Профиль остаётся данными о площадке — набор опций, числа бюджетов, обратимость.
+// Текст один на язык: до 2026-08-04 четыре профиля держали четыре копии одного и
+// того же (13 065 знаков, из них ~10 000 — дубли), и каждая новая площадка означала
+// повторный перевод всех десяти опций. Теперь площадка не платит за язык вовсе.
+//
+// Переопределение оставлено намеренно: если у площадки опция и правда работает
+// иначе, профиль может задать СВОЁ поле — оно победит. Это одно поле, а не копия
+// блока, и такой случай обязан быть исключением, а не нормой.
+function optionText(id, field, lang, override) {
+  if (override != null && override !== '') return pick(override, lang);
+  const t = messages(lang);
+  const key = `option.${id}.${field}`;
+  const text = t(key);
+  // messages() отдаёт сам ключ, если перевода нет: не молчим, но и не подставляем
+  // ключ в интерфейс — пустая строка честнее, поле просто не покажется.
+  return text === key ? '' : text;
+}
+
 function extensionsOf(profile, lang = DEFAULT_LANG) {
   const list = Array.isArray(profile.availableExtensions) ? profile.availableExtensions : [];
   // копии: мутации у потребителя не должны влиять на закешированные профили
   return list.map((e) => ({
     ...e,
-    title: pick(e.title, lang),
-    description: pick(e.description, lang),
-    impact: pick(e.impact, lang),
+    title: optionText(e.id, 'title', lang, e.title),
+    description: optionText(e.id, 'description', lang, e.description),
+    impact: optionText(e.id, 'impact', lang, e.impact),
     opts: { ...(e.opts || {}) },
   }));
 }

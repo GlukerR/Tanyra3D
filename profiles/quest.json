@@ -21,99 +21,60 @@
   "availableExtensions": [
     {
       "id": "safe",
-      "title": "Safe optimizations",
-      "description": "Lossless cleanup: dedup materials/textures, remove unused data, weld identical vertices, drop degenerate and orphan geometry. Shape and materials are not changed.",
-      "impact": "Smaller file with no visible change.",
       "reversible": false,
       "dataLoss": "none",
       "opts": { "safe": true }
     },
     {
       "id": "meshopt",
-      "title": "Meshopt compression",
-      "description": "Compresses geometry with Meshopt — smaller file that unpacks quickly on the GPU. A good default for the web.",
-      "impact": "Noticeably smaller geometry; fast decode in the browser.",
       "reversible": true,
       "dataLoss": "none",
       "opts": { "compress": true, "codec": "meshopt" }
     },
     {
       "id": "join",
-      "title": "Join meshes",
-      "description": "Merges separate parts into one mesh — fewer draw calls. Structural: individual parts cannot be restored from the result.",
-      "impact": "Fewer draw calls; parts are merged (irreversible).",
       "reversible": false,
       "dataLoss": "significant",
       "opts": { "join": true }
     },
     {
       "id": "instance",
-      "title": "GPU instancing",
-      "description": "Turns repeated meshes into copies drawn by the graphics card — fewer separate draws per frame. The app has to support this.",
-      "impact": "Fewer draw calls when the scene repeats meshes.",
       "reversible": true,
       "dataLoss": "none",
       "opts": { "instance": true }
     },
     {
       "id": "resample",
-      "title": "Resample",
-      "description": "Removes redundant animation keyframes without changing the motion — smaller animation data.",
-      "impact": "Smaller animations; no visible change.",
       "reversible": false,
       "dataLoss": "none",
       "opts": { "resample": true }
     },
     {
       "id": "ktx2",
-      "title": "KTX2 compression",
-      "description": "Converts textures to a format the graphics card keeps compressed: up to ~80% less video memory — especially valuable for Quest with its shared memory. The app has to be able to open such textures — without that the model will not show.",
-      "impact": "The file may grow 5–10%, but texture video memory drops several-fold.",
       "reversible": true,
       "dataLoss": "minor",
       "opts": { "noKtx": false }
     },
     {
       "id": "webp",
-      "title": {
-        "en": "WebP compression",
-        "ru": "Сжатие WebP"
-      },
-      "description": {
-        "en": "Repacks the model's textures so the file gets smaller — video memory stays the same. Textures already prepared for the graphics card are left alone. The app needs nothing extra to open this.",
-        "ru": "Пережимает текстуры модели — файл становится меньше, видеопамяти нужно столько же. Текстуры, уже подготовленные для видеокарты, остаются как есть. Приложению ничего доустанавливать не нужно."
-      },
-      "impact": {
-        "en": "Smaller download — the page opens faster. Video memory is unchanged: WebP is unpacked before it reaches the GPU.",
-        "ru": "Файл меньше — страница открывается быстрее. Видеопамять не меняется: WebP распаковывается до попадания в видеокарту."
-      },
       "reversible": true,
       "dataLoss": "minor",
       "opts": { "noWebp": false }
     },
     {
       "id": "draco",
-      "title": "Draco compression",
-      "description": "Minimal file weight (often −50% on geometry). Decodes slower than Meshopt but is supported everywhere.",
-      "impact": "The file is noticeably lighter; decoding on open is slower.",
       "reversible": true,
       "dataLoss": "none",
       "opts": { "codec": "draco" }
     },
     {
       "id": "quantize",
-      "title": "Quantization",
-      "description": "Quantization means writing vertex coordinates with fewer digits: instead of a long precise number, a shorter approximate one. The geometry gets lighter and the app needs nothing extra to open it — unlike Draco and Meshopt. Coordinates become slightly coarser: on a small detailed model that can show up as tiny gaps.",
-      "impact": "Geometry drops by a third to a half. The gain shows up in the file only when the weight is in the geometry, not in the textures.",
       "reversible": true,
       "dataLoss": "minor",
       "opts": { "quantize": true }
     },
     {
       "id": "strip-colors",
-      "title": "Remove vertex colors",
-      "description": "Removes painted vertex colors. Enable only if vertex colors are not visible in the model (white channels are removed without this option too).",
-      "impact": "Saves 5–20% of size if colors exist; may change the look if they were used.",
       "reversible": false,
       "dataLoss": "significant",
       "opts": { "stripColors": true }

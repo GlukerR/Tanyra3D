@@ -71,4 +71,39 @@ export default {
 
   // --- предупреждения ---
   'warn.notApplied': ({ text, reason }) => `Not applied: ${text}${reason}`,
+
+  // ------------------------------------------------------------------
+  // Option texts — ONCE per language, not copied into every profile.
+  // See the Russian catalogue for the full rationale (2026-08-04).
+  // ------------------------------------------------------------------
+'option.safe.title': () => 'Safe optimizations',
+  'option.safe.description': () => 'Lossless cleanup: dedup materials/textures, remove unused data, weld identical vertices, drop degenerate and orphan geometry. Shape and materials are not changed.',
+  'option.safe.impact': () => 'Smaller file with no visible change.',
+  'option.meshopt.title': () => 'Meshopt compression',
+  'option.meshopt.description': () => 'Compresses geometry with Meshopt — smaller file that unpacks quickly on the GPU. A good default for the web.',
+  'option.meshopt.impact': () => 'Noticeably smaller geometry; fast decode in the browser.',
+  'option.join.title': () => 'Join meshes',
+  'option.join.description': () => 'Merges separate parts into one mesh — fewer draw calls. Structural: individual parts cannot be restored from the result.',
+  'option.join.impact': () => 'Fewer draw calls; parts are merged (irreversible).',
+  'option.instance.title': () => 'GPU instancing',
+  'option.instance.description': () => 'Turns repeated meshes into copies drawn by the graphics card — fewer separate draws per frame. The target site has to support this.',
+  'option.instance.impact': () => 'Fewer draw calls when the scene repeats meshes.',
+  'option.resample.title': () => 'Resample',
+  'option.resample.description': () => 'Removes redundant animation keyframes without changing the motion — smaller animation data.',
+  'option.resample.impact': () => 'Smaller animations; no visible change.',
+  'option.ktx2.title': () => 'KTX2 compression',
+  'option.ktx2.description': () => 'Converts textures to a format the graphics card keeps compressed: up to ~80% less video memory. The site has to be able to open such textures — without that the model will not show.',
+  'option.ktx2.impact': () => 'The file may grow 5–10%, but texture video memory drops several-fold.',
+  'option.webp.title': () => 'WebP compression',
+  'option.webp.description': () => 'Repacks the model\'s textures so the file gets smaller — video memory stays the same. Textures already prepared for the graphics card are left alone. The site needs nothing extra to open this.',
+  'option.webp.impact': () => 'Smaller download — the page opens faster. Video memory is unchanged: WebP is unpacked before it reaches the GPU.',
+  'option.draco.title': () => 'Draco compression',
+  'option.draco.description': () => 'Minimal file weight (often −50% on geometry). Decodes slower than Meshopt in the browser but is supported everywhere.',
+  'option.draco.impact': () => 'The file is noticeably lighter; decoding on open is slower.',
+  'option.quantize.title': () => 'Quantization',
+  'option.quantize.description': () => 'Quantization means writing vertex coordinates with fewer digits: instead of a long precise number, a shorter approximate one. The geometry gets lighter and the site needs nothing extra to open it — unlike Draco and Meshopt. Coordinates become slightly coarser: on a small detailed model that can show up as tiny gaps.',
+  'option.quantize.impact': () => 'Geometry drops by a third to a half. The gain shows up in the file only when the weight is in the geometry, not in the textures.',
+  'option.strip-colors.title': () => 'Remove vertex colors',
+  'option.strip-colors.description': () => 'Removes painted vertex colors. Enable only if vertex colors are not visible in the model (white channels are removed without this option too).',
+  'option.strip-colors.impact': () => 'Saves 5–20% of size if colors exist; may change the look if they were used.',
 };

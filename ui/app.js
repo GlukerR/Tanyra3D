@@ -271,6 +271,9 @@
   let geometryChoice = 'none';
   let platforms = [];
   let extensions = [];
+  // Взаимоисключающие группы — приходят с /api/extensions, объявлены в аддоне.
+  // Интерфейс их только применяет: [{ id, members: [...] }].
+  let exclusiveGroups = [];
   // Последний ВЫБОР пользователя по платформам: platformId → { geometryChoice, ktx2Mode,
   // checked:[...] }. Заполняется только явным действием пользователя (не дефолтами). Держит
   // настройки при загрузке новой модели и возврате на платформу. In-memory → перезагрузка
@@ -346,6 +349,10 @@
   // было видно, с какими настройками собиралась каждая версия.
   function onOptionChanged() {
     updateRunButtonState();
+    // Строка «Сейчас в модели» договаривает разное в зависимости от выбора: сняли
+    // все варианты группы — она предупреждает, что входное сжатие будет снято.
+    // Значит обновлять её надо на каждое изменение, а не только при загрузке модели.
+    refreshInputNotes();
     rememberSelection(); // запомнить выбор платформы — он переживёт новую модель/смену платформы
     // Раскрытые разделы описывают ПРОШЛУЮ сборку. Тронули флажок — они устарели,
     // и держать их открытыми значит показывать неверное как текущее.
@@ -569,14 +576,18 @@
   // видеопамять не меняется вовсе. Включить оба значит перекодировать текстуры
   // дважды и получить последний по порядку.
   //
-  // Гасим ЗДЕСЬ, а не в движке: движок обязан честно выполнить то, что попросили.
-  // Отменять чужой выбор молча — не его дело; выбор делают в интерфейсе.
-  const EXCLUSIVE_GROUPS = [['ktx2', 'webp']];
-
+  // ЗДЕСЬ БОЛЬШЕ НЕТ СПИСКА (2026-08-04). Раньше интерфейс держал свой
+  // `EXCLUSIVE_GROUPS = [['ktx2','webp']]`, а движок — свой, и они уже разошлись:
+  // здесь была пара текстур, там пара кодеков, а группа геометрии жила третьим
+  // способом. Разойдись они дальше — интерфейс погасил бы одну галочку, а движок
+  // выбрал другую. Теперь объявление одно (аддон), сюда оно приезжает по API.
+  //
+  // Гашение остаётся работой интерфейса: движок обязан честно выполнить то, что
+  // попросили, и отменять чужой выбор молча — не его дело.
   function clearExclusivePartners(id) {
-    for (const group of EXCLUSIVE_GROUPS) {
-      if (!group.includes(id)) continue;
-      for (const other of group) {
+    for (const { members } of exclusiveGroups) {
+      if (!members.includes(id)) continue;
+      for (const other of members) {
         if (other === id) continue;
         const box = document.getElementById(`ext-${other}`);
         if (box && box.checked) {
@@ -618,8 +629,12 @@
       const res = await fetch(`/api/extensions?platform=${encodeURIComponent(platformId)}&${langParam()}`);
       const data = await res.json();
       extensions = (data && data.extensions) || [];
+      // Группы взаимоисключений приходят оттуда же, где живёт их единственное
+      // объявление (аддон). Свой список интерфейс больше не держит.
+      exclusiveGroups = (data && data.exclusiveGroups) || [];
     } catch (e) {
       extensions = [];
+      exclusiveGroups = [];
       failure = String((e && e.message) || e);
     }
 
@@ -656,14 +671,83 @@
     updateRunButtonState();
   }
 
-  function optSection(title) {
+  function optSection(title, groupKind) {
     const sec = document.createElement('div');
     sec.className = 'opt-section';
+    // Метка нужна, чтобы строку «Сейчас в модели» можно было вставить ПОЗЖЕ:
+    // панель строится до того, как приходит инспекция файла.
+    if (groupKind) sec.dataset.group = groupKind;
     const h = document.createElement('div');
     h.className = 'opt-section-title';
     h.textContent = title;
     sec.appendChild(h);
     return sec;
+  }
+
+  // Что УЖЕ лежит в загруженной модели по этой группе.
+  //
+  // Зачем. Движок снимает входное сжатие при загрузке всегда — по замыслу, чтобы не
+  // накладывать кодек на кодек (ARCHITECTURE §6). Значит модель с Draco, собранная
+  // без единого флажка геометрии, выйдет НЕСЖАТОЙ, и файл вырастет: замер на
+  // `Ноутбук.glb` — 6.2 → 57.6 МБ. Раньше человек узнавал об этом из строки отчёта,
+  // когда сборка уже закончилась.
+  //
+  // Отдельный пункт «не сжимать» этого не решает: при входном Draco непонятно,
+  // означает он «оставить как было» или «убрать». Поэтому не пункт, а факт —
+  // сказанный вовремя. Отсутствие галочки по-прежнему значит «не добавлять».
+  const GROUP_INPUT_MARKERS = {
+    geometry: {
+      meshopt: 'EXT_meshopt_compression',
+      draco: 'KHR_draco_mesh_compression',
+      quantize: 'KHR_mesh_quantization',
+    },
+    textures: {
+      ktx2: 'KHR_texture_basisu',
+      webp: 'EXT_texture_webp',
+    },
+  };
+
+  // Выбрана ли хоть одна опция группы — от этого зависит вторая половина строки.
+  function groupHasChoice(groupKind) {
+    if (groupKind === 'geometry') return geometryChoice !== 'none';
+    const markers = GROUP_INPUT_MARKERS[groupKind] || {};
+    return Object.keys(markers).some((id) => {
+      const box = document.getElementById(`ext-${id}`);
+      return box && box.checked;
+    });
+  }
+
+  // Пересобирает строку «Сейчас в модели» во всех группах. Зовётся из applyDetection:
+  // к этому моменту инспекция файла уже пришла, а панель уже построена.
+  function refreshInputNotes() {
+    for (const sec of extensionsList.querySelectorAll('.opt-section[data-group]')) {
+      const old = sec.querySelector('.opt-input-note');
+      if (old) old.remove();
+
+      const groupKind = sec.dataset.group;
+      const markers = GROUP_INPUT_MARKERS[groupKind];
+      if (!markers) continue;
+      // Два источника, потому что приходят они в разное время и знают разное:
+      // detectSource из вьюера — сразу после загрузки, но только про четыре вещи;
+      // инспекция файла — позже, зато полным списком расширений.
+      const present = new Set((modelInspect && modelInspect.extensions) || []);
+      const found = Object.entries(markers)
+        .filter(([id, ext]) => present.has(ext) || (lastDetection && lastDetection[id]))
+        .map(([id]) => id);
+      if (!found.length) continue;
+
+      const note = document.createElement('p');
+      note.className = 'opt-input-note';
+      // Названия берём из тех же опций, что видит человек рядом, — не из имён расширений
+      // (Правило 10: идентификатор спецификации ему ничего не говорит).
+      const byId = Object.fromEntries(extensions.map((e) => [e.id, e]));
+      const names = found.map((id) => (byId[id] && byId[id].title) || id).join(', ');
+      note.textContent = groupHasChoice(groupKind)
+        ? t('opts.inputHas', { names })
+        : t('opts.inputHasAndDropped', { names });
+      // Сразу под заголовком группы, до самих опций.
+      sec.insertBefore(note, sec.children[1] || null);
+    }
   }
 
   // «?» — «на сайте нужно кое-что подключить». Один переиспользуемый индикатор вместо
@@ -805,7 +889,7 @@
   // поэтому его нет в NEEDS_DECODER и значок ему не ставится.
   function renderGeometryGroup(byId) {
     if (!byId.meshopt && !byId.draco && !byId.quantize) return null;
-    const sec = optSection(t('group.geometry'));
+    const sec = optSection(t('group.geometry'), 'geometry');
     const opts = [
       byId.meshopt && { v: 'meshopt', ext: byId.meshopt, label: byId.meshopt.title },
       byId.draco && { v: 'draco', ext: byId.draco, label: byId.draco.title },
@@ -853,7 +937,9 @@
   function renderCheckGroup(group, byId) {
     const items = group.ids.map((id) => byId[id]).filter(Boolean);
     if (!items.length) return null;
-    const sec = optSection(t(group.titleKey));
+    // Текстурная группа — такой же случай, как геометрия: входной формат снимается,
+    // и человек должен узнать об этом до сборки, а не из отчёта.
+    const sec = optSection(t(group.titleKey), group.ids.includes('ktx2') ? 'textures' : null);
     for (const ext of items) sec.appendChild(buildExtensionRow(ext));
     return sec;
   }
@@ -1149,6 +1235,7 @@
     else applyDefaultSelection();
 
     showDetectionBadges();
+    refreshInputNotes();
     // Знак цены относится к показанному результату, а не к сборке, которая только что
     // прошла: пока на экране тот же результат, знак обязан быть на месте. Иначе он
     // пропадал при каждой пересборке панели — переключении модели, смене языка.

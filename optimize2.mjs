@@ -71,6 +71,19 @@ export function listRules() {
   return out;
 }
 
+// Группы взаимоисключающих опций — объявляет аддон, а интерфейс читает отсюда.
+// Раньше свой список держал ui/app.js: два независимых объявления, которые никто не
+// сверял и которые уже разошлись. Аддон, не умеющий их объявить, просто не даёт
+// групп — это не ошибка, а отсутствие взаимоисключений в его формате.
+export function exclusiveGroups() {
+  const out = [];
+  for (const addon of registry.addons()) {
+    if (typeof addon.exclusiveGroups !== 'function') continue;
+    for (const g of addon.exclusiveGroups()) out.push({ ...g, members: [...g.members] });
+  }
+  return out;
+}
+
 export async function optimizeFile(srcPath, opts = {}) {
   let addon;
   try {

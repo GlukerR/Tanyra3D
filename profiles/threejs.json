@@ -50,18 +50,6 @@
   "availableExtensions": [
     {
       "id": "safe",
-      "title": {
-        "en": "Safe optimizations",
-        "ru": "Безопасные оптимизации"
-      },
-      "description": {
-        "en": "Lossless cleanup: dedup materials/textures, remove unused data, weld identical vertices, drop degenerate and orphan geometry. Shape and materials are not changed.",
-        "ru": "Чистка без потерь: убираем повторяющиеся материалы и текстуры, неиспользуемые данные, склеиваем совпадающие вершины, удаляем вырожденную и висящую в пустоте геометрию. Форму и материалы не меняем."
-      },
-      "impact": {
-        "en": "Smaller file with no visible change.",
-        "ru": "Файл меньше, на вид ничего не изменилось."
-      },
       "reversible": false,
       "dataLoss": "none",
       "opts": {
@@ -70,18 +58,6 @@
     },
     {
       "id": "meshopt",
-      "title": {
-        "en": "Meshopt compression",
-        "ru": "Сжатие Meshopt"
-      },
-      "description": {
-        "en": "Compresses geometry with Meshopt — smaller file that unpacks quickly on the GPU. A good default for the web.",
-        "ru": "Сжимает геометрию методом Meshopt — файл меньше и быстро распаковывается силами видеокарты. Хороший выбор по умолчанию для веба."
-      },
-      "impact": {
-        "en": "Noticeably smaller geometry; fast decode in the browser.",
-        "ru": "Геометрия заметно легче, распаковка в браузере быстрая."
-      },
       "reversible": true,
       "dataLoss": "none",
       "opts": {
@@ -91,18 +67,6 @@
     },
     {
       "id": "join",
-      "title": {
-        "en": "Join meshes",
-        "ru": "Объединение мешей"
-      },
-      "description": {
-        "en": "Merges separate parts into one mesh — fewer draw calls. Structural: individual parts cannot be restored from the result.",
-        "ru": "Сливает отдельные части в один меш — меньше отдельных отрисовок за кадр. Меняет структуру: вернуть отдельные части из результата уже нельзя."
-      },
-      "impact": {
-        "en": "Fewer draw calls; parts are merged (irreversible).",
-        "ru": "Меньше отрисовок за кадр; части слиты необратимо."
-      },
       "reversible": false,
       "dataLoss": "significant",
       "opts": {
@@ -111,18 +75,6 @@
     },
     {
       "id": "instance",
-      "title": {
-        "en": "GPU instancing",
-        "ru": "GPU-инстансинг"
-      },
-      "description": {
-        "en": "Turns repeated meshes into copies drawn by the graphics card — fewer separate draws per frame. The target site has to support this.",
-        "ru": "Превращает повторяющиеся меши в копии на стороне видеокарты — меньше отдельных отрисовок за кадр. Сайт должен это поддерживать."
-      },
-      "impact": {
-        "en": "Fewer draw calls when the scene repeats meshes.",
-        "ru": "Меньше отрисовок, если в сцене есть повторяющиеся меши."
-      },
       "reversible": true,
       "dataLoss": "none",
       "opts": {
@@ -131,18 +83,6 @@
     },
     {
       "id": "resample",
-      "title": {
-        "en": "Resample",
-        "ru": "Прореживание анимации"
-      },
-      "description": {
-        "en": "Removes redundant animation keyframes without changing the motion — smaller animation data.",
-        "ru": "Убирает лишние ключевые кадры анимации, не меняя само движение — данные анимации становятся легче."
-      },
-      "impact": {
-        "en": "Smaller animations; no visible change.",
-        "ru": "Анимации легче, на вид без изменений."
-      },
       "reversible": false,
       "dataLoss": "none",
       "opts": {
@@ -151,18 +91,6 @@
     },
     {
       "id": "ktx2",
-      "title": {
-        "en": "KTX2 compression",
-        "ru": "Сжатие KTX2"
-      },
-      "description": {
-        "en": "Converts textures to a format the graphics card keeps compressed: up to ~80% less video memory. The site has to be able to open such textures — without that the model will not show.",
-        "ru": "Переводит текстуры в формат, который видеокарта держит сжатым: видеопамяти нужно до ~80% меньше. Сайт должен уметь открывать такие текстуры — иначе модель не покажется."
-      },
-      "impact": {
-        "en": "The file may grow 5–10%, but texture video memory drops several-fold.",
-        "ru": "Файл может вырасти на 5–10%, зато видеопамяти под текстуры нужно в разы меньше."
-      },
       "reversible": true,
       "dataLoss": "minor",
       "opts": {
@@ -171,18 +99,6 @@
     },
     {
       "id": "webp",
-      "title": {
-        "en": "WebP compression",
-        "ru": "Сжатие WebP"
-      },
-      "description": {
-        "en": "Repacks the model's textures so the file gets smaller — video memory stays the same. Textures already prepared for the graphics card are left alone. The site needs nothing extra to open this.",
-        "ru": "Пережимает текстуры модели — файл становится меньше, видеопамяти нужно столько же. Текстуры, уже подготовленные для видеокарты, остаются как есть. Сайту ничего доустанавливать не нужно."
-      },
-      "impact": {
-        "en": "Smaller download — the page opens faster. Video memory is unchanged: WebP is unpacked before it reaches the GPU.",
-        "ru": "Файл меньше — страница открывается быстрее. Видеопамять не меняется: WebP распаковывается до попадания в видеокарту."
-      },
       "reversible": true,
       "dataLoss": "minor",
       "opts": {
@@ -191,18 +107,6 @@
     },
     {
       "id": "draco",
-      "title": {
-        "en": "Draco compression",
-        "ru": "Сжатие Draco"
-      },
-      "description": {
-        "en": "Minimal file weight (often −50% on geometry). Decodes slower than Meshopt in the browser but is supported everywhere.",
-        "ru": "Минимальный вес файла (часто −50% на геометрии). Распаковывается в браузере медленнее Meshopt, зато поддерживается везде."
-      },
-      "impact": {
-        "en": "The file is noticeably lighter; decoding on open is slower.",
-        "ru": "Файл заметно легче; распаковка при открытии медленнее."
-      },
       "reversible": true,
       "dataLoss": "none",
       "opts": {
@@ -211,18 +115,6 @@
     },
     {
       "id": "quantize",
-      "title": {
-        "en": "Quantization",
-        "ru": "Квантование"
-      },
-      "description": {
-        "en": "Quantization means writing vertex coordinates with fewer digits: instead of a long precise number, a shorter approximate one. The geometry gets lighter and the site needs nothing extra to open it — unlike Draco and Meshopt. Coordinates become slightly coarser: on a small detailed model that can show up as tiny gaps.",
-        "ru": "Квантование — это запись координат вершин меньшим числом знаков: вместо длинного точного числа более короткое приблизительное. Геометрия становится легче, и сайту, в отличие от Draco и Meshopt, ничего доустанавливать не нужно. Координаты при этом чуть грубее: на мелкой детализированной модели это может проявиться крошечными щелями."
-      },
-      "impact": {
-        "en": "Geometry drops by a third to a half. The gain shows up in the file only when the weight is in the geometry, not in the textures.",
-        "ru": "Геометрия легче на треть-половину. На размере файла это заметно там, где вес именно в геометрии, а не в текстурах."
-      },
       "reversible": true,
       "dataLoss": "minor",
       "opts": {
@@ -231,18 +123,6 @@
     },
     {
       "id": "strip-colors",
-      "title": {
-        "en": "Remove vertex colors",
-        "ru": "Удаление цветов вершин"
-      },
-      "description": {
-        "en": "Removes painted vertex colors. Enable only if vertex colors are not visible in the model (white channels are removed without this option too).",
-        "ru": "Удаляет раскрашенные цвета вершин. Включайте, только если в модели цвета вершин не видны (белые каналы удаляются и без этой опции)."
-      },
-      "impact": {
-        "en": "Saves 5–20% of size if colors exist; may change the look if they were used.",
-        "ru": "Экономит 5–20% размера, если цвета есть; может изменить вид, если они использовались."
-      },
       "reversible": false,
       "dataLoss": "significant",
       "opts": {
