@@ -25,6 +25,12 @@ import asstRu from '../messages/ru.mjs';
 // UI-каталоги — .js файлы, их ключи определяем через статический разбор
 import { readFileSync } from 'node:fs';
 
+// Канонический список кодов gltf-validator — ISSUES.md из пакета (задание
+// 2026-08-04-валидатор-остаток). Здесь же проверка: каждый validator.* ключ
+// каталогов существует в пакете (нет сирот), и каждый код пакета переведён
+// в обоих каталогах (нет пропусков).
+const ISSUES_PATH = new URL('../node_modules/gltf-validator/ISSUES.md', import.meta.url);
+
 const uiEnPath = new URL('../ui/locales/en.js', import.meta.url);
 const uiRuPath = new URL('../translations/ru.js', import.meta.url);
 const valEnPath = new URL('../ui/locales/validator-en.js', import.meta.url);
@@ -33,6 +39,18 @@ const valRuPath = new URL('../translations/validator-ru.js', import.meta.url);
 function extractKeys(filePath) {
   const content = readFileSync(filePath, 'utf-8');
   return [...content.matchAll(/'([\w.]+)':\s/g)].map(m => m[1]);
+}
+
+// Все коды, которые умеет выдавать gltf-validator: строки ISSUES.md вида
+// `|CODE|Message|Severity|` (заголовки таблиц `| Code | Message |` не матчатся
+// из-за пробелов). Это единственный канонический источник: сирота в каталоге
+// ловится здесь же, рядом с симметрией, а не в engine-contract (он про аддон
+// и ядро, не про validator.*).
+function validatorCodes() {
+  const content = readFileSync(ISSUES_PATH, 'utf-8');
+  const codes = new Set();
+  for (const m of content.matchAll(/^\|([A-Z][A-Z0-9_]+)\|/gm)) codes.add(m[1]);
+  return codes;
 }
 
 const uiEnKeys = extractKeys(uiEnPath);
@@ -154,5 +172,44 @@ describe('ui/locales — validator-en.js ↔ validator-ru.js', () => {
 
   it('количество ключей совпадает', () => {
     expect(valRuKeys.length).toBe(valEnKeys.length);
+  });
+});
+
+// ============================================================================
+// validator-каталоги ↔ пакет gltf-validator (ISSUES.md)
+// ============================================================================
+// Сторож задания 2026-08-04-валидатор-остаток: будущий переводчик не должен
+// ни выдумать код (сирота в каталоге), ни забыть пару (пропуск кода пакета).
+// Оба направления проверяются для ОБОИХ языков — сирота в одном каталоге
+// валит симметрию, но пропуск кода оба каталога могут «пройти» вместе.
+
+describe('validator-каталоги ↔ пакет gltf-validator (ISSUES.md)', () => {
+  // Читаем и парсим ISSUES.md один раз на весь блок: три теста делят один
+  // источник, а не читают файл заново.
+  const packageCodes = validatorCodes();
+
+  it('пакет gltf-validator установлен и ISSUES.md не пуст (страховка от тихого зелёного)', () => {
+    expect(packageCodes.size, 'node_modules/gltf-validator/ISSUES.md не найден или не содержит кодов').toBeGreaterThan(0);
+  });
+
+  it('каждый код пакета переведён в validator-en.js и validator-ru.js (нет пропусков)', () => {
+    const enSet = new Set(valEnKeys);
+    const ruSet = new Set(valRuKeys);
+    const uncovered = [...packageCodes]
+      .filter((c) => !enSet.has('validator.' + c) || !ruSet.has('validator.' + c))
+      .sort();
+    expect(uncovered, `Коды пакета без перевода (нет хотя бы в одном каталоге):\n  ${uncovered.join('\n  ')}`).toEqual([]);
+  });
+
+  it('каждый validator.* ключ каталогов существует в пакете (нет сирот)', () => {
+    const orphans = [...new Set([...valEnKeys, ...valRuKeys])]
+      .filter((k) => k.startsWith('validator.') && !packageCodes.has(k.slice('validator.'.length)))
+      .sort();
+    expect(orphans, `validator.* ключи, которых нет в ISSUES.md (сироты):\n  ${orphans.join('\n  ')}`).toEqual([]);
+  });
+
+  it('количество validator.* ключей равно числу кодов пакета', () => {
+    expect(valEnKeys.length).toBe(packageCodes.size);
+    expect(valRuKeys.length).toBe(packageCodes.size);
   });
 });
