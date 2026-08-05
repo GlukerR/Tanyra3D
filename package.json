@@ -1,12 +1,16 @@
 {
-  "name": "glb-web-optimize",
+  "name": "tanyra3d",
   "version": "0.0.9",
   "private": true,
   "license": "Apache-2.0",
   "description": "Умный оптимизатор GLB/glTF для веба — анализ, безопасная оптимизация, отчёты",
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "test": "vitest run"
   },
   "dependencies": {
     "@gltf-transform/core": "^4.2.0",
@@ -22,6 +26,7 @@
     "@vitest/browser": "^4.1.10",
     "@vitest/browser-playwright": "^4.1.10",
     "es-module-lexer": "^2.3.1",
-    "playwright": "^1.62.0"
+    "playwright": "^1.62.0",
+    "vitest": "^4.1.10"
   }
 }
