@@ -25,6 +25,7 @@ export default {
   // The feature was on, but there was nothing to change. Staying silent is not an
   // option: the person ticked the box and must learn what became of it.
   'engine.nothingToDo': () => 'turned on, but this model had nothing to change',
+  'engine.feature.exclusive': ({ selected }) => `not applied because ${selected} was selected instead`,
   // Строка «что пропущено — почему». Собрана сообщением, а не склейкой в коде: разделитель
   // между частями — часть языка, и другому он может понадобиться другой.
   'engine.skipped.line': ({ title, reason }) => `${title} — ${reason}`,
@@ -36,7 +37,7 @@ export default {
   'engine.inputCompression.applied': ({ codecs, note }) => `Removed input compression ${codecs} — ${note}`,
 
   // --- input validation ---
-  'engine.inputValidation.found': ({ n }) => `the input file already has ${n} gltf-validator errors (an export defect, not the optimization)`,
+  'engine.inputValidation.found': ({ n }) => `the input file already has ${n} gltf-validator error${n === 1 ? '' : 's'} (an export defect, not the optimization)`,
 
   // --- policy ---
   'engine.policy.safetyLevel': ({ tier }) => `safety level "${tier}" is not applied automatically`,

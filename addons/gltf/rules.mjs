@@ -446,7 +446,7 @@ export const RULES = [
       // разворачивания в копии. Обратный порядок стоил бы на ABeautifulGame +84 %.
       severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['geometry/orphan-vertices', 'scene/instance'], touches: ['geometry', 'node'],
       reversible: false, dataLoss: 'significant', // §4d: структура узлов и имена частей теряются безвозвратно
-      reversalNote: 'Node hierarchy and separate parts are merged — they cannot be restored from the result. To keep parts, use --keep-parts.',
+      reversalNoteKey: 'reversal.join',
       feature: 'join', // отдельный флажок (структурно, необратимо)
       enabled: (o) => o.join,
     },
@@ -515,7 +515,7 @@ export const RULES = [
       id: 'scene/instance', category: 'scene', title: 'GPU instancing', titleKey: 'rule.sceneInstance',
       severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['structure/prune-unused'], touches: ['node', 'mesh'],
       reversible: true, dataLoss: 'none',
-      reversalNote: 'Instancing can be expanded back to individual nodes.',
+      reversalNoteKey: 'reversal.instance',
       feature: 'instance',
       enabled: (o) => o.instance,
     },
@@ -602,7 +602,7 @@ export const RULES = [
       severity: 'warn', fixSafety: 'perceptual', tier: 'advanced', feature: 'ktx2',
       runAfter: ['structure/prune-final'], touches: ['texture'],
       reversible: true, dataLoss: 'minor', // §4d: KTX2 ↔ PNG/WebP, потеря от BASIS-U распаковки
-      reversalNote: 'KTX2 can be unpacked back to PNG/WebP with a small quality loss (BASIS decoding).',
+      reversalNoteKey: 'reversal.ktx2',
       enabled: (opts) => !opts.noKtx,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -745,7 +745,7 @@ export const RULES = [
       severity: 'warn', fixSafety: 'perceptual', tier: 'advanced', feature: 'webp',
       runAfter: ['structure/prune-final'], touches: ['texture'],
       reversible: true, dataLoss: 'minor',
-      reversalNote: 'WebP can be decoded back to PNG, but lossy re-encoding is not undone.',
+      reversalNoteKey: 'reversal.webp',
       enabled: (opts) => !opts.noWebp,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
@@ -869,7 +869,7 @@ export const RULES = [
       id: 'geometry/compress', category: 'geometry', title: 'Geometry compression', titleKey: 'rule.geometryCompress',
       severity: 'info', fixSafety: 'numeric', tier: 'advanced', runAfter: ['textures/ktx2', 'structure/prune-final'], touches: ['geometry', 'accessor'],
       reversible: true, dataLoss: 'none', // §4d: Draco/Meshopt ↔ стандартный формат в пределах точности float32
-      reversalNote: 'Compressed geometry unpacks back to the standard format without data loss.',
+      reversalNoteKey: 'reversal.compress',
       feature: 'meshopt', // компрессия геометрии — opt-in (флажок meshopt или draco → codec)
       enabled: (o) => o.compress,
     },
@@ -921,7 +921,7 @@ export const RULES = [
       severity: 'info', fixSafety: 'numeric', tier: 'advanced',
       runAfter: ['textures/ktx2', 'structure/prune-final'], touches: ['geometry', 'accessor'],
       reversible: true, dataLoss: 'minor', // §4d: разворачивается обратно в float32, но выброшенные разряды не возвращаются
-      reversalNote: 'Quantized geometry unpacks back to float32, but the precision dropped in quantization does not come back.',
+      reversalNoteKey: 'reversal.quantize',
       feature: 'quantize',
       enabled: (o) => o.quantize,
     },

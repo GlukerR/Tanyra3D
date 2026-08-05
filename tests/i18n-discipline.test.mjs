@@ -320,6 +320,24 @@ const PHRASE_WHITELIST = {
   '    phase 4/5 · validation': 'ctx.log движка — подпись фазы 4 в журнале сервера (Ловушка 1)',
   '    phase 5/5 · report': 'ctx.log движка — подпись фазы 5 в журнале сервера (Ловушка 1)',
   '      baseline-checkpoint: ': 'ctx.log движка — сводка baseline-метрик (Ловушка 1)',
+
+  // ADVANCED_FEATURES (addons/gltf/index.mjs) — описания фич для СООБЩЕНИЯ ОБ
+  // ОШИБКЕ программисту: `throw new Error('Unknown advancedFeatures: ... Available: ...')`.
+  // В отчёт они не попадают ни при каком сценарии (проверено: единственное
+  // использование — строка 124 того же файла). Тот же класс, что meta.title из
+  // Ловушки 4 задания: адресат — вызывающий код, а не человек в интерфейсе.
+  'safe lossless cleanup: dedup, prune unused, weld, remove degenerate/orphan geometry': 'ADVANCED_FEATURES — текст ошибки API',
+  'Meshopt geometry compression': 'ADVANCED_FEATURES — текст ошибки API',
+  'Draco geometry compression (instead of Meshopt)': 'ADVANCED_FEATURES — текст ошибки API',
+  'geometry quantization (KHR_mesh_quantization) — smaller geometry, no decoder needed': 'ADVANCED_FEATURES — текст ошибки API',
+  'join meshes / flatten scene — fewer draw calls (structural, irreversible)': 'ADVANCED_FEATURES — текст ошибки API',
+  'GPU instancing (EXT_mesh_gpu_instancing) — repeated meshes as instances': 'ADVANCED_FEATURES — текст ошибки API',
+  'resample animations — drop redundant keyframes (lossless)': 'ADVANCED_FEATURES — текст ошибки API',
+  'textures → KTX2 (needs browser/engine support)': 'ADVANCED_FEATURES — текст ошибки API',
+  'textures → WebP (EXT_texture_webp; smaller file, video memory unchanged)': 'ADVANCED_FEATURES — текст ошибки API',
+  'removal of painted vertex colors (lossy)': 'ADVANCED_FEATURES — текст ошибки API',
+  'Unknown advancedFeatures: ': 'префикс той же ошибки API — адресат вызывающий код, не человек',
+  ' · strip-vertex-colors': 'имя CLI-флага в шапке отчёта, а не фраза: переводить имя флага нельзя',
 };
 describe('Правило 8 — раздел 2: статический скан кода движка', () => {
   it('нет готовых пользовательских строк в коде движка (фраза-литерал → красный с текстом)', () => {
@@ -359,10 +377,24 @@ describe('Правило 8 — раздел 2: статический скан �
     expect(missing, missing.join('\n  ')).toEqual([]);
   });
 
-  it('ДОЛГ (задание 2026-08-03-долг-правила-8): meta.reversalNote — ключ каталога, а не готовая строка', () => {
+  // ДОЛГ ЗАКРЫТ 2026-08-04 (основной агент): шесть готовых английских строк в meta
+  // заменены на reversalNoteKey → ключ каталога. Теперь это регресс: вернётся
+  // строка вместо ключа — тест покраснеет.
+  it('meta.reversalNote — ключ каталога, а не готовая строка (долг закрыт 2026-08-04)', () => {
     const bad = RULES.filter((r) => r.meta && typeof r.meta.reversalNote === 'string')
       .map((r) => '  ' + r.meta.id + ': ' + JSON.stringify(r.meta.reversalNote));
-    expect(bad, 'Долг открыт — reversalNote это готовая английская строка:\n' + bad.join('\n')).toEqual([]);
+    expect(bad, 'reversalNote снова готовая строка:\n' + bad.join('\n')).toEqual([]);
+  });
+
+  it('reversalNoteKey у каждого правила существует в обоих каталогах', () => {
+    const missing = [];
+    for (const r of RULES) {
+      const key = r.meta && r.meta.reversalNoteKey;
+      if (!key) continue;
+      if (!(key in gltfEn || key in coreEn)) missing.push(r.meta.id + ': ' + key + ' нет в en');
+      if (!(key in gltfRu || key in coreRu)) missing.push(r.meta.id + ': ' + key + ' нет в ru');
+    }
+    expect(missing, missing.join('\n  ')).toEqual([]);
   });
 });
 // ═══════════════════════════════════════════════════════════════════════════
@@ -377,7 +409,27 @@ describe('Правило 8 — раздел 2: статический скан �
 const PLURAL_SKIP = new Set([
   // лог правила, не отчёт (Ловушка 1 задания) — форма числа там не важна
   'ktx2.log.encoding',
+  // «Textures: removed 1 unused» — существительное опущено, за числом стоит
+  // прилагательное. По-английски это верно при любом числе; эвристика «за числом
+  // идёт слово» такие места отличить не может, поэтому они названы поимённо.
+  'prune.done.textures',
+  'prune.done.materials',
 ]);
+
+// СУЖЕНО 2026-08-04 (основной агент). Первая версия считала нарушением любую
+// строку, где n=1 и n=5 различаются только цифрой. Это давало 86 срабатываний, из
+// которых настоящих — пять: остальное форма «ярлык: число», где согласовывать
+// нечего.
+//
+//   «повторяющихся текстур: 1»           — верно, число стоит ЗНАЧЕНИЕМ после ярлыка
+//   «Merged duplicate textures (1)»      — верно, там же
+//   «во входном файле уже 1 ошибок»      — НЕВЕРНО, число управляет соседним словом
+//   «Removed 1 unused attributes»        — НЕВЕРНО, там же
+//
+// Согласование возникает там, где за числом сразу идёт слово. Поэтому сторож
+// смотрит только на такие места: цифра, пробел, буква. Сторож, кричащий на верные
+// строки, перестают читать — и он пропускает настоящую ошибку следующей.
+const NUMBER_GOVERNS_WORD = /\d+\s+\p{L}/u;
 
 // n=1 против n=5: строки различаются не только цифрой (иначе «1 текстур»).
 function pluralViolations(cat, locale) {
@@ -389,6 +441,7 @@ function pluralViolations(cat, locale) {
     const five = render(key, { n: 5 }, locale);
     if (one === five) continue; // ключ не использует n
     if (one.includes('undefined') || five.includes('undefined')) continue; // не хватает данных — не проверить
+    if (!NUMBER_GOVERNS_WORD.test(one)) continue; // число — значение после ярлыка, согласовывать нечего
     if (one.replace(/[0-9]/g, '') === five.replace(/[0-9]/g, '')) {
       bad.push({ key, one, five });
     }

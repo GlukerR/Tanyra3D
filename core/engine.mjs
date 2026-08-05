@@ -155,6 +155,27 @@ async function runFile(addon, src, dstName, o, result) {
       ));
     }
   };
+  // Конфликт фич разрешает аддон (он знает свои группы и приоритеты), а движок
+  // только честно отражает его в обычном канале skipped. Так HTTP/API-вызов не
+  // может молча потерять выбор, а следующий формат получает тот же механизм без
+  // знания glTF или конкретных кодеков.
+  const addExclusiveConflicts = () => {
+    for (const conflict of o.exclusiveConflicts || []) {
+      const selected = { messageId: conflict.selected.titleKey, data: {} };
+      for (const rejected of conflict.rejected || []) {
+        const meta = {
+          id: conflict.ruleId,
+          feature: rejected.feature,
+          titleKey: rejected.titleKey,
+        };
+        const reason = {
+          messageId: 'engine.feature.exclusive',
+          data: { selected },
+        };
+        addSkipped(meta, skipLine(meta, reason), reason, 'exclusive');
+      }
+    }
+  };
   // over — переопределение полей обратимости для отдельных строк (lossy-ветки правил,
   // см. res.irreversible): базовое поведение правила может быть без потерь, а форсированное — нет
   const addApplied = (meta, v, over = {}) => {
@@ -187,6 +208,10 @@ async function runFile(addon, src, dstName, o, result) {
     log,
   };
   const before = addon.collectMetrics(ctx.document, fs.statSync(src).size);
+
+  // До правил: проигравшая фича не должна зависеть от наличия геометрии или от
+  // того, вернуло ли правило свою запись. Сам конфликт уже произошёл на входе.
+  addExclusiveConflicts();
 
   // Входное сжатие геометрии снимаем сразу после загрузки (данные уже распакованы в память).
   // Иначе расширение остаётся на документе и КАЖДАЯ запись (включая tmp для KTX2) молча

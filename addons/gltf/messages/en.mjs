@@ -21,15 +21,15 @@ export default {
   'prune.safe': () => 'only resources with no remaining references are removed',
   'prune.found.attribute': ({ sem }) => `attribute ${sem} is not used by any material`,
   // Множественный вариант — отдельным ключом, а не списком в той же фразе.
-  'prune.found.attributes': ({ n, list }) => `${n} attributes are not used by any material (${list})`,
+  'prune.found.attributes': ({ n, list }) => `${n} attribute${n === 1 ? ' is' : 's are'} not used by any material (${list})`,
   'prune.found.textures': ({ n }) => `unused textures: ${n}`,
   'prune.found.materials': ({ n }) => `unused materials: ${n}`,
   'prune.found.emptySkins': ({ n }) => `empty skins (meshes have no JOINTS/WEIGHTS): ${n}`,
   'prune.done.attribute': ({ sem }) => `Attribute ${sem}: not used by any material — removed (prune)`,
-  'prune.done.attributes': ({ n, list }) => `Removed ${n} unused attributes (${list})`,
+  'prune.done.attributes': ({ n, list }) => `Removed ${n} unused attribute${n === 1 ? '' : 's'} (${list})`,
   'prune.done.textures': ({ n }) => `Textures: removed ${n} unused`,
   'prune.done.materials': ({ n }) => `Materials: removed ${n} unused`,
-  'prune.done.emptySkins': ({ n }) => `Removed ${n} empty skins — no deformation, animation runs through the node hierarchy`,
+  'prune.done.emptySkins': ({ n }) => `Removed ${n} empty skin${n === 1 ? '' : 's'} — no deformation, animation runs through the node hierarchy`,
 
   // --- attributes/vertex-colors ---
   'vertexColors.safe': () => 'white channels are removed provably safely; painted ones only via flag',
@@ -101,7 +101,7 @@ export default {
 
   // --- structure/prune-final ---
   'pruneFinal.safe': () => 'only resources orphaned by previous fixes are removed',
-  'pruneFinal.done': ({ n }) => `Cleanup (prune): removed ${n} orphaned accessors`,
+  'pruneFinal.done': ({ n }) => `Cleanup (prune): removed ${n} orphaned accessor${n === 1 ? '' : 's'}`,
 
   // --- textures/ktx2 ---
   'ktx2.noTools': () => 'toktx or gltf-transform CLI not found — textures left in their original format',
@@ -143,7 +143,47 @@ export default {
   'webp.done.color': ({ n }) => `${n} color texture${n === 1 ? '' : 's'} → WebP, quality 90 — smaller file, video memory unchanged`,
   'webp.done.data': ({ n }) => `${n} data texture${n === 1 ? '' : 's'} → WebP lossless — normals and roughness are numbers, lossy chroma would distort them`,
 
+  // --- reversibility notes (meta.reversalNoteKey) ---
+  // Until 2026-08-04 these were hard-coded English strings inside rule meta — a
+  // Правило 8 breach in the rule's own description. Now they are keys like everything else.
+  'reversal.join': () => 'Node hierarchy and separate parts are merged — they cannot be restored from the result. To keep parts, leave joining off.',
+  'reversal.instance': () => 'Instancing can be expanded back to individual nodes.',
+  'reversal.ktx2': () => 'KTX2 can be unpacked back to PNG/WebP with a small quality loss.',
+  'reversal.webp': () => 'WebP can be decoded back to PNG, but lossy re-encoding is not undone.',
+  'reversal.compress': () => 'Compressed geometry unpacks back to the standard format without data loss.',
+  'reversal.quantize': () => 'Quantized geometry unpacks back to float32, but the precision dropped in quantization does not come back.',
+
+  // --- frame of the downloadable report (.md) ---
+  // Headings and table labels. They used to be hard-coded English inside writeReport,
+  // so a Russian reader got a report half in a foreign language (Правило 8).
+  'report.title': ({ name }) => `Optimization report — ${name}`,
+  'report.meta': ({ date, codec, tier, flags }) => `Date: ${date} · codec: ${codec} · autofix: up to "${tier}"${flags}`,
+  'report.section.found': () => 'Found (issues)',
+  'report.section.skipped': () => 'Skipped (and why)',
+  'report.section.applied': () => 'Applied',
+  'report.section.validation': () => 'Validation',
+  'report.section.improvements': () => 'Estimated improvements',
+  'report.found.none': () => 'no individual findings (structural cleanup with nothing to note)',
+  'report.none': () => 'none',
+  'report.dryRun': () => '**Dry-run mode** — the .glb was not written; the report shows what WOULD have been done (all phases ran in memory, numbers are exact).',
+  'report.notWritten': () => '**The .glb was NOT written** — validation failed (see Validation below).',
+  'report.col.metric': () => 'Metric',
+  'report.col.before': () => 'Before',
+  'report.col.after': () => 'After',
+  'report.metric.file': () => 'File',
+  'report.metric.gpuBytes': () => 'Texture VRAM (GPU)',
+  'report.metric.textureBytes': () => 'Texture weight in file',
+  'report.metric.drawCalls': () => 'Draw calls (primitives)',
+  'report.metric.triangles': () => 'Triangles',
+  'report.metric.vertices': () => 'Vertices',
+  'report.metric.meshes': () => 'Meshes',
+  'report.metric.materials': () => 'Materials',
+  'report.metric.textures': () => 'Textures',
+  'report.metric.nodes': () => 'Scene nodes',
+
   // --- geometry/compress ---
+  'feature.meshopt': () => 'Meshopt',
+  'feature.draco': () => 'Draco',
   'compress.safe': () => 'compression packs vertex data, polygon count does not change',
   'compress.done': ({ codec }) => `Geometry compressed (${codec}) — polygon count unchanged`,
 

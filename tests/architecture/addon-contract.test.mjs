@@ -53,10 +53,34 @@ const DOCUMENTED_API = [
 // класс-мок строится из извлечённого набора, и тест ниже сверяет покрытие.
 // ----------------------------------------------------------------------------
 
-function makeMockAddon() {
+// Мок-ПРАВИЛО на выдуманном формате. Добавлено 2026-08-04 (основной агент):
+// с пустым набором правил гейт доказывал формат-агностичность только КАРКАСА фаз,
+// а конвейер правил — самое существенное, что должен пережить второй формат
+// (Babylon в 0.2.0, FBX/USD через core/registry.mjs). Правило ничего не знает про
+// геометрию: «документ» — обычный объект, работа правила — поменять в нём число.
+function makeMockRule() {
+  return {
+    meta: {
+      id: 'mock/bump', category: 'scene', title: 'Mock rule',
+      severity: 'info', fixSafety: 'provable', tier: 'basic',
+      reversible: true, dataLoss: 'none',
+      feature: 'mockFeature',
+      enabled: (o) => !!o.mockFeature,
+    },
+    analyze: () => [{ messageId: 'pipeline', data: {} }],
+    canFix: () => ({ safe: true }),
+    fix: (finding, ctx) => {
+      ctx.document.bumped = (ctx.document.bumped || 0) + 1;
+      // Рецепт, а не готовая строка — Правило 8 действует и на выдуманный формат
+      return { details: [{ messageId: 'engine.nothingToDo', data: {} }] };
+    },
+  };
+}
+
+function makeMockAddon({ rules = [] } = {}) {
   return {
     formats: ['mock'], // расширение выдуманного формата
-    rules: [], // без правил: весь контракт аддона должен работать и при пустом наборе
+    rules, // по умолчанию пусто: контракт обязан работать и при пустом наборе
     BASELINE_METRICS: [],
     outputName: (src) => path.basename(src).replace(/\.[^.]+$/, '.mock'),
     normalizeOpts: (opts = {}) => ({
@@ -67,7 +91,9 @@ function makeMockAddon() {
       log: () => {},
       locale: 'en',
       codec: 'mock',
-      advancedFeatures: [],
+      advancedFeatures: opts.advancedFeatures || [],
+      // фича мок-правила: включается тем же способом, что и настоящие
+      mockFeature: (opts.advancedFeatures || []).includes('mockFeature'),
     }),
     createIO: async () => ({}),
     load: async () => ({ kind: 'mock-doc' }),
@@ -146,6 +172,34 @@ describe('addon-contract — движок работает на выдуманн
     // фаза 5 отработала: отчёт записан, путь отдан в контракте
     expect(result.file.reportPath).toBeTruthy();
     expect(fs.existsSync(result.file.reportPath)).toBe(true);
+  });
+
+  // Пустой набор правил доказывает только каркас фаз. Конвейер правил — то, что
+  // второму формату (Babylon, FBX/USD) придётся пережить в первую очередь, и он
+  // обязан работать, ничего не зная про glTF.
+  it('конвейер правил работает на выдуманном формате: правило планируется, применяется и отчитывается', async () => {
+    const mockAddon = makeMockAddon({ rules: [makeMockRule()] });
+
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'addon-contract-rules-'));
+    const src = path.join(tmp, 'scene.mock');
+    fs.writeFileSync(src, 'mock-format-bytes', 'utf8');
+
+    const on = await runOptimize(mockAddon, src, {
+      outDir: path.join(tmp, 'out-on'), force: true, advancedFeatures: ['mockFeature'],
+    });
+    expect(on.status).toBe('ok');
+    // правило реально отработало на «документе» выдуманного формата
+    expect(on.applied.some((a) => a.ruleId === 'mock/bump')).toBe(true);
+    // и запись несёт рецепт, а не готовую строку (Правило 8 — не только про glTF)
+    expect(on.applied.find((a) => a.ruleId === 'mock/bump').i18n.text.messageId).toBeTruthy();
+
+    // Выключенная фича — то же обещание «сделал или объяснил», без единой строки glTF
+    const off = await runOptimize(mockAddon, src, {
+      outDir: path.join(tmp, 'out-off'), force: true, advancedFeatures: [],
+    });
+    expect(off.status).toBe('ok');
+    expect(off.applied.some((a) => a.ruleId === 'mock/bump')).toBe(false);
+    expect(off.skipped.some((s) => s.ruleId === 'mock/bump')).toBe(true);
   });
 
   it('незнакомый методу аддон не валит процесс — движок превращает это в status:fail', async () => {

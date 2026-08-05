@@ -17,7 +17,8 @@
  * @property {boolean} reversible        §4d: можно ли отменить результат правила.
  * @property {'none'|'minor'|'significant'} dataLoss  §4d: значимость безвозвратно теряемых данных.
  * @property {string} [reversalRuleId]   Id парного распаковывающего правила, если есть.
- * @property {string} [reversalNote]     Пояснение об обратимости для отчёта/UI.
+ * @property {string} [reversalNoteKey]  Ключ каталога с пояснением об обратимости
+ *                                      (не готовая строка — Правило 8).
  * @property {(opts: NormalizedOpts) => boolean} enabled  Активно ли правило при данных опциях.
  */
 

@@ -147,7 +147,47 @@ export default {
   'webp.done.color': ({ n }) => `Цветных текстур → WebP, качество 90: ${n} — файл меньше, видеопамять та же`,
   'webp.done.data': ({ n }) => `Карт данных → WebP без потерь: ${n} — нормали и roughness это числа, огрубление цветности их искажает`,
 
+  // --- обратимость правил (meta.reversalNoteKey) ---
+  // До 2026-08-04 это были готовые английские строки прямо в meta правила — то есть
+  // нарушение Правила 8 в самом описании правила. Теперь ключ, как и всё остальное.
+  'reversal.join': () => 'Иерархия узлов и отдельные части слиты — из результата их не восстановить. Чтобы сохранить части, не включайте объединение.',
+  'reversal.instance': () => 'Инстансы разворачиваются обратно в отдельные узлы.',
+  'reversal.ktx2': () => 'KTX2 распаковывается обратно в PNG/WebP с небольшой потерей качества.',
+  'reversal.webp': () => 'WebP декодируется обратно в PNG, но потери от сжатия не возвращаются.',
+  'reversal.compress': () => 'Сжатая геометрия распаковывается обратно без потери данных.',
+  'reversal.quantize': () => 'Квантованная геометрия разворачивается обратно в float32, но отброшенные разряды не возвращаются.',
+
+  // --- рамка скачиваемого отчёта (.md) ---
+  // Заголовки и подписи таблицы. Раньше были зашиты по-английски прямо в writeReport,
+  // и русский человек получал отчёт наполовину на чужом языке (Правило 8).
+  'report.title': ({ name }) => `Отчёт об оптимизации — ${name}`,
+  'report.meta': ({ date, codec, tier, flags }) => `Дата: ${date} · кодек: ${codec} · автоправки до уровня «${tier}»${flags}`,
+  'report.section.found': () => 'Анализ',
+  'report.section.skipped': () => 'Пропущено (и почему)',
+  'report.section.applied': () => 'Что сделано',
+  'report.section.validation': () => 'Проверка',
+  'report.section.improvements': () => 'Что изменилось',
+  'report.found.none': () => 'отдельных замечаний нет — структурная чистка, отмечать нечего',
+  'report.none': () => 'ничего',
+  'report.dryRun': () => '**Пробный прогон** — файл .glb не записан; отчёт показывает, что было БЫ сделано (все фазы отработали в памяти, числа точные).',
+  'report.notWritten': () => '**Файл .glb НЕ записан** — проверка целостности не прошла (см. раздел «Проверка»).',
+  'report.col.metric': () => 'Показатель',
+  'report.col.before': () => 'Было',
+  'report.col.after': () => 'Стало',
+  'report.metric.file': () => 'Файл',
+  'report.metric.gpuBytes': () => 'Видеопамять под текстуры',
+  'report.metric.textureBytes': () => 'Вес текстур в файле',
+  'report.metric.drawCalls': () => 'Отрисовок за кадр',
+  'report.metric.triangles': () => 'Треугольники',
+  'report.metric.vertices': () => 'Вершины',
+  'report.metric.meshes': () => 'Меши',
+  'report.metric.materials': () => 'Материалы',
+  'report.metric.textures': () => 'Текстуры',
+  'report.metric.nodes': () => 'Узлы сцены',
+
   // --- geometry/compress ---
+  'feature.meshopt': () => 'Meshopt',
+  'feature.draco': () => 'Draco',
   'compress.safe': () => 'сжатие упаковывает данные вершин, количество полигонов не меняется',
   'compress.done': ({ codec }) => `Геометрия сжата (${codec}) — количество полигонов не изменилось`,
 
@@ -179,9 +219,14 @@ export default {
   'check.materialsResolve': () => 'все материалы разрешаются',
   'check.materialsBroken': () => 'примитив ссылается на удалённый материал',
   'check.validatorZeroErrors': () => 'gltf-validator (Khronos): 0 ошибок',
-  'check.validatorErrorsRemain': ({ errs, inErrs }) => `gltf-validator: ${errs} ошибок осталось, унаследованы от входа (${inErrs} в исходнике) — оптимизация новых не добавила`,
+  // Согласование числа — часть языка: «1 ошибок осталось» читается как опечатка.
+  'check.validatorErrorsRemain': ({ errs, inErrs }) => (errs === 1
+    ? `gltf-validator: осталась 1 ошибка, унаследована от входа (в исходнике ${inErrs}) — оптимизация новых не добавила`
+    : `gltf-validator: ${errs} ошибок осталось, унаследованы от входа (${inErrs} в исходнике) — оптимизация новых не добавила`),
   'check.validatorExample': ({ code, pointer }) => `пример: ${code} @ ${pointer}`,
-  'check.validatorErrorsIncreased': ({ errs, inErrs }) => `gltf-validator: ${errs} ошибок (во входе было ${inErrs}) — оптимизация добавила новые`,
+  'check.validatorErrorsIncreased': ({ errs, inErrs }) => (errs === 1
+    ? `gltf-validator: 1 ошибка (во входе было ${inErrs}) — оптимизация добавила новые`
+    : `gltf-validator: ${errs} ошибок (во входе было ${inErrs}) — оптимизация добавила новые`),
   'check.validatorSkipped': () => 'gltf-validator не установлен — структурная валидация пропущена',
 
   // --- rule titles ---

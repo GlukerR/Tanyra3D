@@ -81,6 +81,39 @@ const ADVANCED_FEATURES = {
   'strip-colors': 'removal of painted vertex colors (lossy)',
 };
 
+// Взаимоисключение объявляет АДДОН, а не UI: программный вызов и HTTP API могут
+// передать сочетание, которое интерфейс выразить не даёт. Нормализатор сохраняет
+// выбранный по прежнему правилу Draco, но передаёт движку проигравший выбор, чтобы
+// тот не исчезал из отчёта. Для следующей группы достаточно добавить такую же
+// декларацию — движок не знает ни GLTF, ни имён кодеков.
+const EXCLUSIVE_FEATURES = {
+  'geometry-codec': {
+    ruleId: 'geometry/compress',
+    members: ['meshopt', 'draco'],
+    // Это порядок совместимости v0.0.9, а не порядок флагов пользователя: оба
+    // порядка ['meshopt', 'draco'] и ['draco', 'meshopt'] дают один файл.
+    priority: ['draco', 'meshopt'],
+    titleKeys: { meshopt: 'feature.meshopt', draco: 'feature.draco' },
+  },
+};
+
+function exclusiveConflicts(requested) {
+  const conflicts = [];
+  for (const [group, definition] of Object.entries(EXCLUSIVE_FEATURES)) {
+    const selected = definition.priority.find((feature) => requested.has(feature));
+    if (!selected) continue;
+    const rejected = definition.members.filter((feature) => feature !== selected && requested.has(feature));
+    if (!rejected.length) continue;
+    conflicts.push({
+      group,
+      ruleId: definition.ruleId,
+      selected: { feature: selected, titleKey: definition.titleKeys[selected] },
+      rejected: rejected.map((feature) => ({ feature, titleKey: definition.titleKeys[feature] })),
+    });
+  }
+  return conflicts;
+}
+
 // Значения по умолчанию — ровно как у CLI без флагов (контракт §4b): ТОЛЬКО базовые
 // оптимизации, расширения — через advancedFeatures. Неизвестная фича → Error
 // (optimizeFile превратит его в status:'fail', а не молча проигнорирует).
@@ -93,9 +126,15 @@ function normalizeOpts(opts = {}) {
   // Компрессия геометрии — opt-in: флажок 'meshopt' или 'draco' (либо legacy codec/compress).
   const draco = opts.codec === 'draco' || adv.includes('draco');
   const compress = draco || adv.includes('meshopt') || !!opts.compress;
+  const requestedCodecs = new Set(adv.filter((feature) => EXCLUSIVE_FEATURES['geometry-codec'].members.includes(feature)));
+  // Legacy-поля — такой же вход движка, как advancedFeatures: конфликт между
+  // codec:'draco' и явным meshopt тоже нельзя прятать молча.
+  if (opts.codec === 'draco') requestedCodecs.add('draco');
+  if (opts.compress && opts.codec !== 'draco') requestedCodecs.add('meshopt');
 
   return {
     advancedFeatures: adv,
+    exclusiveConflicts: exclusiveConflicts(requestedCodecs),
     // opt-in-флаги: по умолчанию всё выключено (passthrough).
     safe: adv.includes('safe') || !!opts.safe, // безопасная чистка (бандл)
     compress, // сжимать ли геометрию вообще
@@ -278,47 +317,50 @@ function writeReport({ name, result, before, after, assetWritten, opts }) {
     + (opts.noKtx ? ' · no KTX2' : ` · textures: ${opts.texMode}`)
     + (opts.stripColors ? ' · strip-vertex-colors' : '')
     + (opts.dryRun ? ' · **DRY-RUN**' : '');
+  // Рамка отчёта — заголовки, подписи таблицы, примечания — берётся по ключу, как
+  // и всё остальное (Правило 8). До 2026-08-04 она была зашита по-английски: тело
+  // записей переводилось вслед за интерфейсом, а заголовки над ним оставались
+  // английскими, и русский человек скачивал отчёт наполовину на чужом языке.
+  const t = (key, data = {}) => render(key, data, opts.locale);
   const lines = [
-    `# Optimization report — ${name}`,
+    `# ${t('report.title', { name })}`,
     '',
-    `Date: ${new Date().toISOString().slice(0, 10)} · codec: ${opts.codec} · autofix: up to "${AUTOFIX_MAX_TIER}"${flags}`,
+    t('report.meta', { date: new Date().toISOString().slice(0, 10), codec: opts.codec, tier: AUTOFIX_MAX_TIER, flags }),
     '',
-    '## Found (issues)',
+    `## ${t('report.section.found')}`,
     '',
-    ...(report.findings.length ? report.findings.map((f) => `- ✓ ${f.text}`) : ['- no individual findings (structural cleanup with nothing to note)']),
+    ...(report.findings.length ? report.findings.map((f) => `- ✓ ${f.text}`) : [`- ${t('report.found.none')}`]),
     '',
-    '## Skipped (and why)',
+    `## ${t('report.section.skipped')}`,
     '',
-    ...(report.skipped.length ? report.skipped.map((s) => `- ${s.text}`) : ['- none']),
+    ...(report.skipped.length ? report.skipped.map((s) => `- ${s.text}`) : [`- ${t('report.none')}`]),
     '',
-    '## Applied',
+    `## ${t('report.section.applied')}`,
     '',
-    ...(report.applied.length ? report.applied.map((a) => `- ${a.text}`) : ['- none']),
+    ...(report.applied.length ? report.applied.map((a) => `- ${a.text}`) : [`- ${t('report.none')}`]),
     '',
-    '## Validation',
+    `## ${t('report.section.validation')}`,
     '',
     ...report.validation.map((s) => `- ${LEVEL_PREFIX[s.level]} ${s.text}`),
     ...(assetWritten ? [] : [
       '',
-      opts.dryRun
-        ? '**Dry-run mode** — the .glb was not written; the report shows what WOULD have been done (all phases ran in memory, numbers are exact).'
-        : '**The .glb was NOT written** — validation failed (see Validation below).',
+      opts.dryRun ? t('report.dryRun') : t('report.notWritten'),
     ]),
     '',
-    '## Estimated improvements',
+    `## ${t('report.section.improvements')}`,
     '',
-    '| Metric | Before | After |',
+    `| ${t('report.col.metric')} | ${t('report.col.before')} | ${t('report.col.after')} |`,
     '|---|---|---|',
-    diffLine('File', before.fileBytes, after.fileBytes, (v) => `${MB(v)} MB`),
-    diffLine('Texture VRAM (GPU)', before.gpuBytes, after.gpuBytes, (v) => `${MB(v)} MB`),
-    diffLine('Texture weight in file', before.textureBytes, after.textureBytes, (v) => `${MB(v)} MB`),
-    diffLine('Draw calls (primitives)', before.drawCalls, after.drawCalls),
-    diffLine('Triangles', before.triangles, after.triangles),
-    diffLine('Vertices', before.vertices, after.vertices),
-    diffLine('Meshes', before.meshes, after.meshes),
-    diffLine('Materials', before.materials, after.materials),
-    diffLine('Textures', before.textures, after.textures),
-    diffLine('Scene nodes', before.nodes, after.nodes),
+    diffLine(t('report.metric.file'), before.fileBytes, after.fileBytes, (v) => `${MB(v)} MB`),
+    diffLine(t('report.metric.gpuBytes'), before.gpuBytes, after.gpuBytes, (v) => `${MB(v)} MB`),
+    diffLine(t('report.metric.textureBytes'), before.textureBytes, after.textureBytes, (v) => `${MB(v)} MB`),
+    diffLine(t('report.metric.drawCalls'), before.drawCalls, after.drawCalls),
+    diffLine(t('report.metric.triangles'), before.triangles, after.triangles),
+    diffLine(t('report.metric.vertices'), before.vertices, after.vertices),
+    diffLine(t('report.metric.meshes'), before.meshes, after.meshes),
+    diffLine(t('report.metric.materials'), before.materials, after.materials),
+    diffLine(t('report.metric.textures'), before.textures, after.textures),
+    diffLine(t('report.metric.nodes'), before.nodes, after.nodes),
     '',
   ];
   // dry-run пишет отчёт под отдельным именем, чтобы не затирать отчёт реального прогона

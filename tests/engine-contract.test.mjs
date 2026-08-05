@@ -540,9 +540,12 @@ describe('Контракт движка — раздел 4: необратимо
   // показать его в интерфейсе. До тех пор тест сторожит то, что действительно
   // работает, — согласованность reversible/dataLoss (ниже и в 4c), — а не
   // подгоняется под желаемое.
-  it('reversalNote, если он есть, — непустая строка (полнота покрытия — отдельный долг)', () => {
+  // ДОЛГ ЗАКРЫТ 2026-08-04: reversalNote переведён на reversalNoteKey (ключ каталога).
+  // Полнота покрытия по-прежнему не требуется: заметка нужна там, где обратимость
+  // неочевидна, а не у каждого правила.
+  it('reversalNoteKey, если он есть, — непустой ключ', () => {
     const broken = RULES
-      .filter((r) => r.meta.reversalNote !== undefined && (typeof r.meta.reversalNote !== 'string' || !r.meta.reversalNote.trim()))
+      .filter((r) => r.meta.reversalNoteKey !== undefined && (typeof r.meta.reversalNoteKey !== 'string' || !r.meta.reversalNoteKey.trim()))
       .map((r) => r.meta.id);
     expect(broken).toEqual([]);
   });
@@ -630,9 +633,50 @@ const ORPHAN_EXCLUSIONS = {
   'webp.skipped.jpegData': 'нужна data-текстура в JPEG (PotOfCoals — локальная, вне матрицы)',
 
   // --- движковые служебные: не попадают в отчёт как messageId
-  'engine.inputValidation.found': 'добавляется движком через addFound(render(...)) готовой строкой — без рецепта (см. Н-2)',
   'ktx2.log.skipped': 'пишется в лог правила (ctx.log), не в отчёт',
   'ktx2.log.encoding': 'пишется в лог правила (ctx.log), не в отчёт',
+
+  // --- рамка скачиваемого .md-отчёта (writeReport, 2026-08-04): ключи собираются
+  // локальным хелпером t(), поэтому статический скан их не видит, а в RunResult
+  // они не попадают — отчёт пишется в файл, а не в списки записей.
+  'report.title': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.meta': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.section.found': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.section.skipped': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.section.applied': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.section.validation': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.section.improvements': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.found.none': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.none': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.dryRun': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.notWritten': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.col.metric': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.col.before': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.col.after': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.metric.file': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.metric.gpuBytes': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.metric.textureBytes': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.metric.drawCalls': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.metric.triangles': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.metric.vertices': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.metric.meshes': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.metric.materials': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.metric.textures': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.metric.nodes': 'рамка .md-отчёта — writeReport, вне RunResult',
+
+  // --- пояснения об обратимости: meta.reversalNoteKey, читаются интерфейсом
+  // по запросу, а не кладутся в записи отчёта.
+  'reversal.join': 'meta.reversalNoteKey правила — вне записей отчёта',
+  'reversal.instance': 'meta.reversalNoteKey правила — вне записей отчёта',
+  'reversal.ktx2': 'meta.reversalNoteKey правила — вне записей отчёта',
+  'reversal.webp': 'meta.reversalNoteKey правила — вне записей отчёта',
+  'reversal.compress': 'meta.reversalNoteKey правила — вне записей отчёта',
+  'reversal.quantize': 'meta.reversalNoteKey правила — вне записей отчёта',
+
+  // --- взаимоисключение фич: подписи кодеков и причина, рендерятся только когда
+  // через API пришли обе фичи одной группы (в матрице такой пары нет).
+  'feature.meshopt': 'подпись выбранного кодека в engine.feature.exclusive',
+  'feature.draco': 'подпись выбранного кодека в engine.feature.exclusive',
 
   // --- titleKey правил без meta.feature: заголовок рендерится только в строке
   // «правило пропущено (unsafe/disabled)», а эти правила не гейтятся фичей —
