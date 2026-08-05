@@ -233,24 +233,17 @@ describe('Сочетания фич — взаимоисключающие па�
         expect(webpSkips.some((s) => s.i18n?.text?.messageId === 'webp.skipped.format')).toBe(true);
       } else if (a === 'meshopt' && b === 'draco') {
         // ДВА кодека одного правила: применяется codec=draco (normalizeOpts).
-        // Проигравший (meshopt) должен воздержаться с codec-специфичной причиной.
-        // ⚠ FINDING F-1: на 2026-08-04 движок не пишет причину проигравшего —
-        // запись воздержания отсутствует, тест красный (см. шапку файла и отчёт).
+        // Проигравший (meshopt) обязан воздержаться с локализуемой, конкретной
+        // причиной: пользователь видит выбранный Draco, а не безличное «нельзя».
         expect(appliedA || appliedB).toBe(true);
         const compressApplied = appliedOf(r1, 'geometry/compress');
         expect(compressApplied[0]?.i18n?.text?.data?.codec).toBe('draco');
-        // Контракт (задание): проигравшая фича обязана воздержаться и назвать
-        // причину — «вы выбрали meshopt и draco, применён draco». На 2026-08-04
-        // в отчёте НЕТ записи воздержания для проигравшего кодека (F-1):
-        // skipped по geometry/compress пуст, feature='meshopt' не упомянут.
         for (const r of [r1, r2]) {
-          const loserExplained = (r.skipped || []).some(
-            (s) => s.feature === 'meshopt' && !!s.reason,
-          );
-          expect(
-            loserExplained,
-            `F-1: проигравший meshopt не воздержался с причиной (записей с feature=meshopt нет) — задание требует codec-специфичную причину`,
-          ).toBe(true);
+          const loser = (r.skipped || []).find((s) => s.feature === 'meshopt');
+          expect(loser).toBeTruthy();
+          expect(loser.i18n?.text?.messageId).toBe('engine.skipped.line');
+          expect(loser.i18n?.reason?.messageId).toBe('engine.feature.exclusive');
+          expect(loser.i18n?.reason?.data?.selected?.messageId).toBe('feature.draco');
         }
       } else {
         // quantize против meshopt/draco: quantize воздерживается с codec-специфичной
