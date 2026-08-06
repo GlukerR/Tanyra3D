@@ -71,7 +71,7 @@ function makeMockRule() {
     canFix: () => ({ safe: true }),
     fix: (finding, ctx) => {
       ctx.document.bumped = (ctx.document.bumped || 0) + 1;
-      // Рецепт, а не готовая строка — Правило 8 действует и на выдуманный формат
+      // Рецепт, а не готовая строка — «язык отдельно от кода» действует и на выдуманный формат
       return { details: [{ messageId: 'engine.nothingToDo', data: {} }] };
     },
   };
@@ -190,7 +190,7 @@ describe('addon-contract — движок работает на выдуманн
     expect(on.status).toBe('ok');
     // правило реально отработало на «документе» выдуманного формата
     expect(on.applied.some((a) => a.ruleId === 'mock/bump')).toBe(true);
-    // и запись несёт рецепт, а не готовую строку (Правило 8 — не только про glTF)
+    // и запись несёт рецепт, а не готовую строку (правило действует и вне glTF)
     expect(on.applied.find((a) => a.ruleId === 'mock/bump').i18n.text.messageId).toBeTruthy();
 
     // Выключенная фича — то же обещание «сделал или объяснил», без единой строки glTF

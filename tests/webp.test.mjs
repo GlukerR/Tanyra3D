@@ -24,7 +24,7 @@
 //   2. Модели, на которых правило обязано воздержаться.
 //   3. Взаимодействие с KTX2: оба порядка дают одинаковый предсказуемый результат.
 //   4. (отдельный файл) tests/report-density.test.mjs — сторож плотности отчёта.
-//   5. Отчёт переживает смену языка (Правило 8): localizeResult без пересборки.
+//   5. Отчёт переживает смену языка: localizeResult без пересборки.
 
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -125,7 +125,7 @@ describeIfModels(['Production Many Materials 01.glb'], 'WebP — Production Many
     // ни одной конверсии
     expect(result.applied.some((a) => a.ruleId === 'textures/webp')).toBe(false);
 
-    // ровно одна строка про «уже WebP» — НЕ одиннадцать (Правило 9)
+    // ровно одна строка про «уже WebP» — НЕ одиннадцать (одна запись на класс случаев)
     const already = result.skipped.filter(
       (s) => (s.i18n?.text?.messageId || '').startsWith('webp.skipped.already'),
     );
@@ -214,7 +214,7 @@ describeIfModels(['ABeautifulGame.glb'], 'WebP — ABeautifulGame (33 JPEG)', ()
 
     expect(result.status).toBe('ok');
 
-    // 20 карт данных — ОДНА строка, а не двадцать (Правило 9)
+    // 20 карт данных — ОДНА строка, а не двадцать (одна запись на класс случаев)
     const jpegData = result.skipped.filter((s) => s.i18n?.text?.messageId === 'webp.skipped.jpegData.many');
     expect(jpegData).toHaveLength(1);
     expect(jpegData[0].i18n.text.data.n).toBe(20);
@@ -282,7 +282,7 @@ describeIfModels(['SunglassesKhronos.glb'], 'WebP × KTX2 — предсказу
 });
 
 // ============================================================================
-// РАЗДЕЛ 5. Отчёт переживает смену языка (Правило 8).
+// РАЗДЕЛ 5. Отчёт переживает смену языка.
 // ============================================================================
 // Смена языка — перерисовка, а не работа: записи applied/skipped пересобираются
 // из рецепта (поле i18n) через localizeResult, структура и числа остаются теми же.

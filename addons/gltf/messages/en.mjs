@@ -81,8 +81,8 @@ export default {
 
   // --- scene/instance ---
   // The extension name (EXT_mesh_gpu_instancing) is deliberately absent here —
-  // Правило 10: it shows up in metadata and in the validator anyway, and in a
-  // report line it only gets in the way. What matters is fewer draw calls.
+  // It shows up in metadata and in the validator anyway, and in a report line it
+  // only gets in the way. What matters is fewer draw calls.
   'instance.found': () => 'repeated meshes — they can be drawn with one command instead of one per copy',
   'instance.done': ({ dcBefore, dcAfter, nodesBefore, nodesAfter }) =>
     `Repeats collected into instances: draw calls ${dcBefore} → ${dcAfter}, nodes ${nodesBefore} → ${nodesAfter}`,
@@ -146,8 +146,9 @@ export default {
   'prune.refuse.wouldEmptyScene': ({ n }) => `the model has ${n} node${n === 1 ? '' : 's'} and no shapes at all — cleanup would take the whole scene away, so it is left alone`,
 
   // --- reversibility notes (meta.reversalNoteKey) ---
-  // Until 2026-08-04 these were hard-coded English strings inside rule meta — a
-  // Правило 8 breach in the rule's own description. Now they are keys like everything else.
+  // Until 2026-08-04 these were hard-coded English strings inside rule meta —
+  // that broke the "no ready strings in code" rule in the rule's own description.
+  // Now they are keys like everything else.
   'reversal.join': () => 'Node hierarchy and separate parts are merged — they cannot be restored from the result. To keep parts, leave joining off.',
   'reversal.instance': () => 'Instancing can be expanded back to individual nodes.',
   'reversal.ktx2': () => 'KTX2 can be unpacked back to PNG/WebP with a small quality loss.',
@@ -157,7 +158,7 @@ export default {
 
   // --- frame of the downloadable report (.md) ---
   // Headings and table labels. They used to be hard-coded English inside writeReport,
-  // so a Russian reader got a report half in a foreign language (Правило 8).
+  // so a Russian reader got a report half in a foreign language.
   'report.title': ({ name }) => `Optimization report — ${name}`,
   'report.meta': ({ date, codec, tier, flags }) => `Date: ${date} · codec: ${codec} · autofix: up to "${tier}"${flags}`,
   'report.section.found': () => 'Found (issues)',

@@ -40,7 +40,8 @@ const { NodeIO } = gltfCore;
 // io с декодерами создаётся один раз и переиспользуется всеми вызовами: инициализация
 // тянет за собой WASM-модули Draco и Meshopt, и делать её на каждый вызов — заметная
 // плата. NodeIO держит регистрации расширений и зависимостей, но не состояние документа,
-// поэтому один экземпляр на процесс корректен (см. BUG-004 в assistants/review).
+// поэтому один экземпляр на процесс корректен: состояния между вызовами он не
+// держит, а повторное создание стоит дороже переиспользования.
 let _ioPromise = null;
 function createIO() {
   if (!_ioPromise) {
@@ -97,7 +98,7 @@ const ADVANCED_FEATURES = {
 //
 // `engineExplains` — кого объясняет САМ движок. Там, где причину уже называет
 // правило, и называет лучше (с именем кодека или формата), движок молчит: две
-// записи об одном — это Правило 9, толпа строк.
+// записи об одном — это толпа строк (docs/EXTENDING.md §5b).
 const EXCLUSIVE_FEATURES = {
   geometry: {
     ruleId: 'geometry/compress',
@@ -329,8 +330,8 @@ async function validate({ ctx, before, after, glbBytes, src, result, advancedPla
       // вход мог быть битым изначально — проверяем исходник и блокируем только НОВЫЕ ошибки
       const inRes = await validator.validateBytes(new Uint8Array(fs.readFileSync(src)));
       const inErrs = inRes.issues.numErrors;
-      // Рецепт, а не готовая строка: иначе запись не переживает смену языка
-      // (Правило 8) — движок разворачивает { messageId, data } сам.
+      // Рецепт, а не готовая строка: иначе запись не переживает смену языка —
+      // движок разворачивает { messageId, data } сам.
       if (inErrs > 0) addFound(ENGINE_META.inputValidation, { messageId: 'engine.inputValidation.found', data: { n: inErrs } });
       if (errs <= inErrs) {
         vp('info', 'check.validatorErrorsRemain', { errs, inErrs });
@@ -361,7 +362,7 @@ function writeReport({ name, result, before, after, assetWritten, opts }) {
     + (opts.stripColors ? ' · strip-vertex-colors' : '')
     + (opts.dryRun ? ' · **DRY-RUN**' : '');
   // Рамка отчёта — заголовки, подписи таблицы, примечания — берётся по ключу, как
-  // и всё остальное (Правило 8). До 2026-08-04 она была зашита по-английски: тело
+  // и всё остальное (docs/ARCHITECTURE.md §4b). До 2026-08-04 она была зашита по-английски: тело
   // записей переводилось вслед за интерфейсом, а заголовки над ним оставались
   // английскими, и русский человек скачивал отчёт наполовину на чужом языке.
   const t = (key, data = {}) => render(key, data, opts.locale);

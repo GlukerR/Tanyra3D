@@ -739,7 +739,7 @@
       const note = document.createElement('p');
       note.className = 'opt-input-note';
       // Названия берём из тех же опций, что видит человек рядом, — не из имён расширений
-      // (Правило 10: идентификатор спецификации ему ничего не говорит).
+      // (идентификатор спецификации ему ничего не говорит).
       const byId = Object.fromEntries(extensions.map((e) => [e.id, e]));
       const names = found.map((id) => (byId[id] && byId[id].title) || id).join(', ');
       note.textContent = groupHasChoice(groupKind)
@@ -2211,7 +2211,7 @@
     if (!hasAny) return;
 
     // Счётчик в заголовке — через каталог: собирался в коде по-английски и смену
-    // языка не переживал (Правило 8).
+    // языка не переживал.
     const notableCount = (findings || []).filter((f) => f.severity === 'error' || f.severity === 'warn').length;
     if (notableCount) setText(issuesCount, 'issues.countImportant', { n: notableCount });
     else setText(issuesCount, 'issues.countPlain', { n: (findings || []).length });
@@ -2412,7 +2412,7 @@
       const shown = g.names.slice(0, MAX_NAMES).join(', ');
       const rest = g.names.length - MAX_NAMES;
       // «и ещё N» — через каталог: строка склеивалась в коде по-английски и от смены
-      // языка не менялась (Правило 8).
+      // языка не менялась.
       const list = g.names.length ? (rest > 0 ? t('issues.andMore', { shown, rest }) : shown) : '—';
       let first = true;
       const body = g.template.replace(new RegExp(NAME_SLOT, 'g'), () => {
@@ -2469,7 +2469,7 @@
     const failed = validation.filter((v) => v.level === 'fail').length;
     if (validationCount) {
       // Через setText, а не textContent: иначе вердикт застревал на языке сборки —
-      // строка собиралась в коде по-английски и смену языка не переживала (Правило 8).
+      // строка собиралась в коде по-английски и смену языка не переживала.
       if (failed) setText(validationCount, 'insp.validation.failed', { n: failed });
       else setText(validationCount, 'insp.validation.allPassed', { n: validation.length });
       validationCount.className = failed ? 'check-verdict is-fail' : 'check-verdict is-ok';
@@ -2866,7 +2866,7 @@
   // валидатор». Данные никуда не делись — они в ответе /api/inspect и в журнале (debug).
   //
   // Настоящая цель — научиться проверять сжатые расширения самим, тогда этих сообщений
-  // не будет вовсе (см. ROADMAP §5b).
+  // не будет вовсе.
   // Слепые пятна валидатора — в журнал уровнем debug, не в окно проверки. Если модель
   // однажды окажется сломанной, а мы спишем это на «валидатор не читает расширение»,
   // след должен остаться где-то, кроме нашей памяти.

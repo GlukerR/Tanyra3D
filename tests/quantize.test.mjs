@@ -21,7 +21,7 @@
 //      модель без геометрии (Orphan Texture Cube 01).
 //   4. Морфы и анимация: Morph Cube 01 и parkergirl — счётчики не изменились,
 //      baseline-checkpoint зелёный.
-//   5. Отчёт переживает смену языка (Правило 8): localizeResult без пересборки.
+//   5. Отчёт переживает смену языка: localizeResult без пересборки.
 //   (сторож плотности — tests/report-density.test.mjs, добавлен набор ['safe','quantize'])
 //
 // Ловушки задания:
@@ -433,7 +433,7 @@ describe('Квантование × instance — инвариант сочета
 });
 
 // ============================================================================
-// РАЗДЕЛ 5. Отчёт переживает смену языка (Правило 8).
+// РАЗДЕЛ 5. Отчёт переживает смену языка.
 // ============================================================================
 // Смена языка — перерисовка, а не работа: записи applied/skipped пересобираются из
 // рецепта (поле i18n) через localizeResult, структура и числа остаются теми же.
@@ -465,7 +465,7 @@ describeIfModels(['Instance Grid 01.glb'], 'Квантование — отчё�
     // тексты МЕНЯЮТСЯ: ru ≠ en хотя бы на одной записи applied
     expect(ru.applied.some((a, i) => a.text !== en.applied[i].text)).toBe(true);
 
-    // новые ключи квантования рендерятся на обоих языках (Правило 8: строка по ключу)
+    // новые ключи квантования рендерятся на обоих языках (строка по ключу)
     for (const id of ['quantize.done', 'quantize.done.scene', 'quantize.skipped.already', 'quantize.skipped.compressed']) {
       const data = id === 'quantize.done' ? { pct: 41 } : id === 'quantize.skipped.compressed' ? { codec: 'draco' } : {};
       expect(render(id, data, 'ru').length).toBeGreaterThan(0);

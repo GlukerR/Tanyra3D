@@ -1,7 +1,7 @@
 // core/types.mjs — формы данных движка (JSDoc, без TypeScript). Модуль не содержит
 // исполняемого кода: только типы-документация, на которые ссылаются engine.mjs,
 // registry.mjs и аддоны. Контракт публичного API (RunResult, optimizeFile) —
-// docs/ARCHITECTURE.md §4b; границы core/addon — Правило 3 CLAUDE.md.
+// docs/ARCHITECTURE.md §4b; границы core/addon — там же.
 
 /**
  * @typedef {Object} RuleMeta
@@ -18,7 +18,7 @@
  * @property {'none'|'minor'|'significant'} dataLoss  §4d: значимость безвозвратно теряемых данных.
  * @property {string} [reversalRuleId]   Id парного распаковывающего правила, если есть.
  * @property {string} [reversalNoteKey]  Ключ каталога с пояснением об обратимости
- *                                      (не готовая строка — Правило 8).
+ *                                      (не готовая строка — язык отдельно от кода).
  * @property {(opts: NormalizedOpts) => boolean} enabled  Активно ли правило при данных опциях.
  */
 

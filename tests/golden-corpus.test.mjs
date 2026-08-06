@@ -612,7 +612,7 @@ describe('Golden Corpus — Dirty Cube 01: safe does real work', () => {
     // используются — экспортёр Blender выбросил неиспользуемые. Тест на prune
     // материалов писать не на чем: сцена, в которой правило должно сработать,
     // в GLB уже отсутствует. Это не дефект продукта, это расхождение специ­
-    // фикации и фактического экспорта, зафиксировано в .claude/CONTEXT.md.
+    // фикации и фактического экспорта.
     expect(true).toBe(true);
   });
 });
@@ -733,7 +733,7 @@ describeLocal('Cthulhu Stone 01.glb', 'Golden Corpus — Cthulhu Stone 01: skins
     expect(result.metrics.after.skins).toBe(1);
     // .md спецификация заявляет две анимации (Armature + Object). Реально в файле
     // одна с именем «Scene» — Blender склеил их в один клип при экспорте.
-    // Расхождение зафиксировано в .claude/CONTEXT.md, тест пишем под файл.
+    // Расхождение спецификации и фактического экспорта — тест пишем под файл.
     expect(result.metrics.before.animations).toBe(1);
     expect(result.metrics.after.animations).toBe(1);
   });

@@ -320,7 +320,7 @@ export function explainResult(runResult, platformId, lang = DEFAULT_LANG) {
   const vramDropped = after.gpuBytes < before.gpuBytes;
 
   // Одно сообщение целиком под каждый исход, а не приставка к общему: склеивать строки
-  // в коде нельзя (Правило 8) — разделитель и порядок слов принадлежат языку.
+  // в коде нельзя — разделитель и порядок слов принадлежат языку.
   const sizes = {
     fileBefore: fmtMB(before.fileBytes),
     fileAfter: fmtMB(after.fileBytes),

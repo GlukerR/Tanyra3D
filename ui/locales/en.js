@@ -94,7 +94,7 @@ window.I18N_CATALOGS.en = {
   'insp.integrityFailed.title': 'Integrity check failed',
   'insp.integrityFailed.text': 'the result differs from the source',
   // Вердикт в заголовке свёрнутого раздела проверки. Раньше собирался в коде по-английски
-  // и от смены языка не менялся — Правило 8.
+  // и от смены языка не менялся.
   'insp.validation.failed': ({ n }) => `— ${n} failed`,
   'insp.validation.allPassed': ({ n }) => `— all ${n} passed`,
   'insp.irreversible.title': 'Irreversible changes applied',
