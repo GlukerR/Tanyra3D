@@ -51,13 +51,26 @@ describe('scripts/setup.mjs', () => {
     expect(code).toBe(0);
     expect(out).toContain('KTX2 encoder not found');
     // Главное: дошёл до конца, а не остался ждать ввода.
-    expect(out).toContain('npm test');
+    expect(out).toContain('npm start');
   });
 
   it('доктор не предлагает скачивание — он только смотрит', () => {
     const { out } = runSetup(['--check'], { TANYRA_SETUP_NO_KTX: '1' });
     expect(out).not.toContain('Download and install');
     expect(out).toContain('npm run setup');
+  });
+
+  it('обычная установка НЕ качает браузер', () => {
+    // Браузер нужен только тестам: ни server.mjs, ни ui/ о нём не знают. Он весит
+    // сотни мегабайт, и человек, которому нужно просто открыть приложение, качал
+    // его впустую. Сторож на то, чтобы это не вернулось тихо.
+    //
+    // Без --check: проверяем НАСТОЯЩУЮ установку, а не режим осмотра. Безопасно —
+    // без TTY скрипт ничего не спрашивает, а без --tests браузер не трогает.
+    const { out } = runSetup([]);
+    expect(out).not.toMatch(/installing Chromium/i);
+    expect(out).toContain('the program does not need it');
+    expect(out).toContain('--tests');
   });
 
   it('отсутствие инструмента не делает прогон провальным', () => {

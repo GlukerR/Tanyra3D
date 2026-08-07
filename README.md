@@ -149,13 +149,19 @@ npm install
 npm run setup
 ```
 
-That's it — four lines and no decisions to make. `npm install` pulls everything installable
-from npm, including the texture encoding CLI; `npm run setup` fetches the browser the tests
-use, checks the rest of your environment, and offers to install the one thing npm cannot.
+Then `npm start` and the program opens at `http://localhost:3210`. That is the whole of it —
+four lines and no decisions to make.
+
+`npm install` pulls everything installable from npm, including the texture encoding CLI.
+`npm run setup` checks your environment and offers to install the one thing npm cannot.
+Neither downloads a browser: the tests need one, the program does not.
 
 > The lines are separate on purpose. Joining them with `&&` fails on **Windows PowerShell
 > 5.1**, which is still what a fresh Windows 10 or 11 gives you — `&&` arrived in PowerShell
 > 7, a separate install. Four lines work in every shell.
+
+**You do not need to run the tests to use this.** They exist for people changing the code;
+if that is you, see [Tests](#tests) below.
 
 <details>
 <summary><b>What <code>npm run setup</code> does</b></summary>
@@ -253,14 +259,18 @@ The full contract is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §4b.
 
 ## Tests
 
+For people changing the code. If you only want to use the program, skip this section — the
+tests take about ten minutes and tell you nothing you need.
+
 ```bash
+npm run setup -- --tests
 npm test
 ```
 
-The tests are integration tests: real models through the real pipeline, no mocks.
+The first line adds the browser some tests drive — a few hundred megabytes, which is why it
+is not part of the ordinary install. Without it: `npm test -- --project node`.
 
-Some of them open the model in an actual browser — `npm run setup` installs what they
-need. Without it: `npm test -- --project node`.
+The tests are integration tests: real models through the real pipeline, no mocks.
 
 The repository ships a small corpus of models built specifically for testing — a
 deliberately dirty cube, a grid of linked duplicates, unlinked copies of one mesh

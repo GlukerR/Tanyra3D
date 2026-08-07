@@ -32,6 +32,9 @@ import readline from 'node:readline';
 
 const CHECK_ONLY = process.argv.includes('--check');
 const ASSUME_YES = process.argv.includes('--yes') || process.argv.includes('-y');
+// Браузер нужен ТОЛЬКО тестам. Ни server.mjs, ни ui/ о нём не знают. Ставить его
+// человеку, который просто хочет открыть приложение, — сотни мегабайт впустую.
+const WITH_TESTS = process.argv.includes('--tests');
 
 // Версия закреплена намеренно. gltf-transform CLI v4 требует KTX-Software 4.3+,
 // и на 4.4.2 прогнан весь набор тестов. «Всегда последняя» означала бы, что новый
@@ -283,15 +286,19 @@ if (ktx) {
   }
 }
 
-// ---------- 5. Chromium для браузерных тестов ----------
+// ---------- 5. Chromium — только для тестов, по явной просьбе ----------
 if (CHECK_ONLY) {
-  console.log(warn('Chromium for browser tests — not checked in doctor mode'));
-  console.log(dim('      npm run setup — installs it if needed'));
+  console.log(dim('  Browser for the tests — not checked in doctor mode'));
+} else if (!WITH_TESTS) {
+  // Тихо и без предупреждения: для того, кто просто пользуется программой, это
+  // не «чего-то не хватает», а «лишнего не скачали».
+  console.log(dim('  Browser for the tests — skipped: the program does not need it'));
+  console.log(dim('      npm run setup -- --tests   — installs it (hundreds of MB), for running the tests'));
 } else {
-  console.log(dim('  … installing Chromium for browser tests (needed by tests only)'));
+  console.log(dim('  … installing Chromium for the browser tests'));
   try {
     execFileSync('npx', ['playwright', 'install', 'chromium'], { stdio: 'inherit', cwd: root, shell: true });
-    console.log(ok('Chromium for browser tests'));
+    console.log(ok('Chromium for the browser tests'));
   } catch {
     missingOptional += 1;
     console.log(warn('Could not install Chromium — the browser tests will not run'));
@@ -309,6 +316,5 @@ if (missingOptional === 0) {
   console.log(dim('  on it, and the report says so plainly.'));
 }
 console.log('');
-console.log(dim('  npm start   — open in the browser'));
-console.log(dim('  npm test    — run the tests'));
+console.log(dim('  npm start   — open the program in your browser'));
 console.log('');
