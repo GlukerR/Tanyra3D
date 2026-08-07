@@ -142,8 +142,8 @@ flowchart LR
 Нужен [Node.js](https://nodejs.org/) 18 или новее. Работает на Windows, macOS и Linux.
 
 ```bash
-git clone https://github.com/GlukerR/tanyra3d.git
-cd tanyra3d
+git clone https://github.com/GlukerR/Tanyra3D.git
+cd Tanyra3D
 npm install
 ```
 
