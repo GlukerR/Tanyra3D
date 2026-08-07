@@ -38,10 +38,10 @@ jobs:
       # vitest возвращает 0 → бейдж зелёный, притом что не выполнено ни одного
       # теста. Зелёный бейдж, ничего не проверяющий, хуже отсутствующего.
       #
-      # `npx vitest run` работает на десяти моделях, которые лежат в git (см.
+      # `npx vitest run` работает на моделях, которые лежат в git (см.
       # исключения в fixtures/.gitignore). Тесты на локальные модели помечаются
       # skipped с указанием причины — это видно в логе, а не растворяется.
-      # Проверено на чистом состоянии: 316 passed, 230 skipped, 0 failed.
+      # Проверено на чистом клоне: набор зелёный, пропуски — с указанием причины.
       #
       # Браузерные тесты (browser-проект) запускаются вместе с node — конфиг
       # vitest настроен на projects, и `npx vitest run` гоняет все проекты.
@@ -52,13 +52,13 @@ jobs:
       # Страховка от повторения истории выше: если однажды все файлы окажутся
       # за guard'ом, шаг упадёт вместо того, чтобы молча позеленеть. Читает
       # отчёт предыдущего шага, второй прогон не делает.
-      # Порог 100: на чистом клоне реально выполняется 316 тестов.
+      # Порог 100 — с большим запасом ниже того, что реально выполняется на чистом клоне.
       - name: Fail if nothing actually ran
         run: |
           PASSED=$(node -e "console.log(require('./vitest-report.json').numPassedTests || 0)")
-          echo "Выполнено тестов: $PASSED"
+          echo "Tests actually executed: $PASSED"
           if [ "$PASSED" -lt 100 ]; then
-            echo "::error::Выполнено всего $PASSED тестов — набор почти целиком пропущен, это не зелёный прогон"
+            echo "::error::Only $PASSED tests ran — the suite was almost entirely skipped; this is not a green run"
             exit 1
           fi
 
@@ -75,9 +75,9 @@ jobs:
         run: |
           npx vitest run --project node tests/webp.test.mjs tests/report-density.test.mjs --reporter=default --reporter=json --outputFile=vitest-report.json
           PASSED=$(node -e "console.log(require('./vitest-report.json').numPassedTests || 0)")
-          echo "Выполнено тестов (webp + плотность): $PASSED"
+          echo "Tests executed (webp + report density): $PASSED"
           if [ "$PASSED" -lt 10 ]; then
-            echo "::error::Выполнено всего $PASSED тестов webp/плотности — набор почти целиком пропущен, это не зелёный прогон"
+            echo "::error::Only $PASSED webp/density tests ran — almost entirely skipped; this is not a green run"
             exit 1
           fi
 
@@ -97,7 +97,7 @@ jobs:
             f.BASELINE_ITS = 999;
             fs.writeFileSync('tests/baselines.json', JSON.stringify(f, null, 2) + '\n');
           "
-          echo '--- Running with broken baseline (BASELINE_ITS=999) — expect failure ---'
+          echo '--- Running with a deliberately broken baseline (BASELINE_ITS=999); failure is expected ---'
           if npx vitest run --project node; then
             echo '::error::Baseline gate passed with BASELINE_ITS=999 — gate is NOT working!'
             exit 1
