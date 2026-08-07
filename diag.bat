@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 set "REPORT=%~dp0diag_report.txt"
-echo === diag glb_web_optimize === > "%REPORT%"
+echo === diag Tanyra3D === > "%REPORT%"
 echo. >> "%REPORT%"
 
 echo [where toktx] >> "%REPORT%"

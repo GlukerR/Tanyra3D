@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul
 cd /d "%~dp0"
-echo === glb_web_optimize v2 - установка npm-зависимостей ===
+echo === Tanyra3D v2 - установка npm-зависимостей ===
 echo.
 where npm >nul 2>nul
 if errorlevel 1 goto :no_npm

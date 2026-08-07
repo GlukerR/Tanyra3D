@@ -1,4 +1,4 @@
-// glb_web_optimize — умный оптимизатор GLB/glTF: тонкий вход над движком и аддонами.
+// Tanyra3D — умный оптимизатор GLB/glTF: тонкий вход над движком и аддонами.
 //
 // Архитектура (Фаза C, docs/ARCHITECTURE.md §4b): формат-агностичный движок из пяти фаз —
 // core/engine.mjs; реестр аддонов по расширению файла — core/registry.mjs; вся
@@ -126,7 +126,7 @@ function initCliLogging(opts) {
   fs.mkdirSync(LOG_DIR, { recursive: true });
   const stamp = new Date().toISOString().replace(/:/g, '-').replace('T', '_').slice(0, 19);
   const logFile = path.join(LOG_DIR, `run_${stamp}.log`);
-  const logLines = [`=== glb_web_optimize · run ${new Date().toISOString()} ===`, `argv: ${process.argv.slice(2).join(' ') || '(no arguments)'}`];
+  const logLines = [`=== Tanyra3D · run ${new Date().toISOString()} ===`, `argv: ${process.argv.slice(2).join(' ') || '(no arguments)'}`];
   for (const m of ['log', 'error', 'warn']) {
     const orig = console[m].bind(console);
     console[m] = (...a) => {
