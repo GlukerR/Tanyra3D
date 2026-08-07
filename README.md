@@ -239,9 +239,21 @@ model at a time.
 
 ### Programmatic
 
-```js
-import { optimizeFile, listRules, VERSION } from './optimize2.mjs';
+Five exports, and they fit on one screen:
 
+```js
+import {
+  optimizeFile,   // run the pipeline over a file
+  inspectFile,    // metadata + validation, changing nothing
+  exportJson,     // the asset as self-contained JSON
+  listRules,      // every rule and everything it declares about itself
+  VERSION,
+} from './optimize2.mjs';
+```
+
+**Optimizing:**
+
+```js
 const result = await optimizeFile('model.glb', {
   advancedFeatures: ['safe', 'draco'],
   outDir: 'output',
@@ -252,6 +264,36 @@ console.log(result.metrics.before, result.metrics.after);
 console.log(result.applied);             // what was actually applied
 console.log(result.validation);          // validation results
 ```
+
+**Analyzing without touching anything.** Two ways, and they answer different questions.
+`inspectFile` reads the asset as it is; `dryRun` runs the whole pipeline and reports what
+*would* happen, writing no file:
+
+```js
+await inspectFile('model.glb');          // { format, asset, extensions, metadata, validation }
+
+const preview = await optimizeFile('model.glb', {
+  advancedFeatures: ['safe', 'ktx2'],
+  dryRun: true,                          // full analysis and report, nothing written
+});
+preview.findings;                        // what was found
+preview.skipped;                         // what was not done, and why
+```
+
+**Asking what the engine can do.** `listRules()` returns each rule's full declaration —
+enough to build an interface from, which is what the web interface does:
+
+```js
+listRules()[0];
+// {
+//   id: 'structure/dedup', category: 'materials', severity: 'info',
+//   tier: 'basic', feature: 'safe', fixSafety: 'provable',
+//   reversible: true, dataLoss: 'none', runAfter: [], touches: [...]
+// }
+```
+
+`fixSafety` says how well the safety of the fix can be proven, `dataLoss` and `reversible`
+say what it costs. Nothing about a rule is hidden from the caller.
 
 The full contract is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §4b.
 
@@ -296,8 +338,10 @@ The honest list of what the tool doesn't do, or doesn't do fully.
   trust it; use `draco` instead.
 - **Texture dimensions aren't checked.** The platform threshold is recorded and shown,
   but the core doesn't yet expose texture width and height.
-- **One target platform** — web on three.js. Profiles for other targets exist as data,
-  but shipping them would be premature: today they'd differ only by their label.
+- **One target platform** — web on three.js. Profiles for mobile, Quest and Shopify exist
+  as data and carry real numbers (triangle and VRAM budgets, texture limits), but they are
+  drafts: nobody has measured a model against them. They ship switched off (`enabled: false`)
+  and are not offered in the interface.
 - **Batch processing is command-line only**; the web interface takes one model at a time.
 
 ---

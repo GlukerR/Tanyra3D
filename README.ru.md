@@ -227,9 +227,21 @@ node optimize2.mjs --passthrough            # ничего не применят
 
 ### Программный интерфейс
 
-```js
-import { optimizeFile, listRules, VERSION } from './optimize2.mjs';
+Пять функций наружу — помещаются на один экран:
 
+```js
+import {
+  optimizeFile,   // прогнать файл через пайплайн
+  inspectFile,    // метаданные и проверки, ничего не меняя
+  exportJson,     // ассет как самодостаточный JSON
+  listRules,      // все правила и всё, что каждое о себе объявляет
+  VERSION,
+} from './optimize2.mjs';
+```
+
+**Оптимизация:**
+
+```js
 const result = await optimizeFile('model.glb', {
   advancedFeatures: ['safe', 'draco'],
   outDir: 'output',
@@ -240,6 +252,37 @@ console.log(result.metrics.before, result.metrics.after);
 console.log(result.applied);             // что реально применилось
 console.log(result.validation);          // результаты проверок
 ```
+
+**Анализ, ничего не трогая.** Два способа, и отвечают они на разные вопросы.
+`inspectFile` читает ассет как есть; `dryRun` прогоняет весь пайплайн и рассказывает,
+что *случилось бы*, не записывая файла:
+
+```js
+await inspectFile('model.glb');          // { format, asset, extensions, metadata, validation }
+
+const preview = await optimizeFile('model.glb', {
+  advancedFeatures: ['safe', 'ktx2'],
+  dryRun: true,                          // полный анализ и отчёт, файл не пишется
+});
+preview.findings;                        // что нашлось
+preview.skipped;                         // что не сделано и почему
+```
+
+**Спросить, что движок вообще умеет.** `listRules()` отдаёт полное объявление каждого
+правила — этого хватает, чтобы построить по нему интерфейс, что веб-интерфейс и делает:
+
+```js
+listRules()[0];
+// {
+//   id: 'structure/dedup', category: 'materials', severity: 'info',
+//   tier: 'basic', feature: 'safe', fixSafety: 'provable',
+//   reversible: true, dataLoss: 'none', runAfter: [], touches: [...]
+// }
+```
+
+`fixSafety` говорит, насколько доказуема безопасность исправления, `dataLoss` и
+`reversible` — чем за него платят. Ничего из того, что правило знает о себе, от
+вызывающего не спрятано.
 
 Полный контракт — в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §4b.
 
@@ -287,7 +330,9 @@ npm test
 - **Размерность текстур не проверяется.** Порог платформы записан и показывается, но
   ядро пока не отдаёт ширину и высоту текстур.
 - **Целевая платформа одна** — веб на three.js. Профили других площадок готовы как
-  данные, но включать их рано: пока они отличались бы только подписью.
+  данные и несут настоящие числа (бюджеты по треугольникам и видеопамяти, предел размера
+  текстур), но это черновики: по ним никто не мерил ни одной модели. Поэтому они лежат
+  выключенными (`enabled: false`) и в интерфейсе не предлагаются.
 - **Пакетная обработка есть только в командной строке**, в веб-интерфейсе — по одной
   модели.
 
