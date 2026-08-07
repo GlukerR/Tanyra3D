@@ -300,14 +300,14 @@ That person is what the program is meant to be.
 
 ## Documentation
 
-| File | About |
-|---|---|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | core design, API contracts |
-| [`docs/EXTENDING.md`](docs/EXTENDING.md) | how to add your own rule |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | how to contribute |
+| File | About | Language |
+|---|---|---|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | core design, API contracts | English |
+| [`docs/EXTENDING.md`](docs/EXTENDING.md) | how to add your own rule | Russian |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | how to contribute | English |
 
-Most documentation is currently written in Russian — the project is young and grew that
-way. Translating it is welcome work, and a good first contribution.
+The project grew up in Russian, so some documents are still in it. Translating them is
+welcome work, and a good first contribution.
 
 ---
 

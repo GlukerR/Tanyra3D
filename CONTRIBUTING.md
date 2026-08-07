@@ -124,13 +124,13 @@ whether it may be redistributed. Without that the model isn't accepted.
 
 ## Language
 
-Code comments and most documentation in this repository are currently in Russian — the
-project is young and grew that way. English is used for the interface catalogs
-(`ui/locales/`) and for this document.
+The project grew up in Russian, so the code comments still are. English is used for the
+README, this document, `docs/ARCHITECTURE.md` (the design and the API contracts), and the
+interface catalogs (`ui/locales/`). `docs/EXTENDING.md` is still Russian.
 
-**Contributions in English are welcome**, including translations of the existing
-documentation — that's a genuinely useful first contribution. You don't need Russian to
-work on the engine: the architecture documents are being translated, and issues in
+**Contributions in English are welcome**, including translations of what is still in
+Russian — that's a genuinely useful first contribution. You don't need Russian to work on
+the engine: everything you need to understand the contracts is in English, and issues in
 English get answered in English.
 
 ## License
