@@ -33,7 +33,7 @@ import path from 'node:path';
 import { optimizeFile } from '../optimize2.mjs';
 import { localizeResult } from '../core/i18n.mjs';
 import gltfAddon from '../addons/gltf/index.mjs';
-import { TOKTX, GLTF_CLI } from '../addons/gltf/tools.mjs';
+import { TOKTX, HAS_GLTF_CLI } from '../addons/gltf/tools.mjs';
 import { modelPath, eachModel, describeIfModels } from './helpers/model-files.mjs';
 
 // ---- инструменты: чтение выходного .glb для контроля картинок ----
@@ -242,7 +242,7 @@ describeIfModels(['ABeautifulGame.glb'], 'WebP — ABeautifulGame (33 JPEG)', ()
 //
 // Если toktx/gltf-transform CLI не установлены — ktx2-правило откажется
 // (ktx2.noTools), и тест теряет смысл: пропускаем с понятным маркером.
-const KTXToolsAvailable = Boolean(TOKTX && GLTF_CLI);
+const KTXToolsAvailable = Boolean(TOKTX && HAS_GLTF_CLI);
 
 describeIfModels(['SunglassesKhronos.glb'], 'WebP × KTX2 — предсказуемость при обеих опциях', () => {
   if (!KTXToolsAvailable) {

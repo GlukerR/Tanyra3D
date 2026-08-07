@@ -19,11 +19,42 @@ function findInPath(names) {
   return null;
 }
 
+// CLI ищем СНАЧАЛА среди своих зависимостей, потом в PATH.
+//
+// Раньше он искался только в PATH, то есть человек обязан был отдельно поставить
+// его глобально — и узнавал об этом, когда KTX2 уже отказался работать. Теперь
+// пакет стоит в зависимостях и приезжает вместе с `npm install`; поиск в PATH
+// остался запасным путём для тех, у кого он уже стоит глобально.
+function findLocalCli() {
+  try {
+    const pkgJson = new URL('../../node_modules/@gltf-transform/cli/package.json', import.meta.url);
+    const dir = path.dirname(pkgJson.pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+    if (!fs.existsSync(path.join(dir, 'package.json'))) return null;
+    return dir;
+  } catch {
+    return null;
+  }
+}
+
+const LOCAL_CLI_DIR = findLocalCli();
+
 export const GLTF_CLI = findInPath(['gltf-transform.cmd', 'gltf-transform']);
 
 // JS-вход CLI: вызываем его напрямую текущим node, минуя .cmd-обёртку
 // (.cmd внутри вызывает "node" через shell — ломается двойным слоем кавычек на Windows)
 function findCliJs() {
+  // своя зависимость важнее глобальной: её версия сверена с ядром
+  if (LOCAL_CLI_DIR) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(LOCAL_CLI_DIR, 'package.json'), 'utf8'));
+      let bin = pkg.bin;
+      if (bin && typeof bin === 'object') bin = bin['gltf-transform'] || Object.values(bin)[0];
+      if (typeof bin === 'string') {
+        const p = path.join(LOCAL_CLI_DIR, bin);
+        if (fs.existsSync(p)) return p;
+      }
+    } catch { /* повреждённый пакет — пробуем PATH */ }
+  }
   if (!GLTF_CLI) return null;
   const pkgDir = path.join(path.dirname(GLTF_CLI), 'node_modules', '@gltf-transform', 'cli');
   try {
@@ -38,6 +69,11 @@ function findCliJs() {
   return null;
 }
 export const GLTF_CLI_JS = findCliJs();
+
+// Один ответ на вопрос «CLI вообще есть?». До появления локальной зависимости
+// правило и тесты спрашивали GLTF_CLI (только PATH) — теперь этого мало: пакет
+// может стоять в node_modules, а в PATH его нет, и проверка соврала бы «нет».
+export const HAS_GLTF_CLI = Boolean(GLTF_CLI_JS || GLTF_CLI);
 
 function findToktx() {
   // gltf-transform CLI v4 требует бинарник `ktx` (KTX-Software 4.3+); toktx — запасной признак установки

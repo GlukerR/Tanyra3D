@@ -10,9 +10,12 @@
   },
   "scripts": {
     "start": "node server.mjs",
-    "test": "vitest run"
+    "test": "vitest run",
+    "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/setup.mjs --check"
   },
   "dependencies": {
+    "@gltf-transform/cli": "^4.4.2",
     "@gltf-transform/core": "^4.2.0",
     "@gltf-transform/extensions": "^4.2.0",
     "@gltf-transform/functions": "^4.2.0",

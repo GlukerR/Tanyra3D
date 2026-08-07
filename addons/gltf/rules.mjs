@@ -23,7 +23,7 @@ import { MeshoptEncoder } from 'meshoptimizer';
 
 import { render } from '../../core/i18n.mjs';
 import { collectMetrics, countTriangles, effectiveSkins, listSemantics } from './metrics.mjs';
-import { GLTF_CLI, TOKTX, runCli } from './tools.mjs';
+import { HAS_GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 
 // Раздел текстур на «данные» и «цвет». Нормали, occlusion и roughness — это ЧИСЛА,
 // закодированные картинкой, а не картинка: у них нет цветности, которую можно
@@ -628,7 +628,7 @@ export const RULES = [
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
     canFix() {
-      if (!TOKTX || !GLTF_CLI) {
+      if (!TOKTX || !HAS_GLTF_CLI) {
         return { safe: false, messageId: 'ktx2.noTools', data: {} };
       }
       return { safe: true, messageId: 'ktx2.safe', data: {} };

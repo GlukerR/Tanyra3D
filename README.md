@@ -2,26 +2,28 @@
 
 # Tanyra3D
 
-**Оптимизатор 3D-моделей для веба, который объясняет, что он сделал и почему.**
+**A 3D model optimizer for the web that tells you what it did — and why.**
 
-[![Лицензия](https://img.shields.io/badge/лицензия-Apache--2.0-blue)](LICENSE)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Node](https://img.shields.io/badge/Node-18%2B-brightgreen)](https://nodejs.org/)
-[![Версия](https://img.shields.io/badge/версия-0.0.9-orange)](#статус)
-[![Платформы](https://img.shields.io/badge/платформы-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#установка)
+[![Version](https://img.shields.io/badge/version-0.0.9-orange)](#status)
+[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#install)
 
-Вы кладёте `.glb`, отмечаете нужные галочки, получаете модель меньшего веса — и отчёт
-человеческим языком: что нашлось, что применилось, что осталось нетронутым и по какой
-причине.
+Drop in a `.glb`, tick the boxes you want, get a smaller model back — along with a
+report in plain language: what was found, what was applied, what was left alone, and
+for what reason.
 
-**Ничего не происходит молча.**
+**Nothing happens silently.**
+
+[Русская версия](README.ru.md)
 
 </div>
 
 ---
 
-## Что это даёт на деле
+## What it actually does
 
-Один прогон, настоящие цифры, без флагов и настроек:
+One run, real numbers, no flags and no configuration:
 
 ```
 $ node optimize2.mjs
@@ -39,176 +41,180 @@ phase 4/5 · validation
 [DONE] Instance Grid 01.glb: file 0.95 → 0.19 MB (−80%)
 ```
 
-Файл ужался впятеро. Треугольники, отрисовки, скины и анимации — все на месте, и это
-не обещание, а проверка: движок сверил результат со снимком, сделанным до обработки.
+Five times smaller. Triangles, draw calls, skins and animations all intact — and that
+is not a promise but a check: the engine compared the result against a snapshot taken
+before the work started.
 
 ---
 
-## Чем отличается от `gltf-transform optimize`
+## How this differs from `gltf-transform optimize`
 
-Готовая команда `gltf-transform optimize` по умолчанию включает упрощение полигонов и
-уменьшение текстур. Для каталога товаров или портфолио это неприемлемо: модель, за
-которую заплатили, приходит обратно огрублённой.
+The stock `gltf-transform optimize` command enables mesh simplification and texture
+downscaling by default. For a product catalog or a portfolio that is unacceptable: the
+model somebody paid for comes back coarser than it went in.
 
-Здесь два принципиальных отличия.
+Two things are different here.
 
-### Всё выключено по умолчанию
+### Everything is off by default
 
-Пустой список оптимизаций означает, что файл прочитается, проверится и запишется без
-единого изменения. Каждая оптимизация включается отдельно и сопровождается честным
-описанием: что она делает, обратима ли, теряются ли данные, и нужен ли декодер на
-стороне сайта.
+An empty list of optimizations means the file is read, validated and written back
+without a single change. Each optimization is enabled explicitly and comes with an
+honest description: what it does, whether it is reversible, whether data is lost, and
+whether the target site needs a decoder for it.
 
-### Результат проверяется, а не подразумевается
+### The result is verified, not assumed
 
-После обработки движок сверяет структуру модели со снимком, сделанным до сжатия:
-треугольники, вершины, вызовы отрисовки, скины, анимации, morph-таргеты, набор
-атрибутов.
+After processing, the engine compares the model against a snapshot taken beforehand:
+triangles, vertices, draw calls, skins, animations, morph targets, attribute set.
 
-Если что-то разошлось — сверху появляется **красное предупреждение** с перечислением
-расхождений, и отчёт объясняет, что именно сломалось. Файл при этом всё равно
-записывается и его можно скачать: решение, годится результат или нет, остаётся за
-человеком.
+If anything drifted, a **red warning** appears at the top listing the differences, and
+the report explains what broke. The file is still written and can still be downloaded —
+whether the result is good enough is the human's call, not the tool's.
 
-> Молча отдать испорченную модель, поломку которой не видно на глаз, — вот чего здесь
-> не бывает.
+> Quietly handing back a broken model whose damage isn't visible to the eye is the one
+> thing this tool will not do.
 
 ---
 
-## Что умеет
+## What it can do
 
-| Оптимизация | Что делает | Потери | Нужен декодер на сайте |
+| Optimization | What it does | Data loss | Decoder needed on site |
 |---|---|---|:---:|
-| **safe** | Дедупликация материалов и текстур, удаление неиспользуемых данных и UV-каналов, сварка совпадающих вершин, вырезание вырожденных треугольников | нет | нет |
-| **join** | Объединение мешей — меньше вызовов отрисовки | нет, но части перестают быть отдельными объектами | нет |
-| **instance** | Повторяющиеся меши → инстансинг на видеокарте | нет | нет |
-| **meshopt** | Сжатие геометрии | нет | да |
-| **draco** | Сжатие геометрии, сильнее и медленнее | нет | да |
-| **quantize** | Уплотнение чисел в геометрии | почти незаметные | **нет** |
-| **ktx2** | Текстуры в KTX2: экономит и загрузку, и видеопамять | почти незаметные | да |
-| **webp** | Текстуры в WebP | почти незаметные | нет |
-| **resample** | Прореживание избыточных кадров анимации | нет | нет |
-| **strip-colors** | Удаление вершинных цветов | **да**, только явным включением | нет |
+| **safe** | Deduplicate materials and textures, drop unused data and UV channels, weld matching vertices, cut degenerate triangles | none | no |
+| **join** | Merge meshes — fewer draw calls | none, but parts stop being separate objects | no |
+| **instance** | Repeated meshes → GPU instancing | none | no |
+| **meshopt** | Geometry compression | none | yes |
+| **draco** | Geometry compression, stronger and slower | none | yes |
+| **quantize** | Pack geometry numbers tighter | barely visible | **no** |
+| **ktx2** | Textures to KTX2: saves both download and video memory | barely visible | yes |
+| **webp** | Textures to WebP | barely visible | no |
+| **resample** | Thin out redundant animation keyframes | none | no |
+| **strip-colors** | Remove vertex colors | **yes**, opt-in only | no |
 
-Число полигонов не меняется ни одной из них — упрощение геометрии здесь отсутствует
-намеренно.
+None of them changes the polygon count. Mesh simplification is deliberately absent.
 
 <details>
-<summary><b>Почему инстансинг отмечается автоматически</b></summary>
+<summary><b>Why instancing gets ticked automatically</b></summary>
 
 <br>
 
-`instance` включается сам, если в модели найдена общая геометрия — несколько узлов на
-один меш. Дело не только в экономии отрисовок.
+`instance` turns itself on when shared geometry is found — several nodes pointing at one
+mesh. This isn't only about saving draw calls.
 
-`join` обязан запекать трансформ каждого узла в вершины, то есть **размножать общую
-геометрию в копии**. Узлы с инстансингом он не трогает вовсе. На шахматной доске из
-эталонов Khronos разница между «`join` без инстансинга» и «с ним» — **75.5 МБ против
-41.0 МБ** при одинаковом результате по отрисовкам.
+`join` has to bake each node's transform into the vertices, which means **multiplying
+shared geometry into copies**. Nodes carrying instancing it doesn't touch at all. On the
+chess set from the Khronos reference models, the difference between "join without
+instancing" and "with it" is **75.5 MB versus 41.0 MB** for the same draw-call result.
 
 </details>
 
 ---
 
-## Как это работает
+## How it works
 
 ```mermaid
 flowchart LR
-    A[Модель] --> B[Анализ]
-    B --> C[План]
-    C --> D[Применение]
-    D --> E[Проверка]
-    E --> F[Отчёт]
+    A[Model] --> B[Analyze]
+    B --> C[Plan]
+    C --> D[Apply]
+    D --> E[Verify]
+    E --> F[Report]
 
-    B -.->|снимок структуры| E
-    E -.->|расхождение| G[Красное<br/>предупреждение]
-    F --> H[Результат<br/>+ отчёт .md]
+    B -.->|structure snapshot| E
+    E -.->|mismatch| G[Red<br/>warning]
+    F --> H[Result<br/>+ .md report]
     G --> H
 ```
 
-Каждая оптимизация — самостоятельное правило со своими метаданными: насколько серьёзна
-находка, доказуемо ли безопасно исправление, обратимо ли оно, какие данные затрагивает,
-после каких других правил должно выполняться. Движок сам строит порядок и сам решает,
-что применять: до уровня «незаметно глазу» включительно автоматически, потери — только
-явным включением.
+Every optimization is a self-contained rule carrying its own metadata: how serious the
+finding is, whether the fix is provably safe, whether it is reversible, which data it
+touches, which other rules must run first. The engine builds the order itself and
+decides what to apply: anything up to "invisible to the eye" runs automatically, while
+anything lossy requires an explicit opt-in.
 
-Ядро (`core/`) не знает про glTF. Всё, что относится к формату, живёт в аддоне
-(`addons/gltf/`). Это сделано ради второго формата, а не ради красоты.
+The core (`core/`) knows nothing about glTF. Everything format-specific lives in an
+add-on (`addons/gltf/`). That split exists for the sake of a second format, not for
+elegance.
 
 ---
 
-## Установка
+## Install
 
-Нужен [Node.js](https://nodejs.org/) 18 или новее. Работает на Windows, macOS и Linux.
+You need [Node.js](https://nodejs.org/) 18 or newer. Works on Windows, macOS and Linux.
 
 ```bash
-git clone https://github.com/GlukerR/Tanyra3D.git
-cd Tanyra3D
-npm install
+git clone https://github.com/GlukerR/Tanyra3D.git && cd Tanyra3D && npm install && npm run setup
 ```
 
+That's it. `npm install` pulls everything installable from npm — including the texture
+encoding CLI — and `npm run setup` fetches the browser used by the tests and checks the
+rest of your environment.
+
 <details>
-<summary><b>Дополнительно — для сжатия текстур в KTX2</b></summary>
+<summary><b>What <code>npm run setup</code> reports</b></summary>
 
 <br>
 
-Нужны **два** внешних инструмента:
+```
+Tanyra3D — environment check
 
-```bash
-npm install -g @gltf-transform/cli
+  ✓ Node 20.11.0
+  ✓ Dependencies installed
+  ✓ Texture encoding tool (@gltf-transform/cli)
+  • KTX2 encoder not found — KTX2 texture compression will be unavailable
+        Everything else works. To install it:
+          brew install ktx
 ```
 
-и [KTX-Software](https://github.com/KhronosGroup/KTX-Software/releases) — отсюда берётся
-`ktx`.
+There is exactly one thing npm cannot install: `ktx` from **KTX-Software**, a native
+Khronos program. The script prints the one-line command for your system rather than
+downloading executables behind your back.
 
-Программа ищет оба в `PATH`; на Windows дополнительно смотрит в
-`C:\Program Files\KTX-Software\bin`, на macOS и Linux достаточно, чтобы `ktx --version`
-отвечал из терминала.
+Run `npm run doctor` any time to re-check without changing anything.
 
-Нужны именно оба: без любого из них KTX2 честно сообщит, что инструмент не найден, и
-воздержится. Все остальные оптимизации при этом работают.
+Without `ktx`, everything except KTX2 compression works normally, and KTX2 says plainly
+that the tool is missing instead of failing obscurely.
 
 </details>
 
 ---
 
-## Три способа запустить
+## Three ways to run it
 
-### Веб-интерфейс
+### Web interface
 
 ```bash
 npm start
 ```
 
-Откроется `http://localhost:3210`. Перетащите модель, выберите платформу, отметьте
-оптимизации, нажмите **«Собрать оптимизированную модель»**. Слева исходник, справа
-результат, между ними — цифры
-«было → стало» и отчёт. Модель проигрывается в обоих окнах одновременно, с общей
-камерой и общим временем анимации.
+Opens `http://localhost:3210`. Drag in a model, pick a target platform, tick the
+optimizations, press **Build optimized model**. Source on the left, result on the right,
+before/after numbers and the report in between. The model plays in both viewports at
+once, sharing camera and animation time.
 
-Всё работает локально. Модели никуда не загружаются.
+Everything runs locally. Models are never uploaded anywhere.
 
-### Командная строка
+### Command line
 
 ```bash
-node optimize2.mjs                          # пресет: safe + meshopt + join
-node optimize2.mjs draco                    # то же, но Draco вместо Meshopt
-node optimize2.mjs --keep-parts             # без объединения мешей
-node optimize2.mjs --ktx2                   # добавить сжатие текстур
-node optimize2.mjs --dry-run                # полный анализ и отчёт, ничего не записывая
-node optimize2.mjs --passthrough            # ничего не применять, только проверить
+node optimize2.mjs                          # preset: safe + meshopt + join
+node optimize2.mjs draco                    # same, Draco instead of Meshopt
+node optimize2.mjs --keep-parts             # without merging meshes
+node optimize2.mjs --ktx2                   # add texture compression
+node optimize2.mjs --dry-run                # full analysis and report, writing nothing
+node optimize2.mjs --passthrough            # apply nothing, just validate
 ```
 
-Файлы берутся из `input/`, результат и отчёт `имя.report.md` кладутся в `output/`.
-Обрабатывается **вся папка разом** — это и есть пакетный режим; в веб-интерфейсе модели
-идут по одной.
+Input comes from `input/`, results and an `name.report.md` land in `output/`. The whole
+folder is processed at once — that is the batch mode; the web interface handles one
+model at a time.
 
 > [!NOTE]
-> В командной строке без флагов применяется пресет, а не passthrough — так сложилось
-> исторически, и поведение сохранено, чтобы не ломать существующие скрипты. Программный
-> интерфейс и веб-интерфейс по умолчанию не делают ничего.
+> On the command line, running without flags applies a preset rather than a passthrough.
+> That's historical, and the behaviour is preserved so existing scripts don't break. The
+> programmatic and web interfaces do nothing by default.
 
-### Программный интерфейс
+### Programmatic
 
 ```js
 import { optimizeFile, listRules, VERSION } from './optimize2.mjs';
@@ -220,102 +226,102 @@ const result = await optimizeFile('model.glb', {
 
 console.log(result.status);              // 'ok' | 'fail'
 console.log(result.metrics.before, result.metrics.after);
-console.log(result.applied);             // что реально применилось
-console.log(result.validation);          // результаты проверок
+console.log(result.applied);             // what was actually applied
+console.log(result.validation);          // validation results
 ```
 
-Полный контракт — в [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §4b.
+The full contract is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §4b.
 
 ---
 
-## Тесты
+## Tests
 
 ```bash
 npm test
 ```
 
-Тесты интеграционные: настоящие модели через настоящий пайплайн, без моков.
+The tests are integration tests: real models through the real pipeline, no mocks.
 
-Часть из них открывает модель в настоящем браузере — для этого нужен Chromium
-(`npx playwright install chromium`). Без него: `npm test -- --project node`.
+Some of them open the model in an actual browser — `npm run setup` installs what they
+need. Without it: `npm test -- --project node`.
 
-В репозитории лежит небольшой корпус моделей, сделанных специально для проверки —
-намеренно «грязный» куб, сетка связанных дубликатов, несвязанные копии одной геометрии
-без нормалей, morph-таргеты, вершинные цвета, уже сжатый вход, уже инстансированная
-сцена, сцена без геометрии, файл из одних текстур, две сцены в одном файле, заведомо
-битый файл. Их достаточно, чтобы набор был зелёным сразу после клонирования.
+The repository ships a small corpus of models built specifically for testing — a
+deliberately dirty cube, a grid of linked duplicates, unlinked copies of one mesh
+without normals, morph targets, vertex colors, already-compressed input, an
+already-instanced scene, a scene with no geometry, a file that is nothing but textures,
+two scenes in one file, a deliberately truncated file. Enough for the suite to be green
+straight after cloning.
 
-Тесты, которым нужны более тяжёлые модели, помечаются пропущенными с указанием причины —
-это видно в отчёте прогона, а не растворяется.
-
----
-
-## Ограничения
-
-Честный список — то, чего программа пока не делает или делает не полностью.
-
-- **Проверка анимаций и скинов — счётная.** Движок следит, чтобы клипы и скины не
-  пропали, но не сравнивает их содержимое покадрово. Глазами сверить можно во вьюере.
-- **`meshopt` на персонажах с морф-таргетами** может испортить скиннинг. Пайплайн это
-  обнаруживает и помечает результат красным предупреждением — файл записывается, но
-  доверять ему не стоит; используйте `draco`.
-- **Размерность текстур не проверяется.** Порог платформы записан и показывается, но
-  ядро пока не отдаёт ширину и высоту текстур.
-- **Целевая платформа одна** — веб на three.js. Профили других площадок готовы как
-  данные, но включать их рано: пока они отличались бы только подписью.
-- **Пакетная обработка есть только в командной строке**, в веб-интерфейсе — по одной
-  модели.
+Tests that need heavier models are reported as skipped with the reason stated — visible
+in the run output rather than dissolved into silence.
 
 ---
 
-## Статус
+## Limitations
 
-**0.0.9, ранняя разработка.** Ядро, веб-интерфейс и вьюер работают, набор тестов
-зелёный, публичного релиза ещё не было. API может меняться.
+The honest list of what the tool doesn't do, or doesn't do fully.
 
-Ближайшее — настольное приложение с обычным установщиком вместо терминала.
-
-Сейчас программа открывается в браузере, но это временная форма, а не замысел. Тот, для
-кого она делается, не должен разбираться в сотне флажков и запускать что-то из
-терминала: установил в один клик, перетащил модель, получил результат с объяснением.
-
----
-
-## Зачем это всё
-
-Небольшие студии и художники, работающие в одиночку, сталкиваются с теми же
-требованиями к весу и совместимости, что и крупные команды, — но без человека, который
-переведёт эти требования на понятный язык.
-
-Этим человеком и должна быть программа.
+- **Animation and skin verification is by count.** The engine makes sure clips and skins
+  don't disappear, but doesn't compare their contents frame by frame. You can check by
+  eye in the viewer.
+- **`meshopt` on characters with morph targets** can corrupt skinning. The pipeline
+  detects this and flags the result with a red warning — the file is written, but don't
+  trust it; use `draco` instead.
+- **Texture dimensions aren't checked.** The platform threshold is recorded and shown,
+  but the core doesn't yet expose texture width and height.
+- **One target platform** — web on three.js. Profiles for other targets exist as data,
+  but shipping them would be premature: today they'd differ only by their label.
+- **Batch processing is command-line only**; the web interface takes one model at a time.
 
 ---
 
-## Документация
+## Status
 
-| Файл | О чём |
+**0.0.9, early development.** Core, web interface and viewer work, the test suite is
+green, there has been no public release yet. The API may still change.
+
+Next up is a desktop application with an ordinary installer instead of a terminal.
+
+The browser is the current shape, not the intent. The people this is built for shouldn't
+have to work through a hundred checkboxes or launch anything from a terminal: install in
+one click, drop in a model, get a result with an explanation.
+
+---
+
+## Why this exists
+
+Small studios and artists working alone face the same weight and compatibility
+requirements as large teams — but without the person who translates those requirements
+into plain language.
+
+That person is what the program is meant to be.
+
+---
+
+## Documentation
+
+| File | About |
 |---|---|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | устройство ядра, контракты API |
-| [`docs/EXTENDING.md`](docs/EXTENDING.md) | как добавить своё правило |
-| [`docs/ЗАВИСИМОСТИ.md`](docs/ЗАВИСИМОСТИ.md) | от чего зависит ядро и почему |
-| [`docs/СЛОВАРЬ_формулировок.md`](docs/СЛОВАРЬ_формулировок.md) | технический термин → человеческий язык |
-| [`docs/ВОПРОСЫ_И_ОТВЕТЫ.md`](docs/ВОПРОСЫ_И_ОТВЕТЫ.md) | частые вопросы |
-| [`tests/КАРТА_ТЕСТОВ.md`](tests/КАРТА_ТЕСТОВ.md) | карта тестов: пять слоёв, куда класть новое |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | как участвовать |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | core design, API contracts |
+| [`docs/EXTENDING.md`](docs/EXTENDING.md) | how to add your own rule |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | how to contribute |
+
+Most documentation is currently written in Russian — the project is young and grew that
+way. Translating it is welcome work, and a good first contribution.
 
 ---
 
-## Участие
+## Contributing
 
-Правки приветствуются — начните с [`CONTRIBUTING.md`](CONTRIBUTING.md). Там немного:
-пять принципов, каждый из которых введён после того, как его нарушение стоило времени.
+Patches are welcome — start with [`CONTRIBUTING.md`](CONTRIBUTING.md). It's short: five
+principles, each of which was introduced after breaking it cost somebody time.
 
-## Лицензия
+## License
 
 [Apache-2.0](LICENSE).
 
-Модели в `fixtures/models/`, помеченные как распространяемые, сделаны автором проекта и
-подпадают под ту же лицензию. Единственное исключение — `Unlinked Duplicates 01.glb`:
-её геометрия это Suzanne, обезьяна-талисман из Blender; происхождение отмечено в её
-`.license.md`. Остальные модели, используемые при разработке, в репозиторий не входят —
-у каждой своя лицензия.
+Models under `fixtures/models/` marked as redistributable were made by the project author
+and fall under the same license. The one exception is `Unlinked Duplicates 01.glb`: its
+geometry is Suzanne, the Blender mascot; the origin is noted in its `.license.md`. Other
+models used during development are not included in the repository — each has its own
+license.

@@ -1,141 +1,138 @@
-# Как участвовать
+# Contributing
 
-Спасибо, что заглянули. Ниже — то, что стоит знать до первой правки: не
-формальности, а несколько принципов, каждый из которых введён после того, как
-его нарушение стоило времени.
+Thanks for looking. Below is what's worth knowing before your first change: not
+formalities, but a handful of principles — each introduced after breaking it cost
+somebody time.
 
-## С чего начать
+[Русская версия](CONTRIBUTING.ru.md)
+
+## Getting started
 
 ```bash
-git clone <адрес репозитория>
-cd tanyra3d
-npm install
+git clone https://github.com/GlukerR/Tanyra3D.git && cd Tanyra3D && npm install && npm run setup
 npm test
 ```
 
-Набор должен быть зелёным сразу после клонирования. Если нет — это ошибка на
-нашей стороне, заведите задачу.
+The suite should be green straight after cloning. If it isn't, that's a bug on our side —
+please open an issue.
 
-Часть тестов открывает модель в настоящем браузере, для них нужен Chromium:
-`npx playwright install chromium`. Без него гоняйте `npm test -- --project node`.
+`npm run doctor` re-checks your environment without changing anything.
 
-Устройство проекта — [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), как добавить
-своё правило — [`docs/EXTENDING.md`](docs/EXTENDING.md), карта тестов —
-[`tests/КАРТА_ТЕСТОВ.md`](tests/КАРТА_ТЕСТОВ.md).
+Design overview: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Adding your own rule:
+[`docs/EXTENDING.md`](docs/EXTENDING.md).
 
-## Главный принцип: ничего не происходит молча
+## The core principle: nothing happens silently
 
-Это не стиль, а суть продукта. Человек отдаёт файл, за который заплатил, и
-должен получить обратно либо то, что понимает, либо честный отказ.
+This isn't a style preference, it's the point of the product. Somebody hands over a file
+they paid for, and must get back either something they understand or an honest refusal.
 
-Отсюда следует, что **каждое правило обязано объяснять себя**: что нашло, что
-сделало, чего не стало делать и почему. Правило, которое молча ничего не
-предприняло, — дефект, даже если оно ничего не сломало.
+It follows that **every rule must explain itself**: what it found, what it did, what it
+declined to do and why. A rule that quietly did nothing is a defect, even if it broke
+nothing.
 
-## Пять правил, о которые чаще всего спотыкаются
+## Five rules people trip over most
 
-### 1. Всё выключено по умолчанию
+### 1. Everything is off by default
 
-Пустой список оптимизаций означает: файл прочитается, проверится и запишется без
-единого изменения. Новое правило приходит выключенным. Автоматически включается
-только то, что доказуемо безопасно.
+An empty list of optimizations means the file is read, validated and written back
+unchanged. A new rule arrives disabled. Only what is provably safe turns itself on.
 
-### 2. Текст живёт отдельно от кода
+### 2. Text lives apart from code
 
-Ни одной строки, которую увидит человек, в логике — ни в движке, ни в правилах,
-ни в интерфейсе. Всё берётся по ключу из каталогов: `ui/locales/`,
+Not one string a human will read belongs in logic — not in the engine, not in the rules,
+not in the interface. Everything is looked up by key from catalogs: `ui/locales/`,
 `translations/`, `addons/*/messages/`, `core/messages/`.
 
-Из этого следуют три вещи, которые нарушают чаще всего:
+Three consequences, all of them violated at some point:
 
-- **Строку нельзя склеивать в коде.** «Заголовок — причина», «Файл: X → Y (Z)» —
-  это одно сообщение с подстановками, а не сложение кусков. Разделитель и
-  порядок слов — часть языка.
-- **Смена языка ничего не пересчитывает.** Это перерисовка: ни перезагрузки
-  модели, ни пересборки, ни сброса галочек. Готовый отчёт переводится без
-  повторного прогона — записи несут рецепт своих строк (поле `i18n`).
-- **Подпись, которую ставит код, помечается ключом.** Иначе перевод статики
-  откатит её к исходному значению.
+- **Never concatenate a string in code.** "Title — reason", "File: X → Y (Z)" is one
+  message with substitutions, not a sum of pieces. The separator and the word order
+  belong to the language.
+- **Switching language recomputes nothing.** It is a redraw: no reloading the model, no
+  rebuilding, no resetting checkboxes. A finished report is translated without rerunning
+  anything — records carry the recipe for their own strings (the `i18n` field).
+- **A caption set by code is tagged with its key.** Otherwise translating the static
+  markup rolls it back to the original value.
 
-Подробности и образец — `docs/ARCHITECTURE.md` §4b.
+Details in `docs/ARCHITECTURE.md` §4b.
 
-### 3. Одна запись на класс случаев, а не на элемент
+### 3. One record per class of cases, not per element
 
-Правило, обходящее список (текстуры, меши, атрибуты, узлы), возвращает в отчёт
-**одну** запись про весь класс. Двадцать строк «карта данных в JPEG» подряд — это
-дефект, а не подробность.
+A rule walking a list (textures, meshes, attributes, nodes) returns **one** record about
+the whole class. Twenty consecutive lines of "data map stored as JPEG" is a defect, not
+detail.
 
-Схлопывать надо в источнике, а не в интерфейсе: интерфейс видит готовые строки и
-при попытке соврёт. Множественная форма — отдельный ключ (`*.many`), согласование
-числа принадлежит языку.
+Collapse at the source, not in the interface: the interface only sees finished strings
+and will lie if it tries. Plural forms get their own key (`*.many`) — number agreement
+belongs to language, not to substitution.
 
-Логов это не касается: там строка на элемент уместна, это поток событий.
+This does not apply to logs. There, one line per element is right: it's an event stream.
 
-Механика — `docs/EXTENDING.md` §5b.
+Mechanics in `docs/EXTENDING.md` §5b.
 
-### 4. Подсказки пишутся для новичка
+### 4. Hints are written for a beginner
 
-Подсказка у опции отвечает на два вопроса: **что это даст** и **чем за это
-платишь**. Больше ничего.
+An option's hint answers two questions: **what does this give me** and **what does it
+cost me**. Nothing else.
 
-Не писать в них идентификаторы расширений спецификации (`EXT_texture_webp`,
-`KHR_texture_basisu`), имена загрузчиков и библиотек, имена движков. Названия
-технологий из заголовка опции (KTX2, Draco, Meshopt, WebP) остаются — по ним
-человек ищет ответ в интернете, а идентификатор расширения не то слово, по
-которому ищут.
+Don't put spec extension identifiers (`EXT_texture_webp`, `KHR_texture_basisu`), library
+or loader names, or engine names into them. Technology names already in the option's
+title (KTX2, Draco, Meshopt, WebP) stay — people search the internet for those, and an
+extension identifier is not the word anybody searches for.
 
-Проверка одна: **поймёт ли это художник, который впервые открыл программу и не
-знает ни одного из этих слов?** Не поймёт — переписать, а не добавить пояснение
-в скобках.
+One test: **would an artist who just opened the program and knows none of these words
+understand this?** If not, rewrite it rather than adding a parenthetical.
 
-Словарь формулировок — `docs/СЛОВАРЬ_формулировок.md`.
+### 5. The result is verified, not assumed
 
-### 5. Результат проверяется, а не подразумевается
+After processing, the engine compares the model against a snapshot taken beforehand:
+triangles, vertices, draw calls, skins, animations, morph targets, attribute set. If
+anything drifted, a red warning appears at the top.
 
-После обработки движок сверяет структуру модели со снимком, сделанным до:
-треугольники, вершины, вызовы отрисовки, скины, анимации, морф-таргеты, набор
-атрибутов. Разошлось — сверху появляется красное предупреждение.
+A new rule must not be able to break that invariant unnoticed. If it legitimately changes
+one of those things, the report has to say so.
 
-Новое правило не должно уметь ломать этот инвариант незаметно. Если оно меняет
-что-то из перечисленного законно — это должно быть сказано в отчёте.
+## Tests
 
-## Тесты
+Integration tests: real models through the real pipeline, no mocks. Where to put a new
+test is described in `tests/КАРТА_ТЕСТОВ.md` (test map — five layers and the rule for
+choosing between them).
 
-Интеграционные: настоящие модели через настоящий пайплайн, без моков. Куда класть
-новый тест — `tests/КАРТА_ТЕСТОВ.md`, там пять слоёв и правило выбора.
+What you must not do in tests, even when it turns things green faster:
 
-Чего в тестах делать нельзя, даже если так быстрее зеленеет:
+- **weaken an assertion** so it stops catching anything (a 5% threshold must not become
+  50%, `toBe` must not become `toBeDefined`);
+- **skip a test without stating the reason in its name** — a skip has to say what's
+  missing;
+- **update snapshots blindly**, without looking at what changed.
 
-- **ослаблять утверждение**, чтобы оно перестало ловить (порог 5 % не превращать
-  в 50 %, `toBe` не превращать в `toBeDefined`);
-- **пропускать тест без причины в названии** — пропуск обязан говорить, чего не
-  хватает;
-- **править снапшоты вслепую**, не посмотрев, что изменилось.
+The repository ships a small model corpus built for testing. Models under third-party
+licenses are not included: tests that need them are skipped with the reason stated. If
+your test needs a model that isn't in the repository, use the existing helpers in
+`tests/helpers/model-files.mjs` rather than calling `fs.existsSync` by hand.
 
-В репозитории лежит небольшой корпус моделей (около 1 МБ), сделанных специально
-для проверки. Модели с чужой лицензией в репозиторий не входят: тесты, которым
-они нужны, пропускаются с указанием причины. Если ваш тест требует модели,
-которой нет в репозитории, — используйте готовые помощники из
-`tests/helpers/model-files.mjs`, а не `fs.existsSync` вручную.
+Adding a model to the corpus? Put a `.license.md` next to it stating its origin and
+whether it may be redistributed. Without that the model isn't accepted.
 
-Добавляете модель в корпус — рядом кладите `.license.md` с происхождением и
-ответом на вопрос, можно ли её распространять. Без этого модель не принимается.
+## Submitting changes
 
-## Оформление изменений
+- One branch per task: `feat/<short>` or `fix/<short>`.
+- One commit per meaningful change.
+- In the commit message, **why** matters more than *what* — what is visible in the diff.
+- A comment in the code explains the reason, it doesn't restate the line next to it.
+- `npm test` green before you send it.
 
-- Отдельная ветка на задачу: `feat/<кратко>` или `fix/<кратко>`.
-- Один коммит на одну смысловую правку.
-- В сообщении коммита важнее **почему**, чем «что» — что видно из diff.
-- Комментарий в коде объясняет причину, а не пересказывает соседнюю строку.
-- `npm test` зелёный до отправки.
+## Language
 
-## Языки
+Code comments and most documentation in this repository are currently in Russian — the
+project is young and grew that way. English is used for the interface catalogs
+(`ui/locales/`) and for this document.
 
-Код, комментарии и документация в этом репозитории — на русском. Английский
-живёт в каталогах строк (`ui/locales/`), потому что это язык интерфейса, а не
-язык разработки. Правки на английском тоже принимаются — переведём.
+**Contributions in English are welcome**, including translations of the existing
+documentation — that's a genuinely useful first contribution. You don't need Russian to
+work on the engine: the architecture documents are being translated, and issues in
+English get answered in English.
 
-## Лицензия
+## License
 
-Apache-2.0. Отправляя правку, вы соглашаетесь, что она распространяется на тех же
-условиях.
+Apache-2.0. By submitting a change you agree it is distributed under the same terms.

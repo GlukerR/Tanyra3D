@@ -40,7 +40,7 @@ import { optimizeFile } from '../optimize2.mjs';
 import { localizeResult } from '../core/i18n.mjs';
 import gltfAddon from '../addons/gltf/index.mjs';
 import { RULES } from '../addons/gltf/rules.mjs';
-import { TOKTX, GLTF_CLI } from '../addons/gltf/tools.mjs';
+import { TOKTX, HAS_GLTF_CLI } from '../addons/gltf/tools.mjs';
 import { modelPath, eachModel } from './helpers/model-files.mjs';
 import { densityViolations, DENSITY_LIMIT } from './helpers/report-density.mjs';
 
@@ -79,7 +79,7 @@ const MUTEX_PAIRS = [
   ...GEOMETRY_CODECS.flatMap((a, i) => GEOMETRY_CODECS.slice(i + 1).map((b) => [a, b])),
 ];
 
-const TOKTX_OK = Boolean(TOKTX && GLTF_CLI); // ktx2-правило гейтится обоими
+const TOKTX_OK = Boolean(TOKTX && HAS_GLTF_CLI); // ktx2-правило гейтится обоими
 
 // Соответствие фичи правилу (по meta.feature; draco и meshopt — одно правило).
 const featureRuleId = (f) => {
