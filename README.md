@@ -143,12 +143,19 @@ elegance.
 You need [Node.js](https://nodejs.org/) 18 or newer. Works on Windows, macOS and Linux.
 
 ```bash
-git clone https://github.com/GlukerR/Tanyra3D.git && cd Tanyra3D && npm install && npm run setup
+git clone https://github.com/GlukerR/Tanyra3D.git
+cd Tanyra3D
+npm install
+npm run setup
 ```
 
-That's it. `npm install` pulls everything installable from npm — including the texture
-encoding CLI — and `npm run setup` fetches the browser used by the tests and checks the
-rest of your environment.
+That's it — four lines and no decisions to make. `npm install` pulls everything installable
+from npm, including the texture encoding CLI; `npm run setup` fetches the browser the tests
+use, checks the rest of your environment, and offers to install the one thing npm cannot.
+
+> The lines are separate on purpose. Joining them with `&&` fails on **Windows PowerShell
+> 5.1**, which is still what a fresh Windows 10 or 11 gives you — `&&` arrived in PowerShell
+> 7, a separate install. Four lines work in every shell.
 
 <details>
 <summary><b>What <code>npm run setup</code> does</b></summary>

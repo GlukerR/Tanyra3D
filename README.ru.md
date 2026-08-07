@@ -144,12 +144,20 @@ flowchart LR
 Нужен [Node.js](https://nodejs.org/) 18 или новее. Работает на Windows, macOS и Linux.
 
 ```bash
-git clone https://github.com/GlukerR/Tanyra3D.git && cd Tanyra3D && npm install && npm run setup
+git clone https://github.com/GlukerR/Tanyra3D.git
+cd Tanyra3D
+npm install
+npm run setup
 ```
 
-Это всё. `npm install` тянет всё, что ставится из npm, — включая инструмент кодирования
-текстур, — а `npm run setup` докачивает браузер для тестов и проверяет остальное
-окружение.
+Это всё — четыре строки и ни одного решения по дороге. `npm install` тянет всё, что
+ставится из npm, включая инструмент кодирования текстур; `npm run setup` докачивает
+браузер для тестов, проверяет окружение и предлагает поставить то единственное, чего
+в npm нет.
+
+> Строки разделены намеренно. Склеенные через `&&`, они падают в **Windows PowerShell
+> 5.1** — а именно он стоит на свежей Windows 10 и 11. `&&` появился в PowerShell 7,
+> который ставится отдельно. Четыре строки работают в любой оболочке.
 
 <details>
 <summary><b>Что показывает <code>npm run setup</code></b></summary>

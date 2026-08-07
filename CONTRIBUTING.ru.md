@@ -9,7 +9,10 @@
 ## С чего начать
 
 ```bash
-git clone https://github.com/GlukerR/Tanyra3D.git && cd Tanyra3D && npm install && npm run setup
+git clone https://github.com/GlukerR/Tanyra3D.git
+cd Tanyra3D
+npm install
+npm run setup
 npm test
 ```
 
