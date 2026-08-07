@@ -265,8 +265,18 @@
   // Формат (glb/json) и расширение выбираются в окне; экспортёры добавляются там же.
   let resultDownloadUrl = null;
   let resultExportBase = 'model';
-  // Режим KTX2: 'uastc' (по умолчанию, безопасный/качественный) либо 'mixed' (ETC1S, макс. сжатие).
-  let ktx2Mode = 'uastc';
+  // Режим KTX2: 'uastc' (точнее) либо 'mixed' (ETC1S для цвета — легче).
+  //
+  // Начальное значение НЕ зашито здесь. Его советует площадка (defaults.texMode с
+  // /api/extensions), а интерфейс только показывает совет; выбор человека поверх
+  // него живёт в savedSelections. До 2026-08-07 тут стояло 'uastc' — и профиль
+  // площадки, объявлявший другой режим и объяснявший человеку почему, не мог на
+  // это повлиять: интерфейс отправлял свою копию, сервер ставил её последней.
+  const KTX2_MODE_FALLBACK = 'uastc';
+  let ktx2Mode = KTX2_MODE_FALLBACK;
+  // Что советует текущая площадка (приходит с /api/extensions).
+  let platformDefaults = {};
+  const defaultKtx2Mode = () => platformDefaults.texMode || KTX2_MODE_FALLBACK;
   // Геометрия — взаимоисключающий выбор: 'none' | 'meshopt' | 'draco'.
   let geometryChoice = 'none';
   let platforms = [];
@@ -632,9 +642,13 @@
       // Группы взаимоисключений приходят оттуда же, где живёт их единственное
       // объявление (аддон). Свой список интерфейс больше не держит.
       exclusiveGroups = (data && data.exclusiveGroups) || [];
+      // Совет площадки (режим KTX2 и что появится дальше). Тем же порядком: объявлено
+      // в профиле — прочитано здесь, а не продублировано константой.
+      platformDefaults = (data && data.defaults) || {};
     } catch (e) {
       extensions = [];
       exclusiveGroups = [];
+      platformDefaults = {};
       failure = String((e && e.message) || e);
     }
 
@@ -982,8 +996,9 @@
 
     row.appendChild(head);
 
-    // KTX2 — один флажок с раскрывающимся селектором режима (UASTC по умолчанию,
-    // ETC1S — максимальное сжатие). Отдельного чекбокса ETC1S нет (future-proof).
+    // KTX2 — один флажок с раскрывающимся селектором режима. Отдельного чекбокса
+    // ETC1S нет (future-proof). Что стоит предвыбранным — советует площадка, см.
+    // defaultKtx2Mode(); интерфейс своего умолчания не назначает.
     if (ext.id === 'ktx2') {
       const mode = document.createElement('details');
       mode.className = 'ktx2-mode hidden';
@@ -991,13 +1006,17 @@
       summary.textContent = `${t('ktx2.mode')} `;
       const modeCurrent = document.createElement('span');
       modeCurrent.className = 'ktx2-mode-current';
-      modeCurrent.textContent = 'UASTC';
       summary.appendChild(modeCurrent);
       mode.appendChild(summary);
+      // Подпись каждого режима — ключ каталога, а не строка здесь (Правило 8). До
+      // 2026-08-07 тут лежали 'UASTC (Recommended)' и 'ETC1S (Maximum Compression)':
+      // по-русски они так и оставались английскими, потому что переводить было нечего.
+      // Имена форматов внутри подписи остаются — по ним человек ищет ответ (Правило 10).
       const modeOpts = [
-        { v: 'uastc', label: 'UASTC (Recommended)', short: 'UASTC' },
-        { v: 'mixed', label: 'ETC1S (Maximum Compression)', short: 'ETC1S' },
+        { v: 'uastc', labelKey: 'ktx2.mode.uastc', short: 'UASTC' },
+        { v: 'mixed', labelKey: 'ktx2.mode.etc1s', short: 'ETC1S' },
       ];
+      modeCurrent.textContent = (modeOpts.find((o) => o.v === ktx2Mode) || modeOpts[0]).short;
       for (const o of modeOpts) {
         const optLabel = document.createElement('label');
         optLabel.className = 'ktx2-mode-opt';
@@ -1014,7 +1033,7 @@
           logMessage('debug', t('log.ktx2mode', { mode: o.short }));
         });
         optLabel.appendChild(radio);
-        optLabel.appendChild(document.createTextNode(' ' + o.label));
+        optLabel.appendChild(document.createTextNode(' ' + t(o.labelKey)));
         mode.appendChild(optLabel);
       }
       row.appendChild(mode);
@@ -1256,6 +1275,8 @@
     setCheck('join', true);
     setCheck('strip-colors', false);
     setCheck('ktx2', false);
+    // Человек ничего не выбирал — значит показываем то, что советует площадка.
+    ktx2Mode = defaultKtx2Mode();
     geometryChoice = 'none';
     if (lastDetection) {
       if (lastDetection.draco) geometryChoice = 'draco';
@@ -1280,7 +1301,7 @@
   function restoreSelection(saved) {
     geometryChoice = saved.geometryChoice || 'none';
     if (geometryChoice !== 'none' && !document.getElementById(`geom-${geometryChoice}`)) geometryChoice = 'none';
-    ktx2Mode = saved.ktx2Mode || 'uastc';
+    ktx2Mode = saved.ktx2Mode || defaultKtx2Mode();
     for (const cb of extensionsList.querySelectorAll('.ext-checkbox')) {
       cb.checked = saved.checked.includes(cb.value);
     }

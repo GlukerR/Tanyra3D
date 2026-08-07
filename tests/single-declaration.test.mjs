@@ -149,3 +149,70 @@ describe('Единственное объявление — взаимоискл
     expect(exclusiveGroups()[0].members).not.toContain('подделка');
   });
 });
+
+// ============================================================================
+// 3. Режим KTX2 назначается один раз — в аддоне
+// ============================================================================
+//
+// Третий дефект того же рода, закрытый 2026-08-07. На вопрос «какой режим KTX2,
+// если человек не выбирал» отвечали ЧЕТЫРЕ места, и отвечали по-разному:
+//
+//   addons/gltf/index.mjs  uastc
+//   optimize2.mjs          mixed   ← CLI без флагов
+//   server.mjs             uastc   ← и подставлял это ПОСЛЕ профиля
+//   ui/app.js              uastc
+//
+// Наружу это выходило так: одна и та же модель с одной и той же галочкой KTX2
+// давала из терминала ETC1S, а из браузера UASTC — разный вес, разное качество,
+// разная видеопамять, и ни слова об этом в документации. А `profiles/mobile.json`
+// и `quest.json`, объявляющие `texMode: mixed` и объясняющие человеку почему,
+// не могли на результат повлиять вовсе: сервер ставил своё значение последним.
+//
+// Теперь отвечает аддон, поверх него — профиль площадки, поверх него — явный
+// выбор человека. Три уровня, каждый следующий бьёт предыдущий; умолчание одно.
+
+describe('Единственное объявление — режим KTX2', () => {
+  const MODES = ['uastc', 'mixed'];
+
+  it('умолчание даёт аддон, а не тот, кто его вызвал', () => {
+    const bare = gltfAddon.normalizeOpts({});
+    expect(MODES).toContain(bare.texMode);
+    // «Не сказали ничего» и «попросили KTX2, но режим не назвали» — один ответ.
+    expect(gltfAddon.normalizeOpts({ advancedFeatures: ['ktx2'] }).texMode).toBe(bare.texMode);
+    expect(gltfAddon.normalizeOpts({ texMode: undefined }).texMode).toBe(bare.texMode);
+  });
+
+  it('режим, объявленный профилем площадки, доживает до опций движка', () => {
+    const lost = [];
+    for (const { name, json } of profiles) {
+      const wanted = (json.baselineOpts || {}).texMode;
+      if (!wanted) continue;
+      const got = gltfAddon.normalizeOpts({ ...json.baselineOpts, advancedFeatures: ['ktx2'] }).texMode;
+      if (got !== wanted) lost.push(`${name}: просит ${wanted}, получает ${got}`);
+    }
+    expect(lost, lost.join('\n  ')).toEqual([]);
+  });
+
+  it('сервер не ставит свой режим поверх профиля', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'server.mjs'), 'utf8');
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    // Сборка опций обязана заканчиваться РАСКРЫТИЕМ явного выбора (пусто, если человек
+    // не выбирал), а не безусловным `texMode: <что-то>` — именно эта форма и затирала
+    // профиль. Проверяем саму форму строки: поведение тут не воспроизвести, не подняв
+    // сервер, а сломать её можно одним символом.
+    const merge = code.match(/const engineOpts = \{[^;]*\};/);
+    expect(merge, 'в server.mjs больше нет сборки engineOpts — тест устарел, обновить').toBeTruthy();
+    expect(merge[0], 'сервер снова назначает texMode безусловно — профиль до движка не дойдёт')
+      .not.toMatch(/texMode\s*:/);
+  });
+
+  it('интерфейс не держит своё умолчание вместо совета площадки', () => {
+    const src = fs.readFileSync(path.join(ROOT, 'ui/app.js'), 'utf8');
+    const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    // Совет приходит с /api/extensions полем defaults; жёсткий фолбэк допустим ровно
+    // один — на случай, когда сервер ответить не смог (ассистент не найден).
+    expect(code, 'ui/app.js должен читать defaults.texMode с сервера').toMatch(/defaults\b/);
+    const hardcoded = code.match(/ktx2Mode\s*=\s*'(uastc|mixed)'/g) || [];
+    expect(hardcoded, `в ui/app.js снова зашит режим: ${hardcoded.join(', ')}`).toEqual([]);
+  });
+});
