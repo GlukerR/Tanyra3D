@@ -83,6 +83,14 @@ scenarios: what to check is a shared table, how to check it is the adapter.
 | `instance-grid-render.browser.test.mjs` | rendering after `safe+quantize+join` — the positions are unchanged |
 | `parkergirl-render.browser.test.mjs` | morphs and skinning after `safe+quantize` — no artefacts |
 
+### Separately — the setup script
+
+`setup-script.test.mjs` guards `scripts/setup.mjs`, which is not the engine but is the first
+thing a new contributor runs. It covers the branch that is unreachable on a machine where
+`ktx` is already installed — the one that downloads a foreign executable and could hang
+waiting for an answer where nobody is there to give one. The branch is reached through the
+`TANYRA_SETUP_NO_KTX=1` seam documented in the script itself; nothing is downloaded.
+
 ### Separately — the defect register
 
 `bugs-found.test.mjs` is not a layer but a **journal**. Each TESTBUG-xxx carries the defect's

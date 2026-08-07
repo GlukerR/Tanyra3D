@@ -151,7 +151,7 @@ encoding CLI — and `npm run setup` fetches the browser used by the tests and c
 rest of your environment.
 
 <details>
-<summary><b>What <code>npm run setup</code> reports</b></summary>
+<summary><b>What <code>npm run setup</code> does</b></summary>
 
 <br>
 
@@ -161,16 +161,26 @@ Tanyra3D — environment check
   ✓ Node 20.11.0
   ✓ Dependencies installed
   ✓ Texture encoding tool (@gltf-transform/cli)
-  • KTX2 encoder not found — KTX2 texture compression will be unavailable
-        Everything else works. To install it:
-          brew install ktx
+  • KTX2 encoder not found — KTX2 texture compression unavailable
+    Everything else works without it.
+    Download and install KTX-Software 4.4.2 from the official Khronos release? [y/N]
 ```
 
 There is exactly one thing npm cannot install: `ktx` from **KTX-Software**, a native
-Khronos program. The script prints the one-line command for your system rather than
-downloading executables behind your back.
+Khronos program. The script offers to fetch it from the official Khronos release — and
+only after you say yes. Answer no and it prints how to install it yourself; nothing else
+changes.
 
-Run `npm run doctor` any time to re-check without changing anything.
+How it installs depends on what Khronos publishes for your system. On **Linux** there is
+an unpackable archive, so it lands inside the project (`.tools/`) with no administrator
+rights and its checksum is verified. On **Windows and macOS** only installers are
+published, so the official installer runs and your system asks for confirmation the usual
+way. Those two have no checksum published alongside them; the download is over HTTPS from
+`github.com`, which is what actually protects it.
+
+Run `npm run doctor` any time to re-check without changing anything, and
+`npm run setup -- --yes` to skip the question in a script. Without a TTY — in CI, or
+through a pipe — the question is never asked, so nothing can hang waiting for an answer.
 
 Without `ktx`, everything except KTX2 compression works normally, and KTX2 says plainly
 that the tool is missing instead of failing obscurely.

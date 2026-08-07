@@ -75,6 +75,27 @@ export const GLTF_CLI_JS = findCliJs();
 // может стоять в node_modules, а в PATH его нет, и проверка соврала бы «нет».
 export const HAS_GLTF_CLI = Boolean(GLTF_CLI_JS || GLTF_CLI);
 
+// Локальная установка, которую кладёт `npm run setup` под Linux: там Khronos
+// выложил распаковываемый архив, и ktx живёт прямо в проекте, без прав
+// администратора. Под Windows/macOS выложены только установщики, поэтому там
+// бинарник оказывается в системных папках — их ловят candidates ниже.
+function findInTools() {
+  const dir0 = new URL('../../.tools/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+  if (!fs.existsSync(dir0)) return null;
+  const stack = [dir0];
+  while (stack.length) {
+    const dir = stack.pop();
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) stack.push(full);
+      else if (e.name === 'ktx' || e.name === 'ktx.exe') return full;
+    }
+  }
+  return null;
+}
+
 function findToktx() {
   // gltf-transform CLI v4 требует бинарник `ktx` (KTX-Software 4.3+); toktx — запасной признак установки
   const inPath = findInPath(['ktx.exe', 'ktx', 'toktx.exe', 'toktx']);
@@ -85,7 +106,7 @@ function findToktx() {
     'C:\\Program Files\\KTX-Software\\bin\\toktx.exe',
   ];
   for (const c of candidates) if (fs.existsSync(c)) return c;
-  return null;
+  return findInTools();
 }
 
 // Инструмент ищем всегда (нужен и API-вызовам); --no-ktx отключает само правило
