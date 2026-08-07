@@ -453,11 +453,19 @@ const server = http.createServer(async (req, res) => {
       // сам. Пока его не было, интерфейс держал собственную копию умолчания ('uastc') и
       // площадка не могла на неё повлиять. Значение может быть null — тогда интерфейс
       // просто не показывает предвыбранным ничего своего.
+      // Значение из профиля проверяется так же, как пришедшее от человека. Профиль
+      // редактируют руками, и опечатка правдоподобна — флаг в командной строке
+      // называется `--etc1s`, а опция здесь `mixed`. Непроверенное значение доехало бы
+      // до радиокнопок, не совпало ни с одной, и человек увидел бы «Режим: UASTC» и ни
+      // одной отмеченной кнопки: результат верный, экран врёт.
       const planDefaults = planForSafe(platformId, langOf(url)).engineOpts || {};
+      const advisedTexMode = (planDefaults.texMode === 'mixed' || planDefaults.texMode === 'uastc')
+        ? planDefaults.texMode
+        : null;
       sendJSON(res, 200, {
         extensions: listExtensionsSafe(platformId, langOf(url)),
         exclusiveGroups: typeof exclusiveGroups === 'function' ? exclusiveGroups() : [],
-        defaults: { texMode: planDefaults.texMode || null },
+        defaults: { texMode: advisedTexMode },
       });
       return;
     }

@@ -206,13 +206,35 @@ describe('Единственное объявление — режим KTX2', ()
       .not.toMatch(/texMode\s*:/);
   });
 
-  it('интерфейс не держит своё умолчание вместо совета площадки', () => {
+  it('интерфейс берёт режим у площадки, а не назначает сам', () => {
     const src = fs.readFileSync(path.join(ROOT, 'ui/app.js'), 'utf8');
     const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
-    // Совет приходит с /api/extensions полем defaults; жёсткий фолбэк допустим ровно
-    // один — на случай, когда сервер ответить не смог (ассистент не найден).
-    expect(code, 'ui/app.js должен читать defaults.texMode с сервера').toMatch(/defaults\b/);
-    const hardcoded = code.match(/ktx2Mode\s*=\s*'(uastc|mixed)'/g) || [];
-    expect(hardcoded, `в ui/app.js снова зашит режим: ${hardcoded.join(', ')}`).toEqual([]);
+
+    // Сторожим МЕХАНИЗМ, а не написание. Первая версия этого теста искала литерал
+    // `ktx2Mode = 'uastc'` — она ловила ровно ту форму, что была до правки, и
+    // пропускала регрессию, написанную новым идиомом (через именованную константу).
+    // Зелёный тест не означал, что свойство держится.
+    //
+    // Держится оно тогда, когда обе функции, решающие «что показать, если человек не
+    // выбирал», спрашивают площадку. Их две, и обе обязаны звать defaultKtx2Mode().
+    const bodyOf = (name) => {
+      const at = code.indexOf(`function ${name}(`);
+      if (at === -1) return null;
+      let depth = 0;
+      for (let i = code.indexOf('{', at); i < code.length; i++) {
+        if (code[i] === '{') depth++;
+        else if (code[i] === '}' && --depth === 0) return code.slice(at, i + 1);
+      }
+      return null;
+    };
+
+    for (const fn of ['applyDefaultSelection', 'restoreSelection']) {
+      const body = bodyOf(fn);
+      expect(body, `в ui/app.js больше нет ${fn}() — тест устарел, обновить`).toBeTruthy();
+      expect(body, `${fn}() перестала спрашивать площадку о режиме KTX2`).toMatch(/defaultKtx2Mode\(\)/);
+    }
+
+    // И сам совет должен приходить с сервера, а не выдумываться на месте.
+    expect(code, 'ui/app.js должен читать defaults с /api/extensions').toMatch(/platformDefaults\s*=/);
   });
 });

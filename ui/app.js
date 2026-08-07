@@ -635,20 +635,22 @@
     if (!platformId) return;
 
     let failure = null;
+    // Пустой ответ по умолчанию: при провале запроса панель обязана обнулиться, а не
+    // остаться с данными предыдущей площадки.
+    let fetched = { extensions: [], exclusiveGroups: [], defaults: {} };
     try {
       const res = await fetch(`/api/extensions?platform=${encodeURIComponent(platformId)}&${langParam()}`);
       const data = await res.json();
-      extensions = (data && data.extensions) || [];
-      // Группы взаимоисключений приходят оттуда же, где живёт их единственное
-      // объявление (аддон). Свой список интерфейс больше не держит.
-      exclusiveGroups = (data && data.exclusiveGroups) || [];
-      // Совет площадки (режим KTX2 и что появится дальше). Тем же порядком: объявлено
-      // в профиле — прочитано здесь, а не продублировано константой.
-      platformDefaults = (data && data.defaults) || {};
+      fetched = {
+        extensions: (data && data.extensions) || [],
+        // Группы взаимоисключений приходят оттуда же, где живёт их единственное
+        // объявление (аддон). Свой список интерфейс больше не держит.
+        exclusiveGroups: (data && data.exclusiveGroups) || [],
+        // Совет площадки (режим KTX2 и что появится дальше). Тем же порядком: объявлено
+        // в профиле — прочитано здесь, а не продублировано константой.
+        defaults: (data && data.defaults) || {},
+      };
     } catch (e) {
-      extensions = [];
-      exclusiveGroups = [];
-      platformDefaults = {};
       failure = String((e && e.message) || e);
     }
 
@@ -656,6 +658,16 @@
     // ответ не должен перестраивать панель под другую (текущую) платформу и записывать
     // savedSelections не в тот ключ.
     if (platformSelect.value !== platformId) return;
+
+    // Ответ признан своим — только теперь он становится состоянием панели.
+    //
+    // Раньше присваивание стояло ВЫШЕ этой проверки, и опоздавший ответ прошлой
+    // площадки перезаписывал списки уже после того, как панель собралась под новую:
+    // на экране одно, в переменных другое, и следующая загрузка модели брала чужой
+    // совет. Панель при этом не вздрагивала, поэтому заметить было нечем.
+    extensions = fetched.extensions;
+    exclusiveGroups = fetched.exclusiveGroups;
+    platformDefaults = fetched.defaults;
 
     // Раньше оба этих случая заканчивались тихим `return`, и панель оставалась скрытой:
     // расширенные опции «недоступны» выглядели как исчезнувший кусок интерфейса.

@@ -238,6 +238,12 @@ model at a time.
 > That's historical, and the behaviour is preserved so existing scripts don't break. The
 > programmatic and web interfaces do nothing by default.
 
+> [!IMPORTANT]
+> **Changed:** `--ktx2` without a mode flag now produces UASTC color textures. It used to
+> produce ETC1S — the command line disagreed with the web interface, which has always used
+> UASTC, and nothing said so. Files come out heavier and sharper than before. Add `--etc1s`
+> to keep the old result.
+
 ### Programmatic
 
 ```js
