@@ -300,13 +300,17 @@ That person is what the program is meant to be.
 
 ## Documentation
 
-| File | About | Language |
-|---|---|---|
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | core design, API contracts | English |
-| [`docs/EXTENDING.md`](docs/EXTENDING.md) | how to add your own rule | Russian |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | how to contribute | English |
+| File | About |
+|---|---|
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | how to contribute |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | core design, API contracts |
+| [`docs/EXTENDING.md`](docs/EXTENDING.md) | how to add your own rule |
+| [`tests/TEST-MAP.md`](tests/TEST-MAP.md) | the five test layers, and where a new test goes |
+| [`fixtures/README.md`](fixtures/README.md) | the model corpus and its license policy |
+| [`ui/locales/README.md`](ui/locales/README.md) | how to add an interface language |
 
-The project grew up in Russian, so some documents are still in it. Translating them is
+Everything on the contributor's path is in English. The project grew up in Russian, so the
+code comments and some reference documents under `docs/` still are — translating them is
 welcome work, and a good first contribution.
 
 ---

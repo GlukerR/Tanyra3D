@@ -95,8 +95,8 @@ one of those things, the report has to say so.
 ## Tests
 
 Integration tests: real models through the real pipeline, no mocks. Where to put a new
-test is described in `tests/КАРТА_ТЕСТОВ.md` (test map — five layers and the rule for
-choosing between them).
+test is described in [`tests/TEST-MAP.md`](tests/TEST-MAP.md) — five layers and the rule
+for choosing between them.
 
 What you must not do in tests, even when it turns things green faster:
 
@@ -124,14 +124,16 @@ whether it may be redistributed. Without that the model isn't accepted.
 
 ## Language
 
-The project grew up in Russian, so the code comments still are. English is used for the
-README, this document, `docs/ARCHITECTURE.md` (the design and the API contracts), and the
-interface catalogs (`ui/locales/`). `docs/EXTENDING.md` is still Russian.
+Everything on the contributor's path is in English: the README, this document, the
+architecture and extension docs, the test map, the corpus and locale READMEs, and the
+interface catalogs.
+
+The project grew up in Russian, so the code comments still are, along with some reference
+documents under `docs/` (dependency rationale, budget sources, the wording glossary).
 
 **Contributions in English are welcome**, including translations of what is still in
 Russian — that's a genuinely useful first contribution. You don't need Russian to work on
-the engine: everything you need to understand the contracts is in English, and issues in
-English get answered in English.
+the engine, and issues in English get answered in English.
 
 ## License
 

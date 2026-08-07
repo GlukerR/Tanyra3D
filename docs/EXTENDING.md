@@ -1,158 +1,159 @@
-# Tanyra3D — Extension Model (модель расширения)
+# Tanyra3D — Extension Model
 
-> Как проект расширяется в долгую. Проектируем это с самого начала, но **строим по мере
-> необходимости** — не раньше, чем каждая точка расширения окупится (см. §5). Спутник к
+> How the project grows over the long run. This is designed from the start but **built only
+> as needed** — no extension point is built before it pays for itself (§5). A companion to
 > `ARCHITECTURE.md`.
 
 ---
 
-## 1. Форма: маленькое ядро + всё как плагины
+## 1. The shape: a small core, everything else a plugin
 
-Ядро остаётся минимальным и даёт только: жизненный цикл приложения, общую модель данных
-(`Document` glTF-Transform), загрузку плагинов, конвейер выполнения (фазы), валидацию и
-отчёты. Всё сверх этого — плагины:
+The core stays minimal and provides only: the application lifecycle, the shared data model
+(glTF-Transform's `Document`), plugin loading, the execution pipeline (phases), validation
+and reports. Everything beyond that is a plugin:
 
 - Importers (FBX, OBJ, USD, …)
 - Exporters (GLB, USDZ, FBX, …)
 - Optimizers (Meshopt, Draco, KTX2, …)
 - Validators
-- Analysis rules (правила анализа)
-- Report generators (репортёры)
+- Analysis rules
+- Report generators
 - Viewers
-- Platform profiles (профили платформ)
+- Platform profiles
 
-Ядро общается с плагинами только через интерфейсы и никогда не зависит от деталей их
-реализации. Это механизм масштабирования открытого проекта: ядро строит автор, длинный
-хвост форматов/правил несёт сообщество — как three.js, ESLint, Rollup.
+The core talks to plugins only through interfaces and never depends on their implementation
+details. This is how an open project scales: the author builds the core, the community
+carries the long tail of formats and rules — the way three.js, ESLint and Rollup do.
 
 ---
 
-## 2. Не один API, а набор типизированных точек расширения
+## 2. Not one API, but a set of typed extension points
 
-У разных плагинов разные контракты — их нельзя натягивать на один одинаковый API:
+Different plugins have different contracts, and forcing them into one uniform API does not
+work:
 
-| Точка расширения | Контракт (упрощённо) |
+| Extension point | Contract (simplified) |
 |---|---|
 | Importer | `bytes → Document` |
-| Exporter | `Document → bytes` (целевой формат) |
-| Rule / Optimizer | `analyze / canFix / fix` над `Document` |
+| Exporter | `Document → bytes` (target format) |
+| Rule / Optimizer | `analyze / canFix / fix` over a `Document` |
 | Validator | `Document/bytes → issues[]` |
-| Reporter | `RunResult → строка` (md / json / html / sarif) |
-| Profile | данные: бюджеты, веса, набор правил |
-| Viewer | инспекция `Document` (read-only) |
+| Reporter | `RunResult → string` (md / json / html / sarif) |
+| Profile | data: budgets, weights, rule set |
+| Viewer | inspecting a `Document` (read-only) |
 
-Общий у всех — **«конверт»**: манифест + регистрация в ядре. Именно так делают ESLint
-(rules / formatters / parsers — разные интерфейсы) и Rollup (плагин с набором
-опциональных хуков).
-
----
-
-## 3. Манифест плагина
-
-Каждый плагин объявляет:
-- имя;
-- версию;
-- совместимую версию Plugin API;
-- предоставляемые capabilities;
-- опциональные зависимости.
-
-(Аналоги в реальных системах: `engines`/`peerDependencies` в package.json, версии API у
-ESLint-плагинов.)
+What they share is the **envelope**: a manifest plus registration with the core. This is
+exactly what ESLint does (rules / formatters / parsers are different interfaces) and what
+Rollup does (a plugin with a set of optional hooks).
 
 ---
 
-## 4. КРИТИЧНО: когда замораживать публичный API
+## 3. The plugin manifest
 
-Стабильный публичный Plugin API с гарантией обратной совместимости — **дорогое обещание**.
-Дать его рано = заморозить неправильную абстракцию и потом либо тащить её годами, либо
-ломать обещанную совместимость.
+Every plugin declares:
+- its name;
+- its version;
+- the Plugin API version it is compatible with;
+- the capabilities it provides;
+- optional dependencies.
 
-Правильная последовательность:
-- **До версии 1.0** форма плагина — внутренняя, ломается свободно. Обкатывается на
-  собственных importers / rules / reporters.
-- Массив `RULES` в v3 — **уже зародыш** плагин-системы: каждое правило объявляет meta
-  (id, категория, fixSafety, runAfter). Первый шаг сделан.
-- Только когда форма проверена десятком собственных плагинов — объявить «Plugin API v1», и
-  вот с этого момента включается вся дисциплина совместимости из §3.
-
-Правило: **сначала proven-by-use, потом stable-public.** Не платить за стабильность API,
-пока она не начала окупаться.
+(Real-world equivalents: `engines` / `peerDependencies` in package.json, and API versions in
+ESLint plugins.)
 
 ---
 
-## 5. Принцип: платформа — это следствие, а не старт
+## 4. CRITICAL: when to freeze the public API
 
-Лестница развития: `CLI → десктоп → расширяемый десктоп → открытая платформа → экосистема`.
+A stable public Plugin API with a backwards-compatibility guarantee is an **expensive
+promise**. Giving it early means freezing the wrong abstraction and then either carrying it
+for years or breaking the compatibility you promised.
 
-Но платформы не рождаются платформами — они рождаются инструментами, которые решают одну
-задачу так хорошо, что вокруг собирается сообщество, и вот тогда появляется API. Three.js
-был рендерером, VS Code — редактором, ESLint — линтером; API расширения пришёл ПОСЛЕ
-трафика, а не до.
+The right order:
+- **Before 1.0** the plugin shape is internal and may break freely. It is proven on our own
+  importers, rules and reporters.
+- The `RULES` array is **already the seed** of a plugin system: every rule declares its meta
+  (id, category, fixSafety, runAfter). The first step is done.
+- Only once the shape has been proven by a dozen of our own plugins do we declare "Plugin API
+  v1" — and from that moment the whole compatibility discipline in §3 switches on.
 
-Следствия для приоритетов:
-- **На текущем этапе качество ядра важнее API** (безопасная оптимизация + объяснения + не
-  портить ассеты — это то, что приводит пользователей). API становится самым важным позже,
-  когда есть кого им обслуживать.
-- Целиться прямо в платформу = строить инфраструктуру для пользователей, которые не
-  пришли. Целиться в превосходный инструмент с чистыми швами = платформа вырастает сама.
-- Швы (правила-объекты, профили-данные) держим чистыми с самого начала — это дёшево.
-  Полноценную плагин-инфраструктуру строим, когда накопится спрос.
+The rule: **proven-by-use first, stable-public second.** Don't pay for API stability before
+it starts paying back.
 
 ---
 
-## 5b. Обязательное для любого правила: повторы схлопывает АВТОР, а не интерфейс
+## 5. The principle: a platform is a consequence, not a starting point
 
-**Введено Александром 2026-08-01, после того как одна и та же ошибка всплыла третий раз
-подряд — на новой фиче.** Действует на все будущие движки, платформы и аддоны, а не
-только на glTF.
+The ladder is `CLI → desktop → extensible desktop → open platform → ecosystem`.
 
-Правило, которое обходит список (текстуры, меши, атрибуты, узлы, материалы), обязано
-вернуть **одну запись на весь класс случаев**, а не запись на каждый элемент. Иначе в
-правой панели вываливается толпа одинаковых строк: двадцать раз «карта данных в JPEG»
-на `ABeautifulGame`, одиннадцать раз «уже WebP» на `Production Many Materials 01`, восемь раз «атрибут не
-используется» на `Production Draco Webp 01`.
+But platforms are not born as platforms. They are born as tools that solve one problem so
+well that a community gathers around them — and only then does an API appear. Three.js was a
+renderer, VS Code an editor, ESLint a linter; the extension API arrived AFTER the traffic,
+not before it.
 
-Форма — два ключа на один смысл:
+What follows for priorities:
+- **At this stage the quality of the core matters more than the API.** Safe optimization,
+  explanations, and not ruining assets are what bring users in. The API becomes the most
+  important thing later, when there is somebody to serve with it.
+- Aiming straight at a platform means building infrastructure for users who have not arrived.
+  Aiming at an excellent tool with clean seams means the platform grows by itself.
+- The seams (rules as objects, profiles as data) are kept clean from the start — that part is
+  cheap. The full plugin infrastructure gets built when demand accumulates.
+
+---
+
+## 5b. Mandatory for every rule: the AUTHOR collapses repetition, not the interface
+
+**Introduced by Alexander on 2026-08-01, after the same defect surfaced for the third time in
+a row — on a new feature.** It applies to every future engine, platform and add-on, not only
+to glTF.
+
+A rule that walks a list (textures, meshes, attributes, nodes, materials) must return **one
+record for the whole class of cases**, not one record per element. Otherwise the right-hand
+panel fills with a crowd of identical lines: twenty of "data map stored as JPEG" on one
+model, eleven of "already WebP" on another, eight of "attribute unused" on a third.
+
+The shape is two keys for one meaning:
 
 ```js
 if (names.length === 1) out.skipped.push({ messageId: 'webp.skipped.jpegData', data: { name: names[0] } });
 else if (names.length > 1) out.skipped.push({ messageId: 'webp.skipped.jpegData.many', data: { n: names.length } });
 ```
 
-Три условия, каждое нарушалось и стоило времени:
+Three conditions, each of which has been broken and cost time:
 
-1. **Схлопывать в источнике, а не в интерфейсе.** Интерфейс видит готовые строки и
-   честно сложить их не может: попытка дала «атрибут TEXCOORD_1 не используется ×8» —
-   названо одно, имеется в виду восемь. Правило знает весь список сразу, поэтому
-   единственное место, где схлопывание получается правдивым, — само правило.
-2. **Множественная форма — отдельный ключ (`.many`), а не подстановка в ту же строку.**
-   Порядок слов и согласование числа — часть языка (язык отдельно от кода, см. `ARCHITECTURE.md` §4b).
-3. **Имена в массовой строке не перечислять.** Десяток безымянных «—» не помогает
-   никому, а строка становится нечитаемой. Хватает счёта; кому нужны имена — смотрит
-   логи. Исключение — когда список сам по себе и есть суть находки («не используются
-   атрибуты: TEXCOORD_1, TEXCOORD_2, …»).
+1. **Collapse at the source, not in the interface.** The interface only sees finished strings
+   and cannot honestly add them up: the attempt produced "attribute TEXCOORD_1 unused ×8" —
+   one name given, eight meant. The rule knows the whole list at once, so the rule is the only
+   place where collapsing comes out truthful.
+2. **The plural form is a separate key (`.many`), not a substitution into the same string.**
+   Word order and number agreement belong to language (text apart from code, see
+   `ARCHITECTURE.md` §4b).
+3. **Don't list the names in a collapsed line.** A dozen nameless dashes help nobody and make
+   the line unreadable. The count is enough; whoever needs the names reads the logs. The
+   exception is when the list itself is the substance of the finding ("unused attributes:
+   TEXCOORD_1, TEXCOORD_2, …").
 
-**Логи схлопывать не нужно.** Панель логов — это поток событий, там строка на элемент
-уместна и полезна для разбора. Ограничение касается отчёта: «Анализ», «Что сделано»,
-«Пропущено» — всё, что человек читает как итог.
+**Logs need no collapsing.** The log panel is an event stream, where one line per element is
+appropriate and useful for diagnosis. The restriction applies to the report — "Analysis",
+"What was done", "Skipped" — everything a person reads as a conclusion.
 
-Должно проверяться автоматически: сторож гоняет корпус и падает, если какое-нибудь
-правило выдало больше трёх записей с одним `messageId`. Сам сторож на 2026-08-01 ещё не
-написан — сторож уже гоняет корпус (`tests/report-density.test.mjs`,
-`tests/i18n-discipline.test.mjs`).
-
----
-
-## 6. Путь community → official
-
-Успешный community-плагин ревьюится и въезжает в официальную поставку, оставаясь на том же
-публичном Plugin API. Граница «в ядре / в плагине» подвижна — как у VS Code и ESLint (часть
-правил встроена, часть внешняя). Это самый здоровый путь роста экосистемы.
+This is checked automatically: `tests/report-density.test.mjs` runs the corpus and fails if
+any rule emits more than three records with the same `messageId`, and
+`tests/i18n-discipline.test.mjs` guards the message-catalog side of the same discipline.
 
 ---
 
-## 7. Одна строка
+## 6. The community → official path
 
-Проектируем как маленькое ядро + типизированные точки расширения с общим манифестом;
-публичный API замораживаем только после обкатки собственными плагинами; платформу не
-строим напрямую — выращиваем из превосходного ядра, держа швы чистыми.
+A successful community plugin gets reviewed and moves into the official distribution while
+staying on the same public Plugin API. The line between "in the core" and "in a plugin" is
+movable, as it is for VS Code and ESLint (some rules built in, some external). This is the
+healthiest way for an ecosystem to grow.
+
+---
+
+## 7. In one line
+
+Design as a small core plus typed extension points with a shared manifest; freeze the public
+API only after proving it on our own plugins; don't build the platform directly — grow it
+from an excellent core, keeping the seams clean.

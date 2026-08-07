@@ -1,62 +1,66 @@
-# Golden corpus (эталонный корпус) — `fixtures/`
+# Golden corpus — `fixtures/`
 
-Набор реальных моделей + (в будущем) ожидаемые снапшоты отчётов для регресс-тестов ядра.
-Смысл — «оптимизатор, который однажды испортил ассет, теряет доверие навсегда»
-(`docs/ARCHITECTURE.md` §8): любое изменение вывода на этих моделях = осознанный ревью diff.
-Это условие доверия и для GUI-пути проекта.
+A set of real models used as the regression backbone for the core. The reasoning is that "an
+optimizer that corrupts one asset loses trust permanently" (`docs/ARCHITECTURE.md` §8): any
+change in the output on these models is a reviewed diff, not a silent drift.
 
 ---
 
-## Политика лицензий (ВАЖНО)
+## License policy (IMPORTANT)
 
-Во многих скачанных моделях внутри прописана лицензия (автор, источник, тип лицензии).
-Для КАЖДОЙ модели корпуса:
+Many downloaded models carry a license inside the file (author, source, license type). For
+EVERY model in the corpus:
 
-1. Проверить встроенную лицензию:
+1. Check the embedded license:
 
    ```bash
    node fixtures/check-licenses.mjs
    ```
 
-2. Скрипт создаёт рядом с моделью sidecar-файл `<имя>.license.md` с найденными данными
-   (`asset.copyright`, `asset.generator`, `asset.extras.{author,license,source,title}`).
-   Если лицензия не найдена автоматически — файл создаётся с пустыми полями-TODO,
-   заполнить вручную (автор / источник / можно ли распространять).
-3. Проверять это для **ВСЕХ** будущих моделей корпуса. Повторяющаяся проверка вынесена в
-   скрипт, чтобы не делать вручную каждый раз.
+2. The script writes a sidecar file `<name>.license.md` next to the model with whatever it
+   found (`asset.copyright`, `asset.generator`,
+   `asset.extras.{author,license,source,title}`). If no license is found automatically, the
+   file is created with empty TODO fields to be filled in by hand (author / source / whether
+   it may be redistributed).
+3. Do this for **ALL** future corpus models. The repetitive part lives in the script so that
+   nobody has to do it manually each time.
 
 ---
 
-## Модели НЕ версионируются и НЕ уходят в поставку
+## Models are not versioned and are not shipped
 
-- **Не в git:** бинарники моделей (`*.glb / *.gltf / *.bin / текстуры`) исключены в
-  `.gitignore` этой папки. Причина: репозиторий публичный (Apache-2.0), у сторонних моделей
-  своя лицензия — коммитить их = нарушение. Версионируются только sidecar-лицензии
-  (`*.license.md`), этот README, скрипт и снапшоты.
-- **Redistributable-модель** (CC0 / явно разрешена к распространению) можно добавить в git
-  явно, ПОСЛЕ фиксации лицензии в sidecar:
+- **Not in git:** model binaries (`*.glb / *.gltf / *.bin / textures`) are excluded by this
+  folder's `.gitignore`. The reason: the repository is public (Apache-2.0) and third-party
+  models carry their own licenses, so committing them would be a violation. Only the sidecar
+  licenses (`*.license.md`), this README, the script and the snapshots are versioned.
+- **A redistributable model** (CC0 or explicitly cleared for redistribution) may be added to
+  git explicitly, AFTER its license has been recorded in the sidecar:
 
   ```bash
-  git add -f fixtures/models/<имя>.glb
+  git add -f fixtures/models/<name>.glb
   ```
 
-- **Не в программе:** папка `fixtures/` — только для разработки и тестов. `server.mjs` её не
-  раздаёт, `package.json` приватный (`"private": true`), сборки нет → модели в скачиваемую
-  программу не попадают. Если когда-нибудь появится упаковка — добавить `fixtures/` в
-  исключения (`.npmignore` / поле `files`).
+  The `-f` is required because the `.gitignore` above covers the whole folder. Use it only
+  when the sidecar states the model may be redistributed — that check is the whole point of
+  the policy.
+- **Not in the program:** `fixtures/` is for development and tests only. `server.mjs` does not
+  serve it and `package.json` is private (`"private": true`), so the models cannot reach a
+  downloadable build. If packaging is ever added, put `fixtures/` in the exclusions
+  (`.npmignore` or the `files` field).
 
 ---
 
-## Структура
+## Layout
 
 ```
 fixtures/
-├─ README.md            — этот файл
-├─ .gitignore           — бинарники моделей не коммитим
-├─ check-licenses.mjs   — проверка встроенных лицензий (создаёт sidecar)
-└─ models/              — модели корпуса
-   ├─ <имя>.glb         — модель (gitignored)
-   └─ <имя>.license.md  — её лицензия/атрибуция (в git)
+├─ README.md            — this file
+├─ .gitignore           — model binaries are not committed
+├─ check-licenses.mjs   — checks embedded licenses (writes the sidecar)
+└─ models/              — corpus models
+   ├─ <name>.glb        — the model (gitignored unless redistributable)
+   └─ <name>.license.md — its license / attribution (in git)
 ```
 
-Ожидаемые снапшоты отчётов появятся здесь по мере появления тест-раннера (пока не заведён).
+The models the corpus is exercised against, and which test uses which, are described in
+[`tests/TEST-MAP.md`](../tests/TEST-MAP.md) — layer 2.

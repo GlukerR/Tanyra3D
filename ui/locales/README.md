@@ -1,82 +1,80 @@
-# Языки интерфейса
+# Interface languages
 
-Проект использует два каталога для локализации:
+The project uses two catalog folders:
 
-- **`ui/locales/`** — только английские каталоги: `en.js`, `validator-en.js`.
-  Английский — это язык, на который i18n.js откатывается при нехватке ключа. Файлы
-  отсюда обслуживаются по `/locales/*`.
+- **`ui/locales/`** — English catalogs only: `en.js`, `validator-en.js`. English is the
+  language `i18n.js` falls back to when a key is missing. Files here are served under
+  `/locales/*`.
 
-- **`translations/`** (в корне проекта) — все остальные языки: `ru.js`,
-  `validator-ru.js` и т.д. Файлы отсюда обслуживаются по `/translations/*`.
+- **`translations/`** (in the project root) — every other language: `ru.js`,
+  `validator-ru.js` and so on. Files here are served under `/translations/*`.
 
-Добавить язык — значит положить два файла в `translations/`. Больше ничего:
-`server.mjs` читает обе папки на каждый запрос страницы и сам подключает то, что
-в них лежит.
+Adding a language means putting two files into `translations/`. Nothing else: `server.mjs`
+reads both folders on every page request and wires up whatever it finds.
 
-## Как добавить язык
+## How to add a language
 
-1. Скопировать `translations/ru.js` в файл с кодом языка — `translations/de.js`,
+1. Copy `translations/ru.js` to a file named after the language code — `translations/de.js`,
    `translations/zh.js`, `translations/es.js`.
-2. Перевести значения. **Ключи не трогать** — по ним код находит строку.
-3. Скопировать `translations/validator-ru.js` в `translations/validator-de.js`,
-   `translations/validator-zh.js` и т.д. — перевести сообщения glTF-валидатора.
-4. Обновить страницу. Кнопка с кодом языка появится в шапке сама.
+2. Translate the values. **Don't touch the keys** — that's how the code finds a string.
+3. Copy `translations/validator-ru.js` to `translations/validator-de.js`,
+   `translations/validator-zh.js` and so on, and translate the glTF-validator messages.
+4. Reload the page. A button with the language code appears in the header by itself.
 
-Файл начинается с двух обязательных строк — они кладут каталог туда, где его ищет
-`ui/i18n.js`:
+The file starts with two mandatory lines that put the catalog where `ui/i18n.js` looks for it:
 
 ```js
 window.I18N_CATALOGS = window.I18N_CATALOGS || {};
 window.I18N_CATALOGS.de = { /* ... */ };
 ```
 
-## Сообщения валидатора Khronos
+## Khronos validator messages
 
-`validator-en.js` / `validator-ru.js` переводят сообщения `gltf-validator` по коду
-ошибки (`validator.<КОД>`). Переведены **все 169 кодов из 169** (2026-08-04,
-2026-08-04). Кода нет в
-каталоге — показывается английский текст самого валидатора: механизм в `ui/app.js`
-(`translateValidatorMessage`) на это и рассчитан, недостающий перевод ничего не ломает.
+`validator-en.js` / `validator-ru.js` translate `gltf-validator` messages by error code
+(`validator.<CODE>`). Every code the package defines is currently translated. When a code is
+missing from the catalog, the validator's own English text is shown: the mechanism in
+`ui/app.js` (`translateValidatorMessage`) is designed for exactly that, so a missing
+translation breaks nothing.
 
-Список всех кодов — `node_modules/gltf-validator/ISSUES.md`. Сверку каталогов
-с этим списком сторожит `tests/locale-keys-symmetry.test.mjs`: сирота в каталоге
-и пропущенный код пакета — красный прогон. Добавлять переводы можно порциями,
-но пара должна держаться симметрии.
+The full list of codes is `node_modules/gltf-validator/ISSUES.md`. Reconciliation between the
+catalogs and that list is guarded by `tests/locale-keys-symmetry.test.mjs`: an orphan in the
+catalog or a missing package code turns the run red. Translations may be added in batches,
+but the pair must stay symmetric.
 
-## Чего в файле может не быть
+## What may be absent from the file
 
-Пропущенный ключ берётся из `en.js`. Неполный перевод не ломает интерфейс — на его
-месте будет английский. Поэтому начинать можно с любого куска и дополнять.
+A missing key falls back to `en.js`. An incomplete translation does not break the interface —
+English appears in its place. So you can start with any part of it and fill in the rest later.
 
-`en.js` подключается первым всегда: это язык, на который всё откатывается.
+`en.js` is always loaded first: it is the language everything falls back to.
 
-## Значение — строка или функция
+## A value is either a string or a function
 
-Строка с подстановками:
+A string with substitutions:
 
 ```js
-'status.phase': 'Фаза {n}: {name}',
+'status.phase': 'Phase {n}: {name}',
 ```
 
-Функция — там, где язык требует согласования. В русском три формы множественного числа
-против двух в английском, подстановкой это не решается:
+A function where the language requires agreement. Russian has three plural forms against
+English's two, and substitution alone does not solve that:
 
 ```js
 'log.sourceInspected': ({ n }) => `Проверено — ${n} ${window.I18n.plural(n, ['замечание', 'замечания', 'замечаний'])}`,
 ```
 
-Правило выбора формы для нового языка добавляется в `plural()` в `ui/i18n.js` — это
-единственное место, где может понадобиться правка кода.
+The form-selection rule for a new language is added to `plural()` in `ui/i18n.js` — that is
+the only place where a code change may be needed.
 
-## Что этот каталог НЕ переводит
+## What this catalog does NOT translate
 
-Тексты, которые приходят с сервера:
+Text that arrives from the server:
 
-- итог, бюджеты и предупреждения отчёта — `assistant.mjs`;
-- названия и описания платформ, описания опций (книжки 📖) — `profiles/*.json`;
-- строки правил обработки («что сделано», находки анализа) — `addons/*/messages/`.
+- the report's summary, budgets and warnings — `assistant.mjs`;
+- platform names and descriptions, and option hints (the 📖 booklets) — `profiles/*.json`;
+- processing-rule strings ("what was done", analysis findings) — `addons/*/messages/`.
 
-Сообщения правил аддонов остаются английскими намеренно: аддон может быть чужим, и
-требовать от его автора перевода на все языки — верный способ не получить аддонов.
-Механизм для перевода там тот же и уже работает (`core/i18n.mjs`): рядом с `en.mjs`
-кладётся `ru.mjs` с теми же ключами, правила не переписываются.
+Add-on rule messages stay English deliberately: an add-on may be somebody else's, and
+requiring its author to translate into every language is a reliable way to get no add-ons.
+The mechanism for translating them is the same one and already works (`core/i18n.mjs`): put a
+`ru.mjs` next to `en.mjs` with the same keys, and the rules are not rewritten.
