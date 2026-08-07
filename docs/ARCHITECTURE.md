@@ -1,10 +1,15 @@
-# glTF-Audit — Architecture & Design (v0, design review draft)
+# Tanyra3D — Architecture & Design
 
-> Working name: **gltf-audit** (alternatives in §12). An intelligent analysis and
-> optimization *orchestrator* for glTF/GLB assets — "ESLint + Lighthouse for 3D".
-> It does **not** re-implement glTF-Transform / meshoptimizer / toktx. It decides
-> *which* of their transforms to apply, *proves* each is safe, *validates* the result,
-> and *explains* every decision.
+> An intelligent analysis and optimization *orchestrator* for glTF/GLB assets — "ESLint +
+> Lighthouse for 3D". It does **not** re-implement glTF-Transform / meshoptimizer / toktx.
+> It decides *which* of their transforms to apply, *proves* each is safe, *validates* the
+> result, and *explains* every decision.
+>
+> **How to read this document.** It is layered by date, not rewritten each time: §1–§3 and
+> §5–§13 are the original design review, §4b–§4f are contracts fixed later and marked with
+> their dates. Where the two disagree, the dated section wins. The project was called
+> `gltf-audit` during the design review; §11 and §12 preserve the decisions that were open
+> at that point and are marked with how they were resolved.
 
 ---
 
@@ -194,12 +199,12 @@ Core has **zero** dependency on any specific rule, reporter, or profile — they
 discovered via config. Core depends only on glTF-Transform's `Document` type and the
 interfaces below.
 
-> **Статус раскладки (2026-07-24):** эта монорепо-структура — ЦЕЛЕВАЯ форма под первый
-> внешний плагин, а не текущее состояние. Репозиторий сейчас ПЛОСКИЙ (`optimize2.mjs`,
-> `core/`, `addons/gltf/`, `assistant.mjs`, `server.mjs`, `ui/`, `profiles/`). Переезд на
-> `packages/*` — осознанное событие, когда появится ≥1 внешний пакет/плагин, а не
-> «причёсывание» до того (тот же принцип, что EXTENDING §4: не платить за структуру раньше
-> спроса).
+> **Layout status (2026-07-24):** this monorepo structure is the TARGET shape for the first
+> external plugin, not the current state. The repository is FLAT today (`optimize2.mjs`,
+> `core/`, `addons/gltf/`, `assistant.mjs`, `server.mjs`, `ui/`, `profiles/`). Moving to
+> `packages/*` is a deliberate event, triggered by the first external package or plugin —
+> not a tidy-up done before then (same principle as EXTENDING §4: don't pay for structure
+> ahead of demand).
 
 ---
 
@@ -279,222 +284,231 @@ the engine can order and de-conflict fixes.
 
 ---
 
-## 4b. КОНТРАКТ публичного API ядра (зафиксирован 2026-07-18, для v0.1.0)
+## 4b. The public core API CONTRACT (fixed 2026-07-18, for v0.1.0)
 
-> Эта секция — договор между агентами (core-engine · ai-assistant · web-interface).
-> core-engine реализует раздел Б; ai-assistant и web-interface зависят ТОЛЬКО от того,
-> что здесь записано, и не лезут во внутренности `optimize2.mjs`. Ломающее изменение
-> контракта = явное решение с правкой этой секции, не побочный эффект рефакторинга.
+> This section is the agreement between the layers (core engine · assistant · web interface).
+> The core engine implements part B; the assistant and web interface depend ONLY on what is
+> written here and never reach into the internals of `optimize2.mjs`. Breaking the contract
+> is an explicit decision that edits this section — never a side effect of a refactor.
 
-### А. Фактическое API сейчас (v0.0.6) — только CLI и файлы
+### A. The API as it actually was (v0.0.6) — CLI and files only
 
-`optimize2.mjs` ничего не экспортирует. Весь ввод/вывод:
+> Historical: this describes the shape before part B was implemented. The console output
+> quoted below was Russian at the time and is English today (see the sample run in the
+> README); the section is kept because the file layout and the metric shapes it records are
+> still current.
 
-- **Запуск:** `node optimize2.mjs [draco] [--keep-parts] [--no-ktx] [--uastc] [--dry-run] [--strip-vertex-colors]`
-- **Вход:** файлы `input/*.glb|*.gltf` (папка фиксированная). Исходники никогда не изменяются.
-- **Выход:** `output/имя.glb` (только если ≥1 фикс применён И валидация прошла; в dry-run — никогда),
-  отчёт `output/имя.report.md` (в dry-run: `имя.dryrun.report.md`) со секциями
-  «Найдено → Пропущено (и почему) → Применено → Валидация → Оценка улучшений»,
-  полный лог `logs/run_*.log` (ротация 30 дней).
-- **Консольные маркеры:** `[РАБОТА] [ГОТОВО] [DRY-RUN] [ПРОПУСК] [ОШИБКА]`; итоговая строка
-  `Итог: готово N, пропущено M, ошибок K`. Уже существующий `output/имя.glb` → файл пропускается.
-- **Внутренние структуры** (не экспортированы, но стабильны по смыслу):
+`optimize2.mjs` exported nothing. All input and output went through the filesystem:
+
+- **Run:** `node optimize2.mjs [draco] [--keep-parts] [--no-ktx] [--uastc] [--dry-run] [--strip-vertex-colors]`
+- **Input:** `input/*.glb|*.gltf` (fixed folder). Sources are never modified.
+- **Output:** `output/name.glb` (only if ≥1 fix was applied AND validation passed; never in
+  dry-run), a report `output/name.report.md` (in dry-run: `name.dryrun.report.md`) with the
+  sections "Found → Skipped (and why) → Applied → Validation → Estimated improvements",
+  and a full log `logs/run_*.log` (rotated after 30 days).
+- **Console markers:** working / done / dry-run / skipped / error, plus a closing summary
+  line "done N, skipped M, errors K". An existing `output/name.glb` means the file is
+  skipped.
+- **Internal structures** (not exported, but stable in meaning):
   `metrics` = `{ fileBytes, drawCalls, triangles, textureBytes, gpuBytes, meshes, materials,
-  textures, nodes, scenes, animations, skins, bounds }` (треугольники/draw calls — по узлам
-  сцены, skins — только действующие); `report` = `{ found[], skipped[], applied[], validation[] }`
-  — массивы готовых русских строк; `RULES[i].meta` = `{ id, category, title, severity,
-  fixSafety, runAfter, touches, enabled }`.
+  textures, nodes, scenes, animations, skins, bounds }` (triangles and draw calls counted
+  over scene nodes, skins only the ones actually in use); `report` =
+  `{ found[], skipped[], applied[], validation[] }` — arrays of finished strings;
+  `RULES[i].meta` = `{ id, category, title, severity, fixSafety, runAfter, touches, enabled }`.
 
-### Б. Целевой программный контракт v0.1.0 (реализует core-engine)
+### B. The target programmatic contract for v0.1.0 (implemented by the core)
 
-`optimize2.mjs` становится модулем с экспортами, CLI — тонкая обёртка над ними (поведение CLI
-из раздела А сохраняется байт-в-байт).
+`optimize2.mjs` becomes a module with exports; the CLI is a thin wrapper over them (the CLI
+behaviour from part A is preserved byte for byte).
 
 ```js
 import { optimizeFile, listRules, VERSION } from './optimize2.mjs';
 
 const result = await optimizeFile(srcPath, {
-  // ГЛАВНОЕ: всё — opt-in. Пустой объект `{}` — это passthrough: файл читается,
-  // валидируется и переписывается без единой оптимизации. Оптимизации включаются
-  // поимённо через advancedFeatures.
-  advancedFeatures: [],              // [] по умолчанию. Значения:
-                                     //   'safe'          — чистка без потерь (dedup, prune, weld, вырожденные)
-                                     //   'meshopt' | 'draco' — сжатие геометрии (выбор кодека)
-                                     //   'join'          — flatten + объединение мешей
-                                     //   'instance'      — EXT_mesh_gpu_instancing (порог: 2 узла на меш)
-                                     //   'resample'      — прореживание ключей анимации
-                                     //   'ktx2'          — текстуры в KTX2/UASTC
-                                     //   'strip-colors'  — удалить все COLOR_n
+  // THE POINT: everything is opt-in. An empty object `{}` is a passthrough — the file is
+  // read, validated and written back without a single optimization. Optimizations are
+  // enabled by name through advancedFeatures.
+  advancedFeatures: [],              // [] by default. Values:
+                                     //   'safe'          — lossless cleanup (dedup, prune, weld, degenerates)
+                                     //   'meshopt' | 'draco' — geometry compression (codec choice)
+                                     //   'join'          — flatten + merge meshes
+                                     //   'instance'      — GPU instancing (threshold: 2 nodes per mesh)
+                                     //   'resample'      — thin out animation keyframes
+                                     //   'ktx2'          — textures to KTX2/UASTC
+                                     //   'strip-colors'  — remove every COLOR_n
 
-  // Остальные флаги — уточнения к включённым фичам, camelCase (совпадают с CLI):
-  codec: 'meshopt' | 'draco',        // по умолчанию 'meshopt'
-  texMode: 'mixed' | 'uastc',        // по умолчанию 'uastc' — самый безопасный для новичка;
-                                     // 'mixed' (ETC1S для цвета, UASTC для данных) — явным указанием
-  keepParts: false,                  // не объединять части даже при 'join'
-  noKtx: true,                       // KTX2 выключён, пока в advancedFeatures нет 'ktx2'
+  // The remaining flags refine the enabled features, camelCase (matching the CLI):
+  codec: 'meshopt' | 'draco',        // 'meshopt' by default
+  texMode: 'mixed' | 'uastc',        // 'uastc' by default — the safest for a beginner;
+                                     // 'mixed' (ETC1S for colour, UASTC for data) must be asked for
+  keepParts: false,                  // don't merge parts even under 'join'
+  noKtx: true,                       // KTX2 stays off until advancedFeatures contains 'ktx2'
   stripColors: false, dryRun: false,
-  outDir: 'output',                  // куда писать .glb и отчёт
-  force: false,                      // true → обрабатывать, даже если output/имя.glb существует
-  onProgress: (e) => {},             // см. события ниже; опционально
-  locale: 'en',                      // язык сообщений правил; сейчас только 'en'
-  log: (line) => {},                 // построчный трейс пайплайна; опционально
+  outDir: 'output',                  // where the .glb and the report are written
+  force: false,                      // true → process even if output/name.glb already exists
+  onProgress: (e) => {},             // see the events below; optional
+  locale: 'en',                      // language of rule messages
+  log: (line) => {},                 // line-by-line pipeline trace; optional
 });
 ```
 
-**Legacy-путь.** Булевы поля `safe`, `join`, `instance`, `resample`, `compress` принимаются
-и напрямую — `{ safe: true }` работает так же, как `advancedFeatures: ['safe']`. Это остаток
-от доopt-in версии; для новых интеграций используйте `advancedFeatures`, он единственный
-описывает включённое одним списком.
+**Legacy path.** The boolean fields `safe`, `join`, `instance`, `resample`, `compress` are
+also accepted directly — `{ safe: true }` behaves exactly like `advancedFeatures: ['safe']`.
+This is a leftover from the pre-opt-in version; new integrations should use
+`advancedFeatures`, which is the only field that describes everything enabled as one list.
 
-**Повторная оптимизация — первоклассная операция ядра.** `optimizeFile(srcPath, opts)` —
-**чистая функция от (исходник, опции)**: исходный файл никогда не мутируется (результат
-пишется в `outDir`, отличный от источника — §4d), состояние между вызовами не переносится.
-Поэтому одну и ту же модель можно прогонять сколько угодно раз с разными `opts`/
-`advancedFeatures` и получать независимые варианты — это свойство ядра, общее для любых
-форматов/аддонов (движок не знает про формат — §4a). Оптимизация ВСЕГДА идёт от исходника,
-не поверх предыдущего результата (не кумулятивно). Слой представления (web/UI) вправе
-кэшировать исходник, чтобы десятки/сотни итераций не перезаливали файл, но гарантия
-переоптимизируемости лежит здесь, в контракте ядра.
+**Re-optimization is a first-class core operation.** `optimizeFile(srcPath, opts)` is a
+**pure function of (source, options)**: the source file is never mutated (the result goes to
+`outDir`, which differs from the source — §4d) and no state carries between calls. The same
+model can therefore be run any number of times with different `opts` / `advancedFeatures`,
+producing independent variants — a property of the core, shared by every format and add-on
+(the engine knows nothing about the format — §4a). Optimization ALWAYS starts from the
+source, never on top of a previous result — it is not cumulative. The presentation layer
+(web/UI) is free to cache the source so that dozens of iterations don't re-upload the file,
+but the guarantee of re-optimizability lives here, in the core contract.
 
-**События `onProgress`** (для статуса фаз в UI):
+**`onProgress` events** (for phase status in the UI):
 `{ type: 'phase', phase: 1..5, name: 'analysis'|'plan'|'apply'|'validation'|'report' }`
-(имена англоязычные — продукт англоязычный, C2) и `{ type: 'rule', phase: 3, ruleId, title }`
-— перед применением каждого правила.
+and `{ type: 'rule', phase: 3, ruleId, title }` — emitted before each rule is applied.
 
-**Двухуровневая обработка (v0.0.9, внутренняя механика ядра):** фазы 1–3 идут двумя
-проходами — сначала базовые правила (tier basic), затем checkpoint структурных метрик
+**Two-tier processing (v0.0.9, internal core mechanics):** phases 1–3 run in two passes —
+first the basic rules (tier basic), then a checkpoint of the structural metrics
 `BASELINE_METRICS = ['triangles', 'vertices', 'drawCalls', 'skins', 'nodes', 'animations',
-'morphTargets', 'attributes']` (`vertices` — мягкий ключ, ℹ без блокировки; см. §5), затем
-расширения (tier advanced; базовое правило с `runAfter` на включённое расширение уходит
-во второй проход вместе с ним — порядок пайплайна сохраняется). Фаза 4 строго сверяет
-метрики итоговых байтов с checkpoint: расхождение → `validation` получает `level:'fail'`
-(строка «baseline-checkpoint…» при успехе, «структура геометрии изменилась…» при провале).
-Так любое будущее расширение валидируется автоматически.
+'morphTargets', 'attributes']` (`vertices` is a soft key: ℹ without blocking, see §5), then
+the extensions (tier advanced; a basic rule with a `runAfter` on an enabled extension moves
+into the second pass along with it, so the pipeline order is preserved). Phase 4 compares
+the metrics of the final bytes against the checkpoint strictly: any divergence gives
+`validation` an entry with `level:'fail'` ("baseline-checkpoint…" on success, "geometry
+structure changed…" on failure). Every future extension is therefore validated
+automatically.
 
-**Файл при провале всё равно записывается** (решение Александра, 2026-07-30). Раньше
-запись блокировалась; оказалось, что это отнимает у человека выбор — иногда результат
-нужен даже с оговоркой. Теперь `status` становится `'fail'`, интерфейс показывает красное
-предупреждение с перечислением расхождений, но скачать файл можно. Единственное, что
-по-прежнему не пишет, — `dryRun`.
-События `onProgress` фаз 1–3 шлются один раз (на базовом проходе) — номера фаз для
-потребителей остаются монотонными 1→5, формы событий не изменились.
+**The file is written even on failure** (Alexander's decision, 2026-07-30). Writing used to
+be blocked; that turned out to take the choice away from the person — sometimes the result
+is wanted even with a caveat. Now `status` becomes `'fail'`, the interface shows a red
+warning listing the divergences, and the file can still be downloaded. The only thing that
+still writes nothing is `dryRun`.
+The `onProgress` events for phases 1–3 are sent once (on the basic pass) — phase numbers
+stay monotonic 1→5 for consumers, and the event shapes are unchanged.
 
-**Результат `optimizeFile` (RunResult):**
+**The `optimizeFile` result (RunResult):**
 
 ```js
 {
-  status: 'ok' | 'skip' | 'fail',    // fail = валидация не прошла; .glb ВСЁ РАВНО записан
+  status: 'ok' | 'skip' | 'fail',    // fail = validation did not pass; the .glb is STILL written
   file: { src, dst, written: boolean, reportPath },
-  findings: [ { ruleId, category, severity, fixSafety, text } ],  // «Найдено»
-  skipped:  [ { ruleId, text, reason } ],                          // «Пропущено» + причина
-  applied:  [ { ruleId, fixSafety, reversible, dataLoss, text } ], // «Применено» + обратимость (§4d)
+  findings: [ { ruleId, category, severity, fixSafety, text } ],  // "Found"
+  skipped:  [ { ruleId, text, reason } ],                          // "Skipped" + reason
+  applied:  [ { ruleId, fixSafety, reversible, dataLoss, text } ], // "Applied" + reversibility (§4d)
   validation: [ { level: 'pass'|'info'|'fail', text } ],           // ✅/ℹ/❌
-  metrics: { before: {…}, after: {…} },   // формы из раздела А, байты без форматирования
-  error?: string,                          // при исключении (модель не читается и т.п.)
+  metrics: { before: {…}, after: {…} },   // shapes from part A, raw bytes, unformatted
+  error?: string,                          // on an exception (model unreadable, etc.)
 }
 ```
 
-`listRules()` → массив `RULES[i].meta` (read-only) — для будущих настроек/доков.
-`VERSION` → строка из package.json.
+`listRules()` → an array of `RULES[i].meta` (read-only) — for future settings and docs.
+`VERSION` → the string from package.json.
 
-**Правила стабильности:** добавлять поля можно свободно; переименование/удаление полей или
-изменение семантики — ломающее изменение (правка этой секции + предупреждение зависимым
-агентам). Форматирование (МБ, проценты, язык UI) — зона потребителей; ядро отдаёт числа
-в байтах и готовые русские строки `text` как есть. Тексты объяснений «для человека» поверх
-`RunResult` — зона ai-assistant, не ядра.
+**Stability rules:** fields may be added freely; renaming or removing a field, or changing
+its meaning, is a breaking change (edit this section and warn the dependent layers).
+Formatting (MB, percentages, UI language) belongs to the consumer; the core hands back
+numbers in bytes and finished `text` strings as they are. Human-facing explanations layered
+on top of `RunResult` belong to the assistant, not the core.
 
-### В. Аддитивные детали реализации (2026-07-18, контракт Б реализован в optimize2.mjs)
+### C. Additive implementation details (2026-07-18, contract B implemented in optimize2.mjs)
 
-Не меняют контракт Б — только уточнения в рамках «добавлять поля можно свободно»:
+These do not change contract B — they are clarifications within "fields may be added freely":
 
-- `opts.log?: (line: string) => void` — приёмник строк хода работы (строки фаз и шагов
-  правил, как в консоли CLI). По умолчанию тишина; CLI передаёт `console.log`, чем
-  сохраняет прежний вывод. Библиотечный вызов без `log` ничего не печатает
-  (кроме внутреннего логгера glTF-Transform — строки `prune: Removed types…`).
-- Находки/применения уровня движка (вне `RULES`) имеют стабильные `ruleId` с префиксом
-  `engine/`: `engine/input-compression` (снятие входного Draco/Meshopt,
-  category `geometry`, fixSafety `provable`) и `engine/input-validation` (ошибки
-  gltf-validator, унаследованные от входа; category `scene`, severity `warn`, fixSafety `none`).
-- `file.src`, `file.dst`, `file.reportPath` — абсолютные пути; `outDir` из opts
-  резолвится относительно cwd процесса. При `status:'skip'` и при раннем `fail`
-  (исключение до отчёта) `reportPath: null`, `metrics.before/after: null`.
-- `skipped[].reason` — причина без префикса-заголовка; для строк, которые правило вернуло
-  единой фразой, `reason === text`.
-- `applied[]`, `skipped[]`, `findings[]` — необязательное поле `i18n`: «рецепт» готовых
-  строк записи, `{ поле записи → { messageId, data } }` (например
-  `{ text: {...}, reason: {...} }`). Есть у строк, собранных из каталога сообщений; у
-  строк, пришедших готовыми, его нет. `text` и `reason` остаются готовыми строками —
-  потребитель, которому перевод не нужен, поля `i18n` не замечает.
-  Зачем: `localizeResult(result, locale)` (`core/i18n.mjs`) пересобирает по рецептам тот
-  же отчёт на другом языке из ГОТОВОГО результата. Смена языка в интерфейсе — перерисовка,
-  а не работа: запускать обработку заново ради перевода нельзя.
-  Подстановка в `data` сама может быть сообщением (`{ messageId, data }`) — так строка
-  собирается из кусков, и переводится целиком, а не наполовину.
-- `optimizeFile` кэширует один `NodeIO` (декодеры Draco/Meshopt) на процесс;
-  параллельные вызовы в одном процессе не изолированы по CPU — очередь на стороне потребителя.
+- `opts.log?: (line: string) => void` — a sink for progress lines (phase lines and rule
+  steps, as printed by the CLI). Silent by default; the CLI passes `console.log`, which
+  preserves the previous output. A library call without `log` prints nothing (apart from
+  glTF-Transform's own logger — the `prune: Removed types…` lines).
+- Engine-level findings and applications (outside `RULES`) carry stable `ruleId`s prefixed
+  with `engine/`: `engine/input-compression` (removing incoming Draco/Meshopt, category
+  `geometry`, fixSafety `provable`) and `engine/input-validation` (gltf-validator errors
+  inherited from the input; category `scene`, severity `warn`, fixSafety `none`).
+- `file.src`, `file.dst`, `file.reportPath` are absolute paths; `outDir` from opts is
+  resolved against the process cwd. On `status:'skip'` and on an early `fail` (an exception
+  before the report), `reportPath: null` and `metrics.before/after: null`.
+- `skipped[].reason` is the reason without a leading title; for strings a rule returned as a
+  single phrase, `reason === text`.
+- `applied[]`, `skipped[]` and `findings[]` carry an optional `i18n` field: the "recipe" for
+  that record's finished strings, `{ record field → { messageId, data } }` (for example
+  `{ text: {...}, reason: {...} }`). Records assembled from the message catalog have it;
+  records that arrived already finished do not. `text` and `reason` remain finished strings —
+  a consumer that doesn't need translation never notices `i18n`.
+  Why: `localizeResult(result, locale)` (`core/i18n.mjs`) rebuilds the same report in another
+  language from a FINISHED result, following those recipes. Switching language in the
+  interface is a redraw, not work: re-running processing for the sake of a translation is not
+  allowed.
+  A substitution inside `data` may itself be a message (`{ messageId, data }`) — that is how a
+  string is assembled from pieces and translated whole rather than half.
+- `optimizeFile` caches one `NodeIO` (Draco/Meshopt decoders) per process; parallel calls
+  within one process are not CPU-isolated — queueing is the consumer's job.
 
 ---
 
-## 4c. Контракт слоя ассистента (v0.1.0)
+## 4c. The assistant layer contract (v0.1.0)
 
-> Эта секция — договор между агентами (ai-assistant · web-interface). Реализует
-> ai-assistant в `assistant.mjs`. web-interface зависит ТОЛЬКО от того, что здесь записано.
-> `assistant.mjs` **не импортирует** `optimize2.mjs`: ядро вызывает web-interface, а слой
-> ассистента лишь переводит `RunResult` (§4b) на человеческий язык. Профили платформ —
-> ДАННЫЕ (`profiles/*.json`): новая платформа = новый json-файл без правки кода ассистента.
-> Ломающее изменение контракта = правка этой секции + предупреждение web-interface.
+> This section is the agreement between the assistant layer and the web interface. The
+> assistant is implemented in `assistant.mjs`; the web interface depends ONLY on what is
+> written here. `assistant.mjs` does **not import** `optimize2.mjs`: the web interface calls
+> the core, and the assistant layer only translates `RunResult` (§4b) into human language.
+> Platform profiles are DATA (`profiles/*.json`): a new platform is a new json file, with no
+> change to the assistant's code. Breaking the contract means editing this section and
+> warning the web interface.
 
-### Экспорты `assistant.mjs`
+### Exports of `assistant.mjs`
 
 ```js
 import { listPlatforms, planFor, explainResult } from './assistant.mjs';
 
-// Список платформ для выпадающего меню UI (читается из profiles/*.json).
+// The platform list for the UI dropdown (read from profiles/*.json).
 listPlatforms()
 // → [ { id, title, description } ]
 
-// План обработки под платформу: engineOpts передаются в optimizeFile КАК ЕСТЬ.
+// A processing plan for a platform: engineOpts are passed to optimizeFile AS IS.
 planFor(platformId)
 // → {
-//     profileId,                 // id профиля
-//     title,                     // человеческое имя платформы
-//     engineOpts,                // ровно opts из §4b (codec, texMode, keepParts, noKtx, stripColors)
-//     explanation: [ string ],   // почему выбраны эти настройки, без жаргона
+//     profileId,                 // profile id
+//     title,                     // human name of the platform
+//     engineOpts,                // exactly the opts from §4b (codec, texMode, keepParts, noKtx, stripColors)
+//     explanation: [ string ],   // why these settings were chosen, without jargon
 //   }
 
-// Перевод RunResult (§4b) на человеческий язык для правой панели «Анализ».
+// Translating RunResult (§4b) into human language for the right-hand "Analysis" panel.
 explainResult(runResult, platformId)
 // → {
-//     summary: string,           // 1–2 предложения: файл/видеопамять с числами
-//     highlights: [ string ],    // главные улучшения человеческим языком (макс. 5–6)
+//     summary: string,           // 1–2 sentences: file size / video memory with numbers
+//     highlights: [ string ],    // the main improvements in plain language (max 5–6)
 //     budgetChecks: [ { name, limitText, actualText, ok: boolean, advice?: string } ],
-//     warnings: [ string ],      // из skipped и validation уровней info|fail
+//     warnings: [ string ],      // from skipped and from validation entries at info|fail
 //   }
 ```
 
-**Семантика и правила:**
+**Semantics and rules:**
 
-- **Форматирование — зона ассистента.** Ядро отдаёт `metrics` в байтах (§4b); ассистент
-  сам переводит в КБ/МБ и проценты внутри текстов. web-interface тексты не пересчитывает,
-  только отображает как карточки-issues с цветовой маркировкой по полю `ok`.
-- **budgetChecks** сверяют `metrics.after` c `profile.budgets`. Проверяются только
-  измеримые метрики: `triangles`, `drawCalls`, `vramMB` (← `gpuBytes`), `fileMB`
-  (← `fileBytes`). `textureMaxSize` пока не проверяется — ядро не отдаёт размерность
-  текстур в `metrics`. При превышении (`ok:false`) `advice` объясняет, что превышено, на
-  сколько и что делать при экспорте.
-- **Рост файла при падении видеопамяти — НЕ ошибка.** Объясняется нейтрально: GPU-формат
-  текстур тяжелее в файле, зато на видеокарте занимает в разы меньше.
-- **Неизвестный `platformId`** → выброс `Error` с понятным текстом и списком доступных id.
-- **Нештатные статусы `RunResult`** (`error` / `status:'skip'` / `metrics === null`)
-  дают осмысленный `summary` и пустые массивы там, где данных нет.
+- **Formatting belongs to the assistant.** The core returns `metrics` in bytes (§4b); the
+  assistant converts to KB/MB and percentages inside its texts. The web interface never
+  recomputes those texts — it displays them as issue cards, colour-coded by the `ok` field.
+- **budgetChecks** compare `metrics.after` against `profile.budgets`. Only measurable metrics
+  are checked: `triangles`, `drawCalls`, `vramMB` (← `gpuBytes`), `fileMB` (← `fileBytes`).
+  `textureMaxSize` is not checked yet — the core doesn't expose texture dimensions in
+  `metrics`. When a budget is exceeded (`ok:false`), `advice` explains what was exceeded, by
+  how much, and what to do at export time.
+- **A file growing while video memory drops is NOT an error.** It is explained neutrally: the
+  GPU texture format is heavier in the file but takes several times less on the video card.
+- **An unknown `platformId`** throws an `Error` with a clear message and the list of
+  available ids.
+- **Abnormal `RunResult` states** (`error` / `status:'skip'` / `metrics === null`) still
+  produce a meaningful `summary` and empty arrays where there is no data.
 
-### Формат `profiles/*.json`
+### The `profiles/*.json` format
 
 ```json
 {
   "id": "shopify",
   "title": "Shopify",
-  "description": "1–2 предложения для пользователя без жаргона",
+  "description": "1–2 sentences for the user, without jargon",
   "budgets": {
     "triangles": 150000,
     "drawCalls": 25,
@@ -509,241 +523,258 @@ explainResult(runResult, platformId)
     "noKtx": true,
     "stripColors": false
   },
-  "notes": [ "источник/обоснование каждого бюджета" ]
+  "notes": [ "source / justification for each budget" ]
 }
 ```
 
-- `baselineOpts` — ровно поля `opts` из §4b (camelCase), передаются в `optimizeFile` без
-  преобразования. Это БАЗОВЫЙ план платформы: KTX2 и Draco в него не входят, они
-  включаются пользователем через `advancedFeatures`.
-- Поле `engineOpts` в файле профиля — **устаревшее имя**. `assistant.mjs:122` читает его
-  как фолбэк (`profile.baselineOpts || profile.engineOpts`), но новые профили должны
-  использовать `baselineOpts`. Не путать с полем `engineOpts` в **ответе** `planFor()` —
-  там имя осталось прежним и менять его незачем.
-- `budgets` в человеческих единицах: `textureMaxSize` — пиксели, `vramMB`/`fileMB` — МБ,
-  `triangles`/`drawCalls` — штуки. Ассистент сам переводит МБ бюджета в байты при сверке.
-- `notes` — обоснование каждого бюджета (источник: рекомендации Khronos 3D Commerce,
-  официальные лимиты платформы, рекомендации Meta для Quest; либо консервативный «ориентир»).
-- Файл кладётся в `profiles/`, имя файла = `<id>.json`. Больше ничего регистрировать не нужно.
+- `baselineOpts` are exactly the `opts` fields from §4b (camelCase), passed to `optimizeFile`
+  without transformation. This is the platform's BASELINE plan: KTX2 and Draco are not part
+  of it — the user enables those through `advancedFeatures`.
+- The `engineOpts` field inside a profile file is a **deprecated name**. `assistant.mjs:122`
+  reads it as a fallback (`profile.baselineOpts || profile.engineOpts`), but new profiles
+  must use `baselineOpts`. Not to be confused with the `engineOpts` field in the **response**
+  of `planFor()` — that name is unchanged and there is no reason to change it.
+- `budgets` are in human units: `textureMaxSize` in pixels, `vramMB`/`fileMB` in MB,
+  `triangles`/`drawCalls` as counts. The assistant converts budget MB into bytes when
+  comparing.
+- `notes` justify each budget (sources: Khronos 3D Commerce recommendations, the platform's
+  official limits, Meta's recommendations for Quest — or a conservative estimate, stated as
+  such).
+- The file goes into `profiles/`, named `<id>.json`. Nothing else needs registering.
 
 ---
 
-### Progressive disclosure — уровни объяснения (v0.1.0: 3 уровня)
+### Progressive disclosure — levels of explanation (v0.1.0: 3 levels)
 
-Каждое объяснение решения подаётся слоями: по умолчанию пользователь видит только верхний
-уровень, глубже разворачивает по желанию. Один интерфейс обслуживает и новичка, и эксперта —
-не перегружая первого и не раздражая второго.
+Every explanation of a decision is served in layers: by default the user sees only the top
+level and expands further at will. One interface serves both the beginner and the expert
+without overwhelming the first or irritating the second.
 
-Для v0.1.0 — ровно **три уровня** (визуализация и ссылки на спеку — позже, не на MVP):
+For v0.1.0 there are exactly **three levels** (visualization and spec links come later, not
+at MVP):
 
-1. **Человеческий** (по умолчанию) — что произошло и почему, на языке художника.
-   Пример: «Текстуры были 4096×4096. Для мобильной цели это ~64 МБ видеопамяти. Уменьшил
-   до 2048×2048 — экономия 75% памяти, разница на глаз незаметна».
-2. **Технические детали** (разворот) — имя правила, категория безопасности (§2.4),
-   числа до/после, ссылки `references` из метаданных правила (§4d).
-3. **Сырые метрики** (разворот) — необработанные данные `RunResult` (§4b): счётчики,
-   размеры, тайминги.
+1. **Human** (default) — what happened and why, in an artist's language. Example: "The
+   textures were 4096×4096. For a mobile target that is about 64 MB of video memory. Reduced
+   to 2048×2048 — 75% memory saved, no visible difference."
+2. **Technical details** (expandable) — the rule name, the safety tier (§2.4), before/after
+   numbers, and the `references` from the rule's metadata (§4d).
+3. **Raw metrics** (expandable) — the unprocessed `RunResult` data (§4b): counters, sizes,
+   timings.
 
-Владельцы: `ai-assistant` формирует содержимое всех трёх уровней в `RunResult`;
-`web-interface` отвечает только за подачу (сворачивание/разворачивание). Уровень 1 всегда
-присутствует; уровни 2–3 не обязательны, если данных нет.
-
----
-
-## 4d. Принцип обратимости (фундамент универсального трансформера)
-
-v0.0.8+ закладывает архитектуру **универсального трансформера моделей**, не просто оптимизатора. 
-Каждое сжатие/преобразование имеет обратную операцию (если возможно).
-
-### Типы обратимости
-
-- **✅ Полностью обратимо** (no data loss): Draco ↔ стандартный формат, Meshopt ↔ стандартный
-- **⚠️ Обратимо с потерей** (minor): KTX2 ↔ PNG/WebP (потеря от BASIS-U распаковки, зависит от параметров кодирования)
-- **❌ Невозвратно**: Decimation (полигоны удалены), flatten/join (структура потеряна), strip-colors (данные удалены)
-
-### Метаданные правила
-
-Каждое `rule.meta` содержит:
-- `reversible: boolean` — есть ли обратное?
-- `reversalRuleId?: string` — id обратного правила (если есть)
-- `reversalNote?: string` — описание для пользователя
-- `dataLoss?: 'none' | 'minor' | 'significant'` — потеря данных: для обратимых — при распаковке; для необратимых — насколько значимы безвозвратно потерянные данные (`none` = удалено только неиспользуемое/идентичное, `significant` = потеряна структура или видимое содержимое)
-- `references?: string[]` — ссылки на официальную документацию/спеку, обосновывающие правило (в духе принципа открытых источников — см. `ЗАВИСИМОСТИ.md`: не выдумываем правила из головы). Показываются в отчёте на уровне «технические детали» (см. §4c, progressive disclosure).
-
-### Режимы использования (для будущего UI)
-
-- **Оптимизация**: для целевой платформы (базовые + расширения сжатия → результат)
-- **Распаковка**: обратно в стандартный формат (для других целей, игр, печати, etc.)
-- **Переформатирование**: перекодирование (Meshopt → Draco, WebP → KTX2)
-
-На v0.1.0 реализованы основные пары (Draco, KTX2). На будущее: расширить на все правила 
-и добавить UI-режимы для распаковки.
-
-**Важно:** Когда пользователь скачивает результат с невозвратными изменениями (decimation, strip-colors, etc.) → 
-показывать warning: _«Применены необратимые изменения. Сохраните исходный файл перед скачиванием.»_
-
-Реализовано (v0.0.8): каждая запись `applied` несёт `reversible`/`dataLoss` из meta правила
-(lossy-ветка внутри правила может пометить свои строки отдельно — `res.irreversible` в fix());
-UI показывает предупреждение над кнопкой скачивания, если среди применённого есть
-`reversible: false` + `dataLoss: 'significant'`, со списком конкретных изменений.
+Ownership: the assistant layer produces the content of all three levels in `RunResult`; the
+web interface is responsible only for presentation (collapse/expand). Level 1 is always
+present; levels 2–3 are optional when there is no data.
 
 ---
 
-## 4e. Core Engine как единая платформа приложения (спецификация Александра, 2026-07-23)
+## 4d. The reversibility principle (foundation of a universal transformer)
 
-> Записано как требование, НЕ как реализация. Здесь — авторитетная фиксация: какие модули
-> обязательны, что они общие для всех движков/форматов, и как это ложится на уже принятые
-> контракты §4a–§4d и `EXTENDING.md`. Что делаем до 0.1.0, что сейчас, а что потом —
-> в подразделе «Что это меняет в приоритетах» ниже.
+v0.0.8+ lays the architecture of a **universal model transformer**, not merely an optimizer.
+Every compression or conversion has an inverse operation, where one is possible.
 
-### Терминология: два смысла «Core Engine»
+### Kinds of reversibility
 
-В §4a–§4d «ядро» = формат-агностичный движок оптимизации (`optimize2.mjs`): без UI, чистая
-функция `(исходник, опции) → RunResult`. Александр использует «Core Engine» в БОЛЕЕ ШИРОКОМ
-смысле — как **постоянный слой приложения**, общий для всех будущих движков просмотра
-(three.js сейчас; Unreal, Unity и др. потом) и всех форматов. В этот слой входят, помимо
-движка оптимизации: оболочка UI, обвязка вьюпортов, менеджеры файлов и текстур, единые
-модули Metadata/Validation, логи, экспорт. Оба смысла совместимы: широкий Core Engine — это
-узкое ядро оптимизации ПЛЮС общая оболочка. Ниже «платформенный слой» = широкий смысл.
+- **✅ Fully reversible** (no data loss): Draco ↔ standard format, Meshopt ↔ standard
+- **⚠️ Reversible with loss** (minor): KTX2 ↔ PNG/WebP (loss comes from BASIS-U decoding and
+  depends on the encoding parameters)
+- **❌ Irreversible**: decimation (polygons removed), flatten/join (structure lost),
+  strip-colors (data removed)
 
-Это прямое продолжение `EXTENDING.md` §1 («маленькое ядро + всё как плагины: importers,
-exporters, viewers, profiles…») и §4a (движок не знает про формат). Новое здесь — явно
-зафиксировано, что **оболочка приложения тоже часть постоянного слоя**, а не часть
-three.js-реализации.
+### Rule metadata
 
-### Принцип (пункт 13 спецификации)
+Every `rule.meta` carries:
+- `reversible: boolean` — does an inverse exist?
+- `reversalRuleId?: string` — id of the inverse rule, if there is one
+- `reversalNote?: string` — description for the user
+- `dataLoss?: 'none' | 'minor' | 'significant'` — data loss: for reversible rules, the loss
+  incurred when decoding; for irreversible ones, how significant the permanently lost data is
+  (`none` = only unused or identical data was removed, `significant` = structure or visible
+  content was lost)
+- `references?: string[]` — links to official documentation or the spec that justify the rule
+  (in the spirit of the open-sources principle — see `docs/ЗАВИСИМОСТИ.md`, "dependencies":
+  we don't invent rules
+  out of thin air). Shown in the report at the "technical details" level (§4c, progressive
+  disclosure).
 
-При смене платформы/движка меняются РОВНО три вещи:
-1. **движок вьюпорта** (three.js → Unreal/Unity/…);
-2. **содержимое окон Metadata и Validation** — какие данные и какие проверки, зависит от формата;
-3. **список опций оптимизации справа** — свой у каждой платформы.
+### Modes of use (for the future UI)
 
-Логика действий (загрузка, менеджер моделей, менеджер текстур, управление камерами, сброс,
-сравнение before/after, кнопка Build, экспорт, логи) — **одна и та же на любом движке**.
-Новый движок/импортёр/экспортёр/плагин НЕ реализует эти возможности заново — он
-подключается к существующим модулям платформенного слоя через единый API. Уже действующий
-пример шва — контракт движка просмотра у `createViewer()` (`ui/viewer/index.js`): очистка
-полотна при сбросе живёт в обвязке `ViewportSlot.reset()`, а не в three.js-движке, поэтому
-новый движок получает это поведение бесплатно.
+- **Optimize**: for a target platform (basic rules + compression extensions → result)
+- **Decode**: back to the standard format (for other purposes — games, printing, etc.)
+- **Re-encode**: convert between codecs (Meshopt → Draco, WebP → KTX2)
 
-### Обязательные модули платформенного слоя (13 пунктов) и их статус
+The main pairs (Draco, KTX2) are implemented for v0.1.0. Later: extend to every rule and add
+UI modes for decoding.
 
-| # | Модуль | Обязан давать | Статус сейчас | Владелец-шов / ссылка |
+**Important:** when the user downloads a result containing irreversible changes (decimation,
+strip-colors, etc.) a warning must be shown: _"Irreversible changes were applied. Keep the
+source file before downloading."_
+
+Implemented (v0.0.8): every `applied` record carries `reversible`/`dataLoss` from the rule's
+meta (a lossy branch inside a rule can mark its own records separately — `res.irreversible`
+in `fix()`); the UI shows a warning above the download button when anything applied has
+`reversible: false` + `dataLoss: 'significant'`, listing the specific changes.
+
+---
+
+## 4e. The Core Engine as a single application platform (Alexander's specification, 2026-07-23)
+
+> Recorded as a requirement, NOT as an implementation. This is the authoritative statement of
+> which modules are mandatory, why they are shared across every engine and format, and how
+> that fits the contracts already agreed in §4a–§4d and `EXTENDING.md`. What lands before
+> 0.1.0, what is here now and what comes later is in "What this changes in priorities" below.
+
+### Terminology: two meanings of "Core Engine"
+
+In §4a–§4d, "core" means the format-agnostic optimization engine (`optimize2.mjs`): no UI, a
+pure function `(source, options) → RunResult`. Alexander uses "Core Engine" in a BROADER
+sense — as the **permanent application layer**, shared by every future viewer engine
+(three.js today; Unreal, Unity and others later) and every format. Besides the optimization
+engine, that layer holds the UI shell, the viewport harness, the file and texture managers,
+the single Metadata and Validation modules, the logs and the export path. Both meanings are
+compatible: the broad Core Engine is the narrow optimization core PLUS the shared shell.
+Below, "platform layer" means the broad sense.
+
+This is a direct continuation of `EXTENDING.md` §1 ("a small core plus everything as plugins:
+importers, exporters, viewers, profiles…") and §4a (the engine knows nothing about the
+format). What is new here is the explicit statement that **the application shell is also part
+of the permanent layer**, not part of the three.js implementation.
+
+### The principle (item 13 of the specification)
+
+When the platform or engine changes, EXACTLY three things change:
+1. **the viewport engine** (three.js → Unreal/Unity/…);
+2. **the contents of the Metadata and Validation windows** — which data and which checks,
+   depending on the format;
+3. **the list of optimization options on the right** — different for each platform.
+
+The action logic (loading, model manager, texture manager, camera control, reset,
+before/after comparison, the Build button, export, logs) is **the same on any engine**. A new
+engine, importer, exporter or plugin does NOT reimplement those capabilities — it connects to
+the existing platform-layer modules through one API. A seam that already works this way is
+the viewer contract in `createViewer()` (`ui/viewer/index.js`): clearing the canvas on reset
+lives in the `ViewportSlot.reset()` harness rather than in the three.js engine, so a new
+engine gets that behaviour for free.
+
+### Mandatory platform-layer modules (13 items) and their status
+
+| # | Module | Must provide | Status today | Owning seam / reference |
 |---|---|---|---|---|
-| 1 | Загрузка файлов | приём любого поддерживаемого формата (D&D + выбор), UI не меняется при новом формате | GLB-only; UI-текст «Drop a .glb file» | Importer `bytes→Document` (`EXTENDING.md` §2); §4a |
-| 2 | Менеджер файлов | список ≥5 моделей: имя, формат, путь, статус, текстуры, метаданные | нет (одна модель, `purgeSourcesExcept`) | новый модуль; в UI уже задел `.outliner`/`model-list` |
-| 3 | Менеджер текстур | D&D/выбор текстур, привязка к модели, замена, удаление; общий для всех импортёров | нет | новый модуль |
-| 4 | Левая панель (Original) | Original Mesh · File · Tris · Vertices · Draw Calls · Materials · Textures | есть (`renderOriginalStats`, HUD) | платформенный слой; общий вид на любом движке |
-| 5 | Правая панель (Optimized) | Optimized Mesh · % (+/−) · File · Tris · Vertices · Draw Calls · Materials · Textures | есть (`renderComparison`, delta-бейдж) | платформенный слой |
-| 6 | Управление вьюпортом | вращение обеих сразу, зум, панорама, Reset Camera, синхронизация | есть (`DualViewport`, linked cameras, `resetView`) | контракт `createViewer()` |
-| 7 | Сравнение Original/Optimized | разделитель, изменяемая ширина, синхронная навигация, будущее отключение синхр. | есть (`viewport-split`, splitter, тумблер связи камер) | платформенный слой |
-| 8 | Metadata | ЕДИНЫЙ модуль; новый формат лишь добавляет свои данные, не заводит свою Metadata | есть как формат-агностичный шов | `inspect()` addon-хук → `inspectFile()` (§4a, реализовано) |
-| 9 | Validation | ЕДИНЫЙ модуль; новый формат лишь добавляет свои проверки (Geometry/UV/Materials/Textures/Animations/Skeleton/Cameras/Lights/Extensions/…) | есть как шов; набор проверок = подмножество | §2.3 (валидация централизована), §2.5 (три уровня), `inspect()` |
-| 10 | Build / Optimize | главная кнопка; результат сам появляется в правом вьюпорте | есть (`run-btn` → `loadOptimized`) | §4b `optimizeFile` |
-| 11 | Download Result | ОДНА кнопка → окно экспорта (формат/имя/место); UI не меняется при новом экспортёре | сейчас две кнопки (GLB + Export JSON), без диалога | Exporter `Document→bytes` (`EXTENDING.md` §2); §4d |
-| 12 | Логи | все действия Core Engine пишутся в лог (загрузка, текстура, импорт, старт/финиш оптимизации, Validation, Metadata, экспорт, ошибки, предупреждения) | есть (панель+окно логов, события); часть событий ждёт своих фич | реализовано 2026-07-23 (3) |
-| 13 | Архитектура | единый UI + единый Core; расширяется только функциональность форматов | принцип; согласуется с `EXTENDING.md` §1–2, §4a | этот раздел |
+| 1 | File loading | accept any supported format (drag-and-drop + picker), UI unchanged by a new format | GLB only; UI text "Drop a .glb file" | Importer `bytes→Document` (`EXTENDING.md` §2); §4a |
+| 2 | File manager | a list of ≥5 models: name, format, path, status, textures, metadata | absent (one model, `purgeSourcesExcept`) | new module; the UI already has `.outliner`/`model-list` groundwork |
+| 3 | Texture manager | drag-and-drop / picker for textures, binding to a model, replace, delete; shared by all importers | absent | new module |
+| 4 | Left panel (Original) | Original Mesh · File · Tris · Vertices · Draw Calls · Materials · Textures | present (`renderOriginalStats`, HUD) | platform layer; same view on any engine |
+| 5 | Right panel (Optimized) | Optimized Mesh · % (+/−) · File · Tris · Vertices · Draw Calls · Materials · Textures | present (`renderComparison`, delta badge) | platform layer |
+| 6 | Viewport control | rotate both at once, zoom, pan, Reset Camera, synchronization | present (`DualViewport`, linked cameras, `resetView`) | the `createViewer()` contract |
+| 7 | Original/Optimized comparison | splitter, adjustable width, synchronized navigation, future unlinking | present (`viewport-split`, splitter, camera-link toggle) | platform layer |
+| 8 | Metadata | ONE module; a new format only adds its own data, it does not get its own Metadata | present as a format-agnostic seam | `inspect()` add-on hook → `inspectFile()` (§4a, implemented) |
+| 9 | Validation | ONE module; a new format only adds its own checks (Geometry/UV/Materials/Textures/Animations/Skeleton/Cameras/Lights/Extensions/…) | present as a seam; the check set is a subset | §2.3 (validation is centralized), §2.5 (three tiers), `inspect()` |
+| 10 | Build / Optimize | the main button; the result appears in the right viewport by itself | present (`run-btn` → `loadOptimized`) | §4b `optimizeFile` |
+| 11 | Download Result | ONE button → an export dialog (format/name/location); UI unchanged by a new exporter | currently two buttons (GLB + Export JSON), no dialog | Exporter `Document→bytes` (`EXTENDING.md` §2); §4d |
+| 12 | Logs | every Core Engine action is logged (load, texture, import, optimization start/finish, Validation, Metadata, export, errors, warnings) | present (panel + log window, events); some events wait for their features | implemented 2026-07-23 (3) |
+| 13 | Architecture | one UI + one Core; only format functionality is extended | a principle; consistent with `EXTENDING.md` §1–2, §4a | this section |
 
-### Как это ложится на существующие контракты (сверка, без противоречий)
+### How this fits the existing contracts (a check, no contradictions)
 
-- **§4a (формат-агностичность ядра)** — прямо поддерживает пункты 8/9/13: Metadata и
-  Validation уже сделаны как единый шов (`inspectFile` → addon `inspect()`), новый формат
-  реализует тот же хук со своими данными. Расширять набор проверок Validation (Skeleton,
-  Cameras, Lights…) — это добавление в существующий модуль, не новый модуль на формат.
-- **§4c (профили-данные)** — пункт «список опций справа меняется по платформе» уже так и
-  устроен: опции строятся из `availableExtensions` профиля (`profiles/*.json`), новая
-  платформа = новый json. Дополнительной архитектуры не нужно.
-- **§4d (обратимость, экспортёры)** — пункт 11 (Download Result) ложится на Exporter-шов:
-  один диалог, форматы добавляются как экспортёры-плагины без правки UI. Оговорка среды:
-  выбор ПРОИЗВОЛЬНОГО места сохранения в браузере ограничен (нужен File System Access API,
-  только Chromium); честный минимум — выбор формата и имени, «место» — штатная папка
-  загрузок. Полноценный «Save As» — только в десктоп-оболочке либо через
-  Chromium-only API как прогрессивное улучшение.
-- **`EXTENDING.md` §2 (типизированные точки расширения)** — пункты 1/11 (импорт/экспорт
-  форматов) уже имеют контракты (`bytes→Document`, `Document→bytes`); НЕ-glTF экспорт (FBX,
-  USDZ) остаётся «стеной» (закрытые SDK Autodesk/Apple), независимо от готовности UI-диалога.
+- **§4a (the core is format-agnostic)** directly supports items 8/9/13: Metadata and
+  Validation are already built as a single seam (`inspectFile` → add-on `inspect()`), and a
+  new format implements the same hook with its own data. Extending the Validation check set
+  (Skeleton, Cameras, Lights…) is an addition to an existing module, not a new module per
+  format.
+- **§4c (profiles as data)** — "the option list on the right changes per platform" already
+  works exactly that way: options are built from the profile's `availableExtensions`
+  (`profiles/*.json`), and a new platform is a new json. No extra architecture is needed.
+- **§4d (reversibility, exporters)** — item 11 (Download Result) sits on the Exporter seam:
+  one dialog, formats added as exporter plugins without touching the UI. An environment
+  caveat: choosing an ARBITRARY save location in a browser is restricted (it needs the File
+  System Access API, Chromium only); the honest minimum is choosing the format and the name,
+  with the location being the standard downloads folder. A full "Save As" belongs to a
+  desktop shell, or to the Chromium-only API as a progressive enhancement.
+- **`EXTENDING.md` §2 (typed extension points)** — items 1/11 (format import/export) already
+  have contracts (`bytes→Document`, `Document→bytes`); non-glTF export (FBX, USDZ) remains a
+  wall (closed Autodesk/Apple SDKs), regardless of how ready the UI dialog is.
 
-### Что это меняет в приоритетах (кратко)
+### What this changes in priorities (briefly)
 
-Спецификация НЕ вводит новых архитектурных принципов — она делает явным, что оболочка
-приложения принадлежит постоянному слою, и даёт чек-лист обязательных модулей. Часть уже
-реализована и лишь формализуется как «Core Engine, общий для движков» (пп. 4–10, 12); часть
-— дешёвые правки UI сейчас (текст загрузки, объединение экспорта в одну кнопку+диалог);
-часть — новые подсистемы на потом (менеджер моделей ≥5, менеджер текстур, не-glTF
-импорт/экспорт).
+The specification introduces no new architectural principles — it makes explicit that the
+application shell belongs to the permanent layer, and it provides a checklist of mandatory
+modules. Some of it is already implemented and is merely being formalized as "the Core Engine
+shared across engines" (items 4–10, 12); some is cheap UI work available now (the upload
+text, merging export into one button plus a dialog); some is new subsystems for later (a
+model manager for ≥5 models, a texture manager, non-glTF import/export).
 
 ---
 
-## 4f. Две плоскости: Inspect и Processing (glTF — рабочий стол, не универсальная модель) (2026-07-24)
+## 4f. Two planes: Inspect and Processing (glTF is the workbench, not a universal model) (2026-07-24)
 
-> Зафиксировано по итогам архитектурной сессии с Александром. Уточняет §4a: раньше «ядро
-> работает на модели glTF-Transform `Document`» можно было прочитать как «любой ассет
-> ОБЯЗАН стать glTF». Это НЕ так. Решения приняты Александром; уточнения Клода, не
-> оспоренные в ходе сессии, считаются принятыми (прямое указание Александра).
+> Recorded after an architecture session with Alexander. It clarifies §4a: "the core works on
+> a glTF-Transform `Document`" could previously be read as "every asset MUST become glTF".
+> That is NOT the case.
 
-**Простыми словами.** glTF — это рабочий стол в мастерской, а не паспорт, который обязан
-получить каждый ассет. Когда ты просто СМОТРИШЬ модель — смотришь в её родном формате, стол
-не нужен. Когда ты что-то ДЕЛАЕШЬ с моделью (сжать, оптимизировать, показать) — кладёшь на
-стол, работаешь, забираешь результат. Стол один для всех, но модель не становится столом
-навсегда.
+**In plain words.** glTF is a workbench in the workshop, not a passport every asset is
+required to obtain. When you are simply LOOKING at a model, you look at it in its native
+format — no workbench needed. When you DO something to a model (compress, optimize, display),
+you put it on the bench, work, and take the result away. There is one bench for everyone, but
+the model does not become the bench forever.
 
-### Две плоскости
+### The two planes
 
-1. **Inspect-плоскость («посмотреть»).** Нативные providers по форматам (glTF; потом FBX,
-   USD, OBJ…). Формат читается КАК ЕСТЬ, без принудительной конверсии в glTF. Назначение:
-   метаданные, бюджеты платформы, проверки совместимости. USD/FBX и всё, что не влезает в
-   форму glTF, живёт ЗДЕСЬ нативно.
+1. **The Inspect plane ("look at it").** Native providers per format (glTF; later FBX, USD,
+   OBJ…). The format is read AS IS, with no forced conversion to glTF. Purpose: metadata,
+   platform budgets, compatibility checks. USD, FBX and anything that does not fit the shape
+   of glTF lives HERE, natively.
 
-2. **Processing-плоскость («поработать»).** Пайплайн на базе glTF (glTF-Transform,
-   meshoptimizer, KTX tools). Конверсия в glTF — промежуточный build-шаг и ТОЛЬКО там, где
-   нужны операции, зависящие от glTF-экосистемы (geometry-компрессия, KTX2 и т.п.).
+2. **The Processing plane ("work on it").** A glTF-based pipeline (glTF-Transform,
+   meshoptimizer, KTX tools). Conversion to glTF is an intermediate build step, and ONLY
+   where operations that depend on the glTF ecosystem are needed (geometry compression, KTX2
+   and so on).
 
-**Граница одной фразой:** glTF нужен там, где ты ДЕЛАЕШЬ или РИСУЕШЬ (оптимизация, рендер).
-Не нужен там, где только СМОТРИШЬ (метаданные, бюджеты).
+**The boundary in one sentence:** glTF is needed where you DO or DRAW (optimization,
+rendering). It is not needed where you only LOOK (metadata, budgets).
 
-### Почему на Processing-плоскости glTF-хаб обязателен (а не «один из вариантов»)
+### Why a glTF hub is mandatory on the Processing plane (not "one option among several")
 
-Проект решил (§1) НИКОГДА не переписывать движки оптимизации — только вызывать
-готовые (glTF-Transform / meshopt / toktx). Эти движки glTF-нативны. Значит нельзя
-одновременно «нет обязательного хаба» И «переиспользуем готовые движки»: правило meshopt
-физически не запускается на модели FBX. Хаб на Processing-плоскости — прямое СЛЕДСТВИЕ
-решения не переписывать движки. Отказ от движков ради «нативной оптимизации каждого
-формата» = «12 полурабочих оптимизаторов» = failure mode «распыление».
+The project decided (§1) NEVER to rewrite optimization engines — only to call existing ones
+(glTF-Transform / meshopt / toktx). Those engines are glTF-native. So you cannot have both
+"no mandatory hub" AND "we reuse proven engines": a meshopt rule physically cannot run on an
+FBX model. The hub on the Processing plane is a direct CONSEQUENCE of the decision not to
+rewrite engines. Abandoning those engines in favour of "native optimization for every format"
+means twelve half-working optimizers — the failure mode of spreading thin.
 
 ### Providers
 
-Задача провайдера формата — загрузить ассет, дать данные для инспекции и (где возможно)
-сохранить корректный экспорт. Но: ЧИТАТЬ чужие форматы — легко; ПИСАТЬ обратно в не-glTF
-(FBX, USDZ) — «стена» (закрытые SDK Autodesk/Apple). Слово «provider» стену не
-отменяет. Поэтому providers сначала — в основном про ЧТЕНИЕ/инспекцию, не про запись.
+A format provider's job is to load an asset, supply data for inspection and — where possible —
+write a correct export. But READING foreign formats is easy; WRITING back to non-glTF (FBX,
+USDZ) is a wall (closed Autodesk/Apple SDKs). Calling something a "provider" does not remove
+that wall. So providers are, at first, mostly about READING and inspection, not writing.
 
-**Source-ассеты никогда не мутируются** (подтверждение §4d, §6): работаем на копии,
-исходник неприкосновенен.
+**Source assets are never mutated** (confirming §4d and §6): we work on a copy, the source is
+untouchable.
 
 ### Viewport = Preview Representation
 
-Вьюпорт — потребитель `RunResult` (§4b), а не стадия пайплайна и не нативный рендерер
-каждого формата. Он показывает УДОБНУЮ для показа форму (Preview Representation), а не
-рендерит USD/FBX/… каждый по-своему. Это снимает стоимость «учить вьюпорт рисовать все
-форматы».
+The viewport is a consumer of `RunResult` (§4b), not a pipeline stage and not a native
+renderer for every format. It shows a form CONVENIENT for display (a Preview Representation)
+rather than rendering USD, FBX and the rest each in its own way. That removes the cost of
+teaching the viewport to draw every format.
 
-### Как думать о декомпозиции (вместо «6 слоёв в столбик»)
+### How to think about the decomposition (instead of "six layers in a column")
 
-Три ортогональные вещи, не один столбик слоёв:
-- **Пайплайн (стадии):** load → analyze → plan → apply → validate → report (§5).
-- **Точки расширения (плагины):** Importer / Exporter / Rule / Profile / Reporter / Viewer
+Three orthogonal things, not one stack of layers:
+- **Pipeline (stages):** load → analyze → plan → apply → validate → report (§5).
+- **Extension points (plugins):** Importer / Exporter / Rule / Profile / Reporter / Viewer
   (EXTENDING §2).
-- **Поверхности (потребители контракта):** Web (Tanyra3D) / CLI / Desktop / CI.
+- **Surfaces (contract consumers):** Web (Tanyra3D) / CLI / Desktop / CI.
 
-И две НЕЗАВИСИМЫЕ оси: **ось формата** (что читаем/пишем) ≠ **ось цели** (под какую среду
-готовим). Модель может быть FBX-на-входе → Shopify-на-цели: формат и цель не связаны.
+And two INDEPENDENT axes: the **format axis** (what we read and write) ≠ the **target axis**
+(what environment we prepare for). A model can be FBX on input and Shopify as the target:
+format and target are unrelated.
 
-### Что это НЕ меняет
+### What this does NOT change
 
-MVP остаётся GLB/Web. Всё выше — форма расширения на будущее, а не переделка
-текущего. На вебе glTF одновременно и рабочий стол, и целевой формат — обе плоскости
-совпадают, поэтому СЕГОДНЯ разделение невидимо; оно становится важным, когда придут не-glTF
-входные форматы (0.3.x и далее).
+The MVP remains GLB/Web. Everything above is the shape of a future extension, not a rework of
+what exists. On the web, glTF is both the workbench and the target format — the two planes
+coincide, so TODAY the separation is invisible. It matters once non-glTF input formats arrive
+(0.3.x and beyond).
 
 ---
 
@@ -844,21 +875,26 @@ export default {
 
 ---
 
-## 11. Open decisions for the product owner
+## 11. Decisions that were open at design review (and how they were resolved)
 
-1. **Language: TypeScript** (recommended — glTF-Transform is TS-first, type-safety was a stated goal) vs anything else. I strongly recommend TS.
-2. **Monorepo tool**: pnpm workspaces (recommended) vs Nx/Turborepo (more machinery, later).
-3. **License**: MIT (max adoption, recommended) vs Apache-2.0 (patent grant). Both permissive.
-4. **Scope of v1 autofix**: `provable`+`numeric` only (recommended) — do we ever want `perceptual` on by default for the `web` profile?
-5. **Name** (§12).
+1. **Language** — proposed TypeScript. **Resolved: plain JavaScript (ESM, `.mjs`).**
+2. **Monorepo tool** — proposed pnpm workspaces. **Not resolved, because the question is not
+   live yet:** the repository is flat and moves to `packages/*` only when the first external
+   package appears (§3).
+3. **License** — MIT vs Apache-2.0. **Resolved: Apache-2.0** (patent grant).
+4. **Scope of v1 autofix**: `provable`+`numeric` only — should `perceptual` ever default to
+   on for the `web` profile? **Resolved: no.** Everything is opt-in; the empty option set is
+   a passthrough (§4b).
+5. **Name** (§12). **Resolved: Tanyra3D.**
 
 ---
 
-## 12. Name candidates
+## 12. Name candidates (historical)
 
-`gltf-audit` · `meshlint` · `polylint` · `gltf-doctor` · `prism` · `facet`.
-My lean: **gltf-audit** (says what it does, SEO-clean) or **meshlint** (the ESLint echo is
-the whole positioning). Product owner's call.
+Considered during the design review: `gltf-audit` · `meshlint` · `polylint` · `gltf-doctor` ·
+`prism` · `facet`. The lean at the time was `gltf-audit` (says what it does, SEO-clean) or
+`meshlint` (the ESLint echo being the whole positioning). The name chosen was **Tanyra3D**;
+`gltf-audit` survives in this document's older sections and in the sample config in §9.
 
 ---
 
