@@ -212,6 +212,7 @@ node optimize2.mjs                          # пресет: safe + meshopt + joi
 node optimize2.mjs draco                    # то же, но Draco вместо Meshopt
 node optimize2.mjs --keep-parts             # без объединения мешей
 node optimize2.mjs --ktx2                   # добавить сжатие текстур
+node optimize2.mjs --ktx2 --etc1s           # ...цвет легче, но грубее
 node optimize2.mjs --dry-run                # полный анализ и отчёт, ничего не записывая
 node optimize2.mjs --passthrough            # ничего не применять, только проверить
 ```

@@ -224,6 +224,7 @@ node optimize2.mjs                          # preset: safe + meshopt + join
 node optimize2.mjs draco                    # same, Draco instead of Meshopt
 node optimize2.mjs --keep-parts             # without merging meshes
 node optimize2.mjs --ktx2                   # add texture compression
+node optimize2.mjs --ktx2 --etc1s           # ...with lighter, coarser color textures
 node optimize2.mjs --dry-run                # full analysis and report, writing nothing
 node optimize2.mjs --passthrough            # apply nothing, just validate
 ```
