@@ -8,11 +8,15 @@
   "engines": {
     "node": ">=18"
   },
+  "main": "desktop/main.cjs",
   "scripts": {
     "start": "node server.mjs",
     "test": "vitest run",
     "setup": "node scripts/setup.mjs",
-    "doctor": "node scripts/setup.mjs --check"
+    "doctor": "node scripts/setup.mjs --check",
+    "app": "electron .",
+    "app:tools": "node scripts/bundle-ktx.mjs",
+    "app:build": "node scripts/bundle-ktx.mjs --optional && electron-builder"
   },
   "dependencies": {
     "@gltf-transform/cli": "^4.4.2",
@@ -29,9 +33,48 @@
   "overrides": {
     "sharp": "^0.35.3"
   },
+  "_comment_build": "asar намеренно выключен. Внутри архива живут нативный sharp, форк server.mjs и раздача three.js прямо из node_modules — каждое из трёх работает в asar с оговорками, и проверить их можно только на своей платформе. Сборки под macOS и Linux собирает CI, вслепую; цена asar — несколько секунд установки, цена ошибки в нём — неработающая сборка, о которой мы узнаем от пользователя.",
+  "build": {
+    "appId": "com.tanyra3d.app",
+    "productName": "Tanyra3D",
+    "asar": false,
+    "directories": { "output": "dist-app", "buildResources": "desktop/build" },
+    "files": [
+      "server.mjs", "optimize2.mjs", "assistant.mjs", "package.json",
+      "core/**/*", "addons/**/*", "ui/**/*", "translations/**/*",
+      "profiles/**/*", "messages/**/*", "desktop/**/*",
+      "node_modules/**/*",
+      "!node_modules/electron/**", "!node_modules/electron-builder/**",
+      "!node_modules/app-builder-lib/**", "!node_modules/playwright*/**",
+      "!node_modules/vitest/**", "!node_modules/@vitest/**",
+      "!**/*.map", "!**/test/**", "!**/tests/**", "!**/docs/**"
+    ],
+    "extraResources": [
+      { "from": ".tools", "to": "tools", "filter": ["**/*"] }
+    ],
+    "win": { "target": ["nsis"], "artifactName": "Tanyra3D-${version}-windows-${arch}.${ext}" },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Graphics",
+      "artifactName": "Tanyra3D-${version}-linux-${arch}.${ext}"
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.graphics-design",
+      "identity": null,
+      "artifactName": "Tanyra3D-${version}-macos-${arch}.${ext}"
+    }
+  },
   "devDependencies": {
     "@vitest/browser": "^4.1.10",
     "@vitest/browser-playwright": "^4.1.10",
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.3",
     "es-module-lexer": "^2.3.1",
     "playwright": "^1.62.0",
     "vitest": "^4.1.10"

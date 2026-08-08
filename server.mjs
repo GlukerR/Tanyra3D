@@ -14,7 +14,16 @@ import { randomUUID } from 'node:crypto';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 3210 по умолчанию; переопределяется PORT — чтобы можно было поднять второй экземпляр
 // (например, проверить правки, пока на 3210 работает уже запущенный).
-const PORT = Number(process.env.PORT) || 3210;
+//
+// PORT=0 значит «любой свободный, выбери сама» — так просит настольное приложение.
+// Через `Number(...) || 3210` этот ноль было не передать: ноль ложен, и запрос на
+// свободный порт молча превращался в тот самый занятый 3210.
+const PORT = (() => {
+  const raw = process.env.PORT;
+  if (raw === undefined || raw === '') return 3210;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 && n <= 65535 ? n : 3210;
+})();
 
 const UI_DIR = path.join(__dirname, 'ui');
 const UPLOADS_DIR = path.join(__dirname, '_web', 'uploads');
@@ -767,8 +776,19 @@ server.on('error', (e) => {
 });
 
 server.listen(PORT, () => {
-  const address = `http://localhost:${PORT}`;
+  // PORT=0 просит систему выдать любой свободный — тогда настоящий номер известен
+  // только отсюда. Настольное приложение так и делает: фиксированный порт занят, если
+  // человек уже запустил программу из терминала, и окно молча не открылось бы.
+  const port = server.address().port;
+  const address = `http://localhost:${port}`;
   console.log(`Tanyra3D UI: ${address} (core v${VERSION})`);
+
+  // Родителю (настольной оболочке) адрес нужен раньше, чем человеку: окно ждёт его,
+  // чтобы открыться. Обычный запуск из терминала родителя не имеет — ветка молчит.
+  if (typeof process.send === 'function') process.send({ type: 'listening', port, address });
+
+  // Внутри окна приложения браузер открывать не надо: страница уже показана в нём.
+  if (process.env.TANYRA_NO_BROWSER === '1') return;
 
   // Открываем браузер автоматически; неудача — не критична, просто печатаем ссылку.
   try {

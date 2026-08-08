@@ -79,8 +79,13 @@ export const HAS_GLTF_CLI = Boolean(GLTF_CLI_JS || GLTF_CLI);
 // выложил распаковываемый архив, и ktx живёт прямо в проекте, без прав
 // администратора. Под Windows/macOS выложены только установщики, поэтому там
 // бинарник оказывается в системных папках — их ловят candidates ниже.
+// В настольном приложении инструмент лежит не рядом с исходниками, а в ресурсах
+// собранного пакета, и путь туда знает только оболочка. Она называет его переменной —
+// иначе аддону пришлось бы догадываться о раскладке Electron, о которой он знать не
+// должен. Нет переменной — прежнее поведение, папка `.tools/` в корне проекта.
 function findInTools() {
-  const dir0 = new URL('../../.tools/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+  const dir0 = process.env.TANYRA_TOOLS_DIR
+    || new URL('../../.tools/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
   if (!fs.existsSync(dir0)) return null;
   const stack = [dir0];
   while (stack.length) {
