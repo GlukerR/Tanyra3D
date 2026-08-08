@@ -15,6 +15,15 @@ for what reason.
 
 **Nothing happens silently.**
 
+<br>
+
+### [⬇ Download the app — Windows · macOS · Linux](https://github.com/GlukerR/Tanyra3D/releases/latest)
+
+An ordinary application. No Node.js, no terminal, nothing to configure.
+The first launch shows a warning — [why, and what to click](#install).
+
+<br>
+
 [Русская версия](README.ru.md)
 
 </div>
