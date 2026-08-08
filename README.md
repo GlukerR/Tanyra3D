@@ -160,6 +160,39 @@ Neither downloads a browser: the tests need one, the program does not.
 > 5.1**, which is still what a fresh Windows 10 or 11 gives you — `&&` arrived in PowerShell
 > 7, a separate install. Four lines work in every shell.
 
+<details>
+<summary><b>Windows: "npm.ps1 cannot be loaded because running scripts is disabled"</b></summary>
+
+<br>
+
+Nothing is wrong with the project. Windows ships with PowerShell script execution turned
+off, and npm's PowerShell wrapper is a script. **Use `npm.cmd` instead — same npm, no
+settings to change:**
+
+```
+npm.cmd install
+```
+```
+npm.cmd run setup
+```
+```
+npm.cmd start
+```
+
+The other way is to allow signed scripts for your own account, which is Microsoft's
+documented remedy and affects everything you run in PowerShell, not just this project:
+
+```
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+That is a change to a Windows security setting. It is yours to make — the project does not
+need it, and `npm.cmd` gets you to the same place without touching anything.
+
+Command Prompt (`cmd.exe`) and PowerShell 7 are not affected either way.
+
+</details>
+
 **You do not need to run the tests to use this.** They exist for people changing the code;
 if that is you, see [Tests](#tests) below.
 
