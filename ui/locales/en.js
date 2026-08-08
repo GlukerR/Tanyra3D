@@ -184,6 +184,10 @@ window.I18N_CATALOGS.en = {
     `This model shares geometry: ${nodes} nodes reuse ${meshes} mesh(es). GPU instancing draws them in one call — `
     + `and, just as importantly, protects that geometry from Join meshes, which would otherwise have to bake it into separate copies.`,
   'ktx2.mode': 'Mode:',
+  // Что даёт и чем платишь — без имён библиотек (Правило 10). Имена самих форматов
+  // остаются: по ним человек ищет ответ.
+  'ktx2.mode.uastc': 'UASTC — sharper picture, heavier file',
+  'ktx2.mode.etc1s': 'ETC1S — lighter file, coarser color',
   'decoder.legend': 'Marks options that need extra decoder/engine support to display correctly',
   'decoder.meshopt': 'Install the Meshopt decoder on the target site/engine.',
   'decoder.draco': 'Install the Draco decoder on the target site/engine.',

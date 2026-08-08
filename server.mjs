@@ -60,10 +60,13 @@ const FALLBACK_PLATFORMS = [
 ];
 
 // v0.1.1: веб по умолчанию — passthrough (opt-in). Фолбэк не форсит оптимизаций:
-// codec/texMode срабатывают только если включён флажок компрессии/ktx2.
+// codec срабатывает только если включён флажок компрессии.
+//
+// texMode здесь намеренно НЕТ: режим KTX2 — не дело сервера. Умолчание живёт у
+// аддона, профиль площадки вправе его переопределить, человек — выбрать сам.
+// Пока сервер держал свою копию, она молча побеждала профиль (см. /api/optimize).
 const FALLBACK_ENGINE_OPTS = {
   codec: 'meshopt',
-  texMode: 'uastc',
   keepParts: false,
   noKtx: true,
   stripColors: false,
@@ -446,9 +449,23 @@ const server = http.createServer(async (req, res) => {
       // exclusiveGroups отдаём вместе со списком: интерфейс больше не держит свой
       // список взаимоисключений, а читает объявление аддона. Два списка уже
       // расходились — см. addons/gltf/index.mjs, EXCLUSIVE_FEATURES.
+      // defaults — аддитивное поле (§4c): что площадка СОВЕТУЕТ, пока человек не выбрал
+      // сам. Пока его не было, интерфейс держал собственную копию умолчания ('uastc') и
+      // площадка не могла на неё повлиять. Значение может быть null — тогда интерфейс
+      // просто не показывает предвыбранным ничего своего.
+      // Значение из профиля проверяется так же, как пришедшее от человека. Профиль
+      // редактируют руками, и опечатка правдоподобна — флаг в командной строке
+      // называется `--etc1s`, а опция здесь `mixed`. Непроверенное значение доехало бы
+      // до радиокнопок, не совпало ни с одной, и человек увидел бы «Режим: UASTC» и ни
+      // одной отмеченной кнопки: результат верный, экран врёт.
+      const planDefaults = planForSafe(platformId, langOf(url)).engineOpts || {};
+      const advisedTexMode = (planDefaults.texMode === 'mixed' || planDefaults.texMode === 'uastc')
+        ? planDefaults.texMode
+        : null;
       sendJSON(res, 200, {
         extensions: listExtensionsSafe(platformId, langOf(url)),
         exclusiveGroups: typeof exclusiveGroups === 'function' ? exclusiveGroups() : [],
+        defaults: { texMode: advisedTexMode },
       });
       return;
     }
@@ -544,8 +561,16 @@ const server = http.createServer(async (req, res) => {
       const jobId = url.searchParams.get('job') || '';
       const featuresParam = url.searchParams.get('features') || '';
       const advancedFeatures = featuresParam.split(',').map((s) => s.trim()).filter(Boolean);
-      // режим KTX2 из UI: uastc (по умолчанию) | mixed (ETC1S). Влияет только при флажке ktx2.
-      const texModeParam = url.searchParams.get('texMode') === 'mixed' ? 'mixed' : 'uastc';
+      // Режим KTX2 приходит от интерфейса ТОЛЬКО когда человек выбрал его радиокнопкой.
+      // Нет параметра (или мусор в нём) — ключа в опциях не будет вовсе, и умолчание
+      // останется за профилем площадки, а под ним за аддоном.
+      //
+      // Раньше здесь стояло `=== 'mixed' ? 'mixed' : 'uastc'`, то есть отсутствие
+      // параметра означало «uastc», и это значение подставлялось ПОСЛЕ профиля —
+      // профиль не мог задать режим никогда. `profiles/mobile.json` и `quest.json`
+      // объявляют `texMode: mixed` и объясняют человеку почему; их выбор выбрасывался.
+      const texModeRaw = url.searchParams.get('texMode');
+      const texModeChoice = (texModeRaw === 'mixed' || texModeRaw === 'uastc') ? { texMode: texModeRaw } : {};
 
       // Повторная оптимизация уже загруженного исходника (без перезаливки тела).
       const sourceParam = url.searchParams.get('source') || '';
@@ -597,7 +622,8 @@ const server = http.createServer(async (req, res) => {
       }
 
       const plan = planForSafe(platformId, langOf(url));
-      const engineOpts = { ...FALLBACK_ENGINE_OPTS, ...(plan.engineOpts || {}), texMode: texModeParam };
+      // Порядок значим: фолбэк → профиль площадки → явный выбор человека.
+      const engineOpts = { ...FALLBACK_ENGINE_OPTS, ...(plan.engineOpts || {}), ...texModeChoice };
 
       const onProgress = (e) => {
         if (jobId) sendSSE(jobId, e);
@@ -742,7 +768,7 @@ server.on('error', (e) => {
 
 server.listen(PORT, () => {
   const address = `http://localhost:${PORT}`;
-  console.log(`glb-web-optimize UI: ${address} (core v${VERSION})`);
+  console.log(`Tanyra3D UI: ${address} (core v${VERSION})`);
 
   // Открываем браузер автоматически; неудача — не критична, просто печатаем ссылку.
   try {

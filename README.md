@@ -257,6 +257,7 @@ node optimize2.mjs                          # preset: safe + meshopt + join
 node optimize2.mjs draco                    # same, Draco instead of Meshopt
 node optimize2.mjs --keep-parts             # without merging meshes
 node optimize2.mjs --ktx2                   # add texture compression
+node optimize2.mjs --ktx2 --etc1s           # ...with lighter, coarser color textures
 node optimize2.mjs --dry-run                # full analysis and report, writing nothing
 node optimize2.mjs --passthrough            # apply nothing, just validate
 ```
@@ -269,6 +270,12 @@ model at a time.
 > On the command line, running without flags applies a preset rather than a passthrough.
 > That's historical, and the behaviour is preserved so existing scripts don't break. The
 > programmatic and web interfaces do nothing by default.
+
+> [!IMPORTANT]
+> **Changed:** `--ktx2` without a mode flag now produces UASTC color textures. It used to
+> produce ETC1S — the command line disagreed with the web interface, which has always used
+> UASTC, and nothing said so. Files come out heavier and sharper than before. Add `--etc1s`
+> to keep the old result.
 
 ### Programmatic
 
