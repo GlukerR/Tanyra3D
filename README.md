@@ -140,6 +140,46 @@ elegance.
 
 ## Install
 
+### The app — an ordinary program, no terminal
+
+Download your file from the [releases page](https://github.com/GlukerR/Tanyra3D/releases)
+and run it. No Node.js, no commands, and the texture encoder is already inside.
+
+| System | File |
+|---|---|
+| Windows | `Tanyra3D-…-windows-x64.exe` |
+| macOS, Apple Silicon (M1 and newer) | `Tanyra3D-…-macos-arm64.dmg` |
+| macOS, Intel | `Tanyra3D-…-macos-x64.dmg` |
+| Linux | `Tanyra3D-…-linux-x86_64.AppImage` or `.deb` |
+
+> [!IMPORTANT]
+> **The first launch will show a warning.** The app is not code-signed: a certificate
+> costs money every year and this is a non-commercial project. The warning does not say
+> "this program is dangerous" — it says "the system does not know this publisher".
+
+<details>
+<summary><b>Getting past the warning</b></summary>
+
+<br>
+
+**Windows.** The blue "Windows protected your PC" screen → **More info** →
+**Run anyway**.
+
+**macOS.** A double-click will say the app cannot be verified. Dismiss it,
+**right-click the icon** → **Open** → **Open** again in the next dialog. If that entry
+is missing: **System Settings** → **Privacy & Security**, where a line about Tanyra3D
+and an **Open Anyway** button will be waiting. Once per version.
+
+**Linux.** An AppImage needs permission to run — right-click → **Properties** →
+**Permissions** → "Allow executing file as program". Or: `chmod +x Tanyra3D-*.AppImage`.
+The `.deb` installs the usual way and asks nothing.
+
+</details>
+
+If you would rather not trust a downloaded binary, build it yourself — the source is here.
+
+### From source
+
 You need [Node.js](https://nodejs.org/) 18 or newer. Works on Windows, macOS and Linux.
 
 ```bash

@@ -1,0 +1,91 @@
+# Сборка настольного приложения под Windows, macOS и Linux.
+#
+# Почему CI, а не машина разработчика. Пакет под macOS собирается только на macOS —
+# это требование самой платформы, обойти его на Windows нечем. AppImage под Linux
+# формально собирается и на другой системе, но с оговорками, которые проверить негде.
+# Здесь каждый пакет собирает свой раннер, на своей платформе, из того же исходника.
+#
+# Приложение НЕ подписано — сознательно (решение Александра, 2026-08-07). Подпись стоит
+# денег каждый год и на первую тройку сборок не влияет ничем, кроме предупреждения при
+# первом запуске. Что именно увидит человек — написано в README, в разделе про установку.
+#
+# Запускается вручную (workflow_dispatch) или тегом версии. Тег ничего не решает сам:
+# номер версии берётся из package.json, а поднимать его выше 0.0.9 без прямого слова
+# Александра нельзя (Правило 0).
+
+name: Build desktop app
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      # Одна упавшая платформа не отменяет две другие: две работающие сборки лучше нуля,
+      # а причину третьей видно в её собственном журнале.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+          - os: ubuntu-latest
+            name: linux
+          - os: macos-latest
+            name: macos-arm64
+          - os: macos-13
+            name: macos-intel
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Строго, без --optional: собранный пакет без ktx — это пакет, в котором молча не
+      # работает KTX2. Пусть лучше упадёт сборка, чем узнает пользователь.
+      - name: Bundle the KTX2 encoder
+        run: node scripts/bundle-ktx.mjs
+
+      - name: Build
+        run: npx electron-builder --publish never
+        env:
+          # Без сертификата electron-builder на macOS иначе ищет его в связке ключей
+          # и падает. Отсутствие подписи здесь — заявленное состояние, а не сбой.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      # Собранное отдаём артефактом всегда — в том числе когда запускали вручную и
+      # релиза нет. Иначе проверить сборку можно было бы только выпустив её.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tanyra3D-${{ matrix.name }}
+          path: |
+            dist-app/*.exe
+            dist-app/*.AppImage
+            dist-app/*.deb
+            dist-app/*.dmg
+            dist-app/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            $(ls dist-app/*.exe dist-app/*.AppImage dist-app/*.deb dist-app/*.dmg dist-app/*.zip 2>/dev/null) \
+            --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
