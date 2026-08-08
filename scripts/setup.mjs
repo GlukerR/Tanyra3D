@@ -57,11 +57,14 @@ console.log('Tanyra3D — environment check');
 console.log('');
 
 // ---------- 1. Node ----------
-const nodeMajor = Number(process.versions.node.split('.')[0]);
-if (nodeMajor >= 18) {
+// 20.9 — не круглое число и не наш выбор: столько требует sharp (кодирование текстур),
+// а gltf-transform CLI требует 20. На Node 18 установка проходит, а программа падает
+// при первой же текстуре — поэтому сказать об этом надо здесь, а не там.
+const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number);
+if (nodeMajor > 20 || (nodeMajor === 20 && nodeMinor >= 9)) {
   console.log(ok(`Node ${process.versions.node}`));
 } else {
-  console.log(bad(`Node ${process.versions.node} — 18 or newer required`));
+  console.log(bad(`Node ${process.versions.node} — 20.9 or newer required (sharp needs it)`));
   console.log(dim('    https://nodejs.org/'));
   process.exit(1);
 }

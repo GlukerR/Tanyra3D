@@ -5,7 +5,7 @@
 **Оптимизатор 3D-моделей для веба, который объясняет, что он сделал и почему.**
 
 [![Лицензия](https://img.shields.io/badge/лицензия-Apache--2.0-blue)](LICENSE)
-[![Node](https://img.shields.io/badge/Node-18%2B-brightgreen)](https://nodejs.org/)
+[![Node](https://img.shields.io/badge/Node-20.9%2B-brightgreen)](https://nodejs.org/)
 [![Версия](https://img.shields.io/badge/версия-0.0.9-orange)](#статус)
 [![Платформы](https://img.shields.io/badge/платформы-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#установка)
 
@@ -192,7 +192,8 @@ flowchart LR
 
 ### Из исходников
 
-Нужен [Node.js](https://nodejs.org/) 18 или новее. Работает на Windows, macOS и Linux.
+Нужен [Node.js](https://nodejs.org/) 20.9 или новее. Работает на Windows, macOS и Linux.
+(Приложению выше ничего этого не нужно — раздел для запуска из исходников.)
 
 ```bash
 git clone https://github.com/GlukerR/Tanyra3D.git

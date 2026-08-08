@@ -6,7 +6,7 @@
   "description": "Умный оптимизатор GLB/glTF для веба — анализ, безопасная оптимизация, отчёты",
   "type": "module",
   "engines": {
-    "node": ">=18"
+    "node": ">=20.9.0"
   },
   "main": "desktop/main.cjs",
   "scripts": {

@@ -5,7 +5,7 @@
 **A 3D model optimizer for the web that tells you what it did — and why.**
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
-[![Node](https://img.shields.io/badge/Node-18%2B-brightgreen)](https://nodejs.org/)
+[![Node](https://img.shields.io/badge/Node-20.9%2B-brightgreen)](https://nodejs.org/)
 [![Version](https://img.shields.io/badge/version-0.0.9-orange)](#status)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#install)
 
@@ -189,7 +189,8 @@ If you would rather not trust a downloaded binary, build it yourself — the sou
 
 ### From source
 
-You need [Node.js](https://nodejs.org/) 18 or newer. Works on Windows, macOS and Linux.
+You need [Node.js](https://nodejs.org/) 20.9 or newer. Works on Windows, macOS and Linux.
+(The app above needs none of this — this section is for running from source.)
 
 ```bash
 git clone https://github.com/GlukerR/Tanyra3D.git
