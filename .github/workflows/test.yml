@@ -34,6 +34,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Кодировщик KTX2. Без него правило textures/ktx2 отказывается работать, и
+      # падают пять тестов, которые проверяют его поведение — они и падали, пока
+      # этого шага не было (2026-08-09). На машине разработчика инструмент ставит
+      # `npm run setup`, здесь ставить некому.
+      #
+      # Строго, без --optional: набор без ktx — это набор, который молча НЕ
+      # проверяет KTX2. Пусть лучше упадёт установка, чем зелёный прогон соврёт
+      # про непроверенную возможность. Тот же шаг и по тем же причинам стоит в
+      # release.yml.
+      - name: Bundle the KTX2 encoder
+        run: node scripts/bundle-ktx.mjs
+
       # Браузерные тесты (viewer-regression.browser.test.mjs) требуют Chromium
       # через @vitest/browser + playwright. --with-deps ставит системные библиотеки
       # для отрисовки (libGL, libEGL и т.д.) на ubuntu-latest.
