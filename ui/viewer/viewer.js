@@ -339,7 +339,10 @@ export class Viewer {
     if (!this.clips || !this.clips.length) return { count: 0, names: [], index: -1, duration: 0 };
     return {
       count: this.clips.length,
-      names: this.clips.map((c, i) => c.name || `Clip ${i + 1}`),
+      // Безымянный клип отдаём ПУСТОЙ строкой, а не «Clip 3». Подпись для человека —
+      // дело интерфейса: движок просмотра не знает языка и знать не должен (Правило 8).
+      // Раньше здесь рождалось английское имя, которое так и висело в русском списке.
+      names: this.clips.map((c) => c.name || ''),
       index: this.clipIndex ?? 0,
       duration: this.clips[this.clipIndex ?? 0]?.duration || 0,
     };

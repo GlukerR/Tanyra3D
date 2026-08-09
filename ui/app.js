@@ -3077,7 +3077,10 @@
       info.names.forEach((name, i) => {
         const opt = document.createElement('option');
         opt.value = String(i);
-        opt.textContent = name;
+        // Имя клипа приходит из файла как есть. Пустое — значит автор его не задал,
+        // и подпись придумываем здесь, по ключу: движок просмотра языка не знает.
+        if (name) opt.textContent = name;
+        else setText(opt, 'viewer.clip.unnamed', { n: i + 1 });
         animClipSel.appendChild(opt);
       });
       // Один клип — выбирать не из чего.

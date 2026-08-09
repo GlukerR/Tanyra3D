@@ -70,20 +70,38 @@ class ViewportSlot {
     return this.viewer;
   }
 
-  _setStatus(text) {
+  /**
+   * Подпись посреди панели. Принимает КЛЮЧ каталога, а не готовую строку.
+   *
+   * Правило 8: ни одной пользовательской строки в логике. Раньше здесь стояли
+   * английские литералы («Loading…», «Run optimization to compare»), и в русском
+   * интерфейсе они такими и оставались.
+   *
+   * `I18n.setText` не просто переводит, а ПОМЕЧАЕТ элемент ключом. Поэтому смена
+   * языка перерисовывает подпись сама, через общий apply() — без перезагрузки модели
+   * и без пересчёта чего бы то ни было (Правило 8 §1). Без пометки подпись
+   * «Загрузка…» осталась бы русской после переключения на английский.
+   *
+   * @param {string|null} key   ключ каталога; null или '' — убрать подпись
+   * @param {object} [values]   подстановки одного сообщения (Правило 8 §3:
+   *                            «Загрузка… 45 %» — ОДНО сообщение с подстановкой,
+   *                            а не склейка слова и числа в коде)
+   */
+  _setStatus(key, values) {
     if (!this.statusEl) return;
     // Текст живёт в отдельном span, а не прямо в контейнере. Контейнер растянут на всю
     // панель (inset: 0) и служит только для центрирования — повесь фон на него, и
     // закрасится вся панель. Плашка обязана облегать буквы, а не занимать вьюпорт.
     // textContent контейнера при этом читается по-прежнему: он собирает текст потомков.
     this.statusEl.textContent = "";
-    if (text) {
+    if (key) {
       const plate = document.createElement("span");
       plate.className = "viewer-status-plate";
-      plate.textContent = text;
+      if (window.I18n) window.I18n.setText(plate, key, values);
+      else plate.textContent = key;   // каталог не загрузился — лучше ключ, чем пустота
       this.statusEl.appendChild(plate);
     }
-    this.statusEl.classList.toggle("hidden", !text);
+    this.statusEl.classList.toggle("hidden", !key);
   }
 
   _revokeBlob() {
@@ -97,7 +115,7 @@ class ViewportSlot {
    *  opts.camera — ракурс, который надо сохранить вместо авто-кадрирования (сборка/ребилд). */
   async load(source, opts = {}) {
     const viewer = this._ensureViewer();
-    this._setStatus("Loading…");
+    this._setStatus("viewer.status.loading");
 
     let url = source;
     if (source instanceof File || source instanceof Blob) {
@@ -110,14 +128,14 @@ class ViewportSlot {
         camera: opts.camera || null,
         onProgress: (e) => {
           if (e && e.lengthComputable) {
-            this._setStatus(`Loading… ${Math.round((e.loaded / e.total) * 100)}%`);
+            this._setStatus("viewer.status.loadingPct", { pct: Math.round((e.loaded / e.total) * 100) });
           }
         },
       });
-      this._setStatus("");
+      this._setStatus(null);
     } catch (err) {
       console.error("Viewer failed to load model:", err);
-      this._setStatus("Preview unavailable");
+      this._setStatus("viewer.status.unavailable");
       this._revokeBlob();
       return null;
     }
@@ -129,8 +147,9 @@ class ViewportSlot {
     if (this.viewer) this.viewer.renderFrame();
   }
 
-  showHint(text) {
-    this._setStatus(text);
+  /** Подсказка в пустой панели. Аргумент — КЛЮЧ каталога, не готовая строка. */
+  showHint(key, values) {
+    this._setStatus(key, values);
   }
 
   /**
@@ -157,7 +176,7 @@ class ViewportSlot {
       this.canvas.width = 1;
       this.canvas.height = 1;
     }
-    this._setStatus("");
+    this._setStatus(null);
   }
 }
 
@@ -396,7 +415,7 @@ class DualViewport {
     if (!this._init()) return null;
     this._unlinkCameras();
     this.right.reset();
-    this.right.showHint("Run optimization to compare");
+    this.right.showHint("viewer.hint.compare");
     let info = null;
     if (originalFile) info = await this.left.load(originalFile);
     this._afterLoad();
@@ -413,7 +432,7 @@ class DualViewport {
       const camera = this.left.viewer ? this.left.viewer.getCameraState() : null;
       await this.right.load(optimizedUrl, { camera });
     } else {
-      this.right.showHint("No output file to preview");
+      this.right.showHint("viewer.hint.noOutput");
     }
     this._afterLoad();
   }

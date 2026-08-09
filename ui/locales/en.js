@@ -47,6 +47,18 @@ window.I18N_CATALOGS.en = {
   'vp.time': 'Animation time',
   'stage.hint': 'Load a .glb from the left panel to preview it here',
 
+  // Подписи посреди панелей просмотра (ui/viewer/index.js). Ставятся из кода через
+  // I18n.setText, поэтому переживают смену языка без перезагрузки модели.
+  'viewer.status.loading': 'Loading…',
+  // Одно сообщение с подстановкой, а не «Loading…» + число: место процента и пробел
+  // перед знаком — часть языка (Правило 8 §3).
+  'viewer.status.loadingPct': ({ pct }) => `Loading… ${pct}%`,
+  'viewer.status.unavailable': 'Preview unavailable',
+  'viewer.hint.compare': 'Run optimization to compare',
+  'viewer.hint.noOutput': 'No output file to preview',
+  // Клип без имени в файле. Номер — часть сообщения, а не приставка к слову.
+  'viewer.clip.unnamed': ({ n }) => `Clip ${n}`,
+
   // --- окна ---
   'win.close': 'Close',
   'win.metadata': 'Metadata',
