@@ -363,6 +363,23 @@ body {
   pointer-events: none;
 }
 
+/* Плашка под подписью посреди панели.
+   Текст лежит на живой сцене: тёмный фон, сетка, а у центральной подсказки ещё и
+   полоса разделителя под самыми буквами. Без подложки он читается кусками
+   (Александр, 2026-08-09). Фон непрозрачный, а не полупрозрачный: полупрозрачность
+   на светлой модели даёт тот же серый шум, от которого уходим.
+
+   Оформление ОДНО на обе подписи: центральная (.stage-hint, одна на обе панели) и
+   панельная (.viewer-status-plate, своя у каждой). Это один и тот же вид сообщения в
+   одном и том же месте, и разъехаться по виду они не должны. */
+.stage-hint,
+.viewer-status-plate {
+  background: var(--surface-container);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-xl);
+  padding: 7px 16px;
+}
+
 /* HUD со статистикой в верхних углах панелей */
 .vp-hud {
   position: absolute;
@@ -684,7 +701,8 @@ body.resizing { cursor: col-resize; user-select: none; }
   color: var(--outline);
   pointer-events: none;
   text-align: center;
-  padding: 0 24px;
+  /* Отступ задаёт общее правило плашки выше (.stage-hint, .viewer-status-plate).
+     Своего здесь быть не должно: оно стоит ниже по файлу и молча перебило бы общее. */
 }
 
 /* ---------- Dropzone ---------- */

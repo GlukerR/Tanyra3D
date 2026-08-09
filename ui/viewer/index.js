@@ -72,7 +72,17 @@ class ViewportSlot {
 
   _setStatus(text) {
     if (!this.statusEl) return;
-    this.statusEl.textContent = text || "";
+    // Текст живёт в отдельном span, а не прямо в контейнере. Контейнер растянут на всю
+    // панель (inset: 0) и служит только для центрирования — повесь фон на него, и
+    // закрасится вся панель. Плашка обязана облегать буквы, а не занимать вьюпорт.
+    // textContent контейнера при этом читается по-прежнему: он собирает текст потомков.
+    this.statusEl.textContent = "";
+    if (text) {
+      const plate = document.createElement("span");
+      plate.className = "viewer-status-plate";
+      plate.textContent = text;
+      this.statusEl.appendChild(plate);
+    }
     this.statusEl.classList.toggle("hidden", !text);
   }
 

@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Node](https://img.shields.io/badge/Node-20.9%2B-brightgreen)](https://nodejs.org/)
-[![Version](https://img.shields.io/badge/version-0.0.14-orange)](#status)
+[![Version](https://img.shields.io/badge/version-0.1.0-orange)](#status)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#install)
 
 Drop in a `.glb`, tick the boxes you want, get a smaller model back — along with a
@@ -437,9 +437,13 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 
 ## Status
 
-**0.0.14, early development.** Core, web interface and viewer work, the test suite is
-green. The desktop application installs like any other program — no terminal needed.
-The API may still change.
+**0.1.0 — first release meant for other people.** Core, web interface and viewer work,
+the test suite is green on Node 20, 22 and 24. The desktop application installs like any
+other program — no terminal needed. The API may still change.
+
+Installed and used on Windows. The macOS and Linux packages are built by CI from the same
+source and pass the same checks, but nobody has run them on real hardware yet — if you do,
+[say how it went](https://github.com/GlukerR/Tanyra3D/issues).
 
 The browser is the current shape, not the intent. The people this is built for shouldn't
 have to work through a hundred checkboxes or launch anything from a terminal: install in
