@@ -16,7 +16,7 @@
 //   7. _applyAnimSelection() — клип сохраняется между загрузками
 //   8. resetView() — один frame(), копия во второй вьюпорт
 
-import { describe, it, expect, beforeAll, afterAll, inject } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import {
   createViewer,
   disposeViewer,
@@ -104,14 +104,37 @@ const MODEL_PROBES = await Promise.all(
   }),
 )
 
-// parkergirl.glb — ЛОКАЛЬНАЯ модель (см. REPO_MODELS в tests/helpers/model-files.mjs):
-// в git её нет, на чистом клоне отсутствует законно. Признак приходит из
-// node-контекста globalSetup (tests/parkergirl-build.setup.mjs) через
-// provide/inject: в Chromium node:fs недоступен, поэтому isPresent() из хелпера
-// здесь не работает. Параметризованному блоку внизу наличие и так сообщает
-// HEAD-запрос (MODEL_PROBES); этот флаг нужен двум тестам анимации в describe
-// 'Viewer — animation' ниже — они пропускаются на этапе сбора, а не падают.
-const PARKERGIRL_AVAILABLE = inject('parkergirl-artifact-available') === true
+// Одиночному тесту наличие модели сообщает та же HEAD-проба, что и
+// параметризованному блоку внизу. Второго списка имён здесь нет намеренно —
+// см. рассуждение над MODEL_FILES: два списка расходятся молча.
+const modelPresent = (file) => MODEL_PROBES.some((p) => p.file === file && p.present)
+const missingOf = (files) => files.filter((f) => !modelPresent(f))
+const skipNote = (missing) => `[пропущено: нет локально — ${missing.join(', ')}]`
+
+// Тест или блок, которым нужны конкретные модели. Нет хоть одной — честный
+// skip с причиной в имени, а не падение.
+//
+// Падение здесь выглядит обманчиво (история 2026-08-09, 12 красных тестов на
+// чистом клоне): сервер на отсутствующий файл отдаёт не пустоту, а страницу
+// 404, three.js честно пытается разобрать её как GLB и умирает на
+// «RangeError: Invalid typed array length: 4». По этому сообщению нипочём не
+// догадаться, что дело всего лишь в некоммитимой модели.
+//
+// Условие вычисляется на этапе СБОРА файла: MODEL_PROBES заполнен top-level
+// await выше, поэтому к моменту объявления it результат уже известен.
+const itWithModels = (files, name, fn, timeout) => {
+  const missing = missingOf(files)
+  return missing.length
+    ? it.skip(`${name} ${skipNote(missing)}`, () => {}, timeout)
+    : it(name, fn, timeout)
+}
+
+// Когда на модели держится весь блок, включая beforeAll: пропускать по одному
+// тесту бессмысленно — подготовка всё равно не отработает.
+const describeWithModels = (files, name, fn) => {
+  const missing = missingOf(files)
+  return missing.length ? describe.skip(`${name} ${skipNote(missing)}`, fn) : describe(name, fn)
+}
 
 // ---------------------------------------------------------------------------
 // Viewer — класс движка просмотра (ui/viewer/viewer.js)
@@ -274,7 +297,7 @@ describe('Viewer — animation (browser)', () => {
     disposeViewer(viewer, canvas)
   })
 
-  it('loads an animated model and getAnimationInfo() returns clip info', async () => {
+  itWithModels(['chibi_zenitsu.glb'], 'loads an animated model and getAnimationInfo() returns clip info', async () => {
     await viewer.load(ANIM_MODEL_URL)
     const info = viewer.getAnimationInfo()
     expect(info.count).toBeGreaterThanOrEqual(1)
@@ -283,7 +306,10 @@ describe('Viewer — animation (browser)', () => {
     expect(info.duration).toBeGreaterThan(0)
   })
 
-  it('playClip() switches to a different clip and getAnimationInfo().index matches', () => {
+  // Два теста ниже разбирают модель, загруженную предыдущим тестом. Без неё они
+  // не падают, а проходят впустую (клипов нет — переключать нечего, время
+  // двигать не на чем), поэтому их наличие модели касается наравне с ним.
+  itWithModels(['chibi_zenitsu.glb'], 'playClip() switches to a different clip and getAnimationInfo().index matches', () => {
     const info = viewer.getAnimationInfo()
     if (info.count < 2) return // всего 1 клип — нечего переключать
 
@@ -296,13 +322,13 @@ describe('Viewer — animation (browser)', () => {
     expect(viewer.getAnimationInfo().index).toBe(0)
   })
 
-  it('setAnimationTime() advances animation without throwing', () => {
+  itWithModels(['chibi_zenitsu.glb'], 'setAnimationTime() advances animation without throwing', () => {
     viewer.setAnimationTime(0.5)
     // Не падает — достаточно
     expect(true).toBe(true)
   })
 
-  it('loads Cthulhu Stone (morph targets) — getAnimationInfo shows 1 clip named Scene', async () => {
+  itWithModels(['Cthulhu Stone 01.glb'], 'loads Cthulhu Stone (morph targets) — getAnimationInfo shows 1 clip named Scene', async () => {
     await viewer.load(CTHULHU_URL)
     const info = viewer.getAnimationInfo()
     expect(info.count).toBe(1)
@@ -313,37 +339,29 @@ describe('Viewer — animation (browser)', () => {
     expect(info.duration).toBeGreaterThan(0)
   })
 
-  it('playClip(0) does not throw on single-clip Cthulhu', () => {
+  itWithModels(['Cthulhu Stone 01.glb'], 'playClip(0) does not throw on single-clip Cthulhu', () => {
     expect(() => viewer.playClip(0)).not.toThrow()
     const info = viewer.getAnimationInfo()
     expect(info.count).toBe(1)
     expect(info.index).toBe(0)
   })
 
-  // parkergirl — локальная модель: два теста ниже регистрируются как it.skip
-  // с причиной, когда её нет (канал provide/inject из parkergirl-build.setup.mjs),
-  // иначе — обычные it. Условие известно уже на этапе сбора файла.
-  if (PARKERGIRL_AVAILABLE) {
-    it('loads parkergirl (skinning) — getAnimationInfo shows 1 clip named MorphBake', async () => {
-      await viewer.load(PARKERGIRL_URL)
-      const info = viewer.getAnimationInfo()
-      expect(info.count).toBe(1)
-      expect(info.names.length).toBe(1)
-      expect(info.names[0]).toMatch(/MorphBake/)
-      expect(info.index).toBe(0)
-      expect(info.duration).toBeGreaterThan(0)
-    })
+  itWithModels(['parkergirl.glb'], 'loads parkergirl (skinning) — getAnimationInfo shows 1 clip named MorphBake', async () => {
+    await viewer.load(PARKERGIRL_URL)
+    const info = viewer.getAnimationInfo()
+    expect(info.count).toBe(1)
+    expect(info.names.length).toBe(1)
+    expect(info.names[0]).toMatch(/MorphBake/)
+    expect(info.index).toBe(0)
+    expect(info.duration).toBeGreaterThan(0)
+  })
 
-    it('playClip(0) does not throw on single-clip parkergirl', () => {
-      expect(() => viewer.playClip(0)).not.toThrow()
-      const info = viewer.getAnimationInfo()
-      expect(info.count).toBe(1)
-      expect(info.index).toBe(0)
-    })
-  } else {
-    it.skip('loads parkergirl (skinning) — getAnimationInfo shows 1 clip named MorphBake [skipped: parkergirl.glb missing locally]', () => {})
-    it.skip('playClip(0) does not throw on single-clip parkergirl [skipped: parkergirl.glb missing locally]', () => {})
-  }
+  itWithModels(['parkergirl.glb'], 'playClip(0) does not throw on single-clip parkergirl', () => {
+    expect(() => viewer.playClip(0)).not.toThrow()
+    const info = viewer.getAnimationInfo()
+    expect(info.count).toBe(1)
+    expect(info.index).toBe(0)
+  })
 
   it('model without animations returns count: 0 and index: -1', async () => {
     await viewer.load(CUBE_URL)
@@ -377,7 +395,7 @@ describe('DualViewport — animation sync (browser)', () => {
     expect(typeof window.OptiViewer.cameraStates).toBe('function')
   })
 
-  it('loadOriginal() loads a model and getAnimation() returns leftIndex/rightIndex', async () => {
+  itWithModels(['chibi_zenitsu.glb'], 'loadOriginal() loads a model and getAnimation() returns leftIndex/rightIndex', async () => {
     // Загружаем модель через OptiViewer (как это делает app.js)
     const response = await fetch(ANIM_MODEL_URL)
     const blob = await response.blob()
@@ -396,7 +414,8 @@ describe('DualViewport — animation sync (browser)', () => {
     expect(typeof anim.rightIndex).toBe('number')
   })
 
-  it('selectAnimationClip() updates both leftIndex and rightIndex', () => {
+  // Продолжение предыдущего теста: работает с моделью, которую он загрузил.
+  itWithModels(['chibi_zenitsu.glb'], 'selectAnimationClip() updates both leftIndex and rightIndex', () => {
     const before = window.OptiViewer.getAnimation()
     if (before.count < 2) return // только 1 клип — нечего переключать
 
@@ -410,7 +429,7 @@ describe('DualViewport — animation sync (browser)', () => {
     window.OptiViewer.selectAnimationClip(0)
   })
 
-  it('selectAnimationClip() persists non-zero index across reloads (same animated model)', async () => {
+  itWithModels(['Lilith Character 01.glb'], 'selectAnimationClip() persists non-zero index across reloads (same animated model)', async () => {
     // Шаг 1: загружаем модель с несколькими клипами (Lilith — 3 анимации)
     const resp1 = await fetch(LILITH_URL)
     const file1 = new File([await resp1.blob()], 'Lilith Character 01.glb', { type: 'model/gltf-binary' })
@@ -587,7 +606,7 @@ describe('Animation panel (DOM) — anim-controls visibility and clip list', () 
     expect(animClipSel.children.length).toBe(0)
   })
 
-  it('animated model with 1 clip (chibi_zenitsu) — panel visible, clip selector hidden', async () => {
+  itWithModels(['chibi_zenitsu.glb'], 'animated model with 1 clip (chibi_zenitsu) — panel visible, clip selector hidden', async () => {
     const resp = await fetch(ANIM_MODEL_URL)
     const file = new File([await resp.blob()], 'chibi_zenitsu.glb', { type: 'model/gltf-binary' })
     await window.OptiViewer.loadOriginal(file)
@@ -598,7 +617,7 @@ describe('Animation panel (DOM) — anim-controls visibility and clip list', () 
     expect(animClipSel.classList.contains('hidden')).toBe(true)
   })
 
-  it('model with 3 clips (Lilith) — panel visible, clip selector has 3 options', async () => {
+  itWithModels(['Lilith Character 01.glb'], 'model with 3 clips (Lilith) — panel visible, clip selector has 3 options', async () => {
     const resp = await fetch(LILITH_URL)
     const file = new File([await resp.blob()], 'Lilith Character 01.glb', { type: 'model/gltf-binary' })
     await window.OptiViewer.loadOriginal(file)
@@ -615,7 +634,7 @@ describe('Animation panel (DOM) — anim-controls visibility and clip list', () 
     expect(names.some((n) => n.includes('0-T-Pose'))).toBe(true)
   })
 
-  it('single-clip model (Cthulhu Stone) — panel visible, clip selector hidden', async () => {
+  itWithModels(['Cthulhu Stone 01.glb'], 'single-clip model (Cthulhu Stone) — panel visible, clip selector hidden', async () => {
     const resp = await fetch(CTHULHU_URL)
     const file = new File([await resp.blob()], 'Cthulhu Stone 01.glb', { type: 'model/gltf-binary' })
     await window.OptiViewer.loadOriginal(file)
@@ -745,7 +764,9 @@ describe('Viewer — compressed models (browser)', () => {
 // DualViewport — оба вьюпорта загружены: синхронизация анимации
 // ---------------------------------------------------------------------------
 
-describe('DualViewport — both viewports loaded with Lilith (3 clips)', () => {
+// Весь блок держится на Lilith — включая beforeAll, который готовит DOM под
+// уже загруженную модель. Пропускать по одному тесту тут нечего.
+describeWithModels(['Lilith Character 01.glb'], 'DualViewport — both viewports loaded with Lilith (3 clips)', () => {
   beforeAll(async () => {
     await setupDualViewportDOM()
     // DualViewport — синглтон (ES-модуль кешируется). Предыдущий describe
