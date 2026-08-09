@@ -157,8 +157,7 @@ and run it. No Node.js, no commands, and the texture encoder is already inside.
 | System | File |
 |---|---|
 | Windows | `Tanyra3D-…-windows-x64.exe` |
-| macOS, Apple Silicon (M1 and newer) | `Tanyra3D-…-macos-arm64.dmg` |
-| macOS, Intel | `Tanyra3D-…-macos-x64.dmg` |
+| macOS (Apple Silicon — any Mac from late 2020) | `Tanyra3D-…-macos-arm64.dmg` |
 | Linux | `Tanyra3D-…-linux-x86_64.AppImage` or `.deb` |
 
 > [!IMPORTANT]

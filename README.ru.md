@@ -159,8 +159,7 @@ flowchart LR
 | Система | Файл |
 |---|---|
 | Windows | `Tanyra3D-…-windows-x64.exe` |
-| macOS, Apple Silicon (M1 и новее) | `Tanyra3D-…-macos-arm64.dmg` |
-| macOS, Intel | `Tanyra3D-…-macos-x64.dmg` |
+| macOS (Apple Silicon — любой Мак с конца 2020 года) | `Tanyra3D-…-macos-arm64.dmg` |
 | Linux | `Tanyra3D-…-linux-x86_64.AppImage` или `.deb` |
 
 > [!IMPORTANT]

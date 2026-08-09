@@ -71,8 +71,9 @@
       "synopsis": "3D model optimizer for the web",
       "syncDesktopName": true
     },
+    "_comment_mac_targets": "Только dmg. Формат zip electron-builder кладёт рядом ради самообновления — его у нас нет, а весит он столько же, сколько dmg: артефакт сборки выходил вдвое тяжелее без всякой пользы для человека.",
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": ["dmg"],
       "category": "public.app-category.graphics-design",
       "identity": null,
       "artifactName": "Tanyra3D-${version}-macos-${arch}.${ext}"
