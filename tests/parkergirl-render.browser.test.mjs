@@ -32,13 +32,24 @@
 // Vite-мидлварь /optimized/ (vitest.config.mjs, optimizedArtifactsPlugin).
 // Оригинал приходит из publicDir (fixtures/models) как /parkergirl.glb.
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, inject } from 'vitest'
 import {
   createViewer,
   disposeViewer,
   snapshotPixels,
   diffStats,
 } from './helpers/viewer-test-utils.mjs'
+
+// Артефакт parkergirl-sq.glb собирает node-контекст globalSetup
+// (tests/parkergirl-build.setup.mjs). Модель — ЛОКАЛЬНАЯ (в git её нет, см.
+// REPO_MODELS в tests/helpers/model-files.mjs), поэтому на чистом клоне сборка
+// пропускается, и globalSetup сообщает об этом через provide/inject.
+//
+// Условие читается ЗДЕСЬ, на этапе сбора файла: при отсутствии артефакта весь
+// блок становится describe.skip с причиной в имени — не упавшим тестом.
+// isPresent() из model-files.mjs тут не работает: файл исполняется в Chromium,
+// node:fs ему недоступен — для этого и нужен канал из node-контекста.
+const PARKERGIRL_AVAILABLE = inject('parkergirl-artifact-available') === true
 
 const ORIG_URL = '/parkergirl.glb'
 const OPT_URL = '/optimized/parkergirl-sq.glb'
@@ -64,7 +75,12 @@ function morphInfluencesDigest(viewer) {
   return digests
 }
 
-describe('parkergirl — safe+quantize: скин-анимация и морфы рендерятся без артефактов (browser)', () => {
+const parkergirlDescribe = PARKERGIRL_AVAILABLE ? describe : describe.skip
+
+parkergirlDescribe(
+  'parkergirl — safe+quantize: скин-анимация и морфы рендерятся без артефактов (browser)' +
+    (PARKERGIRL_AVAILABLE ? '' : ' [skipped: parkergirl.glb отсутствует локально — артефакт не собран]'),
+  () => {
   /** @type {HTMLCanvasElement} */
   let canvas
   /** @type {import('../ui/viewer/viewer.js').Viewer} */
@@ -173,4 +189,5 @@ describe('parkergirl — safe+quantize: скин-анимация и морфы 
       expect(stats.extremePct).toBeLessThan(0.1)
     }
   })
-})
+  },
+)

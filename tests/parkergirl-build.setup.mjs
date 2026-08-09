@@ -26,12 +26,25 @@ const OPT_DIR = path.resolve(__dirname, '__optimized__')
 const DST_GLB = path.join(OPT_DIR, 'parkergirl-sq.glb')
 const DST_META = path.join(OPT_DIR, 'parkergirl-sq.meta.json')
 
-export async function setup() {
+export async function setup(project) {
   if (!fs.existsSync(modelPath('parkergirl.glb'))) {
-    throw new Error(
-      'parkergirl-build.setup: parkergirl.glb отсутствует локально — браузерный тест рендера скин-анимации не сможет работать',
+    // parkergirl.glb — ЛОКАЛЬНАЯ модель: в git её нет (см. REPO_MODELS в
+    // tests/helpers/model-files.mjs), на чистом клоне она отсутствует законно.
+    // Раньше здесь был throw — и globalSetup валил весь browser-проект ДО сбора
+    // тестов (история 2026-08-09: 13 красных прогонов подряд, «No test files
+    // found»). Теперь: сборку пропускаем, о пропуске пишем в лог, а браузерные
+    // тесты узнают о пропуске через provide/inject и graceful-пропускаются
+    // на этапе сбора. Настоящие поломки (status !== 'ok', нарушенные инварианты
+    // ниже) по-прежнему бросают.
+    console.warn(
+      '[parkergirl-build.setup] parkergirl.glb отсутствует локально — сборка артефакта пропущена; ' +
+        'тесты рендера parkergirl будут пропущены (норма на чистом клоне)',
     )
+    project.provide('parkergirl-artifact-available', false)
+    return
   }
+
+  project.provide('parkergirl-artifact-available', true)
 
   fs.mkdirSync(OPT_DIR, { recursive: true })
 

@@ -16,7 +16,7 @@
 //   7. _applyAnimSelection() — клип сохраняется между загрузками
 //   8. resetView() — один frame(), копия во второй вьюпорт
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, inject } from 'vitest'
 import {
   createViewer,
   disposeViewer,
@@ -103,6 +103,15 @@ const MODEL_PROBES = await Promise.all(
     }
   }),
 )
+
+// parkergirl.glb — ЛОКАЛЬНАЯ модель (см. REPO_MODELS в tests/helpers/model-files.mjs):
+// в git её нет, на чистом клоне отсутствует законно. Признак приходит из
+// node-контекста globalSetup (tests/parkergirl-build.setup.mjs) через
+// provide/inject: в Chromium node:fs недоступен, поэтому isPresent() из хелпера
+// здесь не работает. Параметризованному блоку внизу наличие и так сообщает
+// HEAD-запрос (MODEL_PROBES); этот флаг нужен двум тестам анимации в describe
+// 'Viewer — animation' ниже — они пропускаются на этапе сбора, а не падают.
+const PARKERGIRL_AVAILABLE = inject('parkergirl-artifact-available') === true
 
 // ---------------------------------------------------------------------------
 // Viewer — класс движка просмотра (ui/viewer/viewer.js)
@@ -311,22 +320,30 @@ describe('Viewer — animation (browser)', () => {
     expect(info.index).toBe(0)
   })
 
-  it('loads parkergirl (skinning) — getAnimationInfo shows 1 clip named MorphBake', async () => {
-    await viewer.load(PARKERGIRL_URL)
-    const info = viewer.getAnimationInfo()
-    expect(info.count).toBe(1)
-    expect(info.names.length).toBe(1)
-    expect(info.names[0]).toMatch(/MorphBake/)
-    expect(info.index).toBe(0)
-    expect(info.duration).toBeGreaterThan(0)
-  })
+  // parkergirl — локальная модель: два теста ниже регистрируются как it.skip
+  // с причиной, когда её нет (канал provide/inject из parkergirl-build.setup.mjs),
+  // иначе — обычные it. Условие известно уже на этапе сбора файла.
+  if (PARKERGIRL_AVAILABLE) {
+    it('loads parkergirl (skinning) — getAnimationInfo shows 1 clip named MorphBake', async () => {
+      await viewer.load(PARKERGIRL_URL)
+      const info = viewer.getAnimationInfo()
+      expect(info.count).toBe(1)
+      expect(info.names.length).toBe(1)
+      expect(info.names[0]).toMatch(/MorphBake/)
+      expect(info.index).toBe(0)
+      expect(info.duration).toBeGreaterThan(0)
+    })
 
-  it('playClip(0) does not throw on single-clip parkergirl', () => {
-    expect(() => viewer.playClip(0)).not.toThrow()
-    const info = viewer.getAnimationInfo()
-    expect(info.count).toBe(1)
-    expect(info.index).toBe(0)
-  })
+    it('playClip(0) does not throw on single-clip parkergirl', () => {
+      expect(() => viewer.playClip(0)).not.toThrow()
+      const info = viewer.getAnimationInfo()
+      expect(info.count).toBe(1)
+      expect(info.index).toBe(0)
+    })
+  } else {
+    it.skip('loads parkergirl (skinning) — getAnimationInfo shows 1 clip named MorphBake [skipped: parkergirl.glb missing locally]', () => {})
+    it.skip('playClip(0) does not throw on single-clip parkergirl [skipped: parkergirl.glb missing locally]', () => {})
+  }
 
   it('model without animations returns count: 0 and index: -1', async () => {
     await viewer.load(CUBE_URL)
