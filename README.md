@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Node](https://img.shields.io/badge/Node-20.9%2B-brightgreen)](https://nodejs.org/)
-[![Version](https://img.shields.io/badge/version-0.0.9-orange)](#status)
+[![Version](https://img.shields.io/badge/version-0.0.10-orange)](#status)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#install)
 
 Drop in a `.glb`, tick the boxes you want, get a smaller model back — along with a
@@ -437,10 +437,9 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 
 ## Status
 
-**0.0.9, early development.** Core, web interface and viewer work, the test suite is
-green, there has been no public release yet. The API may still change.
-
-Next up is a desktop application with an ordinary installer instead of a terminal.
+**0.0.10, early development.** Core, web interface and viewer work, the test suite is
+green. The desktop application installs like any other program — no terminal needed.
+The API may still change.
 
 The browser is the current shape, not the intent. The people this is built for shouldn't
 have to work through a hundred checkboxes or launch anything from a terminal: install in
