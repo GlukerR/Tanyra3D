@@ -4,6 +4,10 @@
   "private": true,
   "license": "Apache-2.0",
   "description": "Умный оптимизатор GLB/glTF для веба — анализ, безопасная оптимизация, отчёты",
+  "_comment_author": "Почта обязательна для пакета .deb — там это поле сопровождающего, без него сборка отказывается. Взят скрытый адрес GitHub, а не личный: он уходит в каждый скачанный пакет и достаётся сборщикам спама, а письма через GitHub доходят так же (решение Александра, 2026-08-08).",
+  "author": "GlukerR <GlukerR@users.noreply.github.com>",
+  "homepage": "https://github.com/GlukerR/Tanyra3D",
+  "repository": { "type": "git", "url": "https://github.com/GlukerR/Tanyra3D.git" },
   "type": "module",
   "engines": {
     "node": ">=20.9.0"
@@ -61,7 +65,10 @@
     "linux": {
       "target": ["AppImage", "deb"],
       "category": "Graphics",
-      "artifactName": "Tanyra3D-${version}-linux-${arch}.${ext}"
+      "artifactName": "Tanyra3D-${version}-linux-${arch}.${ext}",
+      "desktopName": "tanyra3d.desktop",
+      "synopsis": "3D model optimizer for the web",
+      "syncDesktopName": true
     },
     "mac": {
       "target": ["dmg", "zip"],

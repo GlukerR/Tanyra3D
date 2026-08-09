@@ -44,9 +44,9 @@ jobs:
     name: ${{ matrix.name }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: 'npm'
@@ -68,7 +68,7 @@ jobs:
 
       # Собранное отдаём артефактом всегда — в том числе когда запускали вручную и
       # релиза нет. Иначе проверить сборку можно было бы только выпустив её.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: Tanyra3D-${{ matrix.name }}
           path: |
