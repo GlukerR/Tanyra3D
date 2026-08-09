@@ -579,11 +579,23 @@ async function inspect(srcPath) {
     validation = groupValidation(validation);
   } catch { /* валидатор не установлен — пустой список */ }
 
+  // Те же метрики, что попадают в metrics.before после сборки, — и считает их та же
+  // функция. Раньше цифры о модели ДО сборки интерфейс считал сам, из отрисованной
+  // сцены three.js, и это давало два разных источника для одних и тех же строк:
+  // до сборки клиентский, после — движковый. Хуже того, не отрисовалось — значит
+  // человек не узнавал о модели ничего, хотя разобран файл уже был.
+  //
+  // Обходится это даром: документ уже прочитан выше ради metadata, второго чтения
+  // файла не происходит.
+  let metrics = null;
+  try { metrics = collectMetrics(doc, bytes.length); } catch { /* экзотика — цифр не будет, таблицы останутся */ }
+
   return {
     format: 'gltf',
     asset: { version: asset.version || '', generator: asset.generator || '' },
     extensions,
     metadata,
+    metrics,
     validation,
   };
 }

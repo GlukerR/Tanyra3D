@@ -105,7 +105,7 @@ export async function optimizeFile(srcPath, opts = {}) {
 export async function inspectFile(srcPath) {
   const addon = registry.resolve(srcPath);
   if (typeof addon.inspect !== 'function') {
-    return { format: null, asset: {}, extensions: [], metadata: null, validation: [] };
+    return { format: null, asset: {}, extensions: [], metadata: null, metrics: null, validation: [] };
   }
   return addon.inspect(srcPath);
 }

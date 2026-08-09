@@ -1110,7 +1110,7 @@
         // не про ту модель, что на экране, и записывать их в общие переменные нельзя.
         if (selectedFile !== file) return;
         originalStats = (info && info.stats) || null;
-        renderOriginalStats(file.size, originalStats);
+        renderSourceStats(file.size);
         // Определяем, что уже сжато в исходнике → авто-включаем флажки с бейджем [Source].
         lastDetection = (info && info.detected) || null;
         const found = Object.keys(lastDetection || {}).filter((k) => lastDetection[k]);
@@ -1155,6 +1155,10 @@
       const data = await res.json();
       if (selectedFile !== file) return;
       modelInspect = data;
+      // Цифры движка приехали — заменяем ими прикидку по отрисованной сцене.
+      // Только до первой сборки: после неё в шапке стоят before/after из отчёта
+      // (renderComparison), и затирать их односторонним «до» нельзя.
+      if (!lastResult) renderSourceStats(file.size);
       if (data.sourceId) currentSourceId = data.sourceId; // сборка переиспользует исходник
       btnMetadata.disabled = false;
       btnValidation.disabled = false;
@@ -1434,19 +1438,44 @@
     anchor.appendChild(badge);
   }
 
-  // HUD слева до первой сборки: основные данные модели, посчитанные из сцены на клиенте.
-  // После сборки заменяются авторитетными before/after-метриками ядра (renderComparison).
-  function renderOriginalStats(fileSize, stats) {
+  // HUD слева — данные исходной модели, те же строки, что появятся там после сборки.
+  //
+  // Источник — метрики движка из /api/inspect (`modelInspect.metrics`), посчитанные той
+  // же collectMetrics(), что даёт metrics.before в отчёте. Поэтому цифры до сборки и
+  // после — одни и те же, а не два независимых подсчёта.
+  //
+  // Раньше здесь считалась отрисованная сцена three.js, и это давало две беды.
+  // Первая: набор строк расходился — VRAM появлялась только после сборки, хотя это
+  // главная величина для телефона и решать по ней надо ДО. Вторая, злее: не
+  // отрисовалось — человек не узнавал о модели ничего. Пустая шапка при живом файле,
+  // который сервер уже разобрал и даже назвал в нём замечания.
+  //
+  // Сцена осталась запасным вариантом: она приходит раньше инспекции, и на большой
+  // модели эти секунды заметны. Как только инспекция ответит — цифры заменяются
+  // движковыми. Обратной замены не бывает: авторитетный источник не уступает запасному.
+  function renderSourceStats(fileSize) {
     statsBefore.innerHTML = '';
-    if (!stats) return;
-    const rows = [
-      ['FILE', fmtBytes(fileSize)],
-      ['TRIS', fmtInt(stats.triangles)],
-      ['VERT', fmtInt(stats.vertices)],
-      ['DRAWS', fmtInt(stats.drawCalls)],
-      ['MATS', fmtInt(stats.materials)],
-      ['TEX', fmtInt(stats.textures)],
-    ];
+    const m = modelInspect && modelInspect.metrics;
+    const rows = m
+      ? [
+        ['FILE', fmtBytes(m.fileBytes != null ? m.fileBytes : fileSize)],
+        ['TRIS', fmtInt(m.triangles)],
+        ['VERT', fmtInt(m.vertices)],
+        ['DRAWS', fmtInt(m.drawCalls)],
+        ['MATS', fmtInt(m.materials)],
+        ['TEX', fmtInt(m.textures)],
+        ['VRAM', fmtBytes(m.gpuBytes)],
+      ]
+      : originalStats
+        ? [
+          ['FILE', fmtBytes(fileSize)],
+          ['TRIS', fmtInt(originalStats.triangles)],
+          ['VERT', fmtInt(originalStats.vertices)],
+          ['DRAWS', fmtInt(originalStats.drawCalls)],
+          ['MATS', fmtInt(originalStats.materials)],
+          ['TEX', fmtInt(originalStats.textures)],
+        ]
+        : [];
     for (const [k, v] of rows) statsBefore.appendChild(hudLine(k, v, null));
   }
 
@@ -1614,7 +1643,7 @@
         setBusy('preview-original', null);
       }
     }
-    renderOriginalStats(rec.file.size, originalStats);
+    renderSourceStats(rec.file.size);
     applyDetection();
 
     // Результат уже собран — вернуть его на экран целиком, не пересобирая.
