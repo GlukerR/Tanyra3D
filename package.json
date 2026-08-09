@@ -39,6 +39,7 @@
   "overrides": {
     "sharp": "^0.35.3"
   },
+  "_comment_mac_targets": "build.mac.target — только dmg. Формат zip electron-builder кладёт рядом ради самообновления, которого у нас нет, а весит он столько же: артефакт выходил вдвое тяжелее без пользы для человека.",
   "_comment_build": "asar намеренно выключен. Внутри архива живут нативный sharp, форк server.mjs и раздача three.js прямо из node_modules — каждое из трёх работает в asar с оговорками, и проверить их можно только на своей платформе. Сборки под macOS и Linux собирает CI, вслепую; цена asar — несколько секунд установки, цена ошибки в нём — неработающая сборка, о которой мы узнаем от пользователя.",
   "build": {
     "appId": "com.tanyra3d.app",
@@ -71,7 +72,6 @@
       "synopsis": "3D model optimizer for the web",
       "syncDesktopName": true
     },
-    "_comment_mac_targets": "Только dmg. Формат zip electron-builder кладёт рядом ради самообновления — его у нас нет, а весит он столько же, сколько dmg: артефакт сборки выходил вдвое тяжелее без всякой пользы для человека.",
     "mac": {
       "target": ["dmg"],
       "category": "public.app-category.graphics-design",

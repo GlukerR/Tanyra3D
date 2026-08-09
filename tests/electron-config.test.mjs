@@ -1,0 +1,85 @@
+// tests/electron-config.test.mjs — сторож настройки сборки приложения.
+//
+// Введён 2026-08-09, после ДВУХ одинаковых поломок подряд. Оба раза сборка падала не
+// на упаковке, а на проверке схемы — то есть разом на всех четырёх платформах, ещё до
+// первого скопированного файла:
+//
+//   1. `desktopName` положен в build.linux. Такого ключа там нет: он живёт в корне
+//      package.json, а в секции linux — только парный ему syncDesktopName.
+//   2. Пояснение `_comment_mac_targets` положено внутрь build. Корень package.json
+//      чужие ключи терпит (npm их игнорирует), объект build — нет.
+//
+// Цена ошибки несоразмерна: строка в JSON против прогона на четырёх машинах, который
+// выясняется через пять минут ожидания. А заметить её глазами нельзя — обе выглядят
+// совершенно естественно рядом с соседними строками.
+//
+// Проверяется не «работает ли сборка» (для этого нужны четыре платформы), а ровно то,
+// что ломалось: состав ключей. Схему берём ту же, по которой судит сам electron-builder,
+// из его пакета — значит сторож не разойдётся с ним при обновлении.
+
+import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+
+const SCHEME = path.join(ROOT, 'node_modules', 'app-builder-lib', 'scheme.json');
+const scheme = fs.existsSync(SCHEME) ? JSON.parse(fs.readFileSync(SCHEME, 'utf8')) : null;
+
+/** Допустимые ключи секции по её описанию в схеме electron-builder. */
+function allowedKeys(defName) {
+  const def = scheme && scheme.definitions && scheme.definitions[defName];
+  if (!def) return null;
+  const out = new Set(Object.keys(def.properties || {}));
+  for (const branch of def.allOf || def.anyOf || []) {
+    const ref = branch.$ref && branch.$ref.split('/').pop();
+    const target = ref && scheme.definitions[ref];
+    for (const k of Object.keys((target && target.properties) || branch.properties || {})) out.add(k);
+  }
+  return out.size ? out : null;
+}
+
+describe('Настройка сборки приложения', () => {
+  it('внутри build нет посторонних ключей — комментарии живут в корне', () => {
+    const strays = Object.keys(pkg.build || {}).filter((k) => k.startsWith('_'));
+    expect(strays, `в build попали ключи-комментарии: ${strays.join(', ')}. `
+      + 'Корень package.json их терпит, объект build — нет: сборка падает на проверке схемы.')
+      .toEqual([]);
+  });
+
+  it('ключи build.linux, build.win и build.mac существуют в схеме electron-builder', () => {
+    if (!scheme) return; // пакет не установлен (голый клон без devDependencies)
+    const sections = [
+      ['linux', 'LinuxConfiguration'],
+      ['win', 'WindowsConfiguration'],
+      ['mac', 'MacConfiguration'],
+    ];
+    const unknown = [];
+    for (const [key, defName] of sections) {
+      const section = (pkg.build || {})[key];
+      const allowed = allowedKeys(defName);
+      if (!section || !allowed) continue;
+      for (const k of Object.keys(section)) {
+        if (!allowed.has(k)) unknown.push(`build.${key}.${k}`);
+      }
+    }
+    expect(unknown, `таких ключей у electron-builder нет: ${unknown.join(', ')}. `
+      + 'Проверьте, не корневое ли это поле package.json (как desktopName).')
+      .toEqual([]);
+  });
+
+  it('оболочка и иконка на месте — без них собирать нечего', () => {
+    expect(pkg.main, 'package.json.main должен указывать на оболочку').toBe('desktop/main.cjs');
+    for (const rel of ['desktop/main.cjs', 'desktop/build/icon.png']) {
+      expect(fs.existsSync(path.join(ROOT, rel)), `нет ${rel}`).toBe(true);
+    }
+  });
+
+  it('у пакета .deb есть сопровождающий с почтой — иначе он не соберётся', () => {
+    const who = pkg.build?.linux?.maintainer || pkg.author;
+    expect(who, 'ни build.linux.maintainer, ни author не заданы').toBeTruthy();
+    expect(String(who), `«${who}» — Debian требует адрес в угловых скобках`).toMatch(/<[^@\s]+@[^>\s]+>/);
+  });
+});
