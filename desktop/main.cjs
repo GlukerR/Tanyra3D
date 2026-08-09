@@ -35,6 +35,48 @@ const TOOLS_DIR = app.isPackaged
 let serverProcess = null;
 let mainWindow = null;
 
+// Весь вывод движка с начала запуска. Растёт только до открытия окна: дальше сервер
+// работает часами, и держать его журнал в памяти незачем.
+const serverLog = [];
+let collectLog = true;
+const pushLog = (chunk) => { if (collectLog) serverLog.push(String(chunk)); };
+
+/** Файл с полным выводом — то, что человек может приложить к сообщению о поломке. */
+function saveCrashLog() {
+  try {
+    const file = path.join(app.getPath('userData'), 'engine-crash.log');
+    fs.writeFileSync(file, [
+      `Tanyra3D ${app.getVersion()} · ${new Date().toISOString()}`,
+      `${process.platform} ${process.arch} · Electron ${process.versions.electron} · Node ${process.versions.node}`,
+      `Папка программы: ${ROOT}`,
+      `Инструменты: ${TOOLS_DIR} (${fs.existsSync(TOOLS_DIR) ? 'на месте' : 'НЕТ'})`,
+      '',
+      serverLog.join('') || '(движок не сказал ни слова)',
+    ].join('\n'), 'utf8');
+    return file;
+  } catch {
+    return null;      // некуда писать — не повод падать поверх падения
+  }
+}
+
+/**
+ * Ошибка запуска вместе с тем, что успел сказать движок.
+ *
+ * Без хвоста вывода сообщение бесполезно одинаково для всех: и для человека, который
+ * видит только код, и для того, кто чинит. Причина отказа при запуске почти всегда
+ * стоит в последних строках — не найден модуль, не сошлась нативная сборка, занят
+ * порт, нет прав на папку.
+ */
+function startupError(headline) {
+  const tail = serverLog.join('').trim().split('\n').slice(-12).join('\n');
+  const file = saveCrashLog();
+  return new Error([
+    headline,
+    tail ? `\nЧто сказал движок:\n${tail}` : '\nДвижок не сказал ничего.',
+    file ? `\nПолный отчёт: ${file}` : '',
+  ].join('\n'));
+}
+
 function startServer() {
   return new Promise((resolve, reject) => {
     const env = {
@@ -53,20 +95,32 @@ function startServer() {
 
     const child = fork(SERVER, [], { env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
 
-    // Вывод сервера — в консоль оболочки. В собранном приложении её никто не видит, но
-    // при запуске из исходников это единственный способ понять, почему окно пустое.
-    child.stdout.on('data', (b) => process.stdout.write(`[server] ${b}`));
-    child.stderr.on('data', (b) => process.stderr.write(`[server] ${b}`));
+    // Вывод сервера — в консоль оболочки И в кольцевой буфер.
+    //
+    // Консоли у оконной программы нет: на Windows её не видит никто, и до 2026-08-09
+    // это означало, что при отказе запуска настоящая ошибка пропадала бесследно.
+    // Человек получал «сервер завершился с кодом 1» — сообщение, по которому нельзя
+    // ни понять причину, ни рассказать о ней тому, кто чинит. Александр так и написал:
+    // «вышла ошибка, не удалось запустить движок».
+    //
+    // Буфер маленький: причина падения при импорте — это последние несколько строк,
+    // а не весь журнал. Полный вывод всё равно уходит в файл (см. saveCrashLog).
+    child.stdout.on('data', (b) => { process.stdout.write(`[server] ${b}`); pushLog(b); });
+    child.stderr.on('data', (b) => { process.stderr.write(`[server] ${b}`); pushLog(b); });
 
     // Сервер сам сообщает адрес: порт выдала система, заранее его не знает никто.
     child.on('message', (m) => {
       if (m && m.type === 'listening') resolve({ child, address: m.address });
     });
     child.on('error', reject);
-    child.once('exit', (code) => reject(new Error(`Сервер завершился с кодом ${code} до того, как открылся порт`)));
+    child.once('exit', (code) => {
+      // Дать последним строкам stderr дойти до нас: 'exit' приходит раньше, чем
+      // опустеет труба, и без этой отсрочки в отчёт попадала бы пустота.
+      setTimeout(() => reject(startupError(`Движок остановился с кодом ${code}, не открыв порт`)), 100);
+    });
 
     // Если сервер не отозвался — виснуть в пустом окне хуже, чем сказать вслух.
-    setTimeout(() => reject(new Error('Сервер не отозвался за 30 секунд')), 30_000);
+    setTimeout(() => reject(startupError('Движок не отозвался за 30 секунд')), 30_000);
   });
 }
 
@@ -110,6 +164,8 @@ app.whenReady().then(async () => {
   try {
     const started = await startServer();
     serverProcess = started.child;
+    collectLog = false;   // запустился — дальше журнал в памяти не нужен
+    serverLog.length = 0;
     // Первый обработчик exit был одноразовым сторожем запуска; дальше падение сервера —
     // это уже не «не смог открыться», а «умер на ходу», и говорить надо другое.
     serverProcess.removeAllListeners('exit');
