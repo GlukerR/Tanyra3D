@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Node](https://img.shields.io/badge/Node-20.9%2B-brightgreen)](https://nodejs.org/)
-[![Version](https://img.shields.io/badge/version-0.0.13-orange)](#status)
+[![Version](https://img.shields.io/badge/version-0.0.14-orange)](#status)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#install)
 
 Drop in a `.glb`, tick the boxes you want, get a smaller model back — along with a
@@ -437,7 +437,7 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 
 ## Status
 
-**0.0.13, early development.** Core, web interface and viewer work, the test suite is
+**0.0.14, early development.** Core, web interface and viewer work, the test suite is
 green. The desktop application installs like any other program — no terminal needed.
 The API may still change.
 

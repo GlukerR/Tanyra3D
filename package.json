@@ -1,6 +1,6 @@
 {
   "name": "tanyra3d",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "private": true,
   "license": "Apache-2.0",
   "description": "Умный оптимизатор GLB/glTF для веба — анализ, безопасная оптимизация, отчёты",
@@ -40,6 +40,7 @@
     "sharp": "^0.35.3"
   },
   "_comment_mac_targets": "build.mac.target — только dmg. Формат zip electron-builder кладёт рядом ради самообновления, которого у нас нет, а весит он столько же: артефакт выходил вдвое тяжелее без пользы для человека.",
+  "_comment_size": "Что и почему вырезано из пакета (2026-08-09, замер: 411 МБ, из них наших 64). electronLanguages — Chromium везёт 55 языковых наборов на 47 МБ, программа говорит на двух; ключ живёт в разделах платформ, в корне build его схема не знает. three/src — 4.3 МБ исходников, которые никто не читает: браузер грузит build/three.module.js через importmap. three.cjs — сборка для require(), а Node к three не обращается вообще, только браузер по /vendor/three/. webgpu/tsl и *.min.js — варианты, которых нет в importmap. Что оставлено намеренно: dxcompiler.dll (24 МБ) — компилятор шейдеров, без него рискуем отрисовкой на части видеокарт; LICENSES.chromium.html (19 МБ) — юридическое требование; @img/libvips (18 МБ) — та самая обработка текстур.",
   "_comment_three_examples": "three/examples/jsm копируется через extraResources, а не через files, и это не прихоть. electron-builder по умолчанию выбрасывает из зависимостей папки с именем examples, считая их документацией — а у three там рабочий код вьюера: GLTFLoader, OrbitControls, RoomEnvironment, декодеры Draco и KTX2. Добавить путь в files НЕ помогает: правило-умолчание выбрасывает саму папку, и до её содержимого обход не доходит (проверено сборкой). extraResources копирует мимо этого фильтра, а адрес 'app/node_modules/three/examples/jsm' кладёт файлы ровно туда, где их ищет server.mjs (THREE_DIR = папка server.mjs + node_modules/three) — поэтому в коде менять нечего. Симптом без этой строки: программа запускается, интерфейс рисуется, модель обрабатывается, но не показывается ни одного вьюпорта — импорт загрузчика молча получает 404 (найдено Александром 2026-08-09 на скачанном установщике 0.0.10).",
   "_comment_build": "asar намеренно выключен. Внутри архива живут нативный sharp, форк server.mjs и раздача three.js прямо из node_modules — каждое из трёх работает в asar с оговорками, и проверить их можно только на своей платформе. Сборки под macOS и Linux собирает CI, вслепую; цена asar — несколько секунд установки, цена ошибки в нём — неработающая сборка, о которой мы узнаем от пользователя.",
   "build": {
@@ -55,7 +56,12 @@
       "!node_modules/electron/**", "!node_modules/electron-builder/**",
       "!node_modules/app-builder-lib/**", "!node_modules/playwright*/**",
       "!node_modules/vitest/**", "!node_modules/@vitest/**",
-      "!**/*.map", "!**/test/**", "!**/tests/**", "!**/docs/**"
+      "!**/*.map", "!**/test/**", "!**/tests/**", "!**/docs/**",
+      "!node_modules/three/src/**",
+      "!node_modules/three/build/three.cjs",
+      "!node_modules/three/build/three.webgpu*.js",
+      "!node_modules/three/build/three.tsl*.js",
+      "!node_modules/three/build/*.min.js"
     ],
     "extraResources": [
       { "from": ".tools", "to": "tools", "filter": ["**/*"] },
@@ -65,7 +71,11 @@
         "filter": ["**/*"]
       }
     ],
-    "win": { "target": ["nsis"], "artifactName": "Tanyra3D-${version}-windows-${arch}.${ext}" },
+    "win": {
+      "target": ["nsis"],
+      "artifactName": "Tanyra3D-${version}-windows-${arch}.${ext}",
+      "electronLanguages": ["en-US", "ru"]
+    },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
@@ -76,13 +86,15 @@
       "category": "Graphics",
       "artifactName": "Tanyra3D-${version}-linux-${arch}.${ext}",
       "synopsis": "3D model optimizer for the web",
-      "syncDesktopName": true
+      "syncDesktopName": true,
+      "electronLanguages": ["en-US", "ru"]
     },
     "mac": {
       "target": ["dmg"],
       "category": "public.app-category.graphics-design",
       "identity": null,
-      "artifactName": "Tanyra3D-${version}-macos-${arch}.${ext}"
+      "artifactName": "Tanyra3D-${version}-macos-${arch}.${ext}",
+      "electronLanguages": ["en-US", "ru"]
     }
   },
   "devDependencies": {

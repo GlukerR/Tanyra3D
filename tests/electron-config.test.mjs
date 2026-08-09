@@ -182,6 +182,54 @@ describe('Настройка сборки приложения', () => {
       expect(missing, `нет в node_modules/three: ${missing.join(', ')}`).toEqual([]);
     });
 
+    // Второй способ потерять вьюер — не забыть файл, а вырезать его самому.
+    // 2026-08-09 из пакета срезано лишнее ради веса (three/src, сборки webgpu, cjs,
+    // минифицированные копии — 12 МБ). Каждая такая строка написана «на глаз», и
+    // ошибка в шаблоне даст ровно ту же тихую поломку: программа запустится,
+    // интерфейс нарисуется, вьюпорта не будет.
+    it('ни одно правило исключения не режет то, что просит вьюер', async () => {
+      const { minimatch } = await import('minimatch');
+      const excludes = (pkg.build?.files || [])
+        .filter((p) => typeof p === 'string' && p.startsWith('!'))
+        .map((p) => p.slice(1));
+
+      const cut = [];
+      for (const ref of vendorRefs()) {
+        const rel = 'node_modules/three/' + ref;
+        // Пути из examples приезжают через extraResources — правила files их не касаются.
+        if (STRIPPED.test(ref)) continue;
+        for (const pattern of excludes) {
+          if (minimatch(rel, pattern, { dot: true })) cut.push(`${rel} ← «!${pattern}»`);
+        }
+      }
+      expect(cut, `эти правила вырезают файлы, которые грузит вьюер:\n  ${cut.join('\n  ')}`).toEqual([]);
+    });
+
+    // Сами исключения обязаны на что-то указывать: правило, не совпадающее ни с одним
+    // файлом, — это опечатка, которая молча ничего не экономит.
+    it('правила исключения three.js действительно что-то находят', async () => {
+      const { minimatch } = await import('minimatch');
+      const three = path.join(ROOT, 'node_modules', 'three');
+      if (!fs.existsSync(three)) return;      // голый клон без зависимостей
+
+      const all = [];
+      const walk = (dir, prefix) => {
+        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+          const rel = prefix + e.name;
+          if (e.isDirectory()) walk(path.join(dir, e.name), rel + '/');
+          else all.push('node_modules/three/' + rel);
+        }
+      };
+      walk(three, '');
+
+      const idle = (pkg.build?.files || [])
+        .filter((p) => typeof p === 'string' && p.startsWith('!node_modules/three/'))
+        .map((p) => p.slice(1))
+        .filter((pattern) => !all.some((f) => minimatch(f, pattern, { dot: true })));
+
+      expect(idle, `эти правила не совпали ни с одним файлом three — опечатка? ${idle.join(', ')}`).toEqual([]);
+    });
+
     it('пути из выбрасываемых папок возвращены через extraResources', () => {
       const unpackaged = vendorRefs()
         .filter((r) => STRIPPED.test(r))
