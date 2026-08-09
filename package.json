@@ -7,6 +7,8 @@
   "_comment_author": "Почта обязательна для пакета .deb — там это поле сопровождающего, без него сборка отказывается. Взят скрытый адрес GitHub, а не личный: он уходит в каждый скачанный пакет и достаётся сборщикам спама, а письма через GitHub доходят так же (решение Александра, 2026-08-08).",
   "author": "GlukerR <GlukerR@users.noreply.github.com>",
   "homepage": "https://github.com/GlukerR/Tanyra3D",
+  "_comment_desktopName": "Лежит в КОРНЕ, а не в build.linux: схема electron-builder такого ключа в секции linux не знает и валит сборку целиком, ещё до упаковки. Пара к build.linux.syncDesktopName — вместе они связывают открытое окно с ярлыком в меню.",
+  "desktopName": "tanyra3d.desktop",
   "repository": { "type": "git", "url": "https://github.com/GlukerR/Tanyra3D.git" },
   "type": "module",
   "engines": {
@@ -66,7 +68,6 @@
       "target": ["AppImage", "deb"],
       "category": "Graphics",
       "artifactName": "Tanyra3D-${version}-linux-${arch}.${ext}",
-      "desktopName": "tanyra3d.desktop",
       "synopsis": "3D model optimizer for the web",
       "syncDesktopName": true
     },
