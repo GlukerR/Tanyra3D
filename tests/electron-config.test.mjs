@@ -82,4 +82,67 @@ describe('Настройка сборки приложения', () => {
     expect(who, 'ни build.linux.maintainer, ни author не заданы').toBeTruthy();
     expect(String(who), `«${who}» — Debian требует адрес в угловых скобках`).toMatch(/<[^@\s]+@[^>\s]+>/);
   });
+
+  // 2026-08-09. Александр скачал установщик 0.0.10 и обнаружил, что модель
+  // загружается, а вьюпорта нет ни одного. Причина: electron-builder по
+  // умолчанию выбрасывает из зависимостей папки с именем examples, считая их
+  // документацией. У three в examples/jsm лежит не документация, а рабочий код
+  // вьюера — GLTFLoader, OrbitControls, RoomEnvironment, декодеры Draco и KTX2.
+  //
+  // Поймать это тестами было нечем: браузерные тесты гоняют вьюер из исходного
+  // дерева, где папка на месте, а проверка упакованной сборки ограничивалась
+  // тем, что она поднимается и считает метрики. Рендер не открывали.
+  //
+  // Сторож сверяет ДВЕ вещи: путь, который вьюер просит по HTTP, существует в
+  // node_modules — и он же попадает в пакет по той же раскладке. Добавят импорт
+  // из ещё одной выбрасываемой папки — тест назовёт её.
+  describe('файлы вьюера доезжают до пакета', () => {
+    // Имена папок, которые electron-builder вырезает из node_modules сам.
+    const STRIPPED = /(^|\/)(example|examples|test|tests|__tests__|powered-test|doc|docs)(\/|$)/;
+
+    /** Пути под /vendor/three/, которые упоминает код вьюера и разметка. */
+    const vendorRefs = () => {
+      const sources = ['ui/index.html', 'ui/viewer/viewer.js'];
+      const refs = new Set();
+      for (const rel of sources) {
+        const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+        for (const m of src.matchAll(/\/vendor\/three\/([A-Za-z0-9_./-]*)/g)) {
+          if (m[1]) refs.add(m[1].replace(/\/$/, ''));
+        }
+      }
+      return [...refs];
+    };
+
+    /**
+     * Кладёт ли extraResources этот путь в пакет ПО ТОМУ ЖЕ адресу.
+     * Раскладка обязана совпасть с исходным деревом: server.mjs ищет three
+     * рядом с собой, и никакой особой ветки для собранного пакета в нём нет.
+     */
+    const copiedByExtraResources = (rel) =>
+      (pkg.build?.extraResources || []).some((e) => {
+        if (!e || typeof e.from !== 'string' || typeof e.to !== 'string') return false;
+        const from = e.from.replace(/\\/g, '/');
+        if (rel !== from && !rel.startsWith(from + '/')) return false;
+        return e.to.replace(/\\/g, '/') + rel.slice(from.length) === 'app/' + rel;
+      });
+
+    it('каждый путь из /vendor/three/ существует в node_modules', () => {
+      const refs = vendorRefs();
+      expect(refs.length, 'в ui/ не нашлось ни одной ссылки на /vendor/three/ — тест устарел').toBeGreaterThan(0);
+      const missing = refs.filter((r) => !fs.existsSync(path.join(ROOT, 'node_modules', 'three', r)));
+      expect(missing, `нет в node_modules/three: ${missing.join(', ')}`).toEqual([]);
+    });
+
+    it('пути из выбрасываемых папок возвращены через extraResources', () => {
+      const unpackaged = vendorRefs()
+        .filter((r) => STRIPPED.test(r))
+        .filter((r) => !copiedByExtraResources('node_modules/three/' + r));
+      expect(
+        unpackaged,
+        `electron-builder вырежет это из пакета, а вьюер без них не запустится: ${unpackaged.join(', ')}. `
+          + 'Добавить в build.extraResources копию с адресом «app/<тот же путь>» — в files добавлять бесполезно, '
+          + 'правило-умолчание выбрасывает саму папку, и обход внутрь неё не заходит.',
+      ).toEqual([]);
+    });
+  });
 });

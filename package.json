@@ -40,6 +40,7 @@
     "sharp": "^0.35.3"
   },
   "_comment_mac_targets": "build.mac.target — только dmg. Формат zip electron-builder кладёт рядом ради самообновления, которого у нас нет, а весит он столько же: артефакт выходил вдвое тяжелее без пользы для человека.",
+  "_comment_three_examples": "three/examples/jsm копируется через extraResources, а не через files, и это не прихоть. electron-builder по умолчанию выбрасывает из зависимостей папки с именем examples, считая их документацией — а у three там рабочий код вьюера: GLTFLoader, OrbitControls, RoomEnvironment, декодеры Draco и KTX2. Добавить путь в files НЕ помогает: правило-умолчание выбрасывает саму папку, и до её содержимого обход не доходит (проверено сборкой). extraResources копирует мимо этого фильтра, а адрес 'app/node_modules/three/examples/jsm' кладёт файлы ровно туда, где их ищет server.mjs (THREE_DIR = папка server.mjs + node_modules/three) — поэтому в коде менять нечего. Симптом без этой строки: программа запускается, интерфейс рисуется, модель обрабатывается, но не показывается ни одного вьюпорта — импорт загрузчика молча получает 404 (найдено Александром 2026-08-09 на скачанном установщике 0.0.10).",
   "_comment_build": "asar намеренно выключен. Внутри архива живут нативный sharp, форк server.mjs и раздача three.js прямо из node_modules — каждое из трёх работает в asar с оговорками, и проверить их можно только на своей платформе. Сборки под macOS и Linux собирает CI, вслепую; цена asar — несколько секунд установки, цена ошибки в нём — неработающая сборка, о которой мы узнаем от пользователя.",
   "build": {
     "appId": "com.tanyra3d.app",
@@ -57,7 +58,12 @@
       "!**/*.map", "!**/test/**", "!**/tests/**", "!**/docs/**"
     ],
     "extraResources": [
-      { "from": ".tools", "to": "tools", "filter": ["**/*"] }
+      { "from": ".tools", "to": "tools", "filter": ["**/*"] },
+      {
+        "from": "node_modules/three/examples/jsm",
+        "to": "app/node_modules/three/examples/jsm",
+        "filter": ["**/*"]
+      }
     ],
     "win": { "target": ["nsis"], "artifactName": "Tanyra3D-${version}-windows-${arch}.${ext}" },
     "nsis": {
