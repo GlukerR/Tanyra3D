@@ -507,6 +507,7 @@ explainResult(runResult, platformId)
 ```json
 {
   "id": "shopify",
+  "engine": "threejs",
   "title": "Shopify",
   "description": "1–2 sentences for the user, without jargon",
   "budgets": {
@@ -540,6 +541,14 @@ explainResult(runResult, platformId)
 - `notes` justify each budget (sources: Khronos 3D Commerce recommendations, the platform's
   official limits, Meta's recommendations for Quest — or a conservative estimate, stated as
   such).
+- `engine` names the engine this target is described for (§4g). Mandatory, and mandatory
+  even while there is only one engine: the pair must be visible in the data rather than
+  buried in a display title such as "Web (Three.js)". Guarded by
+  `tests/engine-target-split.test.mjs`.
+- **`reversible` and `dataLoss` do NOT belong in a profile.** They are properties of the
+  optimization itself and live in `addons/gltf/rules.mjs`; the UI reads them from
+  `result.applied`. They were duplicated here until 2026-08-09 and nothing read the copies —
+  a second list of one truth drifts silently. Same guard.
 - The file goes into `profiles/`, named `<id>.json`. Nothing else needs registering.
 
 ---
@@ -775,6 +784,99 @@ The MVP remains GLB/Web. Everything above is the shape of a future extension, no
 what exists. On the web, glTF is both the workbench and the target format — the two planes
 coincide, so TODAY the separation is invisible. It matters once non-glTF input formats arrive
 (0.3.x and beyond).
+
+---
+
+## 4g. Engine and target are two different axes (Alexander's decision, 2026-08-09)
+
+**Status: decided, partially implemented.** The data model now names the pair; the second
+engine and the catalog screen are deliberately not built yet.
+
+### The problem
+
+A profile such as `threejs.json` is titled "Web (Three.js)" — a target and an engine welded
+into one name. That works while there is exactly one engine and breaks the moment there are
+two: Three.js runs on a website, on a phone, inside Shopify and inside a Quest browser, and
+each of those targets can also be driven by a different engine.
+
+Looking at the actual files, one profile carries **three different kinds of fact**:
+
+| Field | Actually belongs to | Why |
+|---|---|---|
+| `budgets` (+ their sources in `notes`) | **the target** | Shopify's 4 MB advisory and 15 MB ceiling are Shopify's, whatever renders the model |
+| `availableExtensions` — what to offer | **the engine** | whether KTX2 opens without a decoder is a property of the reader |
+| `reversible`, `dataLoss` | **the optimization itself** | `join` is irreversible and loses structure always, everywhere |
+
+The third row was already duplicated: the same facts live in `addons/gltf/rules.mjs`. They
+agreed, but this is precisely the shape that already went wrong once with
+`EXCLUSIVE_FEATURES` / `EXCLUSIVE_GROUPS` (see the note at `addons/gltf/index.mjs`): two
+independent lists of one truth, drifting silently.
+
+### The decision — three tables, not two
+
+1. **Rule** (already in code, `addons/gltf/rules.mjs`) — what an optimization does, whether
+   it is reversible, what it costs. Independent of both engine and target. **Single source.**
+2. **Engine** (`engines/<id>.json`, future) — what this engine reads out of the box, what
+   needs a decoder, and **which viewer module to mount**. This is where "a different engine
+   means a different viewport" lives.
+3. **Target** (`profiles/<id>.json`, existing) — budgets with sources, caveats, plus
+   `engines: [...]` and a default.
+
+A **profile then stops being the target file and becomes a saved pair**: target + engine +
+local tweaks. That is exactly the object a user creates for their own pipeline, so
+user-defined profiles need no separate mechanism.
+
+### The UI rule: two fields that filter each other, never a hierarchy
+
+The hard question was: a person is looking at an engine, but the target they want belongs to
+a different one — and they should not have to know that in advance, or go looking outside the
+program for the answer.
+
+So the two fields are **symmetric**. Picking a target reorders the engine list; picking an
+engine reorders the target list. Neither is a dead end and the order of choice does not
+matter.
+
+**Incompatible combinations are shown, not hidden**, each with its reason on the spot:
+"Shopify reads only what model-viewer reads — Draco will not open here." A greyed-out entry
+with no explanation sends the person to search the internet; a sentence next to it answers
+them where the question arose. This is §2.4 and the "nothing happens silently" principle
+applied to the act of choosing.
+
+### The catalog screen — deferred on purpose
+
+A separate table of ready pairs (target | engine | key limits), where a row selects both
+fields at once and user profiles sit alongside the built-in ones, is the right shape. It is
+**not** being built now: there is one engine and three of the four targets are disabled, so
+the table would have a single live row and we would be designing against emptiness. It gets
+built when the second engine arrives.
+
+### What was done immediately (so the change stays cheap)
+
+- Every profile now carries an explicit `"engine": "threejs"`. The field is redundant with a
+  single engine — that is the point: the pair becomes visible **in the data** instead of
+  hiding inside a display title.
+- `reversible` / `dataLoss` were **removed from the profiles**. Nothing read them: the UI
+  takes both from `result.applied`, and the tests from `listRules()`. Duplicated dead data is
+  how the next divergence starts. The old guard in `tests/engine-contract.test.mjs` demanded
+  the opposite — that profiles carry these fields (finding Н-5: the UI must be able to warn
+  about irreversibility *at the checkbox*, before the run). The requirement stands; only its
+  guard changed. It now checks the fact is **reachable** — every offered extension has a rule
+  and that rule states the cost — instead of checking a copy exists.
+
+### Known inaccuracies, deliberately left for when engines become real files
+
+- `profiles/shopify.json` says `"engine": "threejs"`. Strictly this is wrong: a Shopify
+  storefront renders 3D through Google's **model-viewer** — a fixed wrapper over Three.js
+  with its own set of what it reads, and not something the artist may swap. The correct value
+  is `model-viewer`, but there is no such engine yet and no viewer module behind the name, so
+  writing it now would be a claim the code cannot honour. Fix it together with
+  `engines/<id>.json`. The profile is disabled meanwhile, so nothing depends on it.
+- The sample sentence above — "Draco will not open here" — illustrates the *shape* of an
+  on-the-spot explanation, not a verified fact: model-viewer does load Draco, KTX2 and
+  Meshopt decoders. Verify against a live storefront before any such wording reaches a user.
+- `GET /api/extensions` accepts an `engine=` parameter, defaulting to the target's engine.
+  The request shape is ready before a second engine exists, so adding one is data, not a
+  protocol change.
 
 ---
 

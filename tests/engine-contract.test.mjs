@@ -560,7 +560,14 @@ describe('Контракт движка — раздел 4: необратимо
     expect(reversibleButSignificant).toEqual([]);
   });
 
-  it('профили площадок несут reversible/dataLoss и не расходятся с meta правил', () => {
+  // Было: «профили площадок несут reversible/dataLoss и не расходятся с meta правил».
+  // Переписано 2026-08-09 вместе с разделением осей (ARCHITECTURE.md §4g): эти поля
+  // убраны из профилей как второй список одной правды. Требование Н-5 при этом живо —
+  // интерфейс обязан МОЧЬ предупредить о необратимости на галочке, до запуска. Значит
+  // проверяем не наличие копии в профиле, а достижимость факта из единственного
+  // источника: у каждого предлагаемого расширения есть своё правило, и правило знает
+  // цену. Расхождение двух копий теперь невозможно — копия одна.
+  it('у каждого расширения профиля есть правило, и оно знает цену', () => {
     const profiles = fs.readdirSync('profiles').filter((f) => f.endsWith('.json')).sort();
     expect(profiles.length).toBeGreaterThan(0);
 
@@ -576,22 +583,19 @@ describe('Контракт движка — раздел 4: необратимо
       for (const ext of profile.availableExtensions || []) {
         const rule = featureRule(ext.id);
         if (!rule) continue; // safe — бандл, не одно правило
-        if (!('reversible' in ext) || !('dataLoss' in ext)) {
-          // Н-5: mobile/quest/shopify не несут признак для ktx2/draco/quantize —
-          // интерфейс не может предупредить о необратимости/потере.
-          problems.push(`${pf}:${ext.id} — нет полей reversible/dataLoss (правило ${rule.meta.id})`);
-          continue;
-        }
-        if (ext.reversible !== rule.meta.reversible) {
-          problems.push(`${pf}:${ext.id} reversible=${ext.reversible}, правило ${rule.meta.id}=${rule.meta.reversible}`);
-        }
-        if (ext.dataLoss !== rule.meta.dataLoss) {
-          // Н-5: threejs ktx2 говорит 'none', правило textures/ktx2 — 'minor'.
-          // Исключение-интерпретация: strip-colors в профиле описывает lossy-ВЕТКУ
-          // (значимая потеря), правило — базовую ветку (none) — проверено, см. отчёт.
-          if (!(ext.id === 'strip-colors' && ext.dataLoss === 'significant' && rule.meta.dataLoss === 'none')) {
-            problems.push(`${pf}:${ext.id} dataLoss=${ext.dataLoss}, правило ${rule.meta.id}=${rule.meta.dataLoss}`);
+
+        // Копий больше нет: поля в профиле означали бы возврат к дублю (§4g).
+        for (const поле of ['reversible', 'dataLoss']) {
+          if (поле in ext) {
+            problems.push(`${pf}:${ext.id}.${поле} — факт правила ${rule.meta.id} снова скопирован в профиль`);
           }
+        }
+        // Единственный источник обязан быть заполнен, иначе предупреждать нечем.
+        if (typeof rule.meta.reversible !== 'boolean') {
+          problems.push(`${pf}:${ext.id} — правило ${rule.meta.id} не говорит reversible`);
+        }
+        if (!['none', 'minor', 'significant'].includes(rule.meta.dataLoss)) {
+          problems.push(`${pf}:${ext.id} — правило ${rule.meta.id} не говорит dataLoss`);
         }
       }
     }

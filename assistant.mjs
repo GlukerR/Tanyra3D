@@ -224,6 +224,11 @@ export function planFor(platformId, lang = DEFAULT_LANG) {
   return {
     profileId: profile.id,
     title: pick(profile.title, lang),
+    // Движок, для которого посчитан план. Сегодня он один и поле выглядит лишним —
+    // в этом и смысл: пара «площадка + движок» должна быть видна в данных, а не
+    // прятаться в названии вроде «Web (Three.js)» (ARCHITECTURE.md §4g). Когда
+    // движков станет несколько, добавление будет данными, а не сменой протокола.
+    engine: profile.engine || 'threejs',
     engineOpts: { ...opts },
     explanation,
     // аддитивное поле (в рамках правил стабильности §4c): web-interface может взять

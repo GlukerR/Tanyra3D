@@ -1,5 +1,6 @@
 {
   "id": "threejs",
+  "engine": "threejs",
   "enabled": true,
   "title": {
     "en": "Web (Three.js)",
@@ -50,16 +51,12 @@
   "availableExtensions": [
     {
       "id": "safe",
-      "reversible": false,
-      "dataLoss": "none",
       "opts": {
         "safe": true
       }
     },
     {
       "id": "meshopt",
-      "reversible": true,
-      "dataLoss": "none",
       "opts": {
         "compress": true,
         "codec": "meshopt"
@@ -67,64 +64,48 @@
     },
     {
       "id": "join",
-      "reversible": false,
-      "dataLoss": "significant",
       "opts": {
         "join": true
       }
     },
     {
       "id": "instance",
-      "reversible": true,
-      "dataLoss": "none",
       "opts": {
         "instance": true
       }
     },
     {
       "id": "resample",
-      "reversible": false,
-      "dataLoss": "none",
       "opts": {
         "resample": true
       }
     },
     {
       "id": "ktx2",
-      "reversible": true,
-      "dataLoss": "minor",
       "opts": {
         "noKtx": false
       }
     },
     {
       "id": "webp",
-      "reversible": true,
-      "dataLoss": "minor",
       "opts": {
         "noWebp": false
       }
     },
     {
       "id": "draco",
-      "reversible": true,
-      "dataLoss": "none",
       "opts": {
         "codec": "draco"
       }
     },
     {
       "id": "quantize",
-      "reversible": true,
-      "dataLoss": "minor",
       "opts": {
         "quantize": true
       }
     },
     {
       "id": "strip-colors",
-      "reversible": false,
-      "dataLoss": "significant",
       "opts": {
         "stripColors": true
       }
