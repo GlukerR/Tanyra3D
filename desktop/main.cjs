@@ -93,6 +93,12 @@ function startServer() {
     };
     if (fs.existsSync(TOOLS_DIR)) env.TANYRA_TOOLS_DIR = TOOLS_DIR;
 
+    // Куда движку писать загрузки и результаты. Рядом с программой нельзя: установленная
+    // в Program Files, она лежит в папке, куда обычному пользователю писать не дают, и
+    // сервер падал на первом же mkdir с EPERM, не дойдя до порта. Папка данных
+    // пользователя есть на всех трёх системах и всегда доступна на запись.
+    env.TANYRA_DATA_DIR = path.join(app.getPath('userData'), 'work');
+
     const child = fork(SERVER, [], { env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
 
     // Вывод сервера — в консоль оболочки И в кольцевой буфер.

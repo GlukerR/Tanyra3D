@@ -26,8 +26,24 @@ const PORT = (() => {
 })();
 
 const UI_DIR = path.join(__dirname, 'ui');
-const UPLOADS_DIR = path.join(__dirname, '_web', 'uploads');
-const RESULTS_DIR = path.join(__dirname, '_web', 'results');
+
+// Рабочая папка: загруженные модели и собранные результаты.
+//
+// Рядом с сервером её держать нельзя — установленная программа лежит там, куда писать
+// не дают. `C:\Program Files` на Windows доступен только администратору, и первый же
+// mkdir падает с EPERM ещё до открытия порта: окно не появляется вовсе (Александр,
+// 2026-08-09, установка 0.0.12 в Program Files). На macOS то же самое внутри .app,
+// на Linux — внутри /opt и /usr.
+//
+// Поэтому адрес называет тот, кто знает раскладку: оболочка Electron передаёт папку
+// данных пользователя (desktop/main.cjs). Тот же приём, что и с TANYRA_TOOLS_DIR —
+// сервер не должен догадываться, как устроен собранный пакет.
+//
+// Нет переменной — прежнее поведение, `_web/` в корне проекта: при запуске из
+// исходников это удобно, там всё под рукой и папка в .gitignore.
+const DATA_DIR = process.env.TANYRA_DATA_DIR || path.join(__dirname, '_web');
+const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
+const RESULTS_DIR = path.join(DATA_DIR, 'results');
 // three.js для встроенного просмотрщика отдаётся прямо из node_modules (пакет-зависимость,
 // см. package.json). Никакого бандлера/CDN — браузер грузит нативные ESM через importmap
 // (см. ui/index.html), а декодеры Draco/KTX2 — по путям /vendor/three/examples/jsm/libs/...

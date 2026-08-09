@@ -83,6 +83,55 @@ describe('Настройка сборки приложения', () => {
     expect(String(who), `«${who}» — Debian требует адрес в угловых скобках`).toMatch(/<[^@\s]+@[^>\s]+>/);
   });
 
+  // 2026-08-09. Установленная в C:\Program Files программа не запускалась вовсе:
+  //
+  //   EPERM: operation not permitted, mkdir 'C:\Program Files\Tanyra3D\resources\app\_web'
+  //
+  // Сервер создавал рабочую папку рядом с собой. Из исходников это удобно, а в папке
+  // установленной программы писать не дают: Program Files на Windows принадлежит
+  // администратору, внутри .app на macOS и в /opt на Linux — то же самое. Падало на
+  // первом же mkdir, до открытия порта, поэтому окно не появлялось совсем.
+  //
+  // Воспроизвести это на машине разработчика невозможно в принципе: там программа
+  // лежит в собственной папке проекта, куда запись разрешена. Отсюда и сторож —
+  // проверять глазами тут нечего.
+  describe('рабочая папка — не внутри программы', () => {
+    const serverSrc = fs.readFileSync(path.join(ROOT, 'server.mjs'), 'utf8');
+    const shellSrc = fs.readFileSync(path.join(ROOT, 'desktop', 'main.cjs'), 'utf8');
+
+    it('сервер берёт адрес рабочей папки из TANYRA_DATA_DIR', () => {
+      expect(
+        serverSrc,
+        'server.mjs больше не спрашивает TANYRA_DATA_DIR — установленная программа снова '
+          + 'будет писать рядом с собой и падать с EPERM там, где запись запрещена.',
+      ).toMatch(/process\.env\.TANYRA_DATA_DIR/);
+    });
+
+    it('загрузки и результаты лежат внутри этой папки, а не рядом с сервером', () => {
+      for (const name of ['UPLOADS_DIR', 'RESULTS_DIR']) {
+        const line = serverSrc.split('\n').find((l) => l.includes(`const ${name} =`)) || '';
+        expect(line, `в server.mjs пропал ${name} — тест устарел, обновить`).toBeTruthy();
+        expect(
+          line,
+          `${name} строится от __dirname: «${line.trim()}». Это папка программы, в установленной `
+            + 'сборке она недоступна на запись.',
+        ).not.toMatch(/__dirname/);
+      }
+    });
+
+    it('оболочка эту папку называет — иначе движок вернётся к прежнему поведению', () => {
+      expect(
+        shellSrc,
+        'desktop/main.cjs не задаёт TANYRA_DATA_DIR: сервер откатится на _web рядом с собой.',
+      ).toMatch(/TANYRA_DATA_DIR/);
+      expect(
+        shellSrc,
+        'папку данных надо брать у системы (app.getPath(\'userData\')) — на всех трёх системах '
+          + 'она своя, и угадывать её путь нельзя.',
+      ).toMatch(/getPath\(\s*['"]userData['"]\s*\)/);
+    });
+  });
+
   // 2026-08-09. Александр скачал установщик 0.0.10 и обнаружил, что модель
   // загружается, а вьюпорта нет ни одного. Причина: electron-builder по
   // умолчанию выбрасывает из зависимостей папки с именем examples, считая их
