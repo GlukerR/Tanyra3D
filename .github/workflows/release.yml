@@ -88,12 +88,27 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Attach to the release
+      # Релиз создаётся здесь же, если его ещё нет.
+      #
+      # Раньше шаг умел только дописывать в готовый релиз — и это не работало ни при
+      # каком порядке действий. Черновик релиза тег не создаёт, значит сборка не
+      # запускается; опубликованный релиз висит пустым те десять минут, пока идут
+      # сборки, и человек в это время видит страницу без единого файла.
+      #
+      # Три задачи бегут одновременно и все три пытаются создать релиз — побеждает
+      # первая, остальные получают «уже существует» и спокойно идут дальше загружать
+      # свои файлы. Гонка здесь безобидна, потому что создание идемпотентно по смыслу.
+      - name: Publish to the release
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
+          gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1 \
+            || gh release create "${GITHUB_REF_NAME}" \
+                 --title "Tanyra3D ${GITHUB_REF_NAME}" \
+                 --generate-notes \
+            || true
           gh release upload "${GITHUB_REF_NAME}" \
-            $(ls dist-app/*.exe dist-app/*.AppImage dist-app/*.deb dist-app/*.dmg dist-app/*.zip 2>/dev/null) \
+            $(ls dist-app/*.exe dist-app/*.AppImage dist-app/*.deb dist-app/*.dmg 2>/dev/null) \
             --clobber
         env:
           GH_TOKEN: ${{ github.token }}
