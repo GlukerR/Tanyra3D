@@ -234,8 +234,30 @@ let uploadSeq = 0;
 // десятки мегабайт на каждую открытую модель, и он никогда не узнает почему.
 const MAX_KEPT_SOURCES = 12;
 
+// Сколько прогонов одной модели держим. Больше одного — чтобы ссылка из прошлого
+// ответа не начала вдруг отдавать чужой файл и чтобы можно было сравнить два варианта
+// (Draco против Meshopt) не перезаливая модель. Не «сколько влезет»: у каждого прогона
+// на диске лежит целая модель, и десяток вариантов тяжёлой сцены — это гигабайты,
+// про которые человек не узнает.
+const MAX_KEPT_RUNS = 3;
+
+// sourceId → список runId в порядке появления. Порядок ведём сами, а не по времени
+// файлов: у двух прогонов, начатых в одну миллисекунду, время совпадёт.
+const sourceRuns = new Map();
+
+async function rememberRun(sourceId, runId) {
+  const runs = sourceRuns.get(sourceId) || [];
+  runs.push(runId);
+  sourceRuns.set(sourceId, runs);
+  while (runs.length > MAX_KEPT_RUNS) {
+    const old = runs.shift();
+    await fsp.rm(path.join(RESULTS_DIR, sourceId, old), { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 async function dropSource(id) {
   sourceUploads.delete(id);
+  sourceRuns.delete(id);
   await fsp.rm(path.join(UPLOADS_DIR, id), { recursive: true, force: true }).catch(() => {});
   await fsp.rm(path.join(RESULTS_DIR, id), { recursive: true, force: true }).catch(() => {});
 }
@@ -781,10 +803,20 @@ const server = http.createServer(async (req, res) => {
         if (jobId) sendSSE(jobId, e);
       };
 
-      // Результат каждого исходника — в своей подпапке, чтобы разные модели не
-      // перетирали друг друга; повторные прогоны одной модели перезаписывают её вариант.
-      const outDir = path.join(RESULTS_DIR, sourceId);
+      // Результат каждого ПРОГОНА — в своей подпапке, а не одна папка на исходник.
+      //
+      // Раньше повторный прогон писал туда же. Отсюда три беды сразу: два запроса по
+      // одной модели писали в один файл одновременно; ссылка из первого ответа потом
+      // отдавала результат второго — молча и с виду правдоподобно; сравнить Draco с
+      // Meshopt на одной модели было нельзя, второй прогон стирал первый.
+      // Ревью 2026-08-10 (P1.3).
+      //
+      // Имя папки — случайное, а не «прогон №2»: номер потребовал бы общего счётчика,
+      // который два параллельных запроса делят так же неудачно, как делили папку.
+      const runId = randomUUID();
+      const outDir = path.join(RESULTS_DIR, sourceId, runId);
       await fsp.mkdir(outDir, { recursive: true });
+      await rememberRun(sourceId, runId);
 
       let result;
       try {

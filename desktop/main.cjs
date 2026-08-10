@@ -37,6 +37,9 @@ const TOOLS_DIR = app.isPackaged
 
 let serverProcess = null;
 let mainWindow = null;
+// Адрес работающего движка. Нужен, чтобы при повторном открытии окна показать ТОТ ЖЕ
+// сервер, а не поднимать второй (см. app.on('activate')).
+let serverAddress = null;
 
 // Весь вывод движка с начала запуска. Растёт только до открытия окна: дальше сервер
 // работает часами, и держать его журнал в памяти незачем.
@@ -193,6 +196,7 @@ app.whenReady().then(async () => {
   try {
     const started = await startServer();
     serverProcess = started.child;
+    serverAddress = started.address;
     collectLog = false;   // запустился — дальше журнал в памяти не нужен
     serverLog.length = 0;
     // Первый обработчик exit был одноразовым сторожем запуска; дальше падение сервера —
@@ -211,8 +215,15 @@ app.whenReady().then(async () => {
 
   app.on('activate', () => {
     // macOS: клик по значку в доке при закрытых окнах — обычай платформы.
-    if (BrowserWindow.getAllWindows().length === 0 && serverProcess) {
-      startServer().then((s) => createWindow(s.address)).catch(() => {});
+    //
+    // Открываем ОКНО, а не второй движок. Раньше здесь звался startServer(), хотя
+    // старый сервер продолжал работать: появлялся второй процесс, который никто не
+    // запоминал (в serverProcess он не попадал), при выходе убивался только первый, а
+    // главное — каждый сервер на старте чистит uploads/ и results/. Второй стирал
+    // данные, с которыми в этот момент работал первый.
+    // Ревью 2026-08-10 (P0.2.2).
+    if (BrowserWindow.getAllWindows().length === 0 && serverAddress) {
+      createWindow(serverAddress);
     }
   });
 });

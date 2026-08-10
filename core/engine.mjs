@@ -108,6 +108,18 @@ export function orderRules(rules) {
 // ============================================================================
 // ПРОГОН ОДНОГО ФАЙЛА через аддон. Возвращает RunResult (контракт §4b).
 // Исключения наружу не летят: превращаются в status:'fail'.
+//
+// ДВА РАЗНЫХ «fail», и путать их нельзя (ревью 2026-08-10, P1.4):
+//
+//   1. Прогон не дошёл до конца — модель не читается, опция неизвестна, упало по дороге.
+//      Признак: `result.error` заполнен. Файла нет, `file.written === false`.
+//   2. Прогон дошёл, а результат не прошёл проверку целостности.
+//      Признак: `error` пуст, `validation` содержит запись `level:'fail'`,
+//      `file.written === true` — файл НА ДИСКЕ ЕСТЬ.
+//
+// Второе — намеренно (решение Александра 2026-07-30, см. фазу 5): отказ должен быть
+// громким, а не запирающим. Спрашивающему «есть ли файл» отвечает `file.written`,
+// а не статус: статус говорит о доверии к результату.
 // ============================================================================
 export async function runOptimize(addon, srcPath, opts = {}) {
   const src = path.resolve(String(srcPath));
@@ -195,12 +207,18 @@ async function runFile(addon, src, dstName, o, result) {
     }
   };
   // over — переопределение полей обратимости для отдельных строк (lossy-ветки правил,
-  // см. res.irreversible): базовое поведение правила может быть без потерь, а форсированное — нет
+  // см. res.irreversible): базовое поведение правила может быть без потерь, а форсированное — нет.
+  //
+  // fixSafety тоже переопределяется (ревью 2026-08-10, P1.5). Раньше он всегда брался
+  // из meta, и запись о РАЗРУШИТЕЛЬНОЙ ветке несла ярлык безопасной: удаление
+  // раскрашенных vertex colors отчитывалось как «provable», хотя человек только что
+  // потерял данные. Ярлык в отчёте — не украшение: по нему интерфейс решает, что
+  // показать перед выгрузкой.
   const addApplied = (meta, v, over = {}) => {
     for (const e of entriesOf(v, locale)) {
       result.applied.push(withRefs({
         ruleId: meta.id,
-        fixSafety: meta.fixSafety,
+        fixSafety: over.fixSafety ?? meta.fixSafety,
         reversible: over.reversible ?? meta.reversible ?? false,
         dataLoss: over.dataLoss ?? meta.dataLoss ?? 'none',
         text: e.text,
@@ -350,8 +368,17 @@ async function runFile(addon, src, dstName, o, result) {
       // на галочку, которая эту цену назначила (поле feature).
       addSkipped(rule.meta, res.cost, undefined, 'cost');
       addApplied(rule.meta, res.details ?? res.detail);
-      // строки с безвозвратной потерей данных (§4d) — UI предупредит перед скачиванием
-      addApplied(rule.meta, res.irreversible, { reversible: false, dataLoss: 'significant' });
+      // Строки с безвозвратной потерей данных (§4d) — UI предупредит перед скачиванием.
+      //
+      // Уровень безопасности такой строки правило называет само (res.irreversibleSafety).
+      // Единого ответа тут нет: у «объединить меши» потеря структурная, но пиксели те
+      // же — это не lossy; у «удалить раскрашенные цвета» данные исчезли совсем.
+      // Не сказало — остаётся уровень правила, как было до 2026-08-10.
+      addApplied(rule.meta, res.irreversible, {
+        reversible: false,
+        dataLoss: 'significant',
+        fixSafety: res.irreversibleSafety,
+      });
     }
   };
 

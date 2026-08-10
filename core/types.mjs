@@ -55,6 +55,10 @@
  * @property {string|string[]} [details]      → «Применено»
  * @property {string|string[]} [detail]       синоним details
  * @property {string|string[]} [irreversible] → «Применено» с dataLoss:'significant' (§4d)
+ * @property {'provable'|'numeric'|'perceptual'|'lossy'} [irreversibleSafety] Уровень
+ *   безопасности для строк irreversible. Нужен, когда разрушительная ветка правила
+ *   опаснее самого правила: удаление раскрашенных vertex colors — lossy, хотя правило
+ *   в целом numeric. Не указан — берётся meta.fixSafety (поведение до 2026-08-10).
  */
 
 /**

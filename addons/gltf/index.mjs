@@ -232,7 +232,11 @@ function stripInputCompression(doc) {
 
 // -------- ФАЗА 4 · валидация всего ассета (специфична для glTF) --------
 // Наполняет result.validation в порядке отчёта; baseline-checkpoint (2b) считает движок
-// (compareBaseline). При любом level:'fail' движок не записывает .glb.
+// (compareBaseline). При level:'fail' статус прогона становится 'fail', но .glb всё
+// равно ЗАПИСЫВАЕТСЯ (решение Александра 2026-07-30: отказ громкий, а не запирающий —
+// человек должен иметь возможность посмотреть, насколько всё плохо). Здесь до
+// 2026-08-10 стояло обратное утверждение — комментарий отстал от кода на полтора
+// месяца и был найден ревью (P1.4).
 async function validate({ ctx, before, after, glbBytes, src, result, advancedPlannedIds, addFound, log }) {
   const v = result.validation;
   // vp — обёртка для записей валидации. Принимает messageId + data и кладёт в запись

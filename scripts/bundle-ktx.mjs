@@ -15,6 +15,7 @@
 // раннер (.github/workflows/release.yml).
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,6 +25,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const TOOLS = path.join(root, '.tools');
 const VERSION = '4.4.2';
 const BASE = `https://github.com/KhronosGroup/KTX-Software/releases/download/v${VERSION}`;
+const MANIFEST = path.join(root, 'scripts', 'ktx-manifest.json');
 
 const OPTIONAL = process.argv.includes('--optional');
 
@@ -65,14 +67,71 @@ function assetName() {
   return `KTX-Software-${VERSION}-Linux-${arch === 'arm64' ? 'arm64' : 'x86_64'}.tar.bz2`;
 }
 
+/**
+ * Отказ, который НЕ смягчается флагом --optional.
+ *
+ * `--optional` означает «нет инструмента — соберём без KTX2», и это разумно, когда
+ * файла нет или он не качается. Но несовпавший хеш — не про отсутствие инструмента.
+ * Это про то, что приехало не то, что ожидали, и продолжать сборку нельзя ни с KTX2,
+ * ни без него, пока человек не разберётся.
+ */
+const halt = (s) => {
+  console.error(`  x ${s}`);
+  process.exit(1);
+};
+
+/** Известные хеши. Файла нет или он повреждён — считаем, что записей нет. */
+function knownHashes() {
+  try {
+    const m = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
+    return (m && m.sha256) || {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Сверка скачанного архива с манифестом (ревью 2026-08-10, P1.7).
+ *
+ * До этого сборочный путь не проверял НИЧЕГО: качали нативную программу, распаковывали,
+ * запускали и вкладывали в устанавливаемое приложение. Подменённый релизный файл уехал
+ * бы ко всем, кто поставит программу, — и это не гипотеза, а самый обыкновенный способ
+ * попасть в чужой продукт.
+ *
+ * Записи в манифесте нет — говорим об этом громко и печатаем строку для вставки.
+ * Молча «проверено» здесь было бы хуже отсутствия проверки.
+ */
+function verifyHash(name, buf) {
+  const actual = createHash('sha256').update(buf).digest('hex');
+  const expected = knownHashes()[name];
+  if (!expected) {
+    say(`  ! ${name} не проверен: в манифесте нет записи`);
+    say(`    сверьте с публикацией Khronos и запишите в манифест:`);
+    say(`      "${name}": "${actual}"`);
+    return;
+  }
+  if (actual.toLowerCase() !== String(expected).toLowerCase()) {
+    halt([
+      `${name} — хеш не совпал с манифестом.`,
+      `    ожидали:  ${expected}`,
+      `    получили: ${actual}`,
+      '    Сборка остановлена. Либо Khronos перевыложил файл (тогда обновите манифест,',
+      '    сверив с публикацией), либо это не тот файл, который должен быть.',
+    ].join('\n'));
+  }
+  say('    хеш совпал с манифестом');
+}
+
 async function download(name) {
   const url = `${BASE}/${name}`;
   say(`  · качаю ${name}`);
   const res = await fetch(url, { redirect: 'follow' });
   if (!res.ok) die(`${url} — ответ ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  say(`    ${(buf.length / 1048576).toFixed(1)} МБ`);
+  verifyHash(name, buf);
   const tmp = path.join(os.tmpdir(), name);
-  fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
-  say(`    ${(fs.statSync(tmp).size / 1048576).toFixed(1)} МБ`);
+  fs.writeFileSync(tmp, buf);
   return tmp;
 }
 
@@ -105,9 +164,35 @@ function extract(file) {
   execFileSync(sevenZip, ['x', file, `-o${TOOLS}`, '-y'], { stdio: 'inherit' });
 }
 
+/**
+ * Запускается ли он и ТА ЛИ это версия.
+ *
+ * Проверять надо на обоих путях, а не только после скачивания. Уже лежащий в `.tools/`
+ * файл — как раз тот случай, который хеш не ловит: его не качали. Раньше он принимался
+ * на слово, и ktx от прошлой сборки (или другой версии вовсе) молча уезжал в пакет,
+ * а число в шапке скрипта переставало что-либо значить. Ревью 2026-08-10 (P1.7).
+ */
+function checkBinary(binary) {
+  let out = '';
+  try {
+    if (process.platform !== 'win32') fs.chmodSync(binary, 0o755);
+    out = String(execFileSync(binary, ['--version'], { stdio: 'pipe', timeout: 20_000 }));
+  } catch (e) {
+    die(`${path.relative(root, binary)} не запускается: ${(e.message || '').split('\n')[0]}`);
+  }
+  if (!out.includes(VERSION)) {
+    halt([
+      `${path.relative(root, binary)} — версия не та.`,
+      `    ожидали ${VERSION}, инструмент говорит: ${out.trim().split('\n')[0] || '(молчит)'}`,
+      '    Уберите .tools/ и запустите заново.',
+    ].join('\n'));
+  }
+}
+
 const found0 = alreadyThere();
 if (found0) {
-  say(`  ✓ ktx уже в .tools — ${path.relative(root, found0)}`);
+  checkBinary(found0);
+  say(`  ✓ ktx уже в .tools — ${path.relative(root, found0)} (${VERSION})`);
   process.exit(0);
 }
 
@@ -122,13 +207,5 @@ try {
 const found = alreadyThere();
 if (!found) die('после распаковки ktx не найден — раскладка архива изменилась');
 
-// Достали файл — а запускается ли он. Молча положить нерабочий бинарник хуже, чем не
-// положить никакого: во втором случае KTX2 честно скажет, что инструмента нет.
-try {
-  if (process.platform !== 'win32') fs.chmodSync(found, 0o755);
-  execFileSync(found, ['--version'], { stdio: 'pipe', timeout: 20_000 });
-} catch (e) {
-  die(`${path.relative(root, found)} не запускается: ${(e.message || '').split('\n')[0]}`);
-}
-
-say(`  ✓ ${path.relative(root, found)} — работает, поедет в пакет`);
+checkBinary(found);
+say(`  ✓ ${path.relative(root, found)} — ${VERSION}, работает, поедет в пакет`);

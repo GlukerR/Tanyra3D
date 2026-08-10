@@ -278,7 +278,11 @@ export const RULES = [
       // Lossy-ветка (удалить раскрашенные) — расширение 'strip-colors': включается только
       // через advancedFeatures:['strip-colors'] или флаг --strip-vertex-colors (→ opts.stripColors).
       id: 'attributes/vertex-colors', category: 'attributes', title: 'Vertex colors (COLOR_n)', titleKey: 'rule.attributesVertexColors',
-      severity: 'warn', fixSafety: 'provable', tier: 'basic', runAfter: ['structure/prune-unused'], touches: ['accessor'],
+      // numeric, а не provable (ревью 2026-08-10, P1.5). «Белый» здесь определяется с
+      // допуском 0.999, то есть 0.9995 объявляется единицей. Разницы не видно, но это
+      // уже не строгое математическое равенство, а по нашей же терминологии — numeric.
+      // На то, применится ли правило, это не влияет: потолок автофикса perceptual.
+      severity: 'warn', fixSafety: 'numeric', tier: 'basic', runAfter: ['structure/prune-unused'], touches: ['accessor'],
       // базовая ветка (белые каналы) — потери нет; strip-ветка помечает свои строки
       // через res.irreversible → dataLoss 'significant' на уровне applied-записи
       reversible: false, dataLoss: 'none',
@@ -344,6 +348,10 @@ export const RULES = [
           out.details.push({ messageId: id('vertexColors.done.white'), data });
         } else if (b.kind === 'stripped') {
           out.found.push({ messageId: id('vertexColors.found.painted'), data });
+          // Раскрашенные цвета удалены по явной просьбе — данные исчезли, и запись об
+          // этом обязана нести свой ярлык, а не наследовать «numeric» у правила.
+          // Раньше наследовала, и разрушительное действие отчитывалось как безопасное.
+          out.irreversibleSafety = 'lossy';
           (out.irreversible ??= []).push({ messageId: id('vertexColors.stripped'), data });
         } else {
           out.found.push({ messageId: id('vertexColors.found.painted'), data });
@@ -703,11 +711,14 @@ export const RULES = [
       try {
         await ctx.io.write(tmpA, ctx.document);
         let cur = tmpA;
+        // await обязателен: runCli стал асинхронным (ревью 2026-08-10, P1.1 — раньше
+        // он держал event loop минутами). Без await следующий шаг читал бы файл,
+        // которого ещё нет.
         if (mixed) {
-          if (dataTex.length) { runCli(['uastc', cur, tmpB, '--slots', DATA_SLOT_GLOB, '--level', '2', '--zstd', '18']); cur = tmpB; }
-          if (colorTex.length) { runCli(['etc1s', cur, tmpC, '--slots', `!(${DATA_SLOT_GLOB})`, '--quality', '255']); cur = tmpC; }
+          if (dataTex.length) { await runCli(['uastc', cur, tmpB, '--slots', DATA_SLOT_GLOB, '--level', '2', '--zstd', '18']); cur = tmpB; }
+          if (colorTex.length) { await runCli(['etc1s', cur, tmpC, '--slots', `!(${DATA_SLOT_GLOB})`, '--quality', '255']); cur = tmpC; }
         } else {
-          runCli(['uastc', cur, tmpB, '--level', '2', '--zstd', '18']);
+          await runCli(['uastc', cur, tmpB, '--level', '2', '--zstd', '18']);
           cur = tmpB;
         }
         ctx.document = await ctx.io.read(cur); // дальше пайплайн работает с KTX2-версией

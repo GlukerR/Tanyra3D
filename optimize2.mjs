@@ -252,9 +252,13 @@ async function main() {
           fail++;
           console.error(`[ERROR] ${f}: ${r.error}`);
         } else {
-          // валидация не прошла — отчёт есть, .glb не записан
+          // Валидация не прошла. Файл при этом ЗАПИСАН (решение Александра 2026-07-30):
+          // отказ должен быть громким, а не запирающим. До 2026-08-10 здесь стояло
+          // «.glb NOT written» — прямая неправда в самом заметном месте вывода, из-за
+          // которой человек не искал файл, который лежал на диске. Ревью (P1.4).
           fail++;
-          console.error(`[ERROR] ${f}: validation failed — .glb NOT written, see the report`);
+          const where = r.file && r.file.written ? `.glb written to ${r.file.dst}` : '.glb NOT written';
+          console.error(`[ERROR] ${f}: validation failed — ${where}; see the report before using it`);
           console.log(`         report: output/${reportName}`);
         }
       }
