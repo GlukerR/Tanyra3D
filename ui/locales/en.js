@@ -256,6 +256,7 @@ window.I18N_CATALOGS.en = {
   'log.none': 'none',
   'log.platform': ({ id }) => `Target platform: ${id}`,
   'log.engine': ({ id }) => `Engine: ${id}`,
+  'log.platform.reset': ({ platform }) => `${platform} does not run on this engine — platform cleared`,
   'log.rejected': ({ name }) => `Rejected "${name}" — only .glb is supported for now`,
   'log.loaded': ({ name, size }) => `Model loaded: ${name} (${size})`,
   'log.foundCompression': ({ list }) => `Compression found in source: ${list}`,

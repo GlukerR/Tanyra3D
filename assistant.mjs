@@ -89,19 +89,41 @@ function profilePath(id) {
 // профиль, просто без бюджетов и без имени.
 export const NO_PLATFORM = '';
 
+// Числа прочерка живут в profiles/_none.json — обычным файлом того же формата, со всеми
+// ссылками на источник. Он помечен enabled: false, поэтому в списке площадок его нет:
+// это не площадка, а общие рекомендации для веба (пороги Khronos glTF Asset Auditor).
+//
+// Раньше они были отдельной площадкой «Веб (Three.js)» — то есть площадкой, названной
+// именем движка. Слито 2026-08-10 по решению Александра: выбор без площадки и «просто
+// веб» — одно и то же, держать их порознь значило спрашивать человека о разнице,
+// которой нет.
+const NONE_DEFAULTS = '_none';
+
+function noneDefaults() {
+  try {
+    const file = profilePath(NONE_DEFAULTS);
+    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    /* файла нет или он битый — прочерк просто останется без рекомендаций */
+  }
+  return {};
+}
+
 function syntheticProfile(engineId) {
   const id = engineId || DEFAULT_ENGINE;
   const engine = loadEngine(id);
+  const defaults = noneDefaults();
   return {
     id: NO_PLATFORM,
     engine: id,
     title: null,
     description: null,
-    // Бюджетов нет, и это честно: без площадки некому предъявлять требования.
-    budgets: {},
-    // Базовый план берём у движка — он единственный, кто тут вообще что-то знает.
-    baselineOpts: (engine && engine.baselineOpts) || {},
-    notes: [],
+    // Только советы, жёстких пределов тут не бывает и быть не может: отказать в файле
+    // может площадка, а её не выбрали. Сторожит tests/engine-target-split.test.mjs.
+    budgets: defaults.budgets || {},
+    // Базовый план — у движка: он единственный, кто тут вообще что-то знает.
+    baselineOpts: (engine && engine.baselineOpts) || defaults.baselineOpts || {},
+    notes: defaults.notes || [],
   };
 }
 

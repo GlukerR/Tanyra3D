@@ -230,6 +230,7 @@ window.I18N_CATALOGS.ru = {
   'log.none': 'нет',
   'log.platform': ({ id }) => `Целевая платформа: ${id}`,
   'log.engine': ({ id }) => `Движок: ${id}`,
+  'log.platform.reset': ({ platform }) => `${platform} на этом движке не работает — площадка снята`,
   'log.rejected': ({ name }) => `Файл «${name}» отклонён — пока поддерживается только .glb`,
   'log.loaded': ({ name, size }) => `Модель загружена: ${name} (${size})`,
   'log.foundCompression': ({ list }) => `В исходнике найдено сжатие: ${list}`,

@@ -293,20 +293,27 @@
            может рисовать чужим движком. Поля равноправны: выбор в любом из них
            приводит второе в согласие. Секция скрыта, пока движков не пришло, —
            выдуманного имени читателя файла здесь не будет. -->
+      <!-- Описание движка и площадки — под книжечкой 📖, той же, что у опций. Абзацем
+           под полем оно превращало правую панель в свиток: два описания по три строки
+           человек пролистывает, не читая. Наведи — и текст на месте, где спросили. -->
       <div class="inspector-section hidden" id="engine-section">
-        <label class="section-label" data-i18n="insp.engine">Engine</label>
+        <div class="section-head">
+          <label class="section-label" data-i18n="insp.engine">Engine</label>
+          <span id="engine-info" class="section-info"></span>
+        </div>
         <div class="select-wrap">
           <select id="engine-select"></select>
         </div>
-        <p id="engine-description" class="platform-description"></p>
       </div>
 
       <div class="inspector-section">
-        <label class="section-label" data-i18n="insp.platform">Platform</label>
+        <div class="section-head">
+          <label class="section-label" data-i18n="insp.platform">Platform</label>
+          <span id="platform-info" class="section-info"></span>
+        </div>
         <div class="select-wrap">
           <select id="platform-select"></select>
         </div>
-        <p id="platform-description" class="platform-description"></p>
       </div>
 
       <div class="inspector-section extensions hidden" id="extensions-panel">

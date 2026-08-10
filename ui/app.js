@@ -62,11 +62,11 @@
   const exposureValue = $('exposure-value');
 
   const platformSelect = $('platform-select');
-  const platformDescription = $('platform-description');
+  const platformInfo = $('platform-info');
 
   const engineSection = $('engine-section');
   const engineSelect = $('engine-select');
-  const engineDescription = $('engine-description');
+  const engineInfo = $('engine-info');
 
   const extensionsPanel = $('extensions-panel');
   const extensionsList = $('extensions-list');
@@ -570,9 +570,20 @@
     renderIntegrity(lastResult);
   }
 
+  // Описание поля живёт под книжечкой 📖 — той же, что у опций (infoButton/infoTip).
+  // Абзацем под полем два описания превращали правую панель в свиток, который никто не
+  // читает. Значка нет, когда описывать нечего: пустая книжечка обманывает ожидание.
+  function renderFieldInfo(host, item) {
+    infoTip.hide();
+    host.textContent = '';
+    if (!item || !item.description) return;
+    host.appendChild(infoButton(item));
+  }
+
   function updatePlatformDescription() {
     const p = platforms.find((x) => x.id === platformSelect.value);
-    platformDescription.textContent = p ? p.description || '' : '';
+    // Прочерк описывать нечем и незачем: «площадка не выбрана» говорит само за себя.
+    renderFieldInfo(platformInfo, p || null);
   }
 
   // ---------------------------------------------------------------
@@ -626,7 +637,7 @@
 
   function updateEngineDescription() {
     const e = engines.find((x) => x.id === engineSelect.value);
-    engineDescription.textContent = e ? e.description || '' : '';
+    renderFieldInfo(engineInfo, e || null);
     // «Другой движок — другой вьюпорт» (§4g). Имя реализации приходит из
     // engines/<id>.json; обвязка сама откажется монтировать незнакомое.
     //
@@ -686,10 +697,23 @@
     updatePlatformDescription();
   }
 
-  engineSelect.addEventListener('change', () => {
+  engineSelect.addEventListener('change', async () => {
     updateEngineDescription();
+    // Площадка на другом движке больше не может остаться выбранной: пара «Shopify +
+    // Three.js» не существует, и держать её на экране значит показывать несуществующее
+    // (решение Александра, 2026-08-10). Откатываемся на прочерк — он годится любому
+    // движку и ничего не утверждает. Список площадок при этом не сокращается: выбрать
+    // Shopify по-прежнему можно, и тогда движок догонит её сам, симметрично.
+    const текущая = platforms.find((x) => x.id === platformSelect.value);
+    if (текущая && текущая.engine !== engineSelect.value) {
+      platformSelect.value = '';
+      updatePlatformDescription();
+      logMessage('info', t('log.platform.reset', { platform: текущая.title || текущая.id }));
+    }
     syncPlatformsToEngine();
     logMessage('info', t('log.engine', { id: engineSelect.value }));
+    await loadExtensions(platformSelect.value);
+    updateRunButtonState();
   });
 
   platformSelect.addEventListener('change', async () => {

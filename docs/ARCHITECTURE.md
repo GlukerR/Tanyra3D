@@ -906,9 +906,37 @@ Two consequences worth stating:
   nothing. For the same reason the leading engine is named in data (`"primary": true`) rather
   than left to alphabetical order, which would have put `model-viewer` ahead of `threejs`.
 
-This also removed the last naming wart: `profiles/threejs.json` was titled "Web (Three.js)" —
-a target named after an engine. It is now "Web — general guidance", and its description says
-plainly that the numbers are advice.
+This also removed the last naming wart. `profiles/threejs.json` was titled "Web (Three.js)" —
+a target named after an engine — and it is now gone as a platform: **"plain web" and "no
+target" are the same thing**, and keeping them apart asked the user about a distinction that
+does not exist. Its Khronos numbers live on in `profiles/_none.json`, the figures the dash
+shows. The leading underscore plus `enabled: false` keep it out of the platform list, and it
+deliberately carries no `engine` field — the dash suits any engine, and the engine comes from
+the user's own choice. It may never grow a `limit`: red means "this platform will not accept
+the file", and there is no platform.
+
+**Choosing either field fixes the other.** Picking Shopify switches the engine to
+`model-viewer`; switching the engine drops a target that does not run on it back to the dash,
+because the pair "Shopify + Three.js" does not exist and must not sit on screen as if it did.
+The target list is not shortened — Shopify stays visible with its reason, and picking it
+brings its engine along.
+
+### Corrections found while building this (2026-08-10)
+
+- **Shopify's 15 MB was recorded as a hard limit. It is not.** Their own page says
+  "File size: Up to 500 MB" — that is the refusal — and "If you upload a 3D model file that
+  exceeds 15 MB, then your file is automatically optimized". Over 15 MB the file is accepted
+  and **silently rewritten**. For an optimizer that is the more consequential number: past it,
+  our work is thrown away and replaced by theirs. So `warn: 15`, `limit: 500`.
+- **Two levels are not enough here.** Shopify really has three: "about 4 MB" is their advice,
+  15 MB is "we will rewrite you", 500 MB is "we will not take it". `warn`/`limit` can express
+  two, and the middle one wins because it is the one with a consequence the user can act on.
+  The 4 MB figure survives only in the profile's note. Worth revisiting if a second platform
+  turns out to have the same shape.
+- **The engine field looked wrong because the CSS was bound to `#platform-select`.** The style
+  belonged to the pattern, not to one field, so the newly added engine select rendered as a
+  bare system control. Now on `.select-wrap select`; the next such field gets the look for
+  free.
 
 ### Soft advice and hard refusal must not look alike
 

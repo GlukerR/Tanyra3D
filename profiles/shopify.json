@@ -6,10 +6,10 @@
   "description": "A product for a Shopify store card: rotates in 3D and opens in augmented reality. What matters most is fast loading in the storefront and a clean product look.",
   "budgets": {
     "fileMB": {
-      "warn": 4,
-      "limit": 15,
-      "source": "https://help.shopify.com/en/partners/resources/creating-3d-models/3d-model-standards-checklist",
-      "note": "Рекомендация «about 4 MB» — 3D model standards checklist. Потолок 15 МБ: выше Shopify оптимизирует файл сам, не спрашивая"
+      "warn": 15,
+      "limit": 500,
+      "source": "https://help.shopify.com/en/manual/products/product-media/product-media-types",
+      "note": "Исправлено 2026-08-10 по первоисточнику. Раньше стояло limit: 15 — это было неверно: 15 МБ не отказ. Shopify пишет «File size: Up to 500 MB» (вот настоящий предел, выше файл не примут) и «If you upload a 3D model file that exceeds 15 MB, then your file is automatically optimized» — файл принимают и МОЛЧА ПЕРЕПИСЫВАЮТ. Для оптимизатора это важнее любого совета: за 15 МБ наша работа выбрасывается и заменяется их пережатием. Поэтому 15 в warn, а не 4. Собственная рекомендация Shopify «about 4 MB» (3D model standards checklist) осталась только здесь: у бюджета два уровня, а порогов по смыслу три — «желательно», «перепишут» и «не примут». Третий уровень модель пока не выражает, см. ARCHITECTURE.md §4g."
     },
     "materials": {
       "warn": 1,

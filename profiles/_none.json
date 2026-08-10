@@ -1,10 +1,10 @@
 {
-  "id": "threejs",
-  "engine": "threejs",
-  "enabled": true,
+  "id": "_none",
+  "_comment": "Не площадка. Это числа, которые показывает прочерк («без площадки»): общие рекомендации для веба, пороги Khronos glTF Asset Auditor. Подчёркивание в имени и enabled: false держат файл вне списка площадок. Поля engine здесь намеренно НЕТ: прочерк годится любому движку, движок берётся из выбора человека (assistant.mjs, syntheticProfile). Жёстких пределов (limit) тут не бывает — отказать в файле может площадка, а её не выбрали.",
+  "enabled": false,
   "title": {
-    "en": "Web — general guidance",
-    "ru": "Веб — общие рекомендации"
+    "en": "— no platform —",
+    "ru": "— без площадки —"
   },
   "description": {
     "en": "A model for a website on a desktop or laptop. The numbers here are advice, not a barrier: nobody rejects a file for exceeding them. They show up in yellow — a hard limit, shown in red, only exists where a marketplace really refuses the upload.",

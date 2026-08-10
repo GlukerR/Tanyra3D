@@ -32,7 +32,11 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PROFILES_DIR = path.join(ROOT, 'profiles');
 const ENGINES_DIR = path.join(ROOT, 'engines');
 
-const profileFiles = fs.readdirSync(PROFILES_DIR).filter((f) => f.endsWith('.json'));
+// Файлы с подчёркиванием — НЕ площадки: сегодня это _none.json, числа прочерка (см.
+// комментарий внутри файла). Проверки площадок к ним неприменимы: у прочерка нет своего
+// движка, потому что он годится любому.
+const profileFiles = fs.readdirSync(PROFILES_DIR)
+  .filter((f) => f.endsWith('.json') && !f.startsWith('_'));
 const profiles = profileFiles.map((f) => ({
   file: f,
   data: JSON.parse(fs.readFileSync(path.join(PROFILES_DIR, f), 'utf8')),
@@ -208,12 +212,12 @@ describe('Движки — отдельная таблица (ARCHITECTURE.md §
   it('расширения приходят со словами, а не голыми id', () => {
     // Состав задаёт движок, слова — core/messages/ (Правило 8). Если связь порвётся,
     // человек увидит в панели «ktx2» вместо «Сжатие текстур KTX2».
-    const без = getAvailableExtensions('threejs', 'ru').filter((e) => !e.title).map((e) => e.id);
+    const без = getAvailableExtensions('', 'ru', 'threejs').filter((e) => !e.title).map((e) => e.id);
     expect(без, `без названия: ${без.join(', ')}`).toEqual([]);
   });
 
   it('план несёт движок вместе с его именем и вьюпортом', () => {
-    const plan = planFor('threejs', 'ru');
+    const plan = planFor('', 'ru', 'threejs');
     expect(plan.engineInfo, 'planFor() не вернул engineInfo').toBeTruthy();
     expect(plan.engineInfo.id).toBe(plan.engine);
     expect(plan.engineInfo.title, 'движок без имени — в поле интерфейса покажется id').toBeTruthy();
@@ -268,35 +272,68 @@ describe('Движки — отдельная таблица (ARCHITECTURE.md §
     };
     const rr = { status: 'ok', metrics: { before: metric, after: metric } };
 
+    // Изначально здесь стояло «бюджетов быть не должно вовсе». 2026-08-10 Александр
+    // решил иначе: советы для веба у прочерка остаются и подсвечиваются жёлтым, нет
+    // только жёстких пределов. Что именно запрещено — в отдельной проверке ниже.
+    const свои = explainResult(rr, '', 'ru').budgetChecks;
+    expect(свои.length, 'советы прочерка пропали').toBeGreaterThan(0);
     expect(
-      explainResult(rr, '', 'ru').budgetChecks,
-      'без площадки не должно быть ни одной проверки бюджета — иначе мы предъявляем '
-        + 'требования от имени площадки, которую человек не выбирал',
+      свои.every((c) => c.level !== 'over'),
+      'прочерк предъявил жёсткий предел от имени площадки, которую не выбирали',
+    ).toBe(true);
+  });
+
+  it('у прочерка есть советы, но никогда не бывает жёстких пределов', () => {
+    // Слито 2026-08-10: площадка «Веб (Three.js)» и выбор без площадки — одно и то же.
+    // Числа Khronos переехали в profiles/_none.json и остались СОВЕТАМИ. Жёсткий предел
+    // тут невозможен по смыслу: отказать в файле может площадка, а её не выбрали.
+    const none = JSON.parse(fs.readFileSync(path.join(PROFILES_DIR, '_none.json'), 'utf8'));
+    expect(none.enabled, '_none обязан быть скрыт из списка площадок').toBe(false);
+    const сПределом = Object.entries(none.budgets || {})
+      .filter(([, v]) => v && typeof v === 'object' && v.limit != null).map(([k]) => k);
+    expect(
+      сПределом,
+      `у прочерка появился жёсткий предел: ${сПределом.join(', ')}. Красный означает `
+        + '«площадка не примет файл», а площадки здесь нет.',
     ).toEqual([]);
 
-    // Контроль осмысленности: у настоящей площадки на тех же числах проверки ЕСТЬ.
-    // Без этой строки предыдущая ничего не значит — пустой ответ бывает и от поломки.
-    const реальные = explainResult(rr, 'threejs', 'ru').budgetChecks;
-    expect(реальные.length, 'у площадки бюджеты пропали — сравнивать не с чем').toBeGreaterThan(0);
+    const metric = {
+      fileBytes: 50 * 1024 * 1024, gpuBytes: 20 * 1024 * 1024,
+      triangles: 9999999, materials: 99, drawCalls: 999,
+    };
+    const уровни = explainResult({ status: 'ok', metrics: { before: metric, after: metric } }, '', 'ru')
+      .budgetChecks.map((c) => c.level);
+    expect(уровни.length, 'советы прочерка пропали — левая панель ничего не подсветит').toBeGreaterThan(0);
+    expect(уровни, 'прочерк выдал красный уровень').not.toContain('over');
+  });
+
+  it('«Веб» больше не отдельная площадка', () => {
+    const ids = listPlatforms().map((p) => p.id);
+    expect(
+      ids.includes('threejs'),
+      'площадка threejs вернулась: площадка, названная именем движка, — то самое смешение '
+        + 'двух осей, ради разделения которых всё делалось',
+    ).toBe(false);
   });
 
   it('жёсткий предел красный, рекомендация жёлтая', () => {
     // Разница видна человеку цветом (ui/style.css: .budget-row.over → --error,
     // .budget-row.warn → --warning). Решение Александра 2026-08-10: числа-советы имеют
     // право быть, пока их нельзя спутать с настоящим отказом площадки.
-    const metric = {
-      fileBytes: 50 * 1024 * 1024, gpuBytes: 20 * 1024 * 1024,
-      triangles: 9999999, materials: 99, drawCalls: 999,
+    const весом = (mb) => {
+      const m = { fileBytes: mb * 1024 * 1024, gpuBytes: 1024, triangles: 10, materials: 1, drawCalls: 1 };
+      return { status: 'ok', metrics: { before: m, after: m } };
     };
-    const rr = { status: 'ok', metrics: { before: metric, after: metric } };
+    const уровень = (platform, mb) => (explainResult(весом(mb), platform, 'ru').budgetChecks
+      .find((c) => c.id === 'fileMB') || {}).level;
 
-    const уровень = (platform, id) => (explainResult(rr, platform, 'ru').budgetChecks
-      .find((c) => c.id === id) || {}).level;
-
-    // Shopify объявляет жёсткие 15 МБ — 50 МБ обязаны стать красными.
-    expect(уровень('shopify', 'fileMB'), 'жёсткий предел площадки не покраснел').toBe('over');
-    // У веба предела нет и быть не может: это не витрина, файл никто не отклонит.
-    expect(уровень('threejs', 'fileMB'), 'рекомендация выдана за отказ').toBe('warn');
+    // Три полосы Shopify, все три по первоисточнику (см. profiles/shopify.json):
+    // «about 4 MB» — совет; свыше 15 МБ файл ПЕРЕПИШУТ; свыше 500 МБ не примут вовсе.
+    expect(уровень('shopify', 3), 'уложились, а тревога есть').toBe('ok');
+    expect(уровень('shopify', 20), 'молчаливое пережатие выдано за отказ').toBe('warn');
+    expect(уровень('shopify', 600), 'настоящий отказ площадки не покраснел').toBe('over');
+    // У прочерка предела нет и быть не может: отказать может площадка, а её не выбрали.
+    expect(уровень('', 600), 'совет выдан за отказ').toBe('warn');
   });
 
   it('ведущий движок назван в данных, а не в коде интерфейса', () => {
