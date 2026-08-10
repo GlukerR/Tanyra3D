@@ -21,6 +21,17 @@
 # минут, и хук такой длины начнут обходить через --no-verify. Полный прогон — перед
 # релизом, а не перед каждым коммитом.
 
+# Сборка TypeScript ПЕРЕД тестами. Иначе правка в core/*.mts не доедет до прогона:
+# тесты импортируют собранные .mjs, и без этого шага они проверяли бы предыдущую
+# версию модуля — зелёный результат, ничего не говорящий о том, что коммитится.
+# Идёт около секунды. noEmitOnError в tsconfig означает, что битый тип сюда не пройдёт.
+echo "🔧 Building TypeScript..."
+npx tsc
+if [ $? -ne 0 ]; then
+  echo "❌ TypeScript build failed. Commit aborted."
+  exit 1
+fi
+
 echo "🔍 Running tests before commit..."
 
 npx vitest run tests/optimize.test.mjs tests/gap-005-regression.test.mjs
