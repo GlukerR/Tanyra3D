@@ -287,6 +287,20 @@
   <aside class="inspector">
     <div class="inspector-scroll">
 
+      <!-- Движок и площадка — две РАЗНЫЕ оси, не одно поле (ARCHITECTURE.md §4g).
+           Движок отвечает «чем рисуют», площадка — «куда везём». Один и тот же
+           Three.js стоит и на сайте, и в телефоне, и в шлеме; одна и та же витрина
+           может рисовать чужим движком. Поля равноправны: выбор в любом из них
+           приводит второе в согласие. Секция скрыта, пока движков не пришло, —
+           выдуманного имени читателя файла здесь не будет. -->
+      <div class="inspector-section hidden" id="engine-section">
+        <label class="section-label" data-i18n="insp.engine">Engine</label>
+        <div class="select-wrap">
+          <select id="engine-select"></select>
+        </div>
+        <p id="engine-description" class="platform-description"></p>
+      </div>
+
       <div class="inspector-section">
         <label class="section-label" data-i18n="insp.platform">Platform</label>
         <div class="select-wrap">

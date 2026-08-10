@@ -81,6 +81,9 @@ window.I18N_CATALOGS.ru = {
 
   // --- инспектор ---
   'insp.platform': 'Платформа',
+  'insp.engine': 'Движок',
+  'insp.engine.only': 'Пока это единственный движок в приложении. Появится второй — поле станет выбором.',
+  'insp.platform.otherEngine': ({ title, engine }) => `${title} — нужен ${engine}`,
   'insp.advanced': 'Дополнительные опции',
   'opts.noServer': ({ error }) => `Не удалось загрузить настройки оптимизации: ${error}. Похоже, сервер не запущен — перезапустите его и обновите страницу.`,
   'opts.noPlatforms': 'Сервер не вернул ни одной целевой платформы — выбирать не из чего. Проверьте папку profiles/.',
@@ -225,6 +228,7 @@ window.I18N_CATALOGS.ru = {
   'log.options': ({ list }) => `Опции: ${list}`,
   'log.none': 'нет',
   'log.platform': ({ id }) => `Целевая платформа: ${id}`,
+  'log.engine': ({ id }) => `Движок: ${id}`,
   'log.rejected': ({ name }) => `Файл «${name}» отклонён — пока поддерживается только .glb`,
   'log.loaded': ({ name, size }) => `Модель загружена: ${name} (${size})`,
   'log.foundCompression': ({ list }) => `В исходнике найдено сжатие: ${list}`,

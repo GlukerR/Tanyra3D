@@ -39,48 +39,6 @@
     "stripColors": false,
     "dryRun": false
   },
-  "availableExtensions": [
-    {
-      "id": "safe",
-      "opts": { "safe": true }
-    },
-    {
-      "id": "meshopt",
-      "opts": { "compress": true, "codec": "meshopt" }
-    },
-    {
-      "id": "join",
-      "opts": { "join": true }
-    },
-    {
-      "id": "instance",
-      "opts": { "instance": true }
-    },
-    {
-      "id": "resample",
-      "opts": { "resample": true }
-    },
-    {
-      "id": "ktx2",
-      "opts": { "noKtx": false }
-    },
-    {
-      "id": "webp",
-      "opts": { "noWebp": false }
-    },
-    {
-      "id": "draco",
-      "opts": { "codec": "draco" }
-    },
-    {
-      "id": "quantize",
-      "opts": { "quantize": true }
-    },
-    {
-      "id": "strip-colors",
-      "opts": { "stripColors": true }
-    }
-  ],
   "notes": [
     "Числа сверены с документацией Shopify 2026-07-29. Подтверждены размер файла, материалы и текстуры.",
     "fileMB: warn 4 (рекомендация Shopify), limit 15 (жёсткий предел — выше площадка пережимает файл сама). Это единственный профиль, где есть limit: витрина действительно отклоняет, в отличие от голого Three.js.",

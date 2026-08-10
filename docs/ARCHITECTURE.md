@@ -549,7 +549,40 @@ explainResult(runResult, platformId)
   optimization itself and live in `addons/gltf/rules.mjs`; the UI reads them from
   `result.applied`. They were duplicated here until 2026-08-09 and nothing read the copies —
   a second list of one truth drifts silently. Same guard.
+- **`availableExtensions` does NOT belong in a profile either** (moved out 2026-08-09). Which
+  options to offer is a property of the reader, so the list lives in `engines/<id>.json`. It
+  had been sitting in all four profiles as four byte-identical copies — which is what proved
+  it was never a property of the target. Same guard.
 - The file goes into `profiles/`, named `<id>.json`. Nothing else needs registering.
+
+### The `engines/*.json` format
+
+```json
+{
+  "id": "threejs",
+  "title": { "en": "Three.js", "ru": "Three.js" },
+  "description": { "en": "1–2 sentences, no jargon", "ru": "…" },
+  "viewer": "threejs",
+  "availableExtensions": [
+    { "id": "ktx2", "opts": { "noKtx": false } }
+  ],
+  "notes": [ "why this engine reads what it reads" ]
+}
+```
+
+- `availableExtensions` sets only the **composition** of the list. The wording of each entry
+  comes from `core/messages/` by `id` (Rule 8) — an engine file must not carry user-facing
+  option text.
+- `viewer` names the viewport implementation to mount. It is not decorative: the registry
+  `VIEWERS` in `ui/viewer/index.js` is keyed by exactly this name, `useViewer()` refuses a
+  name the app does not ship (and says so in the console instead of quietly rendering with
+  the wrong engine), and `tests/engine-target-split.test.mjs` fails if any engine names a
+  viewer that is not in the registry. Adding an engine is therefore a data change **plus**
+  one line in that registry — which is the honest cost, not a hidden one.
+- A missing engine file is not a crash: the extensions list comes out empty and the
+  "Advanced options" panel does not appear. An invented list would be worse than none.
+- `enabled: false` hides an engine from the UI, mirroring the same field in a profile.
+- The file goes into `engines/`, named `<id>.json`. Nothing else needs registering.
 
 ---
 
@@ -690,8 +723,10 @@ engine gets that behaviour for free.
   (Skeleton, Cameras, Lights…) is an addition to an existing module, not a new module per
   format.
 - **§4c (profiles as data)** — "the option list on the right changes per platform" already
-  works exactly that way: options are built from the profile's `availableExtensions`
-  (`profiles/*.json`), and a new platform is a new json. No extra architecture is needed.
+  works that way, though the list itself comes from the target's **engine**
+  (`engines/*.json`, §4g) while the budgets come from the target (`profiles/*.json`). A new
+  platform is a new json; a new engine is a new json plus one line in the `VIEWERS` registry.
+  No extra architecture is needed.
 - **§4d (reversibility, exporters)** — item 11 (Download Result) sits on the Exporter seam:
   one dialog, formats added as exporter plugins without touching the UI. An environment
   caveat: choosing an ARBITRARY save location in a browser is restricted (it needs the File
@@ -789,8 +824,11 @@ coincide, so TODAY the separation is invisible. It matters once non-glTF input f
 
 ## 4g. Engine and target are two different axes (Alexander's decision, 2026-08-09)
 
-**Status: decided, partially implemented.** The data model now names the pair; the second
-engine and the catalog screen are deliberately not built yet.
+**Status: built (2026-08-10), minus the catalog screen.** The engine is a table of its own
+(`engines/*.json`), the API has `/api/engines`, the inspector has two symmetric fields, and
+the viewport is chosen by name through a registry. What is deliberately *not* built: a second
+engine, and the catalog screen. Adding an engine is now one json file plus one line in the
+`VIEWERS` registry — no changes to `app.js`, `assistant.mjs`, `server.mjs` or any profile.
 
 ### The problem
 
@@ -816,11 +854,12 @@ independent lists of one truth, drifting silently.
 
 1. **Rule** (already in code, `addons/gltf/rules.mjs`) — what an optimization does, whether
    it is reversible, what it costs. Independent of both engine and target. **Single source.**
-2. **Engine** (`engines/<id>.json`, future) — what this engine reads out of the box, what
-   needs a decoder, and **which viewer module to mount**. This is where "a different engine
-   means a different viewport" lives.
-3. **Target** (`profiles/<id>.json`, existing) — budgets with sources, caveats, plus
-   `engines: [...]` and a default.
+2. **Engine** (`engines/<id>.json`, **built 2026-08-10**) — what this engine offers out of
+   the box and **which viewer module to mount**. This is where "a different engine means a
+   different viewport" lives; the `viewer` field is wired to the `VIEWERS` registry in
+   `ui/viewer/index.js`, so the sentence is executable rather than aspirational.
+3. **Target** (`profiles/<id>.json`, existing) — budgets with sources, caveats, and the
+   `engine` it is described for.
 
 A **profile then stops being the target file and becomes a saved pair**: target + engine +
 local tweaks. That is exactly the object a user creates for their own pipeline, so
@@ -863,7 +902,30 @@ built when the second engine arrives.
   guard changed. It now checks the fact is **reachable** — every offered extension has a rule
   and that rule states the cost — instead of checking a copy exists.
 
-### Known inaccuracies, deliberately left for when engines become real files
+### What was built next (2026-08-10)
+
+- **`engines/threejs.json`** — the engine's own table. `availableExtensions` moved here out of
+  all four profiles, where it had been sitting as four byte-identical copies.
+- **`assistant.mjs`** — `listEngines()`, `enginesForPlatform()`, `platformsForEngine()`. The
+  last two exist for the symmetry rule below: each field can ask what the other allows, so
+  neither is the parent of the other. `planFor()` returns `engineInfo` (name + viewer).
+  `listPlatforms()` entries now carry `engine`, so the UI can pair the two fields without one
+  request per platform.
+- **`GET /api/engines`**, optionally `?platform=`. A separate endpoint rather than a field
+  inside `/api/platforms`: an engine exists whether or not a target uses it, and vice versa.
+- **The inspector has two fields.** With one engine the engine field is *locked, not hidden*,
+  and its tooltip says why — a greyed control with no explanation reads as a defect. A target
+  belonging to another engine stays in the list with the reason in its own row
+  (`insp.platform.otherEngine`), never removed and never greyed out.
+- **The viewport is chosen by name.** `createViewer()` was already a seam; it is now a lookup
+  in `VIEWERS`. `useViewer()` refuses an unknown name loudly and keeps the current one —
+  rendering a model with the wrong engine and calling it a preview is the worst available
+  outcome, given the preview is the whole point of the app.
+- **Known limit, recorded not forgotten:** switching engines re-mounts on the *next* viewport
+  creation, so an already-loaded model keeps the old implementation until reset. With one
+  implementation this cannot occur; the second one will need the slots recreated.
+
+### Known inaccuracies, deliberately left for when a second engine is real
 
 - `profiles/shopify.json` says `"engine": "threejs"`. Strictly this is wrong: a Shopify
   storefront renders 3D through Google's **model-viewer** — a fixed wrapper over Three.js

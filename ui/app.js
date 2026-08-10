@@ -64,6 +64,10 @@
   const platformSelect = $('platform-select');
   const platformDescription = $('platform-description');
 
+  const engineSection = $('engine-section');
+  const engineSelect = $('engine-select');
+  const engineDescription = $('engine-description');
+
   const extensionsPanel = $('extensions-panel');
   const extensionsList = $('extensions-list');
   const decoderLegend = $('decoder-legend');
@@ -280,6 +284,7 @@
   // Геометрия — взаимоисключающий выбор: 'none' | 'meshopt' | 'draco'.
   let geometryChoice = 'none';
   let platforms = [];
+  let engines = [];
   let extensions = [];
   // Взаимоисключающие группы — приходят с /api/extensions, объявлены в аддоне.
   // Интерфейс их только применяет: [{ id, members: [...] }].
@@ -470,6 +475,9 @@
         showExtensionsUnavailable('opts.noPlatforms');
         return;
       }
+      // Движки — после площадок: renderEngines() приводит два поля в согласие, а для
+      // этого ему нужен уже заполненный список площадок.
+      await loadEngines();
       loadExtensions(platformSelect.value);
     } catch (e) {
       platformSelect.innerHTML = '<option value="web">Web</option>';
@@ -517,6 +525,10 @@
       }
       if ([...platformSelect.options].some((o) => o.value === chosen)) platformSelect.value = chosen;
       updatePlatformDescription();
+      // Движки называются и описываются в engines/*.json — на другом языке иначе.
+      // Перечитываем их тем же порядком: renderEngines() заново соберёт оба поля, в том
+      // числе строки «нужен другой движок», где подстановкой стоит имя площадки.
+      await loadEngines();
     } catch (e) {
       /* язык подписей платформ остался прежним — не повод рушить интерфейс */
     }
@@ -553,8 +565,119 @@
     platformDescription.textContent = p ? p.description || '' : '';
   }
 
+  // ---------------------------------------------------------------
+  // Движок — вторая ось выбора (ARCHITECTURE.md §4g)
+  //
+  // Поля симметричны: выбор площадки приводит движок в согласие, выбор движка
+  // переупорядочивает площадки. Несовместимая пара НЕ прячется и не гасится — площадка
+  // остаётся в списке, а причина стоит прямо в строке. Серая строка без объяснения
+  // отправляет человека искать ответ в интернете; строка с причиной отвечает ему там,
+  // где возник вопрос.
+  // ---------------------------------------------------------------
+
+  async function loadEngines() {
+    try {
+      const res = await fetch(`/api/engines?${langParam()}`);
+      const data = await res.json();
+      engines = Array.isArray(data.engines) ? data.engines : [];
+    } catch (e) {
+      // Сервер мог быть старее интерфейса и не знать про /api/engines. Это не поломка:
+      // поле движка просто не появится, а площадки работают как работали.
+      engines = [];
+    }
+    renderEngines();
+  }
+
+  function renderEngines() {
+    engineSection.classList.toggle('hidden', !engines.length);
+    if (!engines.length) return;
+
+    engineSelect.innerHTML = '';
+    for (const e of engines) {
+      const opt = document.createElement('option');
+      opt.value = e.id;
+      opt.textContent = e.title || e.id;
+      engineSelect.appendChild(opt);
+    }
+    // Движок один — выбирать не из чего, поле заперто. Но ПОКАЗАНО: пара «площадка +
+    // движок» должна быть видна, даже когда вторая половина безальтернативна. Заперто
+    // молча — выглядит поломкой, поэтому подсказка объясняет причину.
+    const single = engines.length === 1;
+    engineSelect.disabled = single;
+    if (single) {
+      window.I18n.setTitle(engineSelect, 'insp.engine.only');
+    } else {
+      engineSelect.removeAttribute('data-i18n-title');
+      engineSelect.removeAttribute('title');
+    }
+    syncEngineToPlatform();
+    syncPlatformsToEngine();
+  }
+
+  function updateEngineDescription() {
+    const e = engines.find((x) => x.id === engineSelect.value);
+    engineDescription.textContent = e ? e.description || '' : '';
+    // «Другой движок — другой вьюпорт» (§4g). Имя реализации приходит из
+    // engines/<id>.json; обвязка сама откажется монтировать незнакомое.
+    //
+    // Смена вступает в силу при следующем создании вьюпорта: уже загруженная модель
+    // продолжает рисоваться прежней реализацией до сброса. Сегодня реализация одна и
+    // случиться этого не может; когда появится вторая — здесь потребуется пересоздание
+    // слотов, и это отмечено, а не забыто.
+    if (e && e.viewer && window.OptiViewer && window.OptiViewer.useViewer) {
+      window.OptiViewer.useViewer(e.viewer);
+    }
+  }
+
+  // Площадка выбрана → поле движка показывает её движок.
+  function syncEngineToPlatform() {
+    if (!engines.length) return;
+    const p = platforms.find((x) => x.id === platformSelect.value);
+    const wanted = p && p.engine;
+    if (wanted && [...engineSelect.options].some((o) => o.value === wanted)) engineSelect.value = wanted;
+    updateEngineDescription();
+  }
+
+  // Движок выбран → площадки переупорядочены: годные сверху, остальные ниже и с
+  // причиной. Список не сокращается — меняется только порядок и подпись.
+  function syncPlatformsToEngine() {
+    if (!engines.length || !platforms.length) return;
+    const engineId = engineSelect.value;
+    const titleOfEngine = (id) => (engines.find((x) => x.id === id) || {}).title || id;
+    const fits = (p) => p.engine === engineId;
+    const chosen = platformSelect.value;
+
+    platformSelect.innerHTML = '';
+    for (const p of [...platforms].sort((a, b) => Number(fits(b)) - Number(fits(a)))) {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      if (fits(p)) {
+        opt.textContent = p.title || p.id;
+      } else {
+        // Подпись ставит код — значит помечаем ключом, иначе смена языка откатит её
+        // к ключу из разметки (Правило 8).
+        window.I18n.setText(opt, 'insp.platform.otherEngine', {
+          title: p.title || p.id,
+          engine: titleOfEngine(p.engine),
+        });
+      }
+      platformSelect.appendChild(opt);
+    }
+    if ([...platformSelect.options].some((o) => o.value === chosen)) platformSelect.value = chosen;
+    updatePlatformDescription();
+  }
+
+  engineSelect.addEventListener('change', () => {
+    updateEngineDescription();
+    syncPlatformsToEngine();
+    logMessage('info', t('log.engine', { id: engineSelect.value }));
+  });
+
   platformSelect.addEventListener('change', async () => {
     updatePlatformDescription();
+    // Симметрия: выбор площадки — тоже выбор движка, просто с другой стороны.
+    syncEngineToPlatform();
+    syncPlatformsToEngine();
     await loadExtensions(platformSelect.value);
     updateRunButtonState();
     logMessage('info', t('log.platform', { id: platformSelect.value }));

@@ -22,11 +22,15 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { planFor, listPlatforms } from '../assistant.mjs';
+import {
+  planFor, listPlatforms, listEngines, getAvailableExtensions,
+  enginesForPlatform, platformsForEngine,
+} from '../assistant.mjs';
 import { listRules } from '../optimize2.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PROFILES_DIR = path.join(ROOT, 'profiles');
+const ENGINES_DIR = path.join(ROOT, 'engines');
 
 const profileFiles = fs.readdirSync(PROFILES_DIR).filter((f) => f.endsWith('.json'));
 const profiles = profileFiles.map((f) => ({
@@ -84,12 +88,15 @@ describe('Движок и площадка — разные оси (ARCHITECTURE
     }
   });
 
-  it('движок площадки существует как значение, а не как случайная строка', () => {
-    // Пока файла engines/<id>.json нет, единственная проверка — что все площадки
-    // называют один и тот же известный движок. Появится второй — этот тест
-    // придётся переписать на список движков, и это правильный момент вспомнить о нём.
-    const движки = [...new Set(profiles.map((p) => p.data.engine))];
-    expect(движки, `движков в профилях: ${движки.join(', ')}`).toEqual(['threejs']);
+  it('движок площадки — существующий файл, а не случайная строка', () => {
+    const нет = [...new Set(profiles.map((p) => p.data.engine))]
+      .filter((id) => !fs.existsSync(path.join(ENGINES_DIR, `${id}.json`)));
+    expect(
+      нет,
+      `площадки называют движки, которых нет в engines/: ${нет.join(', ')}. `
+        + 'Ненайденный движок означает пустой список расширений и вьюпорт по умолчанию — '
+        + 'молча и незаметно.',
+    ).toEqual([]);
   });
 
   it('listPlatforms по-прежнему отдаёт площадки, а не движки', () => {
@@ -100,5 +107,105 @@ describe('Движок и площадка — разные оси (ARCHITECTURE
     // списком движков: их должно быть столько же, сколько включённых профилей.
     const включённых = profiles.filter((p) => p.data.enabled !== false).length;
     expect(ids.length).toBe(включённых);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Слой движков: engines/<id>.json стал отдельной таблицей (§4g, вторая правка)
+//
+// Список расширений раньше лежал в КАЖДОМ профиле — четырьмя побайтно одинаковыми
+// копиями. Это и было доказательством, что он принадлежит движку: свойство площадки
+// не может совпасть у сайта, телефона, шлема и витрины до последнего символа.
+// ---------------------------------------------------------------------------
+
+const engineFiles = fs.existsSync(ENGINES_DIR)
+  ? fs.readdirSync(ENGINES_DIR).filter((f) => f.endsWith('.json'))
+  : [];
+const engineData = engineFiles.map((f) => ({
+  file: f,
+  data: JSON.parse(fs.readFileSync(path.join(ENGINES_DIR, f), 'utf8')),
+}));
+
+describe('Движки — отдельная таблица (ARCHITECTURE.md §4g)', () => {
+  it('папка движков существует и не пуста', () => {
+    expect(engineData.length, 'engines/ пуста: список расширений брать неоткуда').toBeGreaterThan(0);
+  });
+
+  it('каждый движок называет id, имя, вьюпорт и состав расширений', () => {
+    const беды = [];
+    for (const { file, data } of engineData) {
+      if (!data.id) беды.push(`${file}: нет id`);
+      if (!data.title) беды.push(`${file}: нет title`);
+      if (!data.viewer) беды.push(`${file}: нет viewer — нечем рисовать`);
+      if (!Array.isArray(data.availableExtensions) || !data.availableExtensions.length) {
+        беды.push(`${file}: пустой availableExtensions`);
+      }
+    }
+    expect(беды, беды.join('\n')).toEqual([]);
+  });
+
+  it('состав расширений ушёл из профилей и не вернулся', () => {
+    const сдубль = profiles.filter((p) => p.data.availableExtensions !== undefined).map((p) => p.file);
+    expect(
+      сдубль,
+      `availableExtensions снова в профилях: ${сдубль.join(', ')}. Список принадлежит `
+        + 'движку; в профилях он лежал четырьмя одинаковыми копиями — именно поэтому и переехал.',
+    ).toEqual([]);
+  });
+
+  it('площадка получает список СВОЕГО движка, а не выдуманный', () => {
+    for (const { file, data } of profiles) {
+      const движок = engineData.find((e) => e.data.id === data.engine);
+      expect(движок, `${file}: движок ${data.engine} не найден`).toBeTruthy();
+      const ожидание = движок.data.availableExtensions.map((e) => e.id);
+      const факт = getAvailableExtensions(data.id).map((e) => e.id);
+      expect(факт, `${file}: состав разошёлся с движком ${data.engine}`).toEqual(ожидание);
+    }
+  });
+
+  it('расширения приходят со словами, а не голыми id', () => {
+    // Состав задаёт движок, слова — core/messages/ (Правило 8). Если связь порвётся,
+    // человек увидит в панели «ktx2» вместо «Сжатие текстур KTX2».
+    const без = getAvailableExtensions('threejs', 'ru').filter((e) => !e.title).map((e) => e.id);
+    expect(без, `без названия: ${без.join(', ')}`).toEqual([]);
+  });
+
+  it('план несёт движок вместе с его именем и вьюпортом', () => {
+    const plan = planFor('threejs', 'ru');
+    expect(plan.engineInfo, 'planFor() не вернул engineInfo').toBeTruthy();
+    expect(plan.engineInfo.id).toBe(plan.engine);
+    expect(plan.engineInfo.title, 'движок без имени — в поле интерфейса покажется id').toBeTruthy();
+    expect(plan.engineInfo.viewer, 'движок без вьюпорта — нечем рисовать').toBeTruthy();
+  });
+
+  it('вьюпорт, который называет движок, приложение действительно везёт', () => {
+    // Самая ценная проверка слоя: «другой движок — другой вьюпорт» имеет смысл, только
+    // если названный вьюпорт существует. Иначе движок добавят файлом, а картинка молча
+    // останется от прежнего — ровно тот класс отказа, из-за которого в 0.1.0 уехала
+    // сборка с мёртвым предпросмотром.
+    const src = fs.readFileSync(path.join(ROOT, 'ui', 'viewer', 'index.js'), 'utf8');
+    const блок = src.match(/const VIEWERS = \{([\s\S]*?)\n\};/);
+    expect(блок, 'в ui/viewer/index.js не найден реестр VIEWERS — проверка ослепла').toBeTruthy();
+    const везём = [...блок[1].matchAll(/^\s{2}([a-z0-9_-]+):/gim)].map((m) => m[1]);
+    expect(везём.length, 'реестр вьюпортов пуст').toBeGreaterThan(0);
+    const нет = engineData.map((e) => e.data.viewer).filter((v) => !везём.includes(v));
+    expect(
+      нет,
+      `движки просят вьюпорты, которых нет в приложении: ${нет.join(', ')}. Везём: ${везём.join(', ')}.`,
+    ).toEqual([]);
+  });
+
+  it('две оси симметричны: движок ↔ площадка сходятся с обеих сторон', () => {
+    for (const p of listPlatforms()) {
+      const движки = enginesForPlatform(p.id).map((e) => e.id);
+      expect(движки, `${p.id}: ни одного годного движка`).toContain(p.engine);
+      const площадки = platformsForEngine(p.engine).map((x) => x.id);
+      expect(площадки, `${p.engine}: площадка ${p.id} потерялась на обратном пути`).toContain(p.id);
+    }
+  });
+
+  it('listEngines отдаёт движки, а не площадки', () => {
+    const ids = listEngines().map((e) => e.id);
+    expect(ids).toEqual(engineData.filter((e) => e.data.enabled !== false).map((e) => e.data.id).sort());
   });
 });

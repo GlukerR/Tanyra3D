@@ -134,6 +134,25 @@ function listExtensionsSafe(platformId, lang) {
   return [];
 }
 
+// Движки (ARCHITECTURE.md §4g). Как и у площадок — «safe»-обёртка: слой ассистента
+// может быть старее сервера и не знать про движки вовсе. Тогда список пуст, и поле
+// движка в интерфейсе не появляется. Выдуманного движка здесь не будет: имя читателя
+// файла — не то, что web-interface вправе сочинить.
+function listEnginesSafe(platformId, lang) {
+  if (!assistant) return [];
+  const fn = platformId && typeof assistant.enginesForPlatform === 'function'
+    ? () => assistant.enginesForPlatform(platformId, lang)
+    : (typeof assistant.listEngines === 'function' ? () => assistant.listEngines(lang) : null);
+  if (!fn) return [];
+  try {
+    const list = fn();
+    if (Array.isArray(list)) return list;
+  } catch (e) {
+    console.error('[assistant] listEngines() failed:', e.message);
+  }
+  return [];
+}
+
 function planForSafe(platformId, lang) {
   if (assistant && typeof assistant.planFor === 'function') {
     try {
@@ -468,6 +487,18 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // --- движки: вторая ось, равноправная площадкам (ARCHITECTURE.md §4g) ---
+    // Отдельный вход, а не поле внутри /api/platforms: движок существует независимо от
+    // того, есть ли под него площадка, и наоборот. Необязательный `platform=` сужает
+    // ответ до движков, годных этой площадке — та самая симметрия двух полей, где
+    // выбор в любом из них переупорядочивает второе. Пустой список — законный ответ:
+    // папки engines/ может не быть, и тогда интерфейс поле движка просто не покажет.
+    if (req.method === 'GET' && pathname === '/api/engines') {
+      const forPlatform = url.searchParams.get('platform') || '';
+      sendJSON(res, 200, { engines: listEnginesSafe(forPlatform, langOf(url)) });
+      return;
+    }
+
     // --- расширенные опции для платформы ---
     if (req.method === 'GET' && pathname === '/api/extensions') {
       const platformId = url.searchParams.get('platform') || '';
@@ -492,12 +523,16 @@ const server = http.createServer(async (req, res) => {
       const planEngine = plan.engine || 'threejs';
       const askedEngine = url.searchParams.get('engine') || '';
       const engine = askedEngine === planEngine ? askedEngine : planEngine;
+      // engineInfo — как движок называется и какой вьюпорт монтировать (engines/<id>.json).
+      // null, если файла движка нет: интерфейс покажет площадку без движка, но не выдумает имя.
+      const engineInfo = plan.engineInfo || null;
       const planDefaults = plan.engineOpts || {};
       const advisedTexMode = (planDefaults.texMode === 'mixed' || planDefaults.texMode === 'uastc')
         ? planDefaults.texMode
         : null;
       sendJSON(res, 200, {
         engine,
+        engineInfo,
         extensions: listExtensionsSafe(platformId, langOf(url)),
         exclusiveGroups: typeof exclusiveGroups === 'function' ? exclusiveGroups() : [],
         defaults: { texMode: advisedTexMode },

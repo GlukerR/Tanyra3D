@@ -19,48 +19,6 @@
     "stripColors": false,
     "dryRun": false
   },
-  "availableExtensions": [
-    {
-      "id": "safe",
-      "opts": { "safe": true }
-    },
-    {
-      "id": "meshopt",
-      "opts": { "compress": true, "codec": "meshopt" }
-    },
-    {
-      "id": "join",
-      "opts": { "join": true }
-    },
-    {
-      "id": "instance",
-      "opts": { "instance": true }
-    },
-    {
-      "id": "resample",
-      "opts": { "resample": true }
-    },
-    {
-      "id": "ktx2",
-      "opts": { "noKtx": false }
-    },
-    {
-      "id": "webp",
-      "opts": { "noWebp": false }
-    },
-    {
-      "id": "draco",
-      "opts": { "codec": "draco" }
-    },
-    {
-      "id": "quantize",
-      "opts": { "quantize": true }
-    },
-    {
-      "id": "strip-colors",
-      "opts": { "stripColors": true }
-    }
-  ],
   "notes": [
     "triangles 100000 — a conservative budget for a single object: Meta's recommendations for Quest allow 350–500k triangles for the whole frame, so we leave headroom for the environment and other objects.",
     "drawCalls 50 — Meta's recommendation for Quest: 50–100 draw calls per frame; for a single object we take the lower bound.",

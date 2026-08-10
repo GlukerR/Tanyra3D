@@ -19,48 +19,6 @@
     "stripColors": false,
     "dryRun": false
   },
-  "availableExtensions": [
-    {
-      "id": "safe",
-      "opts": { "safe": true }
-    },
-    {
-      "id": "meshopt",
-      "opts": { "compress": true, "codec": "meshopt" }
-    },
-    {
-      "id": "join",
-      "opts": { "join": true }
-    },
-    {
-      "id": "instance",
-      "opts": { "instance": true }
-    },
-    {
-      "id": "resample",
-      "opts": { "resample": true }
-    },
-    {
-      "id": "ktx2",
-      "opts": { "noKtx": false }
-    },
-    {
-      "id": "webp",
-      "opts": { "noWebp": false }
-    },
-    {
-      "id": "draco",
-      "opts": { "codec": "draco" }
-    },
-    {
-      "id": "quantize",
-      "opts": { "quantize": true }
-    },
-    {
-      "id": "strip-colors",
-      "opts": { "stripColors": true }
-    }
-  ],
   "notes": [
     "triangles 50000 — a conservative guideline for inexpensive smartphones; below the Khronos 3D Commerce recommendations for smoothness on a weak GPU.",
     "drawCalls 30 — guideline: each draw call is costlier on a mobile GPU, so we keep them few.",

@@ -51,7 +51,7 @@
     "files": [
       "server.mjs", "optimize2.mjs", "assistant.mjs", "package.json",
       "core/**/*", "addons/**/*", "ui/**/*", "translations/**/*",
-      "profiles/**/*", "messages/**/*", "desktop/**/*",
+      "profiles/**/*", "engines/**/*", "messages/**/*", "desktop/**/*",
       "node_modules/**/*",
       "!node_modules/electron/**", "!node_modules/electron-builder/**",
       "!node_modules/app-builder-lib/**", "!node_modules/playwright*/**",

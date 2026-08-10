@@ -1,0 +1,81 @@
+{
+  "id": "threejs",
+  "title": {
+    "en": "Three.js",
+    "ru": "Three.js"
+  },
+  "description": {
+    "en": "The renderer used by most 3D websites. Reads compressed geometry and textures once the matching decoder is delivered alongside the page.",
+    "ru": "Проигрыватель, на котором работает большинство трёхмерных сайтов. Читает сжатую геометрию и текстуры, если рядом со страницей лежит нужный декодер."
+  },
+  "viewer": "threejs",
+  "availableExtensions": [
+    {
+      "id": "safe",
+      "opts": {
+        "safe": true
+      }
+    },
+    {
+      "id": "meshopt",
+      "opts": {
+        "compress": true,
+        "codec": "meshopt"
+      }
+    },
+    {
+      "id": "join",
+      "opts": {
+        "join": true
+      }
+    },
+    {
+      "id": "instance",
+      "opts": {
+        "instance": true
+      }
+    },
+    {
+      "id": "resample",
+      "opts": {
+        "resample": true
+      }
+    },
+    {
+      "id": "ktx2",
+      "opts": {
+        "noKtx": false
+      }
+    },
+    {
+      "id": "webp",
+      "opts": {
+        "noWebp": false
+      }
+    },
+    {
+      "id": "draco",
+      "opts": {
+        "codec": "draco"
+      }
+    },
+    {
+      "id": "quantize",
+      "opts": {
+        "quantize": true
+      }
+    },
+    {
+      "id": "strip-colors",
+      "opts": {
+        "stripColors": true
+      }
+    }
+  ],
+  "notes": [
+    "Список пришёл из profiles/*.json, где лежал в четырёх побайтно одинаковых копиях — прямое доказательство, что он принадлежит движку, а не площадке (ARCHITECTURE.md §4g).",
+    "id расширения = имя фичи ядра: web-interface передаёт выбранные id в optimizeFile как advancedFeatures; поле opts — эквивалент для legacy-пути.",
+    "viewer — какой модуль вьюпорта монтировать. Сегодня значение одно и совпадает с id движка; смысл поля в том, что второй движок принесёт свой модуль, а не переписывание ui/viewer.",
+    "Титулов и описаний расширений здесь нет намеренно: они живут в core/messages/ и берутся по id (Правило 8). Профиль и движок задают только СОСТАВ списка, не его слова."
+  ]
+}
