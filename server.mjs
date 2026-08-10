@@ -122,10 +122,10 @@ function listPlatformsSafe(lang) {
 //   listExtensions(platformId) → [{ id, title, description, impact }]
 // Пока assistant.mjs не реализует listExtensions(), возвращаем пустой список —
 // панель «Расширенные опции» в UI просто не покажется (нет придуманных web-interface данных).
-function listExtensionsSafe(platformId, lang) {
+function listExtensionsSafe(platformId, lang, engineId) {
   if (assistant && typeof assistant.listExtensions === 'function') {
     try {
-      const list = assistant.listExtensions(platformId, lang);
+      const list = assistant.listExtensions(platformId, lang, engineId);
       if (Array.isArray(list)) return list;
     } catch (e) {
       console.error('[assistant] listExtensions() failed:', e.message);
@@ -134,10 +134,32 @@ function listExtensionsSafe(platformId, lang) {
   return [];
 }
 
-function planForSafe(platformId, lang) {
+// Движки (ARCHITECTURE.md §4g). Как и у площадок — «safe»-обёртка: слой ассистента
+// может быть старее сервера и не знать про движки вовсе. Тогда список пуст, и поле
+// движка в интерфейсе не появляется. Выдуманного движка здесь не будет: имя читателя
+// файла — не то, что web-interface вправе сочинить.
+function listEnginesSafe(platformId, lang) {
+  if (!assistant) return [];
+  const fn = platformId && typeof assistant.enginesForPlatform === 'function'
+    ? () => assistant.enginesForPlatform(platformId, lang)
+    : (typeof assistant.listEngines === 'function' ? () => assistant.listEngines(lang) : null);
+  if (!fn) return [];
+  try {
+    const list = fn();
+    if (Array.isArray(list)) return list;
+  } catch (e) {
+    console.error('[assistant] listEngines() failed:', e.message);
+  }
+  return [];
+}
+
+// engineId нужен только когда площадка не выбрана (прочерк, §4g): движок больше неоткуда
+// взять. У выбранной площадки движок свой, и переданное значение слой ассистента
+// игнорирует — пары, которой нет, посчитать нельзя.
+function planForSafe(platformId, lang, engineId) {
   if (assistant && typeof assistant.planFor === 'function') {
     try {
-      const plan = assistant.planFor(platformId, lang);
+      const plan = assistant.planFor(platformId, lang, engineId);
       if (plan && typeof plan === 'object') return plan;
     } catch (e) {
       console.error('[assistant] planFor() failed:', e.message);
@@ -424,11 +446,14 @@ const server = http.createServer(async (req, res) => {
     // результата прогона, файлы ей не нужны. Клиент присылает тот самый result, который
     // получил при сборке, и получает тот же отчёт на другом языке.
     if (req.method === 'POST' && pathname === '/api/explain') {
-      const platformId = url.searchParams.get('platform');
-      if (!platformId) {
+      // Пустая строка — законный выбор «без площадки» (ARCHITECTURE.md §4g), а не
+      // забытый параметр. Различаем по наличию ключа: старый клиент его не пришлёт
+      // вовсе, и такому по-прежнему отвечаем отказом.
+      if (!url.searchParams.has('platform')) {
         sendJSON(res, 400, { error: 'platform is required' });
         return;
       }
+      const platformId = url.searchParams.get('platform') || '';
       let payload;
       try {
         payload = JSON.parse((await readBody(req)).toString('utf8'));
@@ -464,7 +489,28 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && pathname === '/api/platforms') {
-      sendJSON(res, 200, { platforms: listPlatformsSafe(langOf(url)), engineVersion: VERSION });
+      // noPlatform — описание прочерка («без площадки»). Не элемент списка: это не
+      // площадка, а объяснение выбора БЕЗ неё. Отдельным полем, чтобы список площадок
+      // остался списком площадок и его длина ничего не подменяла.
+      let noPlatform = null;
+      if (assistant && typeof assistant.noPlatformInfo === 'function') {
+        try { noPlatform = assistant.noPlatformInfo(langOf(url)); } catch (e) {
+          console.error('[assistant] noPlatformInfo() failed:', e.message);
+        }
+      }
+      sendJSON(res, 200, { platforms: listPlatformsSafe(langOf(url)), noPlatform, engineVersion: VERSION });
+      return;
+    }
+
+    // --- движки: вторая ось, равноправная площадкам (ARCHITECTURE.md §4g) ---
+    // Отдельный вход, а не поле внутри /api/platforms: движок существует независимо от
+    // того, есть ли под него площадка, и наоборот. Необязательный `platform=` сужает
+    // ответ до движков, годных этой площадке — та самая симметрия двух полей, где
+    // выбор в любом из них переупорядочивает второе. Пустой список — законный ответ:
+    // папки engines/ может не быть, и тогда интерфейс поле движка просто не покажет.
+    if (req.method === 'GET' && pathname === '/api/engines') {
+      const forPlatform = url.searchParams.get('platform') || '';
+      sendJSON(res, 200, { engines: listEnginesSafe(forPlatform, langOf(url)) });
       return;
     }
 
@@ -488,17 +534,21 @@ const server = http.createServer(async (req, res) => {
       // поэтому появление второго движка станет добавлением данных, а не сменой
       // протокола и не правкой интерфейса. Чужое значение не подставляем молча —
       // отвечаем движком площадки и сообщаем, какой применён на самом деле.
-      const plan = planForSafe(platformId, langOf(url));
-      const planEngine = plan.engine || 'threejs';
       const askedEngine = url.searchParams.get('engine') || '';
+      const plan = planForSafe(platformId, langOf(url), askedEngine);
+      const planEngine = plan.engine || 'threejs';
       const engine = askedEngine === planEngine ? askedEngine : planEngine;
+      // engineInfo — как движок называется и какой вьюпорт монтировать (engines/<id>.json).
+      // null, если файла движка нет: интерфейс покажет площадку без движка, но не выдумает имя.
+      const engineInfo = plan.engineInfo || null;
       const planDefaults = plan.engineOpts || {};
       const advisedTexMode = (planDefaults.texMode === 'mixed' || planDefaults.texMode === 'uastc')
         ? planDefaults.texMode
         : null;
       sendJSON(res, 200, {
         engine,
-        extensions: listExtensionsSafe(platformId, langOf(url)),
+        engineInfo,
+        extensions: listExtensionsSafe(platformId, langOf(url), engine),
         exclusiveGroups: typeof exclusiveGroups === 'function' ? exclusiveGroups() : [],
         defaults: { texMode: advisedTexMode },
       });
@@ -592,7 +642,13 @@ const server = http.createServer(async (req, res) => {
 
     // --- обработка модели ---
     if (req.method === 'POST' && pathname === '/api/optimize') {
-      const platformId = url.searchParams.get('platform') || (listPlatformsSafe(langOf(url))[0] || {}).id;
+      // Прочерк («без площадки») присылается как пустая строка и означает выбор, а не
+      // пропуск: подставлять первую попавшуюся площадку было бы подменой решения
+      // человека. Фолбэк остаётся только для запроса, где ключа нет совсем.
+      const platformId = url.searchParams.has('platform')
+        ? (url.searchParams.get('platform') || '')
+        : (listPlatformsSafe(langOf(url))[0] || {}).id;
+      const engineId = url.searchParams.get('engine') || '';
       const jobId = url.searchParams.get('job') || '';
       const featuresParam = url.searchParams.get('features') || '';
       const advancedFeatures = featuresParam.split(',').map((s) => s.trim()).filter(Boolean);
@@ -656,7 +712,7 @@ const server = http.createServer(async (req, res) => {
         await purgeBeyondLimit();
       }
 
-      const plan = planForSafe(platformId, langOf(url));
+      const plan = planForSafe(platformId, langOf(url), engineId);
       // Порядок значим: фолбэк → профиль площадки → явный выбор человека.
       const engineOpts = { ...FALLBACK_ENGINE_OPTS, ...(plan.engineOpts || {}), ...texModeChoice };
 

@@ -549,7 +549,40 @@ explainResult(runResult, platformId)
   optimization itself and live in `addons/gltf/rules.mjs`; the UI reads them from
   `result.applied`. They were duplicated here until 2026-08-09 and nothing read the copies —
   a second list of one truth drifts silently. Same guard.
+- **`availableExtensions` does NOT belong in a profile either** (moved out 2026-08-09). Which
+  options to offer is a property of the reader, so the list lives in `engines/<id>.json`. It
+  had been sitting in all four profiles as four byte-identical copies — which is what proved
+  it was never a property of the target. Same guard.
 - The file goes into `profiles/`, named `<id>.json`. Nothing else needs registering.
+
+### The `engines/*.json` format
+
+```json
+{
+  "id": "threejs",
+  "title": { "en": "Three.js", "ru": "Three.js" },
+  "description": { "en": "1–2 sentences, no jargon", "ru": "…" },
+  "viewer": "threejs",
+  "availableExtensions": [
+    { "id": "ktx2", "opts": { "noKtx": false } }
+  ],
+  "notes": [ "why this engine reads what it reads" ]
+}
+```
+
+- `availableExtensions` sets only the **composition** of the list. The wording of each entry
+  comes from `core/messages/` by `id` (Rule 8) — an engine file must not carry user-facing
+  option text.
+- `viewer` names the viewport implementation to mount. It is not decorative: the registry
+  `VIEWERS` in `ui/viewer/index.js` is keyed by exactly this name, `useViewer()` refuses a
+  name the app does not ship (and says so in the console instead of quietly rendering with
+  the wrong engine), and `tests/engine-target-split.test.mjs` fails if any engine names a
+  viewer that is not in the registry. Adding an engine is therefore a data change **plus**
+  one line in that registry — which is the honest cost, not a hidden one.
+- A missing engine file is not a crash: the extensions list comes out empty and the
+  "Advanced options" panel does not appear. An invented list would be worse than none.
+- `enabled: false` hides an engine from the UI, mirroring the same field in a profile.
+- The file goes into `engines/`, named `<id>.json`. Nothing else needs registering.
 
 ---
 
@@ -690,8 +723,10 @@ engine gets that behaviour for free.
   (Skeleton, Cameras, Lights…) is an addition to an existing module, not a new module per
   format.
 - **§4c (profiles as data)** — "the option list on the right changes per platform" already
-  works exactly that way: options are built from the profile's `availableExtensions`
-  (`profiles/*.json`), and a new platform is a new json. No extra architecture is needed.
+  works that way, though the list itself comes from the target's **engine**
+  (`engines/*.json`, §4g) while the budgets come from the target (`profiles/*.json`). A new
+  platform is a new json; a new engine is a new json plus one line in the `VIEWERS` registry.
+  No extra architecture is needed.
 - **§4d (reversibility, exporters)** — item 11 (Download Result) sits on the Exporter seam:
   one dialog, formats added as exporter plugins without touching the UI. An environment
   caveat: choosing an ARBITRARY save location in a browser is restricted (it needs the File
@@ -789,8 +824,11 @@ coincide, so TODAY the separation is invisible. It matters once non-glTF input f
 
 ## 4g. Engine and target are two different axes (Alexander's decision, 2026-08-09)
 
-**Status: decided, partially implemented.** The data model now names the pair; the second
-engine and the catalog screen are deliberately not built yet.
+**Status: built (2026-08-10), minus the catalog screen.** The engine is a table of its own
+(`engines/*.json`), the API has `/api/engines`, the inspector has two symmetric fields, and
+the viewport is chosen by name through a registry. What is deliberately *not* built: a second
+engine, and the catalog screen. Adding an engine is now one json file plus one line in the
+`VIEWERS` registry — no changes to `app.js`, `assistant.mjs`, `server.mjs` or any profile.
 
 ### The problem
 
@@ -816,15 +854,104 @@ independent lists of one truth, drifting silently.
 
 1. **Rule** (already in code, `addons/gltf/rules.mjs`) — what an optimization does, whether
    it is reversible, what it costs. Independent of both engine and target. **Single source.**
-2. **Engine** (`engines/<id>.json`, future) — what this engine reads out of the box, what
-   needs a decoder, and **which viewer module to mount**. This is where "a different engine
-   means a different viewport" lives.
-3. **Target** (`profiles/<id>.json`, existing) — budgets with sources, caveats, plus
-   `engines: [...]` and a default.
+2. **Engine** (`engines/<id>.json`, **built 2026-08-10**) — what this engine offers out of
+   the box and **which viewer module to mount**. This is where "a different engine means a
+   different viewport" lives; the `viewer` field is wired to the `VIEWERS` registry in
+   `ui/viewer/index.js`, so the sentence is executable rather than aspirational.
+3. **Target** (`profiles/<id>.json`, existing) — budgets with sources, caveats, and the
+   `engine` it is described for.
 
 A **profile then stops being the target file and becomes a saved pair**: target + engine +
 local tweaks. That is exactly the object a user creates for their own pipeline, so
 user-defined profiles need no separate mechanism.
+
+### What the target may do to the engine's list (Alexander's decision, 2026-08-10)
+
+The engine declares what it can read. **A target may subtract from that list; it may never
+define it.** If the target defined the list we would be straight back to four byte-identical
+copies. "model-viewer can read Meshopt" is true on every site — an engine fact. "This
+storefront never wired up the decoder" is a fact about one deployment — a target fact.
+
+Subtraction is `"excludeExtensions": ["meshopt"]` in the profile, and the option then
+**disappears entirely** — not greyed out, not annotated.
+
+This looks like a contradiction of the "shown, not hidden" rule below. It is not: that rule
+governs the **selector fields**, where the user arrives looking for a name they already know
+and, not finding it, goes searching outside the program. The options list is the opposite
+situation — the user has no prior expectation of what should be there, so there is no
+expectation to betray. A Shopify target with four working buttons is easier than fourteen
+buttons where ten are greyed. We do not list the world's decoders that Three.js cannot read
+either; the list has always meant "what works here", and a target is the same principle one
+level down. The full palette of an engine stays reachable by choosing that engine without a
+target.
+
+### "No target" is a choice of its own (Alexander's decision, 2026-08-10)
+
+The target list leads with a dash — **no platform** — and that is the default. Pick an engine,
+leave the platform blank, and you see everything that engine can do, with no budgets at all:
+nobody is entitled to make demands when no target has been named. It is implemented as a
+synthetic profile (`assistant.mjs`, `syntheticProfile()`), so `planFor`, `explainResult` and
+`extensionsOf` receive an ordinary profile — one without budgets or a name — and needed no
+special cases.
+
+Two consequences worth stating:
+
+- **`planFor(platformId, lang, engineId)` takes an engine.** Without a target there is nowhere
+  else to get one; this is the point at which the two axes became genuinely independent. With
+  a target chosen, the passed engine is ignored — a pair that does not exist must not be
+  costed. The parameter is additive, so §4c's stability rules hold.
+- **The default had to move.** With Shopify enabled and the list sorted, the first real
+  platform would have been selected on startup, and the app would silently have claimed a
+  target the user never picked — along with Shopify's hard 15 MB rejection. The dash claims
+  nothing. For the same reason the leading engine is named in data (`"primary": true`) rather
+  than left to alphabetical order, which would have put `model-viewer` ahead of `threejs`.
+
+This also removed the last naming wart. `profiles/threejs.json` was titled "Web (Three.js)" —
+a target named after an engine — and it is now gone as a platform: **"plain web" and "no
+target" are the same thing**, and keeping them apart asked the user about a distinction that
+does not exist. Its Khronos numbers live on in `profiles/_none.json`, the figures the dash
+shows. The leading underscore plus `enabled: false` keep it out of the platform list, and it
+deliberately carries no `engine` field — the dash suits any engine, and the engine comes from
+the user's own choice. It may never grow a `limit`: red means "this platform will not accept
+the file", and there is no platform.
+
+**Choosing either field fixes the other.** Picking Shopify switches the engine to
+`model-viewer`; switching the engine drops a target that does not run on it back to the dash,
+because the pair "Shopify + Three.js" does not exist and must not sit on screen as if it did.
+The target list is not shortened — Shopify stays visible with its reason, and picking it
+brings its engine along.
+
+### Corrections found while building this (2026-08-10)
+
+- **Shopify's 15 MB was recorded as a hard limit. It is not.** Their own page says
+  "File size: Up to 500 MB" — that is the refusal — and "If you upload a 3D model file that
+  exceeds 15 MB, then your file is automatically optimized". Over 15 MB the file is accepted
+  and **silently rewritten**. For an optimizer that is the more consequential number: past it,
+  our work is thrown away and replaced by theirs. So `warn: 15`, `limit: 500`.
+- **Two levels are not enough here.** Shopify really has three: "about 4 MB" is their advice,
+  15 MB is "we will rewrite you", 500 MB is "we will not take it". `warn`/`limit` can express
+  two, and the middle one wins because it is the one with a consequence the user can act on.
+  The 4 MB figure survives only in the profile's note. Worth revisiting if a second platform
+  turns out to have the same shape.
+- **The engine field looked wrong because the CSS was bound to `#platform-select`.** The style
+  belonged to the pattern, not to one field, so the newly added engine select rendered as a
+  bare system control. Now on `.select-wrap select`; the next such field gets the look for
+  free.
+
+### Soft advice and hard refusal must not look alike
+
+Both live in the same budget entry — `warn` and `limit` — and they already render differently
+(`ui/style.css`: `.budget-row.warn` → `--warning`, `.budget-row.over` → `--error`). That is
+what makes it acceptable to keep advisory numbers at all: 100 000 triangles from the Khronos
+asset auditor is guidance, and nothing breaks at 100 001, so it is yellow. Shopify's 15 MB is
+a real refusal, so it is red. Guarded by `tests/engine-target-split.test.mjs`.
+
+Not yet built, recorded so it is not lost: when a target declares a hard limit and the result
+exceeds it, the export dialog should say so in red — **without blocking the download**. The
+mechanism already exists for a different case (`export.integrity.*`: the file is complete, it
+saves as is, the decision is the user's), and a hard-limit warning belongs in the same place
+and behaves the same way. Refusing to hand over a file the user asked for would be the one
+unacceptable outcome.
 
 ### The UI rule: two fields that filter each other, never a hierarchy
 
@@ -863,17 +990,70 @@ built when the second engine arrives.
   guard changed. It now checks the fact is **reachable** — every offered extension has a rule
   and that rule states the cost — instead of checking a copy exists.
 
-### Known inaccuracies, deliberately left for when engines become real files
+### What was built next (2026-08-10)
+
+- **`engines/threejs.json`** — the engine's own table. `availableExtensions` moved here out of
+  all four profiles, where it had been sitting as four byte-identical copies.
+- **`assistant.mjs`** — `listEngines()`, `enginesForPlatform()`, `platformsForEngine()`. The
+  last two exist for the symmetry rule below: each field can ask what the other allows, so
+  neither is the parent of the other. `planFor()` returns `engineInfo` (name + viewer).
+  `listPlatforms()` entries now carry `engine`, so the UI can pair the two fields without one
+  request per platform.
+- **`GET /api/engines`**, optionally `?platform=`. A separate endpoint rather than a field
+  inside `/api/platforms`: an engine exists whether or not a target uses it, and vice versa.
+- **The inspector has two fields.** With one engine the engine field is *locked, not hidden*,
+  and its tooltip says why — a greyed control with no explanation reads as a defect. A target
+  belonging to another engine stays in the list with the reason in its own row
+  (`insp.platform.otherEngine`), never removed and never greyed out.
+- **The viewport is chosen by name.** `createViewer()` was already a seam; it is now a lookup
+  in `VIEWERS`. `useViewer()` refuses an unknown name loudly and keeps the current one —
+  rendering a model with the wrong engine and calling it a preview is the worst available
+  outcome, given the preview is the whole point of the app.
+- **Known limit, recorded not forgotten:** switching engines re-mounts on the *next* viewport
+  creation, so an already-loaded model keeps the old implementation until reset. With one
+  implementation this cannot occur; the second one will need the slots recreated.
+
+### Known inaccuracies, deliberately left for when a second engine is real
 
 - `profiles/shopify.json` says `"engine": "threejs"`. Strictly this is wrong: a Shopify
-  storefront renders 3D through Google's **model-viewer** — a fixed wrapper over Three.js
-  with its own set of what it reads, and not something the artist may swap. The correct value
-  is `model-viewer`, but there is no such engine yet and no viewer module behind the name, so
-  writing it now would be a claim the code cannot honour. Fix it together with
-  `engines/<id>.json`. The profile is disabled meanwhile, so nothing depends on it.
-- The sample sentence above — "Draco will not open here" — illustrates the *shape* of an
-  on-the-spot explanation, not a verified fact: model-viewer does load Draco, KTX2 and
-  Meshopt decoders. Verify against a live storefront before any such wording reaches a user.
+  storefront renders 3D through Google's **model-viewer**, not through three.js directly. The
+  correct value is `model-viewer`, but there is no such engine yet and no viewer module behind
+  the name, so writing it now would be a claim the code cannot honour. Fix it together with
+  `engines/model-viewer.json`. The profile is disabled meanwhile, so nothing depends on it.
+- The sample sentence above — "Draco will not open here" — is **false**, and is kept only as
+  an illustration of the *shape* of an on-the-spot explanation. Checked 2026-08-10 (sources
+  below): model-viewer supports Draco, KTX2/Basis and Meshopt. Do not reuse the wording.
+
+### What model-viewer actually is (checked 2026-08-10)
+
+This matters because it decides what `engines/model-viewer.json` will contain, and because the
+easy answer — "Shopify is not a three.js target" — is misleading.
+
+- **model-viewer is three.js.** `packages/model-viewer/package.json` declares
+  `"three": "^0.183.0"` as a **peerDependency**. It is a web component wrapping three.js with a
+  pinned version range, not a competing renderer.
+- **Shopify's storefront uses it.** Shopify's own docs point at Google's `<model-viewer>`
+  component; Hydrogen's `ModelViewer` pins `@google/model-viewer` 1.21.1.
+- **It reads all three compressions — but not with the same defaults**
+  (`modelviewer.dev/examples/loading/`):
+  - Draco — supported; decoder fetched from a Google CDN on demand. Overridable via
+    `ModelViewerElement.dracoDecoderLocation`.
+  - KTX2 / Basis — supported; auxiliary decoder from the CDN on demand, via
+    `ktx2TranscoderLocation`.
+  - **Meshopt — supported but OFF by default.** The decoder is only used if
+    `meshoptDecoderLocation` is set before the first element is created.
+
+**The consequence for us, unresolved.** Every profile's `baselineOpts` uses
+`"codec": "meshopt"`, including `shopify.json`. If a Shopify storefront does not set
+`meshoptDecoderLocation`, a Meshopt file we produce for that target will not open there —
+while the same file is fine on a plain three.js page that registers the decoder. This is a
+difference in **engine defaults**, exactly the kind of fact the engine table exists to hold,
+and it is the strongest evidence so far that splitting engine from target was the right call.
+Not acted on: `shopify.json` is disabled, and the claim needs testing against a live
+storefront before it drives a default.
+
+Sources: `raw.githubusercontent.com/google/model-viewer/master/packages/model-viewer/package.json`,
+`modelviewer.dev/examples/loading/`, `shopify.dev/docs/api/hydrogen/2024-04/components/media/modelviewer`.
 - `GET /api/extensions` accepts an `engine=` parameter, defaulting to the target's engine.
   The request shape is ready before a second engine exists, so adding one is data, not a
   protocol change.

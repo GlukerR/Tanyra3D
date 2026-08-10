@@ -1,14 +1,10 @@
 {
-  "id": "threejs",
-  "engine": "threejs",
-  "enabled": true,
-  "title": {
-    "en": "Web (Three.js)",
-    "ru": "Веб (Three.js)"
-  },
+  "id": "_none",
+  "_comment": "Не площадка. Это числа, которые показывает прочерк («без площадки»): общие рекомендации для веба, пороги Khronos glTF Asset Auditor. Подчёркивание в имени и enabled: false держат файл вне списка площадок. Поля engine здесь намеренно НЕТ: прочерк годится любому движку, движок берётся из выбора человека (assistant.mjs, syntheticProfile). Жёстких пределов (limit) тут не бывает — отказать в файле может площадка, а её не выбрали.",
+  "enabled": false,
   "description": {
-    "en": "A model for a website: opens right in the browser on a desktop or laptop. A balance between good image quality and fast loading.",
-    "ru": "Модель для сайта: открывается прямо в браузере на компьютере или ноутбуке. Баланс между качеством картинки и быстрой загрузкой."
+    "en": "No target chosen: you see everything the engine can do. The yellow numbers are the general web guidance from the Khronos glTF Asset Auditor — advice, not a barrier. Nothing rejects a file for exceeding them. Red appears only when a real platform really refuses the upload.",
+    "ru": "Площадка не выбрана: показаны все возможности движка. Жёлтые числа — общие рекомендации для веба из Khronos glTF Asset Auditor, то есть совет, а не преграда: за их превышение файл нигде не отклонят. Красным помечается только настоящий отказ конкретной площадки."
   },
   "budgets": {
     "triangles": {
@@ -48,69 +44,6 @@
     "stripColors": false,
     "dryRun": false
   },
-  "availableExtensions": [
-    {
-      "id": "safe",
-      "opts": {
-        "safe": true
-      }
-    },
-    {
-      "id": "meshopt",
-      "opts": {
-        "compress": true,
-        "codec": "meshopt"
-      }
-    },
-    {
-      "id": "join",
-      "opts": {
-        "join": true
-      }
-    },
-    {
-      "id": "instance",
-      "opts": {
-        "instance": true
-      }
-    },
-    {
-      "id": "resample",
-      "opts": {
-        "resample": true
-      }
-    },
-    {
-      "id": "ktx2",
-      "opts": {
-        "noKtx": false
-      }
-    },
-    {
-      "id": "webp",
-      "opts": {
-        "noWebp": false
-      }
-    },
-    {
-      "id": "draco",
-      "opts": {
-        "codec": "draco"
-      }
-    },
-    {
-      "id": "quantize",
-      "opts": {
-        "quantize": true
-      }
-    },
-    {
-      "id": "strip-colors",
-      "opts": {
-        "stripColors": true
-      }
-    }
-  ],
   "notes": [
     "Пороги бюджетов — из glTF Asset Auditor (Khronos 3D Commerce): значения по умолчанию triangles.maximum 100000, materials.maximum 5, fileSizeInKb.maximum 5120, textures width/height.maximum 2048. Это единственный первоисточник Khronos с числами: руководство Asset Creation Guidelines 2.0 намеренно чисел не публикует и отсылает к аудитору.",
     "drawCalls: порог 100 — решение проекта, а не документация. Помечен by: project и показывается пользователю именно так, без ссылки на несуществующий источник. vramMB порога не имеет — значение измеряется и показывается без оценки.",

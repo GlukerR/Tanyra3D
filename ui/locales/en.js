@@ -83,6 +83,14 @@ window.I18N_CATALOGS.en = {
 
   // --- инспектор ---
   'insp.platform': 'Platform',
+  'insp.platform.none': '— no platform —',
+  // Движок — вторая ось выбора (ARCHITECTURE.md §4g). Пока движок один, поле заперто,
+  // и подсказка объясняет почему: серое поле без объяснения человек читает как поломку.
+  'insp.engine': 'Engine',
+  'insp.engine.only': 'The only engine in the app so far. A second one will make this field a choice.',
+  // Площадка, живущая на другом движке, из списка НЕ убирается — она показывается с
+  // причиной на месте (§4g). Одно сообщение с подстановками, не склейка кусков.
+  'insp.platform.otherEngine': ({ title, engine }) => `${title} — needs ${engine}`,
   'insp.advanced': 'Advanced options',
   // Отказы панели опций. Показываются НА МЕСТЕ опций: пустая панель неотличима от
   // поломки интерфейса, строка с причиной — отличима.
@@ -247,6 +255,8 @@ window.I18N_CATALOGS.en = {
   'log.options': ({ list }) => `Options: ${list}`,
   'log.none': 'none',
   'log.platform': ({ id }) => `Target platform: ${id}`,
+  'log.engine': ({ id }) => `Engine: ${id}`,
+  'log.platform.reset': ({ platform }) => `${platform} does not run on this engine — platform cleared`,
   'log.rejected': ({ name }) => `Rejected "${name}" — only .glb is supported for now`,
   'log.loaded': ({ name, size }) => `Model loaded: ${name} (${size})`,
   'log.foundCompression': ({ list }) => `Compression found in source: ${list}`,

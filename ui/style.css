@@ -1226,10 +1226,20 @@ details[open] > .collapsible-summary::before {
 
 .select-wrap {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-#platform-select {
-  width: 100%;
+/* По обёртке, а не по #platform-select: стиль принадлежит ПРИЁМУ «поле выбора в
+   инспекторе», а не одному полю. Пока он висел на идентификаторе, добавленное поле
+   движка осталось системным — белый прямоугольник 102×19 рядом с тёмным 275×35
+   (замечено Александром, 2026-08-10). Следующее поле получит вид даром. */
+.select-wrap select {
+  /* flex, а не width: 100% — справа от поля теперь стоит книжечка, и жёсткая ширина
+     выдавила бы её за край панели. */
+  flex: 1;
+  min-width: 0;
   background: var(--surface-container-highest);
   border: 1px solid var(--outline-variant);
   color: var(--on-surface);
@@ -1240,9 +1250,16 @@ details[open] > .collapsible-summary::before {
   cursor: pointer;
 }
 
-#platform-select:focus {
+.select-wrap select:focus {
   outline: none;
   border-color: var(--primary-container);
+}
+
+/* Запертое поле (движок один — выбирать не из чего) остаётся читаемым: гасим только
+   указатель, а не текст. Системное «серым по серому» здесь читалось бы как поломка. */
+.select-wrap select:disabled {
+  cursor: default;
+  opacity: 0.75;
 }
 
 .platform-description {
@@ -1250,6 +1267,19 @@ details[open] > .collapsible-summary::before {
   font-size: 12px;
   color: var(--outline);
   line-height: 1.4;
+}
+
+/* Пустой span до появления книжечки не должен занимать место и растягивать строку. */
+/* Место под книжечку держится всегда, даже когда объяснять нечего (у прочерка описания
+   нет). Иначе поле без книжечки становится шире соседнего на её ширину, и два поля,
+   стоящих друг под другом, разъезжаются по правому краю — то самое рассогласование,
+   ради которого стиль и переносили с идентификатора на приём. Ширина — как у .icon-btn
+   в левой панели, чтобы значки жили в одной сетке. */
+.section-info {
+  flex-shrink: 0;
+  width: 26px;
+  display: flex;
+  justify-content: center;
 }
 
 /* ---------- Расширенные опции ---------- */

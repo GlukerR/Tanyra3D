@@ -62,7 +62,11 @@
   const exposureValue = $('exposure-value');
 
   const platformSelect = $('platform-select');
-  const platformDescription = $('platform-description');
+  const platformInfo = $('platform-info');
+
+  const engineSection = $('engine-section');
+  const engineSelect = $('engine-select');
+  const engineInfo = $('engine-info');
 
   const extensionsPanel = $('extensions-panel');
   const extensionsList = $('extensions-list');
@@ -280,6 +284,10 @@
   // Геометрия — взаимоисключающий выбор: 'none' | 'meshopt' | 'draco'.
   let geometryChoice = 'none';
   let platforms = [];
+  // Описание прочерка приходит отдельным полем /api/platforms: это не площадка, а
+  // объяснение выбора БЕЗ неё (числа Khronos — советы, красного тут не бывает).
+  let noPlatform = null;
+  let engines = [];
   let extensions = [];
   // Взаимоисключающие группы — приходят с /api/extensions, объявлены в аддоне.
   // Интерфейс их только применяет: [{ id, members: [...] }].
@@ -452,17 +460,28 @@
       const res = await fetch(`/api/platforms?${langParam()}`);
       const data = await res.json();
       platforms = data.platforms || [];
+      noPlatform = data.noPlatform || null;
       versionLabel.textContent = data.engineVersion ? `core v${data.engineVersion}` : '';
       const menuVersion = document.getElementById('menu-version');
       if (menuVersion) menuVersion.textContent = data.engineVersion ? `Tanyra3D · core v${data.engineVersion}` : 'Tanyra3D';
 
       platformSelect.innerHTML = '';
+      // Прочерк — и он же выбран по умолчанию. Без него первой вставала бы просто первая
+      // площадка по алфавиту: приложение молча заявляло бы цель, которую человек не
+      // называл, вместе с её жёсткими пределами (Shopify отклоняет файл больше 15 МБ).
+      // «Площадка не выбрана» не утверждает ничего и показывает всё, что умеет движок.
+      const none = document.createElement('option');
+      none.value = '';
+      window.I18n.setText(none, 'insp.platform.none');
+      platformSelect.appendChild(none);
+
       for (const p of platforms) {
         const opt = document.createElement('option');
         opt.value = p.id;
         opt.textContent = p.title || p.id;
         platformSelect.appendChild(opt);
       }
+      platformSelect.value = '';
       updatePlatformDescription();
       // Список платформ пуст — выбирать нечего, и загружать опции не под что. Молча
       // оставить панель скрытой нельзя: см. комментарий в loadExtensions().
@@ -470,6 +489,9 @@
         showExtensionsUnavailable('opts.noPlatforms');
         return;
       }
+      // Движки — после площадок: renderEngines() приводит два поля в согласие, а для
+      // этого ему нужен уже заполненный список площадок.
+      await loadEngines();
       loadExtensions(platformSelect.value);
     } catch (e) {
       platformSelect.innerHTML = '<option value="web">Web</option>';
@@ -511,12 +533,17 @@
       const data = await res.json();
       if (!data || !Array.isArray(data.platforms) || !data.platforms.length) return;
       platforms = data.platforms;
+      noPlatform = data.noPlatform || null;
       for (const opt of platformSelect.options) {
         const p = platforms.find((x) => x.id === opt.value);
         if (p) opt.textContent = p.title || p.id;
       }
       if ([...platformSelect.options].some((o) => o.value === chosen)) platformSelect.value = chosen;
       updatePlatformDescription();
+      // Движки называются и описываются в engines/*.json — на другом языке иначе.
+      // Перечитываем их тем же порядком: renderEngines() заново соберёт оба поля, в том
+      // числе строки «нужен другой движок», где подстановкой стоит имя площадки.
+      await loadEngines();
     } catch (e) {
       /* язык подписей платформ остался прежним — не повод рушить интерфейс */
     }
@@ -548,13 +575,165 @@
     renderIntegrity(lastResult);
   }
 
-  function updatePlatformDescription() {
-    const p = platforms.find((x) => x.id === platformSelect.value);
-    platformDescription.textContent = p ? p.description || '' : '';
+  // Описание поля живёт под книжечкой 📖 — той же, что у опций (infoButton/infoTip).
+  // Абзацем под полем два описания превращали правую панель в свиток, который никто не
+  // читает. Значка нет, когда описывать нечего: пустая книжечка обманывает ожидание.
+  function renderFieldInfo(host, item) {
+    infoTip.hide();
+    host.textContent = '';
+    if (!item || !item.description) return;
+    host.appendChild(infoButton(item));
   }
+
+  function updatePlatformDescription() {
+    if (!platformSelect.value) {
+      // У прочерка своя книжечка: там сказано, что жёлтые числа — общие рекомендации
+      // Khronos, то есть совет, а не отказ. Заголовок берём из каталога: подпись
+      // элемента управления принадлежит интерфейсу, а не файлу профиля.
+      renderFieldInfo(platformInfo, noPlatform
+        ? { id: 'none', title: t('insp.platform.none'), description: noPlatform.description }
+        : null);
+      return;
+    }
+    const p = platforms.find((x) => x.id === platformSelect.value);
+    renderFieldInfo(platformInfo, p || null);
+  }
+
+  // ---------------------------------------------------------------
+  // Движок — вторая ось выбора (ARCHITECTURE.md §4g)
+  //
+  // Поля симметричны: выбор площадки приводит движок в согласие, выбор движка
+  // переупорядочивает площадки. Несовместимая пара НЕ прячется и не гасится — площадка
+  // остаётся в списке, а причина стоит прямо в строке. Серая строка без объяснения
+  // отправляет человека искать ответ в интернете; строка с причиной отвечает ему там,
+  // где возник вопрос.
+  // ---------------------------------------------------------------
+
+  async function loadEngines() {
+    try {
+      const res = await fetch(`/api/engines?${langParam()}`);
+      const data = await res.json();
+      engines = Array.isArray(data.engines) ? data.engines : [];
+    } catch (e) {
+      // Сервер мог быть старее интерфейса и не знать про /api/engines. Это не поломка:
+      // поле движка просто не появится, а площадки работают как работали.
+      engines = [];
+    }
+    renderEngines();
+  }
+
+  function renderEngines() {
+    engineSection.classList.toggle('hidden', !engines.length);
+    if (!engines.length) return;
+
+    engineSelect.innerHTML = '';
+    for (const e of engines) {
+      const opt = document.createElement('option');
+      opt.value = e.id;
+      opt.textContent = e.title || e.id;
+      engineSelect.appendChild(opt);
+    }
+    // Движок один — выбирать не из чего, поле заперто. Но ПОКАЗАНО: пара «площадка +
+    // движок» должна быть видна, даже когда вторая половина безальтернативна. Заперто
+    // молча — выглядит поломкой, поэтому подсказка объясняет причину.
+    const single = engines.length === 1;
+    engineSelect.disabled = single;
+    if (single) {
+      window.I18n.setTitle(engineSelect, 'insp.engine.only');
+    } else {
+      engineSelect.removeAttribute('data-i18n-title');
+      engineSelect.removeAttribute('title');
+    }
+    syncEngineToPlatform();
+    syncPlatformsToEngine();
+  }
+
+  function updateEngineDescription() {
+    const e = engines.find((x) => x.id === engineSelect.value);
+    renderFieldInfo(engineInfo, e || null);
+    // «Другой движок — другой вьюпорт» (§4g). Имя реализации приходит из
+    // engines/<id>.json; обвязка сама откажется монтировать незнакомое.
+    //
+    // Смена вступает в силу при следующем создании вьюпорта: уже загруженная модель
+    // продолжает рисоваться прежней реализацией до сброса. Сегодня реализация одна и
+    // случиться этого не может; когда появится вторая — здесь потребуется пересоздание
+    // слотов, и это отмечено, а не забыто.
+    if (e && e.viewer && window.OptiViewer && window.OptiViewer.useViewer) {
+      window.OptiViewer.useViewer(e.viewer);
+    }
+  }
+
+  // Площадка выбрана → поле движка показывает её движок.
+  function syncEngineToPlatform() {
+    if (!engines.length) return;
+    const p = platforms.find((x) => x.id === platformSelect.value);
+    const wanted = p && p.engine;
+    if (wanted && [...engineSelect.options].some((o) => o.value === wanted)) engineSelect.value = wanted;
+    updateEngineDescription();
+  }
+
+  // Движок выбран → площадки переупорядочены: годные сверху, остальные ниже и с
+  // причиной. Список не сокращается — меняется только порядок и подпись.
+  function syncPlatformsToEngine() {
+    if (!engines.length || !platforms.length) return;
+    const engineId = engineSelect.value;
+    const titleOfEngine = (id) => (engines.find((x) => x.id === id) || {}).title || id;
+    const fits = (p) => p.engine === engineId;
+    const chosen = platformSelect.value;
+
+    platformSelect.innerHTML = '';
+    // Прочерк первым: «площадка не выбрана» — такой же выбор, как любая площадка
+    // (решение Александра, 2026-08-10). Человек берёт движок и видит ВСЁ, что тот умеет,
+    // без требований какой-либо витрины. Годится любому движку, поэтому не сортируется
+    // вместе с остальными и не помечается «нужен другой движок».
+    const none = document.createElement('option');
+    none.value = '';
+    window.I18n.setText(none, 'insp.platform.none');
+    platformSelect.appendChild(none);
+
+    for (const p of [...platforms].sort((a, b) => Number(fits(b)) - Number(fits(a)))) {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      if (fits(p)) {
+        opt.textContent = p.title || p.id;
+      } else {
+        // Подпись ставит код — значит помечаем ключом, иначе смена языка откатит её
+        // к ключу из разметки (Правило 8).
+        window.I18n.setText(opt, 'insp.platform.otherEngine', {
+          title: p.title || p.id,
+          engine: titleOfEngine(p.engine),
+        });
+      }
+      platformSelect.appendChild(opt);
+    }
+    if ([...platformSelect.options].some((o) => o.value === chosen)) platformSelect.value = chosen;
+    updatePlatformDescription();
+  }
+
+  engineSelect.addEventListener('change', async () => {
+    updateEngineDescription();
+    // Площадка на другом движке больше не может остаться выбранной: пара «Shopify +
+    // Three.js» не существует, и держать её на экране значит показывать несуществующее
+    // (решение Александра, 2026-08-10). Откатываемся на прочерк — он годится любому
+    // движку и ничего не утверждает. Список площадок при этом не сокращается: выбрать
+    // Shopify по-прежнему можно, и тогда движок догонит её сам, симметрично.
+    const текущая = platforms.find((x) => x.id === platformSelect.value);
+    if (текущая && текущая.engine !== engineSelect.value) {
+      platformSelect.value = '';
+      updatePlatformDescription();
+      logMessage('info', t('log.platform.reset', { platform: текущая.title || текущая.id }));
+    }
+    syncPlatformsToEngine();
+    logMessage('info', t('log.engine', { id: engineSelect.value }));
+    await loadExtensions(platformSelect.value);
+    updateRunButtonState();
+  });
 
   platformSelect.addEventListener('change', async () => {
     updatePlatformDescription();
+    // Симметрия: выбор площадки — тоже выбор движка, просто с другой стороны.
+    syncEngineToPlatform();
+    syncPlatformsToEngine();
     await loadExtensions(platformSelect.value);
     updateRunButtonState();
     logMessage('info', t('log.platform', { id: platformSelect.value }));
@@ -576,7 +755,17 @@
     { titleKey: 'group.textures', kind: 'checks', ids: ['ktx2', 'webp'] },
     { titleKey: 'group.animation', kind: 'checks', ids: ['resample'] },
   ];
-  const NEEDS_DECODER = new Set(['meshopt', 'draco', 'ktx2', 'instance']);
+  // Кому нужен декодер — говорит ДВИЖОК (engines/<id>.json, поле needsDecoder), а не
+  // интерфейс. До 2026-08-10 здесь лежал зашитый список ['meshopt','draco','ktx2',
+  // 'instance']: он был верен ровно для одного движка, а у второго умолчания другие.
+  // Второй список одной правды расходится молча — это уже случалось с EXCLUSIVE_FEATURES.
+  //
+  // Пустое множество, пока опции не пришли: значков просто не будет, а не будут
+  // проставлены наугад.
+  let needsDecoder = new Set();
+  const rememberDecoders = (list) => {
+    needsDecoder = new Set((list || []).filter((e) => e && e.needsDecoder).map((e) => e.id));
+  };
 
   // Взаимоисключающие флажки: включили один — второй гаснет.
   //
@@ -632,14 +821,22 @@
     infoTip.hide();
     extensionsPanel.classList.add('hidden');
     if (decoderLegend) decoderLegend.classList.add('hidden');
-    if (!platformId) return;
+    // Пустая площадка — прочерк, законный выбор: список берётся у движка (§4g). Раньше
+    // здесь стоял выход по !platformId — тогда пустое значение означало «ещё не выбрана».
+    // Выходим, только если спрашивать вообще не о чем: нет ни площадки, ни движка.
+    if (!platformId && !engineSelect.value) return;
 
     let failure = null;
     // Пустой ответ по умолчанию: при провале запроса панель обязана обнулиться, а не
     // остаться с данными предыдущей площадки.
     let fetched = { extensions: [], exclusiveGroups: [], defaults: {} };
     try {
-      const res = await fetch(`/api/extensions?platform=${encodeURIComponent(platformId)}&${langParam()}`);
+      // Движок передаём всегда: при выбранной площадке сервер его игнорирует (движок у
+      // неё свой), а при прочерке — это единственный источник, откуда движок известен.
+      const res = await fetch(
+        `/api/extensions?platform=${encodeURIComponent(platformId)}`
+        + `&engine=${encodeURIComponent(engineSelect.value || '')}&${langParam()}`,
+      );
       const data = await res.json();
       fetched = {
         extensions: (data && data.extensions) || [],
@@ -668,6 +865,9 @@
     extensions = fetched.extensions;
     exclusiveGroups = fetched.exclusiveGroups;
     platformDefaults = fetched.defaults;
+    // Значки ⚠ — из того же ответа, что и сами опции. Иначе движок сменился, а значки
+    // остались от прежнего.
+    rememberDecoders(extensions);
 
     // Раньше оба этих случая заканчивались тихим `return`, и панель оставалась скрытой:
     // расширенные опции «недоступны» выглядели как исчезнувший кусок интерфейса.
@@ -690,7 +890,7 @@
     // Легенда объясняет ⚠ ОДИН раз для всей панели — значок встречается в трёх разных
     // секциях (Structural/Geometry/Textures), поэтому показываем её, только если хотя бы
     // одна из ЭТИХ платформенных опций реально требует декодер.
-    if (decoderLegend) decoderLegend.classList.toggle('hidden', !extensions.some((e) => NEEDS_DECODER.has(e.id)));
+    if (decoderLegend) decoderLegend.classList.toggle('hidden', !extensions.some((e) => needsDecoder.has(e.id)));
     extensionsPanel.classList.remove('hidden');
     // панель пересобрана → дефолты платформы + авто-флажки [Source] + состояние кнопки
     applyDetection(keep);
@@ -912,7 +1112,7 @@
   // Квантование стоит в этой же группе, потому что это третий ответ на тот же вопрос
   // «чем уменьшить геометрию», а не добавка к первым двум: Draco квантует сам, Meshopt
   // тянет то же расширение внутри себя. Единственное отличие — ему не нужен декодер,
-  // поэтому его нет в NEEDS_DECODER и значок ему не ставится.
+  // поэтому движок не помечает его needsDecoder и значок ему не ставится.
   function renderGeometryGroup(byId) {
     if (!byId.meshopt && !byId.draco && !byId.quantize) return null;
     const sec = optSection(t('group.geometry'), 'geometry');
@@ -951,7 +1151,7 @@
       label.appendChild(text);
       head.appendChild(label);
 
-      if (o.ext && NEEDS_DECODER.has(o.ext.id)) head.appendChild(decoderWarning(o.ext.id));
+      if (o.ext && needsDecoder.has(o.ext.id)) head.appendChild(decoderWarning(o.ext.id));
 
       row.appendChild(head);
       if (o.ext) head.appendChild(infoButton(o.ext));
@@ -1001,7 +1201,7 @@
 
     label.appendChild(checkbox);
     label.appendChild(titleSpan);
-    if (NEEDS_DECODER.has(ext.id)) label.appendChild(decoderWarning(ext.id));
+    if (needsDecoder.has(ext.id)) label.appendChild(decoderWarning(ext.id));
 
     head.appendChild(label);
     head.appendChild(infoButton(ext));
@@ -1861,7 +2061,10 @@
     const sourceParam = useSource && currentSourceId ? `&source=${encodeURIComponent(currentSourceId)}` : '';
     // режим KTX2 (UASTC/ETC1S) → texMode; актуален только когда выбран флажок ktx2
     const texParam = features.includes('ktx2') ? `&texMode=${encodeURIComponent(ktx2Mode)}` : '';
-    return `/api/optimize?platform=${encodeURIComponent(platformId)}&job=${encodeURIComponent(jobId)}&${langParam()}${featuresParam}${sourceParam}${texParam}`;
+    // Движок — по тем же основаниям, что и в /api/extensions: при прочерке базовый план
+    // берётся у него, иначе сборка пошла бы с чужими умолчаниями.
+    const engineParam = `&engine=${encodeURIComponent(engineSelect.value || '')}`;
+    return `/api/optimize?platform=${encodeURIComponent(platformId)}${engineParam}&job=${encodeURIComponent(jobId)}&${langParam()}${featuresParam}${sourceParam}${texParam}`;
   }
 
   // Повтор по sourceId — без тела (модель уже на сервере); первый прогон — с телом файла.

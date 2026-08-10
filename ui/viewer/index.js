@@ -37,8 +37,36 @@ import { Viewer } from "./viewer.js";
  * Так смена движка при смене платформы не меняет поведение действий вокруг него —
  * загрузка, сброс, связанные камеры работают одинаково.
  */
+// Реализации, которые приложение действительно везёт с собой. Ключ — то самое имя,
+// которое движок называет полем `viewer` в engines/<id>.json (ARCHITECTURE.md §4g):
+// «другой движок — другой вьюпорт» становится добавлением строки сюда и файла движка,
+// а не правкой обвязки и app.js.
+const VIEWERS = {
+  threejs: (canvas) => new Viewer(canvas),
+};
+
+// Имя реализации, которую монтировать. Пустое значение — единственная сегодняшняя
+// норма: движок мог не назвать вьюпорт, и это не повод остаться без картинки.
+let wantedViewer = 'threejs';
+
+/**
+ * Сказать обвязке, какой вьюпорт монтировать дальше. Незнакомое имя НЕ подставляется
+ * молча: мы бы нарисовали чужим движком и выдали это за верный предпросмотр — а
+ * предпросмотр здесь главное, ради чего приложение существует. Поэтому остаёмся на
+ * прежней реализации и говорим об этом в консоль.
+ */
+function useViewer(id) {
+  if (!id || id === wantedViewer) return wantedViewer;
+  if (!VIEWERS[id]) {
+    console.warn(`[viewer] Движок просит вьюпорт «${id}», а приложение везёт только: ${Object.keys(VIEWERS).join(', ')}. Остаюсь на «${wantedViewer}».`);
+    return wantedViewer;
+  }
+  wantedViewer = id;
+  return wantedViewer;
+}
+
 function createViewer(canvas) {
-  return new Viewer(canvas);
+  return VIEWERS[wantedViewer](canvas);
 }
 
 // Окно замера нагрузки на отрисовку: 60 кадров — примерно секунда на 60-герцовом
@@ -529,6 +557,11 @@ const dual = new DualViewport();
 
 // Глобальный API для классического app.js.
 window.OptiViewer = {
+  // Какие вьюпорты приложение умеет монтировать и какой выбран. Через это поле
+  // движок из engines/<id>.json дотягивается до картинки — см. VIEWERS выше.
+  implementations: () => Object.keys(VIEWERS),
+  useViewer: (id) => useViewer(id),
+  currentViewer: () => wantedViewer,
   loadOriginal: (file) => dual.loadOriginal(file),
   loadOptimized: (url) => dual.loadOptimized(url),
   resetView: () => dual.resetView(),

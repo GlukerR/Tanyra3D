@@ -230,6 +230,32 @@ describe('Настройка сборки приложения', () => {
       expect(idle, `эти правила не совпали ни с одним файлом three — опечатка? ${idle.join(', ')}`).toEqual([]);
     });
 
+    it('каждая папка данных, которую читает движок, попадает в пакет', async () => {
+      const { minimatch } = await import('minimatch');
+      // Введено 2026-08-10 вместе с engines/ (ARCHITECTURE.md §4g). Новая папка данных
+      // молча выпадает из сборки: локально всё работает, а в установленном приложении
+      // список расширений пуст и панель «Дополнительные опции» просто исчезает —
+      // ровно та форма отказа, из-за которой в 0.1.0 уехал мёртвый предпросмотр.
+      //
+      // Список папок не выписан руками, а взят из самого кода: assistant.mjs строит
+      // адреса как path.join(BASE_DIR, '<папка>'). Значит сторож найдёт и следующую
+      // папку, о которой сегодня никто не знает.
+      const src = fs.readFileSync(path.join(ROOT, 'assistant.mjs'), 'utf8');
+      const dirs = [...src.matchAll(/path\.join\(BASE_DIR,\s*'([^']+)'\)/g)].map((m) => m[1]);
+      expect(dirs.length, 'в assistant.mjs не нашлось ни одной папки данных — сторож ослеп').toBeGreaterThan(0);
+
+      const files = (pkg.build?.files || []).filter((p) => typeof p === 'string' && !p.startsWith('!'));
+      const забыты = [...new Set(dirs)].filter((d) => {
+        if (!fs.existsSync(path.join(ROOT, d))) return false; // папки нет — нечего паковать
+        return !files.some((pattern) => minimatch(`${d}/x.json`, pattern, { dot: true }));
+      });
+      expect(
+        забыты,
+        `эти папки движок читает, а в пакет они не попадут: ${забыты.join(', ')}. `
+          + 'Добавить «<папка>/**/*» в build.files. Локально отказ незаметен — папка лежит рядом с кодом.',
+      ).toEqual([]);
+    });
+
     it('пути из выбрасываемых папок возвращены через extraResources', () => {
       const unpackaged = vendorRefs()
         .filter((r) => STRIPPED.test(r))

@@ -90,11 +90,17 @@ describe('Единственное объявление — текст опци�
   it('русский текст опции отличается от английского (перевод есть, а не копия)', () => {
     // Ловит подстановку английской строки вместо перевода: до правки три профиля
     // из четырёх были одноязычными и именно так себя и вели.
+    // Берём список без площадки (прочерк) на ведущем движке: площадки threejs больше
+    // нет — «просто веб» и «без площадки» слиты в один выбор 2026-08-10
+    // (ARCHITECTURE.md §4g). Полный список опций даёт именно прочерк: площадка может
+    // из него вычитать, и проверять перевод стоит на полном.
+    const список = (lang) => getAvailableExtensions('', lang, 'threejs');
     const same = [];
-    for (const e of getAvailableExtensions('threejs', 'ru')) {
-      const en = getAvailableExtensions('threejs', 'en').find((x) => x.id === e.id);
+    for (const e of список('ru')) {
+      const en = список('en').find((x) => x.id === e.id);
       if (e.description && en && e.description === en.description) same.push(e.id);
     }
+    expect(список('ru').length, 'список опций пуст — тест проверяет пустоту').toBeGreaterThan(0);
     expect(same, `описание не переведено: ${same.join(', ')}`).toEqual([]);
   });
 });

@@ -32,6 +32,7 @@ import ruMessages from './messages/ru.mjs';
 
 const BASE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROFILES_DIR = path.join(BASE_DIR, 'profiles');
+const ENGINES_DIR = path.join(BASE_DIR, 'engines');
 
 // ----------------------------------------------------------------------------
 // Язык отчёта
@@ -79,8 +80,57 @@ function profilePath(id) {
   return path.join(PROFILES_DIR, `${safe}.json`);
 }
 
-function loadProfile(platformId) {
-  if (!platformId) throw new Error('No platform specified.');
+// «Площадка не выбрана» — такой же законный выбор, как любая площадка (решение
+// Александра, 2026-08-10). Человек берёт движок и видит ВСЁ, что тот умеет, без
+// требований какой-либо витрины. Прочерк в списке площадок — это он.
+//
+// Сделано синтетическим профилем, а не особым случаем во всех вызовах: ниже по течению
+// (planFor, explainResult, extensionsOf) ничего не меняется — им приходит обычный
+// профиль, просто без бюджетов и без имени.
+export const NO_PLATFORM = '';
+
+// Числа прочерка живут в profiles/_none.json — обычным файлом того же формата, со всеми
+// ссылками на источник. Он помечен enabled: false, поэтому в списке площадок его нет:
+// это не площадка, а общие рекомендации для веба (пороги Khronos glTF Asset Auditor).
+//
+// Раньше они были отдельной площадкой «Веб (Three.js)» — то есть площадкой, названной
+// именем движка. Слито 2026-08-10 по решению Александра: выбор без площадки и «просто
+// веб» — одно и то же, держать их порознь значило спрашивать человека о разнице,
+// которой нет.
+const NONE_DEFAULTS = '_none';
+
+function noneDefaults() {
+  try {
+    const file = profilePath(NONE_DEFAULTS);
+    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    /* файла нет или он битый — прочерк просто останется без рекомендаций */
+  }
+  return {};
+}
+
+function syntheticProfile(engineId, lang = DEFAULT_LANG) {
+  const id = engineId || DEFAULT_ENGINE;
+  const engine = loadEngine(id);
+  const defaults = noneDefaults();
+  return {
+    id: NO_PLATFORM,
+    engine: id,
+    // Имя прочерка — ключ интерфейса (insp.platform.none), а не поле файла: это подпись
+    // элемента управления, и вторая копия той же строки разошлась бы с первой.
+    title: null,
+    description: pick(defaults.description, lang),
+    // Только советы, жёстких пределов тут не бывает и быть не может: отказать в файле
+    // может площадка, а её не выбрали. Сторожит tests/engine-target-split.test.mjs.
+    budgets: defaults.budgets || {},
+    // Базовый план — у движка: он единственный, кто тут вообще что-то знает.
+    baselineOpts: (engine && engine.baselineOpts) || defaults.baselineOpts || {},
+    notes: defaults.notes || [],
+  };
+}
+
+function loadProfile(platformId, engineId, lang = DEFAULT_LANG) {
+  if (!platformId) return syntheticProfile(engineId, lang);
   const file = profilePath(platformId);
   if (!fs.existsSync(file)) {
     const known = listPlatforms().map((p) => p.id).join(', ');
@@ -91,6 +141,105 @@ function loadProfile(platformId) {
   } catch (e) {
     throw new Error(`Profile "${platformId}" is corrupted: ${e.message}`);
   }
+}
+
+// ----------------------------------------------------------------------------
+// Загрузка движков (ARCHITECTURE.md §4g)
+//
+// Движок — вторая ось, равноправная площадке. Ему принадлежит то, что зависит от
+// ЧИТАТЕЛЯ файла: какие расширения вообще предлагать и какой модуль вьюпорта
+// монтировать. Площадке принадлежат лимиты. Раньше список расширений лежал в каждом
+// профиле — четырьмя побайтно одинаковыми копиями.
+//
+// Отсутствующий файл движка — не поломка: список расширений окажется пустым, панель
+// «Расширенные опции» просто не покажется. Это честнее выдуманного списка.
+// ----------------------------------------------------------------------------
+
+const DEFAULT_ENGINE = 'threejs';
+
+function enginePath(id) {
+  const safe = String(id).replace(/[^a-z0-9_-]/gi, '');
+  return path.join(ENGINES_DIR, `${safe}.json`);
+}
+
+function loadEngine(engineId) {
+  const id = engineId || DEFAULT_ENGINE;
+  const file = enginePath(id);
+  if (!fs.existsSync(file)) return null;
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    throw new Error(`Engine "${id}" is corrupted: ${e.message}`);
+  }
+}
+
+// Движок площадки. Профиль обязан называть его явно; фолбэк оставлен на случай
+// профиля, написанного до §4g, — он не должен ронять приложение.
+function engineIdOf(profile) {
+  return (profile && profile.engine) || DEFAULT_ENGINE;
+}
+
+export function listEngines(lang = DEFAULT_LANG) {
+  let files;
+  try {
+    files = fs.readdirSync(ENGINES_DIR).filter((f) => f.endsWith('.json'));
+  } catch {
+    return [];
+  }
+  const out = [];
+  for (const f of files.sort()) {
+    try {
+      const e = JSON.parse(fs.readFileSync(path.join(ENGINES_DIR, f), 'utf8'));
+      if (e && e.id && e.enabled !== false) {
+        out.push({
+          id: e.id,
+          title: pick(e.title, lang) || e.id,
+          description: pick(e.description, lang),
+          viewer: e.viewer || e.id,
+          primary: e.primary === true,
+        });
+      }
+    } catch {
+      /* повреждённый движок просто не показываем — как и профиль */
+    }
+  }
+  // Ведущий движок — первым. Когда площадка не выбрана, выбирать движок больше не по
+  // чему, и алфавит решал бы за человека: «model-viewer» встал бы раньше «threejs»
+  // просто по букве. Признак лежит в данных (primary), а не в коде интерфейса, —
+  // иначе смена ведущего движка потребовала бы правки js.
+  return out.sort((a, b) => Number(b.primary) - Number(a.primary));
+}
+
+// Какие площадки достижимы на этом движке. Нужно для симметрии двух полей (§4g):
+// выбор движка переупорядочивает список площадок ровно так же, как выбор площадки —
+// список движков. Сегодня движок один и ответ всегда полный список; смысл в том, что
+// интерфейс уже спрашивает, а не узнаёт об этом при появлении второго движка.
+// Что показать под книжечкой у прочерка. Не площадка, поэтому и не в listPlatforms():
+// отдельным полем ответа, чтобы список площадок остался списком площадок.
+export function noPlatformInfo(lang = DEFAULT_LANG) {
+  const d = noneDefaults();
+  return { description: pick(d.description, lang) };
+}
+
+export function platformsForEngine(engineId, lang = DEFAULT_LANG) {
+  return listPlatforms(lang).filter((p) => {
+    try {
+      return engineIdOf(loadProfile(p.id)) === engineId;
+    } catch {
+      return false;
+    }
+  });
+}
+
+// Обратная сторона той же симметрии: какие движки годятся для площадки.
+export function enginesForPlatform(platformId, lang = DEFAULT_LANG) {
+  let wanted;
+  try {
+    wanted = engineIdOf(loadProfile(platformId));
+  } catch {
+    return [];
+  }
+  return listEngines(lang).filter((e) => e.id === wanted);
 }
 
 // ----------------------------------------------------------------------------
@@ -170,7 +319,14 @@ export function listPlatforms(lang = DEFAULT_LANG) {
       const p = JSON.parse(fs.readFileSync(path.join(PROFILES_DIR, f), 'utf8'));
       // v0.1.0: показываем только включённые платформы (enabled: true или не указано = true)
       if (p && p.id && p.enabled !== false) {
-        out.push({ id: p.id, title: pick(p.title, lang) || p.id, description: pick(p.description, lang) });
+        // engine — аддитивное поле (§4c): интерфейс держит два поля согласованными,
+        // не делая запрос на каждую площадку по отдельности.
+        out.push({
+          id: p.id,
+          title: pick(p.title, lang) || p.id,
+          description: pick(p.description, lang),
+          engine: engineIdOf(p),
+        });
       }
     } catch {
       /* повреждённый профиль просто не показываем в списке */
@@ -183,10 +339,14 @@ export function listPlatforms(lang = DEFAULT_LANG) {
 // planFor(platformId) — план обработки + объяснение выбора настроек
 // ----------------------------------------------------------------------------
 
-export function planFor(platformId, lang = DEFAULT_LANG) {
+// engineId нужен ТОЛЬКО когда площадка не выбрана: без неё движок больше неоткуда взять,
+// две оси стали по-настоящему независимыми. У выбранной площадки движок свой, и
+// переданное значение игнорируется — иначе можно было бы посчитать план для пары,
+// которой не существует.
+export function planFor(platformId, lang = DEFAULT_LANG, engineId) {
   const t = messages(lang);
   const { fmtInt } = formatters(lang);
-  const profile = loadProfile(platformId);
+  const profile = loadProfile(platformId, engineId, lang);
   // v0.0.8: базовый план строится из baselineOpts (KTX2/Draco выключены);
   // engineOpts — legacy-поле старых профилей, оставлено как фолбэк
   const opts = profile.baselineOpts || profile.engineOpts || {};
@@ -228,7 +388,14 @@ export function planFor(platformId, lang = DEFAULT_LANG) {
     // в этом и смысл: пара «площадка + движок» должна быть видна в данных, а не
     // прятаться в названии вроде «Web (Three.js)» (ARCHITECTURE.md §4g). Когда
     // движков станет несколько, добавление будет данными, а не сменой протокола.
-    engine: profile.engine || 'threejs',
+    engine: engineIdOf(profile),
+    // Как движок называется и какой вьюпорт монтировать — из engines/<id>.json.
+    // null, если файла движка нет: интерфейс покажет площадку без движка, но не
+    // выдумает имя.
+    engineInfo: (() => {
+      const e = loadEngine(engineIdOf(profile));
+      return e ? { id: e.id, title: pick(e.title, lang) || e.id, description: pick(e.description, lang), viewer: e.viewer || e.id } : null;
+    })(),
     engineOpts: { ...opts },
     explanation,
     // аддитивное поле (в рамках правил стабильности §4c): web-interface может взять
@@ -261,8 +428,30 @@ function optionText(id, field, lang, override) {
   return text === key ? '' : text;
 }
 
+// Состав списка берётся у ДВИЖКА (§4g): «читает ли этот проигрыватель KTX2 без
+// декодера» — свойство читателя, а не витрины. Слова к каждому id по-прежнему из
+// core/messages/, здесь только состав.
+//
+// Площадка может ВЫЧЕСТЬ из этого списка, но не задать его (решение Александра,
+// 2026-08-10). Разница существенная: «движок умеет Meshopt» верно на любом сайте, а
+// «декодер на витрине подключён» — свойство конкретного развёртывания. Если бы список
+// задавала площадка, мы вернулись бы к четырём одинаковым копиям, из которых только что
+// ушли.
+//
+// Вычтенное НЕ показывается серым с объяснением, а исчезает совсем. Человеку, выбравшему
+// Shopify, незачем знать про десятки возможностей, которых там нет: правило «показывать,
+// а не прятать» (§4g) написано для ПОЛЕЙ ВЫБОРА, где человек ищет знакомое имя и, не
+// найдя, уходит искать ответ наружу. В списке опций искать нечего — ожидания нет, обмануть
+// его нельзя. Полную палитру движка человек видит, выбрав движок без площадки.
+export function narrowToPlatform(list, profile) {
+  const drop = new Set(Array.isArray(profile && profile.excludeExtensions) ? profile.excludeExtensions : []);
+  return drop.size ? list.filter((e) => !drop.has(e.id)) : list;
+}
+
 function extensionsOf(profile, lang = DEFAULT_LANG) {
-  const list = Array.isArray(profile.availableExtensions) ? profile.availableExtensions : [];
+  const engine = loadEngine(engineIdOf(profile));
+  const all = engine && Array.isArray(engine.availableExtensions) ? engine.availableExtensions : [];
+  const list = narrowToPlatform(all, profile);
   // копии: мутации у потребителя не должны влиять на закешированные профили
   return list.map((e) => ({
     ...e,
@@ -273,8 +462,8 @@ function extensionsOf(profile, lang = DEFAULT_LANG) {
   }));
 }
 
-export function getAvailableExtensions(platformId, lang = DEFAULT_LANG) {
-  return extensionsOf(loadProfile(platformId), lang);
+export function getAvailableExtensions(platformId, lang = DEFAULT_LANG, engineId) {
+  return extensionsOf(loadProfile(platformId, engineId, lang), lang);
 }
 
 // Алиас под имя, которое web-interface (server.mjs) уже ищет у ассистента.
