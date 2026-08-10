@@ -104,11 +104,23 @@ function knownHashes() {
 function verifyHash(name, buf) {
   const actual = createHash('sha256').update(buf).digest('hex');
   const expected = knownHashes()[name];
+  // Нет записи — ОСТАНОВКА, а не предупреждение (ревью 2026-08-10, D3).
+  //
+  // Сначала здесь стояло «скажем громко и продолжим»: рассуждение было, что сборку
+  // ломать жалко, а сторож tests/ktx-manifest.test.mjs всё равно не даст манифесту
+  // разойтись. Рассуждение оказалось неверным: сторож живёт в test.yml, а установщик
+  // собирает release.yml, где НИ ОДНОГО шага с тестами нет. То есть на единственном
+  // раннере, где эта проверка что-то значит, её никто не включал, и ворота стояли
+  // открытыми ровно там, ради чего заводились.
+  //
+  // «Громко в журнал» на CI не работает: журнал успешной сборки никто не читает.
   if (!expected) {
-    say(`  ! ${name} не проверен: в манифесте нет записи`);
-    say(`    сверьте с публикацией Khronos и запишите в манифест:`);
-    say(`      "${name}": "${actual}"`);
-    return;
+    halt([
+      `${name} — в манифесте нет записи, проверить нечем.`,
+      `    посчитанный SHA-256: ${actual}`,
+      '    Сверьте его с публикацией Khronos и внесите в scripts/ktx-manifest.json.',
+      '    Непроверенный бинарник в установщик не кладём.',
+    ].join('\n'));
   }
   if (actual.toLowerCase() !== String(expected).toLowerCase()) {
     halt([
@@ -180,7 +192,11 @@ function checkBinary(binary) {
   } catch (e) {
     die(`${path.relative(root, binary)} не запускается: ${(e.message || '').split('\n')[0]}`);
   }
-  if (!out.includes(VERSION)) {
+  // С границей, а не подстрокой: `'4.4.20'.includes('4.4.2')` — истина, и версия
+  // 4.4.20 прошла бы за 4.4.2. Настоящий вывод инструмента — «ktx version: v4.4.2».
+  // Ревью 2026-08-10 (D7).
+  const versionRe = new RegExp(`v?${VERSION.replace(/\./g, '\\.')}(?![\\d.])`);
+  if (!versionRe.test(out)) {
     halt([
       `${path.relative(root, binary)} — версия не та.`,
       `    ожидали ${VERSION}, инструмент говорит: ${out.trim().split('\n')[0] || '(молчит)'}`,

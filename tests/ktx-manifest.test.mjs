@@ -59,6 +59,28 @@ describe('манифест KTX', () => {
     }
   });
 
+  it('ОТСУТСТВИЕ записи тоже останавливает сборку, а не просто предупреждает', () => {
+    // Ревью 2026-08-10 (D3). Сначала здесь было «скажем громко и продолжим»: расчёт
+    // был на то, что сторож не даст манифесту разойтись. Расчёт неверный — сторож
+    // живёт в test.yml, а установщик собирает release.yml, где тестов не было вовсе.
+    // Ворота стояли открытыми ровно на том раннере, ради которого писались.
+    const src = SCRIPT.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+    const verify = src.slice(src.indexOf('function verifyHash'), src.indexOf('async function download'));
+    const noEntry = verify.slice(verify.indexOf('if (!expected)'));
+    expect(noEntry, 'ветка «нет записи» не останавливает сборку').toMatch(/halt\(/);
+    expect(noEntry.slice(0, noEntry.indexOf('halt(')), 'до halt стоит return — сборка продолжится')
+      .not.toMatch(/\breturn\b/);
+  });
+
+  it('релизный раннер прогоняет этого сторожа перед сборкой', () => {
+    // Иначе всё вышесказанное — украшение: проверять манифест некому.
+    const wf = fs.readFileSync(path.join(ROOT, '.github', 'workflows', 'release.yml'), 'utf8');
+    const bundleAt = wf.indexOf('scripts/bundle-ktx.mjs');
+    expect(bundleAt, 'в release.yml не нашлось шага сборки ktx').toBeGreaterThan(-1);
+    const before = wf.slice(0, bundleAt);
+    expect(before, 'сторож манифеста не гоняется ДО укладки бинарника').toMatch(/ktx-manifest\.test\.mjs/);
+  });
+
   it('несовпадение останавливает сборку и не смягчается --optional', () => {
     // Проверка по исходнику: гонять настоящую сборку в тестах нельзя — она качает
     // мегабайты из сети. Но отличить halt от die можно и здесь, и это ровно та
@@ -74,7 +96,10 @@ describe('манифест KTX', () => {
   it('версия инструмента сверяется, а не только факт запуска', () => {
     const src = SCRIPT.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
     expect(src).toMatch(/function checkBinary/);
-    expect(src, 'версия не сверяется с VERSION').toMatch(/includes\(VERSION\)/);
+    // С границей, а не подстрокой: '4.4.20'.includes('4.4.2') — истина, и версия
+    // 4.4.20 прошла бы за 4.4.2. Ревью 2026-08-10 (D7).
+    expect(src, 'версия не сверяется с VERSION').toMatch(/versionRe\.test\(out\)/);
+    expect(src, 'сверка подстрокой — 4.4.20 пройдёт за 4.4.2').not.toMatch(/out\.includes\(VERSION\)/);
     // и на ОБОИХ путях: уже лежащий файл — тот самый случай, который хешем не ловится
     const calls = (src.match(/checkBinary\(/g) || []).length;
     expect(calls, 'checkBinary зовётся не на обоих путях').toBeGreaterThanOrEqual(3);

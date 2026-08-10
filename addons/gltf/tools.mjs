@@ -162,12 +162,28 @@ const CLI_MAX_BUFFER = 32 * 1024 * 1024;
  */
 export function makeTextCollector(limit = CLI_MAX_BUFFER) {
   const decoder = new StringDecoder('utf8');
-  let acc = '';
-  const cap = (s) => (s.length > limit ? s.slice(s.length - limit) : s);
+  // Куски копим списком и склеиваем один раз в конце. Через `acc = acc + кусок`
+  // получалось квадратично: после переполнения потолка КАЖДАЯ порция расплющивала
+  // всю строку заново. Замер ревьюера на боевом потолке в 32 МБ — 11,7 секунды
+  // полностью занятого event loop, то есть ровно та беда, ради устранения которой
+  // функцию днём раньше переводили на spawn. Ревью 2026-08-10 (D5).
+  const parts = [];
+  let size = 0;
+  const add = (text) => {
+    if (!text) return;
+    parts.push(text);
+    size += text.length;
+    // Держим потолок, выбрасывая куски С НАЧАЛА: причина отказа всегда в хвосте.
+    while (parts.length > 1 && size - parts[0].length >= limit) size -= parts.shift().length;
+  };
+  const joined = () => {
+    const s = parts.join('');
+    return s.length > limit ? s.slice(s.length - limit) : s;
+  };
   return {
-    push(chunk) { acc = cap(acc + decoder.write(chunk)); },
+    push(chunk) { add(decoder.write(chunk)); },
     // Хвост декодера: поток кончился на середине буквы — она дожидается здесь.
-    end() { acc = cap(acc + decoder.end()); return acc; },
+    end() { add(decoder.end()); return joined(); },
   };
 }
 
@@ -202,29 +218,48 @@ export function runCli(args) {
     child.stderr.on('data', (c) => errBuf.push(c));
 
     let timedOut = false;
+    let settled = false;
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill();
     }, CLI_TIMEOUT_MS);
 
-    const fail = (message) => { clearTimeout(timer); reject(new Error(message)); };
+    // Отвечаем на 'exit', а НЕ на 'close' — ревью 2026-08-10 (D1).
+    //
+    // 'close' приходит, когда закрыты все трубы процесса. В ветке с shell:true
+    // (глобальный CLI через .cmd) `child.kill()` убивает саму `cmd.exe`, а её потомок
+    // остаётся жив и держит унаследованные трубы — 'close' не приходит НИКОГДА.
+    // Замер ревьюера: 'exit' через 2 мс, 'close' нет и через двадцать секунд. То есть
+    // потолок в десять минут, ради которого всё это писалось (BUG-007), в этой ветке
+    // не срабатывал вовсе: правило ждало вечно, temp-каталог не убирался, запрос висел.
+    //
+    // Плата за 'exit' — можно не дочитать последние байты вывода. Она мала: сообщение
+    // об отказе почти всегда уже пришло, а зависший навсегда запрос хуже усечённого
+    // текста. Осиротевшего внука мы всё равно не убьём — это оговорено у CLI_TIMEOUT_MS.
+    const settle = (fn) => (...a) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn(...a);
+    };
+    const fail = settle((message) => reject(new Error(message)));
+    const done = settle(() => resolve());
 
     child.on('error', (e) => fail(`gltf-transform ${args[0]} failed:\n    ${e.message}`));
 
-    child.on('close', (code, signal) => {
-      clearTimeout(timer);
+    child.on('exit', (code, signal) => {
       const out = outBuf.end();
       const err = errBuf.end();
       if (timedOut) {
         // при таймауте stderr пуст, а причина — сигнал: без отдельной ветки
         // пользователь увидел бы невнятное «failed» вместо причины
-        reject(new Error(`gltf-transform ${args[0]} превысил ${Math.round(CLI_TIMEOUT_MS / 60_000)} мин и был остановлен`));
+        fail(`gltf-transform ${args[0]} превысил ${Math.round(CLI_TIMEOUT_MS / 60_000)} мин и был остановлен`);
         return;
       }
-      if (code === 0) { resolve(); return; }
+      if (code === 0) { done(); return; }
       const raw = (err + '\n' + out).trim();
       const tail = raw ? raw.split('\n').slice(-10).join('\n    ') : `exit ${code}${signal ? ` (${signal})` : ''}`;
-      reject(new Error(`gltf-transform ${args[0]} failed:\n    ${tail}`));
+      fail(`gltf-transform ${args[0]} failed:\n    ${tail}`);
     });
   });
 }

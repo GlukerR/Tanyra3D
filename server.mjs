@@ -245,13 +245,38 @@ const MAX_KEPT_RUNS = 3;
 // файлов: у двух прогонов, начатых в одну миллисекунду, время совпадёт.
 const sourceRuns = new Map();
 
+// Прогоны, которые прямо сейчас пишут в свои папки. Их убирать нельзя ни при каких
+// обстоятельствах — ревью 2026-08-10 (D2): сначала уборка вызывалась ДО optimizeFile,
+// и четвёртый одновременный прогон одной модели сносил каталог первого, пока тот в него
+// писал. Замер ревьюера: пять параллельных прогонов BoomBox — двое падали с ENOENT.
+const activeRuns = new Set();
+
+const runKey = (sourceId, runId) => `${sourceId}/${runId}`;
+
+/**
+ * Записать прогон в учёт и убрать лишние.
+ *
+ * Зовётся ПОСЛЕ того, как прогон закончил писать. Пока идут пять параллельных, никто
+ * никого не трогает; когда закончатся — останутся три последних, как и задумано.
+ */
 async function rememberRun(sourceId, runId) {
   const runs = sourceRuns.get(sourceId) || [];
   runs.push(runId);
   sourceRuns.set(sourceId, runs);
+
+  // Идём с начала, пропуская тех, кто ещё работает: удалить их нельзя, а прерывать
+  // уборку из-за одного занятого — значит копить остальные.
   while (runs.length > MAX_KEPT_RUNS) {
-    const old = runs.shift();
-    await fsp.rm(path.join(RESULTS_DIR, sourceId, old), { recursive: true, force: true }).catch(() => {});
+    const victim = runs.find((id) => !activeRuns.has(runKey(sourceId, id)));
+    if (!victim) break; // все лишние ещё пишут — уберём их следующий раз
+    const ok = await fsp.rm(path.join(RESULTS_DIR, sourceId, victim), { recursive: true, force: true })
+      .then(() => true)
+      .catch(() => false);
+    // Из учёта выбрасываем ТОЛЬКО удалённое. Не удалилось (на Windows файл занят) —
+    // оставляем в списке: иначе каталог выпадает из учёта и не будет убран никогда.
+    // Ревью 2026-08-10 (D8).
+    if (!ok) break;
+    runs.splice(runs.indexOf(victim), 1);
   }
 }
 
@@ -486,7 +511,15 @@ function originAllowed(req) {
   const origin = req.headers.origin;
   // Origin нет — значит это не кросс-страница из браузера (обычный GET, curl, само
   // окно приложения). Проверять нечего, а Host выше уже сказал главное.
-  if (!origin || origin === 'null') return true;
+  if (!origin) return true;
+  // А вот строка «null» — это НЕ «нет источника». Так браузер называет источник
+  // непрозрачный: страница из `<iframe sandbox>`, `data:`, локальный файл. Чужой сайт
+  // может открыть такой iframe и стучаться к нам из него. Ответ он не прочитает
+  // (заголовков CORS мы не шлём), но записи проходили: сжечь процессор и диск на
+  // чужой машине этого хватает, а порт 3210 угадывается.
+  // Ревью 2026-08-10 (D4). Окно приложения сюда не попадает — оно грузится с
+  // http://127.0.0.1:порт и шлёт обычный origin.
+  if (origin === 'null') return false;
   try { return LOOPBACK.has(new URL(origin).hostname); } catch { return false; }
 }
 
@@ -817,7 +850,11 @@ const server = http.createServer(async (req, res) => {
       const runId = randomUUID();
       const outDir = path.join(RESULTS_DIR, sourceId, runId);
       await fsp.mkdir(outDir, { recursive: true });
-      await rememberRun(sourceId, runId);
+
+      // Пока прогон идёт, его папку не трогает никто. Учёт и уборка лишнего — ПОСЛЕ,
+      // в finally: до 2026-08-10 уборка звалась здесь, и четвёртый одновременный
+      // прогон одной модели сносил каталог первого прямо во время записи.
+      activeRuns.add(runKey(sourceId, runId));
 
       let result;
       try {
@@ -834,6 +871,9 @@ const server = http.createServer(async (req, res) => {
         console.error('[optimize] exception during processing:', e);
         sendJSON(res, 500, { error: 'Could not process the model: ' + e.message });
         return;
+      } finally {
+        activeRuns.delete(runKey(sourceId, runId));
+        await rememberRun(sourceId, runId);
       }
 
       const explain = explainResultSafe(result, platformId, langOf(url));
