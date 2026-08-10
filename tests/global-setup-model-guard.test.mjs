@@ -174,3 +174,81 @@ describe('globalSetup не падает из-за локальной модел�
     expect(violations).toEqual([])
   })
 })
+
+// ---------------------------------------------------------------------------
+// Тот же класс, но в обычных тестах. Добавлено 2026-08-10, после того как история
+// повторилась: tests/run-isolation.test.mjs читал BoomBox.glb напрямую через
+// path.join(ROOT, 'fixtures', 'models', ...). У автора модель на диске есть, в
+// репозитории её нет (эталон Khronos, чужая лицензия) — тест был зелёным локально и
+// красным на раннере GitHub. Сторож выше это пропустил: он смотрит только globalSetup.
+//
+// Что считается ссылкой на модель: имя файла .glb/.gltf литералом внутри modelPath()
+// или path.join/resolve, где рядом стоит fixtures-путь. Имена, собранные из переменных,
+// сюда не попадают — их и не проверить статически.
+//
+// Страховкой считается ЛЮБОЕ упоминание проверки присутствия в файле. Проверка грубая:
+// она не сверяет, что страховка накрывает именно эту модель. Это осознанный размен —
+// точная проверка требует разбора области видимости, а грубая ловит ровно тот случай,
+// который уже дважды стоил красного CI: модель читают, не подумав о чистом клоне.
+// ---------------------------------------------------------------------------
+
+const GRACEFUL = /isPresent|describeLocal|describeIfModels|itIfModel|eachModel|modelPresent|itWithModels|existsSync|skipIf/
+
+/** Строки кода без строк-комментариев: имя модели в пояснении ссылкой не считается. */
+function codeLines(source) {
+  return source.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+}
+
+/** Имена констант, которые указывают в fixtures. */
+function fixtureConsts(source) {
+  const out = new Set()
+  for (const m of source.matchAll(/const\s+([A-Za-z_$][\w$]*)\s*=\s*([^\n;]+)/g)) {
+    if (/fixtures/.test(m[2])) out.add(m[1])
+  }
+  return out
+}
+
+/** Модели, которые файл читает из fixtures/models. */
+function fixtureModelRefs(source) {
+  const code = codeLines(source)
+  const consts = fixtureConsts(code)
+  const names = new Set()
+  for (const call of code.matchAll(/(?:modelPath|path\.(?:join|resolve))\s*\(([^)]*)\)/g)) {
+    const args = call[1]
+    const literal = args.match(/['"`]([^'"`\n]+\.(?:glb|gltf))['"`]/)
+    if (!literal) continue
+    const intoFixtures = /fixtures/.test(args)
+      || /^modelPath/.test(call[0])
+      || [...consts].some((c) => new RegExp(`\\b${c}\\b`).test(args))
+    if (intoFixtures) names.add(literal[1])
+  }
+  return names
+}
+
+describe('обычные тесты не читают модель, которой нет на чистом клоне', () => {
+  const testFiles = fs.readdirSync(path.resolve(PROJECT_ROOT, 'tests'))
+    .filter((f) => f.endsWith('.test.mjs'))
+
+  it(`тестовые файлы найдены (${testFiles.length})`, () => {
+    expect(testFiles.length).toBeGreaterThan(10)
+  })
+
+  it('модель вне REPO_MODELS читается только при наличии проверки присутствия', () => {
+    const violations = []
+
+    for (const file of testFiles) {
+      const source = fs.readFileSync(path.resolve(PROJECT_ROOT, 'tests', file), 'utf-8')
+      const risky = [...fixtureModelRefs(source)].filter((n) => !REPO_MODELS.has(n))
+      if (!risky.length) continue
+      if (GRACEFUL.test(codeLines(source))) continue
+      violations.push(
+        `${file}: читает ${risky.join(', ')} из fixtures/models без проверки присутствия. `
+          + 'В git этих моделей нет — на чистом клоне и на раннере это ENOENT. '
+          + 'Взять модель из REPO_MODELS (tests/helpers/model-files.mjs) '
+          + 'или обернуть в describeLocal/itIfModel.',
+      )
+    }
+
+    expect(violations).toEqual([])
+  })
+})

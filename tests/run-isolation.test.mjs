@@ -16,9 +16,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { modelPath } from './helpers/model-files.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const MODEL = path.join(ROOT, 'fixtures', 'models', 'BoomBox.glb');
+// Модель из REPO_MODELS — она коммитится в git и есть на чистом клоне.
+// Сначала здесь стоял BoomBox.glb: у автора на диске он есть, в репозитории его нет
+// (эталон Khronos, чужая лицензия), и на раннере GitHub тест падал с ENOENT — зелёный
+// локально, красный у всех остальных. Что именно за модель, проверке безразлично:
+// изоляция прогонов от содержимого файла не зависит. Имя с пробелом — бесплатный
+// довесок: оно заодно проходит через заголовок x-filename.
+const MODEL_NAME = 'Dirty Cube 01.glb';
+const MODEL = modelPath(MODEL_NAME);
 
 let child;
 let port;
@@ -85,7 +93,7 @@ describe('прогоны одной модели изолированы', () => 
     const bytes = fs.readFileSync(MODEL);
 
     // Первый прогон — без сжатия геометрии.
-    const first = await optimize(bytes, 'BoomBox.glb', 'platform=&lang=ru');
+    const first = await optimize(bytes, MODEL_NAME, 'platform=&lang=ru');
     expect(first.downloadUrl, 'первый прогон не дал ссылки').toBeTruthy();
     const sourceId = first.sourceId;
 
@@ -96,7 +104,7 @@ describe('прогоны одной модели изолированы', () => 
 
     // Второй прогон ТОЙ ЖЕ модели, с другими настройками. sourceId передаётся —
     // именно этот путь раньше и писал поверх.
-    const second = await optimize(bytes, 'BoomBox.glb',
+    const second = await optimize(bytes, MODEL_NAME,
       `platform=&lang=ru&source=${encodeURIComponent(sourceId)}&features=quantize`);
     expect(second.sourceId).toBe(sourceId);
     expect(second.downloadUrl).toBeTruthy();
@@ -117,12 +125,12 @@ describe('прогоны одной модели изолированы', () => 
 
   it('прогоны копятся не бесконечно — старые стираются', async () => {
     const bytes = fs.readFileSync(MODEL);
-    const first = await optimize(bytes, 'BoomBox.glb', 'platform=&lang=ru');
+    const first = await optimize(bytes, MODEL_NAME, 'platform=&lang=ru');
     const sourceId = first.sourceId;
 
     const urls = [first.downloadUrl];
     for (let i = 0; i < 4; i++) {
-      const r = await optimize(bytes, 'BoomBox.glb',
+      const r = await optimize(bytes, MODEL_NAME,
         `platform=&lang=ru&source=${encodeURIComponent(sourceId)}`);
       urls.push(r.downloadUrl);
     }
