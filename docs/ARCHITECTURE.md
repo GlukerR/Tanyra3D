@@ -928,14 +928,44 @@ built when the second engine arrives.
 ### Known inaccuracies, deliberately left for when a second engine is real
 
 - `profiles/shopify.json` says `"engine": "threejs"`. Strictly this is wrong: a Shopify
-  storefront renders 3D through Google's **model-viewer** — a fixed wrapper over Three.js
-  with its own set of what it reads, and not something the artist may swap. The correct value
-  is `model-viewer`, but there is no such engine yet and no viewer module behind the name, so
-  writing it now would be a claim the code cannot honour. Fix it together with
-  `engines/<id>.json`. The profile is disabled meanwhile, so nothing depends on it.
-- The sample sentence above — "Draco will not open here" — illustrates the *shape* of an
-  on-the-spot explanation, not a verified fact: model-viewer does load Draco, KTX2 and
-  Meshopt decoders. Verify against a live storefront before any such wording reaches a user.
+  storefront renders 3D through Google's **model-viewer**, not through three.js directly. The
+  correct value is `model-viewer`, but there is no such engine yet and no viewer module behind
+  the name, so writing it now would be a claim the code cannot honour. Fix it together with
+  `engines/model-viewer.json`. The profile is disabled meanwhile, so nothing depends on it.
+- The sample sentence above — "Draco will not open here" — is **false**, and is kept only as
+  an illustration of the *shape* of an on-the-spot explanation. Checked 2026-08-10 (sources
+  below): model-viewer supports Draco, KTX2/Basis and Meshopt. Do not reuse the wording.
+
+### What model-viewer actually is (checked 2026-08-10)
+
+This matters because it decides what `engines/model-viewer.json` will contain, and because the
+easy answer — "Shopify is not a three.js target" — is misleading.
+
+- **model-viewer is three.js.** `packages/model-viewer/package.json` declares
+  `"three": "^0.183.0"` as a **peerDependency**. It is a web component wrapping three.js with a
+  pinned version range, not a competing renderer.
+- **Shopify's storefront uses it.** Shopify's own docs point at Google's `<model-viewer>`
+  component; Hydrogen's `ModelViewer` pins `@google/model-viewer` 1.21.1.
+- **It reads all three compressions — but not with the same defaults**
+  (`modelviewer.dev/examples/loading/`):
+  - Draco — supported; decoder fetched from a Google CDN on demand. Overridable via
+    `ModelViewerElement.dracoDecoderLocation`.
+  - KTX2 / Basis — supported; auxiliary decoder from the CDN on demand, via
+    `ktx2TranscoderLocation`.
+  - **Meshopt — supported but OFF by default.** The decoder is only used if
+    `meshoptDecoderLocation` is set before the first element is created.
+
+**The consequence for us, unresolved.** Every profile's `baselineOpts` uses
+`"codec": "meshopt"`, including `shopify.json`. If a Shopify storefront does not set
+`meshoptDecoderLocation`, a Meshopt file we produce for that target will not open there —
+while the same file is fine on a plain three.js page that registers the decoder. This is a
+difference in **engine defaults**, exactly the kind of fact the engine table exists to hold,
+and it is the strongest evidence so far that splitting engine from target was the right call.
+Not acted on: `shopify.json` is disabled, and the claim needs testing against a live
+storefront before it drives a default.
+
+Sources: `raw.githubusercontent.com/google/model-viewer/master/packages/model-viewer/package.json`,
+`modelviewer.dev/examples/loading/`, `shopify.dev/docs/api/hydrogen/2024-04/components/media/modelviewer`.
 - `GET /api/extensions` accepts an `engine=` parameter, defaulting to the target's engine.
   The request shape is ready before a second engine exists, so adding one is data, not a
   protocol change.
