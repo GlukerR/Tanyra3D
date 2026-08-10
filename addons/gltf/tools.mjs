@@ -3,9 +3,15 @@
 // отдельный формат: KTX2-кодирование идёт через gltf-transform CLI + toktx, оба нужны
 // только правилу textures/ktx2. Вынесено из optimize2.mjs без изменения логики.
 
-import { execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+// fileURLToPath, а не `.pathname` вручную: `.pathname` отдаёт URL-строку, где пробел
+// закодирован как %20, а кириллица — процентами. Для `C:\Program Files\Tanyra3D` это
+// значило «CLI не найден», и разбираться приходилось уже по отказу KTX2. Снятие
+// префикса `/` регуляркой лечило только букву диска и молчало про всё остальное.
+// Ревью 2026-08-10 (P1.2).
+import { fileURLToPath } from 'node:url';
 
 // ---------- поиск внешних инструментов ----------
 function findInPath(names) {
@@ -28,7 +34,7 @@ function findInPath(names) {
 function findLocalCli() {
   try {
     const pkgJson = new URL('../../node_modules/@gltf-transform/cli/package.json', import.meta.url);
-    const dir = path.dirname(pkgJson.pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+    const dir = path.dirname(fileURLToPath(pkgJson));
     if (!fs.existsSync(path.join(dir, 'package.json'))) return null;
     return dir;
   } catch {
@@ -85,7 +91,7 @@ export const HAS_GLTF_CLI = Boolean(GLTF_CLI_JS || GLTF_CLI);
 // должен. Нет переменной — прежнее поведение, папка `.tools/` в корне проекта.
 function findInTools() {
   const dir0 = process.env.TANYRA_TOOLS_DIR
-    || new URL('../../.tools/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+    || fileURLToPath(new URL('../../.tools/', import.meta.url));
   if (!fs.existsSync(dir0)) return null;
   const stack = [dir0];
   while (stack.length) {
@@ -126,34 +132,74 @@ if (TOKTX) {
   if (!(childEnv[pathKey] || '').includes(dir)) childEnv[pathKey] = dir + path.delimiter + (childEnv[pathKey] || '');
 }
 
-// Потолок на внешний CLI (BUG-007). `execFileSync` синхронный, а сервер зовёт
-// optimizeFile прямо в обработчике запроса — зависший toktx (битая текстура, нехватка
-// памяти, драйверный баг) вешает не одну задачу, а весь event loop: ни SSE, ни другие
-// запросы. Без timeout ждать нечего — процесс не вернётся никогда.
+// Потолок на внешний CLI (BUG-007). Зависший toktx (битая текстура, нехватка памяти,
+// драйверный баг) без потолка не вернётся никогда, и задача повиснет навсегда.
 // Оговорка: в ветке с shell:true убивается .cmd-обёртка, сам toktx может пережить её;
 // но пайплайн уже не ждёт его, а temp-каталог сносится в finally у правила.
 const CLI_TIMEOUT_MS = 10 * 60_000;
-// Дефолтный maxBuffer у execFileSync — 1 МБ. Болтливый вывод CLI на модели с сотней
-// текстур упирается в него и падает с ENOBUFS, что выглядит как сбой кодирования.
+// Потолок на собранный вывод. Болтливый CLI на модели с сотней текстур иначе копит
+// мегабайты текста, из которого нужны последние десять строк.
 const CLI_MAX_BUFFER = 32 * 1024 * 1024;
 
+/**
+ * Запуск gltf-transform CLI для фазы KTX2 (кодирование через toktx).
+ *
+ * АСИНХРОННЫЙ. Раньше здесь стоял `execFileSync`, и это значило вот что: сервер зовёт
+ * optimizeFile прямо в обработчике запроса, а кодирование текстур идёт минутами.
+ * Всё это время event loop занят — прогресс по SSE замирает на месте, вторая модель
+ * ждёт своей очереди молча, отменить нельзя, и со стороны программа выглядит зависшей.
+ * Таймаут выше эту беду ограничивал десятью минутами, но не убирал.
+ * Ревью 2026-08-10 (P1.1).
+ *
+ * Поведение при отказе оставлено прежним дословно: те же два сообщения, тот же хвост
+ * вывода. Менялся способ ожидания, а не то, что видит человек.
+ */
 export function runCli(args) {
-  // gltf-transform CLI для фазы KTX2 (кодирование через toktx)
-  const base = { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'], timeout: CLI_TIMEOUT_MS, maxBuffer: CLI_MAX_BUFFER };
-  try {
-    if (GLTF_CLI_JS) {
-      execFileSync(process.execPath, [GLTF_CLI_JS, ...args], base);
-    } else {
-      execFileSync(GLTF_CLI, args, { ...base, shell: GLTF_CLI.endsWith('.cmd') });
-    }
-  } catch (e) {
-    // при таймауте stderr пуст, а e.message — про сигнал: без отдельной ветки
-    // пользователь увидел бы невнятное «failed» вместо причины
-    if (e.killed && e.signal) {
-      throw new Error(`gltf-transform ${args[0]} превысил ${Math.round(CLI_TIMEOUT_MS / 60_000)} мин и был остановлен`);
-    }
-    const raw = ((e.stderr || '') + '\n' + (e.stdout || '')).toString().trim();
-    const tail = raw ? raw.split('\n').slice(-10).join('\n    ') : e.message;
-    throw new Error(`gltf-transform ${args[0]} failed:\n    ${tail}`);
-  }
+  const useNode = Boolean(GLTF_CLI_JS);
+  const file = useNode ? process.execPath : GLTF_CLI;
+  const argv = useNode ? [GLTF_CLI_JS, ...args] : args;
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(file, argv, {
+      env: childEnv,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: !useNode && GLTF_CLI.endsWith('.cmd'),
+    });
+
+    // Вывод копим с потолком — тот же смысл, что был у maxBuffer: болтливый CLI на
+    // модели с сотней текстур иначе съедает память ради текста, который нужен только
+    // последними десятью строками. Хвост важнее начала, поэтому режем начало.
+    let out = '';
+    let err = '';
+    const add = (acc, chunk) => {
+      const s = acc + chunk.toString();
+      return s.length > CLI_MAX_BUFFER ? s.slice(s.length - CLI_MAX_BUFFER) : s;
+    };
+    child.stdout.on('data', (c) => { out = add(out, c); });
+    child.stderr.on('data', (c) => { err = add(err, c); });
+
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, CLI_TIMEOUT_MS);
+
+    const fail = (message) => { clearTimeout(timer); reject(new Error(message)); };
+
+    child.on('error', (e) => fail(`gltf-transform ${args[0]} failed:\n    ${e.message}`));
+
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        // при таймауте stderr пуст, а причина — сигнал: без отдельной ветки
+        // пользователь увидел бы невнятное «failed» вместо причины
+        reject(new Error(`gltf-transform ${args[0]} превысил ${Math.round(CLI_TIMEOUT_MS / 60_000)} мин и был остановлен`));
+        return;
+      }
+      if (code === 0) { resolve(); return; }
+      const raw = (err + '\n' + out).trim();
+      const tail = raw ? raw.split('\n').slice(-10).join('\n    ') : `exit ${code}${signal ? ` (${signal})` : ''}`;
+      reject(new Error(`gltf-transform ${args[0]} failed:\n    ${tail}`));
+    });
+  });
 }

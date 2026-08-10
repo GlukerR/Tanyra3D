@@ -336,6 +336,16 @@ const PHRASE_WHITELIST = {
   'textures → WebP (EXT_texture_webp; smaller file, video memory unchanged)': 'ADVANCED_FEATURES — текст ошибки API',
   'removal of painted vertex colors (lossy)': 'ADVANCED_FEATURES — текст ошибки API',
   'Unknown advancedFeatures: ': 'префикс той же ошибки API — адресат вызывающий код, не человек',
+
+  // orderRules() — ошибки НАСТРОЙКИ ПРОГРАММЫ, не работы с моделью. Добавлены
+  // 2026-08-10 по ревью (P0.4): раньше опечатка в runAfter молча меняла порядок
+  // применения transforms. Дойти до человека они не могут: порядок строится один раз
+  // при сборке набора правил, до всякой модели, и любая такая ошибка валит тесты
+  // (tests/fail-closed.test.mjs) задолго до выпуска. Тот же класс, что 'Unknown
+  // advancedFeatures' выше: адресат — тот, кто пишет правило.
+  'unknown runAfter dependency "': 'orderRules — ошибка настройки, адресат автор правила',
+  'duplicate runAfter dependency "': 'orderRules — ошибка настройки, адресат автор правила',
+  '" depends on itself in runAfter': 'orderRules — ошибка настройки, адресат автор правила',
   ' · strip-vertex-colors': 'имя CLI-флага в шапке отчёта, а не фраза: переводить имя флага нельзя',
 };
 describe('Правило 8 — раздел 2: статический скан кода движка', () => {

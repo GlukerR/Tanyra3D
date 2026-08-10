@@ -23,7 +23,7 @@ register('ru', ruCoreMessages);
 // Общий словарь движка и аддона (ARCH-001): политика автофикса, engine/*-находки,
 // сверка baseline-checkpoint. Аддон берёт их оттуда же, а не из движка — иначе
 // связь двусторонняя: движок зовёт аддон, аддон импортирует внутренности движка.
-import { TIER_RANK, AUTOFIX_MAX_TIER, ENGINE_META, compareBaseline } from './contract.mjs';
+import { TIER_RANK, AUTOFIX_MAX_TIER, ENGINE_META, compareBaseline, isKnownTier } from './contract.mjs';
 
 // Реэкспорт: снаружи движок по-прежнему отдаёт эти имена, менять импорты незачем.
 export { AUTOFIX_MAX_TIER, ENGINE_META, compareBaseline };
@@ -71,14 +71,32 @@ const skipLine = (meta, reason) => ({
 });
 
 // Топологическая сортировка по meta.runAfter (устойчивая: при равенстве — порядок массива).
-// Зависимости на выключенные правила считаются выполненными.
+//
+// Список приходит ПОЛНЫЙ (все правила аддона) — выключенные отсеиваются позже, на прогоне.
+// Значит зависимость, которой нет в списке, — не «выключённая», а опечатка. Раньше такая
+// считалась выполненной, и `geometry/dedpe` вместо `geometry/dedupe` давал не ошибку
+// настройки, а ТИХО ДРУГОЙ ПОРЯДОК — при том, что у части transforms порядок жёсткий и
+// менять его нельзя. Найдено ревью 2026-08-10 (P0.4).
+//
+// Ошибка здесь — про сборку программы, а не про модель человека: до пользователя дойти
+// не может, её ловят тесты. Поэтому исключение, а не пропуск правила.
 export function orderRules(rules) {
   const ids = new Set(rules.map((r) => r.meta.id));
+  for (const r of rules) {
+    const deps = r.meta.runAfter || [];
+    const seen = new Set();
+    for (const d of deps) {
+      if (!ids.has(d)) throw new Error(`unknown runAfter dependency "${d}" in rule "${r.meta.id}"`);
+      if (d === r.meta.id) throw new Error(`rule "${r.meta.id}" depends on itself in runAfter`);
+      if (seen.has(d)) throw new Error(`duplicate runAfter dependency "${d}" in rule "${r.meta.id}"`);
+      seen.add(d);
+    }
+  }
   const done = new Set();
   const pending = [...rules];
   const out = [];
   while (pending.length) {
-    const i = pending.findIndex((r) => (r.meta.runAfter || []).every((d) => !ids.has(d) || done.has(d)));
+    const i = pending.findIndex((r) => (r.meta.runAfter || []).every((d) => done.has(d)));
     if (i === -1) throw new Error(`cycle in runAfter: ${pending.map((r) => r.meta.id).join(', ')}`);
     const [r] = pending.splice(i, 1);
     done.add(r.meta.id);
@@ -90,6 +108,18 @@ export function orderRules(rules) {
 // ============================================================================
 // ПРОГОН ОДНОГО ФАЙЛА через аддон. Возвращает RunResult (контракт §4b).
 // Исключения наружу не летят: превращаются в status:'fail'.
+//
+// ДВА РАЗНЫХ «fail», и путать их нельзя (ревью 2026-08-10, P1.4):
+//
+//   1. Прогон не дошёл до конца — модель не читается, опция неизвестна, упало по дороге.
+//      Признак: `result.error` заполнен. Файла нет, `file.written === false`.
+//   2. Прогон дошёл, а результат не прошёл проверку целостности.
+//      Признак: `error` пуст, `validation` содержит запись `level:'fail'`,
+//      `file.written === true` — файл НА ДИСКЕ ЕСТЬ.
+//
+// Второе — намеренно (решение Александра 2026-07-30, см. фазу 5): отказ должен быть
+// громким, а не запирающим. Спрашивающему «есть ли файл» отвечает `file.written`,
+// а не статус: статус говорит о доверии к результату.
 // ============================================================================
 export async function runOptimize(addon, srcPath, opts = {}) {
   const src = path.resolve(String(srcPath));
@@ -177,12 +207,18 @@ async function runFile(addon, src, dstName, o, result) {
     }
   };
   // over — переопределение полей обратимости для отдельных строк (lossy-ветки правил,
-  // см. res.irreversible): базовое поведение правила может быть без потерь, а форсированное — нет
+  // см. res.irreversible): базовое поведение правила может быть без потерь, а форсированное — нет.
+  //
+  // fixSafety тоже переопределяется (ревью 2026-08-10, P1.5). Раньше он всегда брался
+  // из meta, и запись о РАЗРУШИТЕЛЬНОЙ ветке несла ярлык безопасной: удаление
+  // раскрашенных vertex colors отчитывалось как «provable», хотя человек только что
+  // потерял данные. Ярлык в отчёте — не украшение: по нему интерфейс решает, что
+  // показать перед выгрузкой.
   const addApplied = (meta, v, over = {}) => {
     for (const e of entriesOf(v, locale)) {
       result.applied.push(withRefs({
         ruleId: meta.id,
-        fixSafety: meta.fixSafety,
+        fixSafety: over.fixSafety ?? meta.fixSafety,
         reversible: over.reversible ?? meta.reversible ?? false,
         dataLoss: over.dataLoss ?? meta.dataLoss ?? 'none',
         text: e.text,
@@ -285,6 +321,14 @@ async function runFile(addon, src, dstName, o, result) {
         continue;
       }
       const tier = finding.fixSafety || rule.meta.fixSafety;
+      // Неизвестный уровень не пропускаем даже по force: force — это «я знаю, что этот
+      // фикс lossy, и всё равно хочу», а не «применяй что попало». Про уровень, которого
+      // движок не знает, никто ничего не знает.
+      if (!isKnownTier(tier)) {
+        const reason = { messageId: 'engine.policy.unknownSafetyLevel', data: { tier: String(tier) } };
+        addSkipped(rule.meta, skipLine(rule.meta, reason), reason, 'policy');
+        continue;
+      }
       if (TIER_RANK[tier] > TIER_RANK[AUTOFIX_MAX_TIER] && !decision.force) {
         const reason = { messageId: 'engine.policy.safetyLevel', data: { tier } };
         addSkipped(rule.meta, skipLine(rule.meta, reason), reason, 'policy');
@@ -324,8 +368,17 @@ async function runFile(addon, src, dstName, o, result) {
       // на галочку, которая эту цену назначила (поле feature).
       addSkipped(rule.meta, res.cost, undefined, 'cost');
       addApplied(rule.meta, res.details ?? res.detail);
-      // строки с безвозвратной потерей данных (§4d) — UI предупредит перед скачиванием
-      addApplied(rule.meta, res.irreversible, { reversible: false, dataLoss: 'significant' });
+      // Строки с безвозвратной потерей данных (§4d) — UI предупредит перед скачиванием.
+      //
+      // Уровень безопасности такой строки правило называет само (res.irreversibleSafety).
+      // Единого ответа тут нет: у «объединить меши» потеря структурная, но пиксели те
+      // же — это не lossy; у «удалить раскрашенные цвета» данные исчезли совсем.
+      // Не сказало — остаётся уровень правила, как было до 2026-08-10.
+      addApplied(rule.meta, res.irreversible, {
+        reversible: false,
+        dataLoss: 'significant',
+        fixSafety: res.irreversibleSafety,
+      });
     }
   };
 

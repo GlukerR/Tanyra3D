@@ -39,4 +39,5 @@ export default {
 
   // --- policy ---
   'engine.policy.safetyLevel': ({ tier }) => `уровень безопасности "${tier}" не применяется автоматически`,
+  'engine.policy.unknownSafetyLevel': ({ tier }) => `движок не знает уровня безопасности "${tier}" — правило пропущено`,
 };

@@ -18,6 +18,9 @@ const { app, BrowserWindow, shell, dialog } = require('electron');
 const { fork } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
+// Свой адрес или чужой — отдельным модулем: он не зависит от electron и потому
+// проверяется тестами напрямую, а не пересказом по исходнику.
+const { isOwnPage, isExternalWeb } = require('./url-policy.cjs');
 
 // Корень спрашиваем у Electron, а не вычисляем сами. Он разный в трёх случаях —
 // запуск из исходников, собранный пакет с asar, собранный без него, — и угадывать
@@ -34,6 +37,9 @@ const TOOLS_DIR = app.isPackaged
 
 let serverProcess = null;
 let mainWindow = null;
+// Адрес работающего движка. Нужен, чтобы при повторном открытии окна показать ТОТ ЖЕ
+// сервер, а не поднимать второй (см. app.on('activate')).
+let serverAddress = null;
 
 // Весь вывод движка с начала запуска. Растёт только до открытия окна: дальше сервер
 // работает часами, и держать его журнал в памяти незачем.
@@ -114,19 +120,35 @@ function startServer() {
     child.stdout.on('data', (b) => { process.stdout.write(`[server] ${b}`); pushLog(b); });
     child.stderr.on('data', (b) => { process.stderr.write(`[server] ${b}`); pushLog(b); });
 
+    // Сторож запуска. Гасить его обязательно, а не «Promise уже resolved, и ладно»:
+    // startupError() не просто отвергает обещание — он собирает отчёт и ПИШЕТ
+    // engine-crash.log. Через тридцать секунд после удачного старта у работающего
+    // приложения на диске появлялся файл с сообщением о падении, которого не было.
+    // Ревью 2026-08-10 (P0.2.1).
+    let startupTimer = null;
+    const settle = (fn) => (...args) => {
+      if (startupTimer) { clearTimeout(startupTimer); startupTimer = null; }
+      fn(...args);
+    };
+    const done = settle(resolve);
+    const fail = settle(reject);
+
     // Сервер сам сообщает адрес: порт выдала система, заранее его не знает никто.
     child.on('message', (m) => {
-      if (m && m.type === 'listening') resolve({ child, address: m.address });
+      if (m && m.type === 'listening') done({ child, address: m.address });
     });
-    child.on('error', reject);
+    child.on('error', fail);
     child.once('exit', (code) => {
       // Дать последним строкам stderr дойти до нас: 'exit' приходит раньше, чем
       // опустеет труба, и без этой отсрочки в отчёт попадала бы пустота.
+      // Сторож гасится сразу, а не через эти 100 мс: иначе при выходе на 29-й секунде
+      // успели бы сработать оба и отчётов вышло бы два.
+      if (startupTimer) { clearTimeout(startupTimer); startupTimer = null; }
       setTimeout(() => reject(startupError(`Движок остановился с кодом ${code}, не открыв порт`)), 100);
     });
 
     // Если сервер не отозвался — виснуть в пустом окне хуже, чем сказать вслух.
-    setTimeout(() => reject(startupError('Движок не отозвался за 30 секунд')), 30_000);
+    startupTimer = setTimeout(() => fail(startupError('Движок не отозвался за 30 секунд')), 30_000);
   });
 }
 
@@ -152,15 +174,19 @@ function createWindow(address) {
 
   // Внешние ссылки (документация, лицензии) — в настоящий браузер, а не подменой
   // страницы приложения: вернуться из неё было бы нечем, меню у окна нет.
+  //
+  // Наружу отдаём только http и https. `shell.openExternal` передаёт адрес системе, а
+  // система знает куда больше схем: `file:` откроет что-нибудь с диска, а на Windows
+  // есть схемы, через которые запускаются программы. Список того, что можно, короче и
+  // надёжнее списка того, что нельзя. Ревью 2026-08-10 (P1.6).
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (isExternalWeb(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
   mainWindow.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith(address)) {
-      e.preventDefault();
-      shell.openExternal(url);
-    }
+    if (isOwnPage(url, address)) return;
+    e.preventDefault();
+    if (isExternalWeb(url)) shell.openExternal(url);
   });
 
   mainWindow.on('closed', () => { mainWindow = null; });
@@ -170,6 +196,7 @@ app.whenReady().then(async () => {
   try {
     const started = await startServer();
     serverProcess = started.child;
+    serverAddress = started.address;
     collectLog = false;   // запустился — дальше журнал в памяти не нужен
     serverLog.length = 0;
     // Первый обработчик exit был одноразовым сторожем запуска; дальше падение сервера —
@@ -188,8 +215,15 @@ app.whenReady().then(async () => {
 
   app.on('activate', () => {
     // macOS: клик по значку в доке при закрытых окнах — обычай платформы.
-    if (BrowserWindow.getAllWindows().length === 0 && serverProcess) {
-      startServer().then((s) => createWindow(s.address)).catch(() => {});
+    //
+    // Открываем ОКНО, а не второй движок. Раньше здесь звался startServer(), хотя
+    // старый сервер продолжал работать: появлялся второй процесс, который никто не
+    // запоминал (в serverProcess он не попадал), при выходе убивался только первый, а
+    // главное — каждый сервер на старте чистит uploads/ и results/. Второй стирал
+    // данные, с которыми в этот момент работал первый.
+    // Ревью 2026-08-10 (P0.2.2).
+    if (BrowserWindow.getAllWindows().length === 0 && serverAddress) {
+      createWindow(serverAddress);
     }
   });
 });
