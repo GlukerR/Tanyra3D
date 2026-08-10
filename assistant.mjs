@@ -109,15 +109,17 @@ function noneDefaults() {
   return {};
 }
 
-function syntheticProfile(engineId) {
+function syntheticProfile(engineId, lang = DEFAULT_LANG) {
   const id = engineId || DEFAULT_ENGINE;
   const engine = loadEngine(id);
   const defaults = noneDefaults();
   return {
     id: NO_PLATFORM,
     engine: id,
+    // Имя прочерка — ключ интерфейса (insp.platform.none), а не поле файла: это подпись
+    // элемента управления, и вторая копия той же строки разошлась бы с первой.
     title: null,
-    description: null,
+    description: pick(defaults.description, lang),
     // Только советы, жёстких пределов тут не бывает и быть не может: отказать в файле
     // может площадка, а её не выбрали. Сторожит tests/engine-target-split.test.mjs.
     budgets: defaults.budgets || {},
@@ -127,8 +129,8 @@ function syntheticProfile(engineId) {
   };
 }
 
-function loadProfile(platformId, engineId) {
-  if (!platformId) return syntheticProfile(engineId);
+function loadProfile(platformId, engineId, lang = DEFAULT_LANG) {
+  if (!platformId) return syntheticProfile(engineId, lang);
   const file = profilePath(platformId);
   if (!fs.existsSync(file)) {
     const known = listPlatforms().map((p) => p.id).join(', ');
@@ -212,6 +214,13 @@ export function listEngines(lang = DEFAULT_LANG) {
 // выбор движка переупорядочивает список площадок ровно так же, как выбор площадки —
 // список движков. Сегодня движок один и ответ всегда полный список; смысл в том, что
 // интерфейс уже спрашивает, а не узнаёт об этом при появлении второго движка.
+// Что показать под книжечкой у прочерка. Не площадка, поэтому и не в listPlatforms():
+// отдельным полем ответа, чтобы список площадок остался списком площадок.
+export function noPlatformInfo(lang = DEFAULT_LANG) {
+  const d = noneDefaults();
+  return { description: pick(d.description, lang) };
+}
+
 export function platformsForEngine(engineId, lang = DEFAULT_LANG) {
   return listPlatforms(lang).filter((p) => {
     try {
@@ -337,7 +346,7 @@ export function listPlatforms(lang = DEFAULT_LANG) {
 export function planFor(platformId, lang = DEFAULT_LANG, engineId) {
   const t = messages(lang);
   const { fmtInt } = formatters(lang);
-  const profile = loadProfile(platformId, engineId);
+  const profile = loadProfile(platformId, engineId, lang);
   // v0.0.8: базовый план строится из baselineOpts (KTX2/Draco выключены);
   // engineOpts — legacy-поле старых профилей, оставлено как фолбэк
   const opts = profile.baselineOpts || profile.engineOpts || {};
@@ -454,7 +463,7 @@ function extensionsOf(profile, lang = DEFAULT_LANG) {
 }
 
 export function getAvailableExtensions(platformId, lang = DEFAULT_LANG, engineId) {
-  return extensionsOf(loadProfile(platformId, engineId), lang);
+  return extensionsOf(loadProfile(platformId, engineId, lang), lang);
 }
 
 // Алиас под имя, которое web-interface (server.mjs) уже ищет у ассистента.

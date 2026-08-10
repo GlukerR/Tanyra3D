@@ -6,8 +6,8 @@
     "ru": "model-viewer"
   },
   "description": {
-    "en": "Google's ready-made viewer used by online storefronts. The same renderer as Three.js inside, but the site owner does not choose its settings — the platform does.",
-    "ru": "Готовый проигрыватель Google, на котором работают витрины магазинов. Внутри тот же рендерер, что и Three.js, но настройки выбирает не автор модели, а площадка."
+    "en": "Google's ready-made 3D viewer: one line of markup and the model spins on the page. The same renderer as Three.js inside, but what it will read is decided by the site it is embedded in, not by whoever made the model.",
+    "ru": "Готовый проигрыватель 3D от Google: одна строка в разметке — и модель крутится на странице. Внутри тот же рендерер, что у Three.js, но что он сумеет прочитать, решает сайт, куда её поставят, а не автор модели."
   },
   "viewer": "threejs",
   "baselineOpts": {

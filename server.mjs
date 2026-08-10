@@ -489,7 +489,16 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && pathname === '/api/platforms') {
-      sendJSON(res, 200, { platforms: listPlatformsSafe(langOf(url)), engineVersion: VERSION });
+      // noPlatform — описание прочерка («без площадки»). Не элемент списка: это не
+      // площадка, а объяснение выбора БЕЗ неё. Отдельным полем, чтобы список площадок
+      // остался списком площадок и его длина ничего не подменяла.
+      let noPlatform = null;
+      if (assistant && typeof assistant.noPlatformInfo === 'function') {
+        try { noPlatform = assistant.noPlatformInfo(langOf(url)); } catch (e) {
+          console.error('[assistant] noPlatformInfo() failed:', e.message);
+        }
+      }
+      sendJSON(res, 200, { platforms: listPlatformsSafe(langOf(url)), noPlatform, engineVersion: VERSION });
       return;
     }
 

@@ -296,23 +296,24 @@
       <!-- Описание движка и площадки — под книжечкой 📖, той же, что у опций. Абзацем
            под полем оно превращало правую панель в свиток: два описания по три строки
            человек пролистывает, не читая. Наведи — и текст на месте, где спросили. -->
+      <!-- Книжечка стоит у самого поля, а не у подписи: объясняет она ВЫБРАННОЕ
+           значение, а не название поля. Рядом с подписью читалась бы как «что такое
+           движок вообще». Место справа от поля свободно — своей стрелки у него нет.
+           Когда список площадок вырастет, такая же книжечка сможет появиться у каждой
+           строки списка. -->
       <div class="inspector-section hidden" id="engine-section">
-        <div class="section-head">
-          <label class="section-label" data-i18n="insp.engine">Engine</label>
-          <span id="engine-info" class="section-info"></span>
-        </div>
+        <label class="section-label" data-i18n="insp.engine">Engine</label>
         <div class="select-wrap">
           <select id="engine-select"></select>
+          <span id="engine-info" class="section-info"></span>
         </div>
       </div>
 
       <div class="inspector-section">
-        <div class="section-head">
-          <label class="section-label" data-i18n="insp.platform">Platform</label>
-          <span id="platform-info" class="section-info"></span>
-        </div>
+        <label class="section-label" data-i18n="insp.platform">Platform</label>
         <div class="select-wrap">
           <select id="platform-select"></select>
+          <span id="platform-info" class="section-info"></span>
         </div>
       </div>
 

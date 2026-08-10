@@ -284,6 +284,9 @@
   // Геометрия — взаимоисключающий выбор: 'none' | 'meshopt' | 'draco'.
   let geometryChoice = 'none';
   let platforms = [];
+  // Описание прочерка приходит отдельным полем /api/platforms: это не площадка, а
+  // объяснение выбора БЕЗ неё (числа Khronos — советы, красного тут не бывает).
+  let noPlatform = null;
   let engines = [];
   let extensions = [];
   // Взаимоисключающие группы — приходят с /api/extensions, объявлены в аддоне.
@@ -457,6 +460,7 @@
       const res = await fetch(`/api/platforms?${langParam()}`);
       const data = await res.json();
       platforms = data.platforms || [];
+      noPlatform = data.noPlatform || null;
       versionLabel.textContent = data.engineVersion ? `core v${data.engineVersion}` : '';
       const menuVersion = document.getElementById('menu-version');
       if (menuVersion) menuVersion.textContent = data.engineVersion ? `Tanyra3D · core v${data.engineVersion}` : 'Tanyra3D';
@@ -529,6 +533,7 @@
       const data = await res.json();
       if (!data || !Array.isArray(data.platforms) || !data.platforms.length) return;
       platforms = data.platforms;
+      noPlatform = data.noPlatform || null;
       for (const opt of platformSelect.options) {
         const p = platforms.find((x) => x.id === opt.value);
         if (p) opt.textContent = p.title || p.id;
@@ -581,8 +586,16 @@
   }
 
   function updatePlatformDescription() {
+    if (!platformSelect.value) {
+      // У прочерка своя книжечка: там сказано, что жёлтые числа — общие рекомендации
+      // Khronos, то есть совет, а не отказ. Заголовок берём из каталога: подпись
+      // элемента управления принадлежит интерфейсу, а не файлу профиля.
+      renderFieldInfo(platformInfo, noPlatform
+        ? { id: 'none', title: t('insp.platform.none'), description: noPlatform.description }
+        : null);
+      return;
+    }
     const p = platforms.find((x) => x.id === platformSelect.value);
-    // Прочерк описывать нечем и незачем: «площадка не выбрана» говорит само за себя.
     renderFieldInfo(platformInfo, p || null);
   }
 
