@@ -277,6 +277,20 @@
           <ul id="export-alert-details" class="integrity-details"></ul>
           <p class="export-alert-note" data-i18n="export.integrity.note">The file is complete and will be saved as is — decide for yourself whether the difference is acceptable.</p>
         </div>
+        <!-- Красный в панели бюджета означает предел КОНКРЕТНОЙ площадки. Почему он
+             красный, человек читает ровно один раз — здесь, когда палец уже над
+             «Сохранить» (Правило 10а). В книжечках про цвета не пишут вовсе, а сама
+             панель показывает числа и значок, не объясняя устройство интерфейса.
+             Строки те же, что в панели: их собрал ассистент и они переживают смену
+             языка вместе с отчётом. -->
+        <div id="export-budget" class="export-alert hidden">
+          <p class="export-alert-title">
+            <span class="icon-badge export-alert-mark" aria-hidden="true">✕</span>
+            <span data-i18n="export.budget.title">Over the platform limit</span>
+          </p>
+          <ul id="export-budget-details" class="integrity-details"></ul>
+          <p class="export-alert-note" data-i18n="export.budget.note">The file will be saved as is: the limit belongs to the platform, not to this program.</p>
+        </div>
         <button type="button" id="export-save" class="btn-primary" data-i18n="export.save">Save</button>
       </div>
     </div>

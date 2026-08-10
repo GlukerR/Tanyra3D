@@ -107,6 +107,8 @@
   const downloadAlert = $('download-alert');
   const exportAlert = $('export-alert');
   const exportAlertDetails = $('export-alert-details');
+  const exportBudget = $('export-budget');
+  const exportBudgetDetails = $('export-budget-details');
   const validationCount = $('validation-count');
 
   const statusDot = $('status-dot');
@@ -1547,7 +1549,13 @@
   // права ничего решать: снимаем выбор до неё и возвращаем дословно после. Смена языка
   // меняет слова, а не настройки сборки.
   async function relabelExtensions() {
-    if (!platformSelect.value) return;
+    // Пустое значение — это ПРОЧЕРК, законное состояние, а не «площадка ещё не
+    // выбрана»: список опций даёт движок, и панель показана. Проверка на пустоту
+    // выходила отсюда молча, и при смене языка опции оставались на прежнем языке —
+    // пока человек не выбирал площадку, после чего панель пересобиралась и текст
+    // внезапно становился русским. Александр, 2026-08-10: «когда выбираю Shopify —
+    // всё на русском, а Three.js без площадки — доп. опции на английском».
+    // Правило 8: смена языка обязана перерисовать ВСЁ, что нарисовано из JS.
     const keep = extensionsList.querySelector('.ext-checkbox') ? currentSelection() : undefined;
     await loadExtensions(platformSelect.value, keep);
   }
@@ -2335,6 +2343,12 @@
       downloadBtn.removeAttribute('title');
     }
 
+    // Красный бюджет живёт в том же окне и гаснет вместе с этим блоком. Зовём его
+    // отсюда, а не из renderReport: сброс результата (новая модель, отказ сборки,
+    // переключение записи в списке) везде сделан вызовом renderIntegrity(null), и
+    // отдельная точка входа рано или поздно один из этих путей пропустила бы.
+    renderExportBudget(result && lastExplain ? lastExplain.budgetChecks : null);
+
     exportAlertDetails.innerHTML = '';
     if (!show) return;
     for (const v of failed) {
@@ -2547,6 +2561,24 @@
       }
       card.appendChild(ul);
       issuesList.appendChild(card);
+    }
+  }
+
+  // Почему бюджет горит красным — в окне выгрузки, и только там (Правило 10а,
+  // Александр 2026-08-10: «тогда только в конце при выгрузке модели писать почему
+  // красным. и всё»). Красный бывает лишь у жёсткого предела конкретной площадки: при
+  // прочерке его не бывает вовсе, потому что предъявлять требования некому.
+  //
+  // Текст берём готовым из budgetChecks — тот же, что показывает панель. Собирать
+  // здесь свою фразу нельзя: она разошлась бы с панелью и с языком (Правило 8).
+  function renderExportBudget(budgetChecks) {
+    const over = (budgetChecks || []).filter((b) => b.level === 'over');
+    exportBudget.classList.toggle('hidden', !over.length);
+    exportBudgetDetails.innerHTML = '';
+    for (const b of over) {
+      const li = document.createElement('li');
+      li.textContent = b.advice || b.name;
+      exportBudgetDetails.appendChild(li);
     }
   }
 

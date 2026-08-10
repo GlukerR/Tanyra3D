@@ -76,6 +76,10 @@ window.I18N_CATALOGS.en = {
   // комментарий в index.html: файл есть, забрать его человек вправе, наше дело — сказать.
   'export.integrity.title': 'Result differs from the source',
   'export.integrity.note': 'The file is complete and will be saved as is — decide for yourself whether the difference is acceptable.',
+  // Почему бюджет горит красным — говорится ровно здесь, перед сохранением, и больше
+  // нигде: в подсказках у полей про цвета интерфейса не пишут (Правило 10а).
+  'export.budget.title': 'Over the platform limit',
+  'export.budget.note': 'The file will be saved as is: the limit belongs to the platform, not to this program.',
 
   'fail.notWritten': 'File not written',
   'fail.text': 'The model failed the integrity check — the source file is untouched.',
