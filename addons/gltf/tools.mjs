@@ -4,6 +4,7 @@
 // только правилу textures/ktx2. Вынесено из optimize2.mjs без изменения логики.
 
 import { spawn } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 import fs from 'node:fs';
 import path from 'node:path';
 // fileURLToPath, а не `.pathname` вручную: `.pathname` отдаёт URL-строку, где пробел
@@ -142,6 +143,35 @@ const CLI_TIMEOUT_MS = 10 * 60_000;
 const CLI_MAX_BUFFER = 32 * 1024 * 1024;
 
 /**
+ * Сборщик текста из кусков потока, с потолком.
+ *
+ * Через StringDecoder, а не `chunk.toString()`. Поток режется по границе БАЙТА, а не
+ * символа: буква в UTF-8 занимает два-три байта и запросто оказывается разорванной
+ * между двумя кусками. `toString()` на каждом куске превращает такую букву в «□», и
+ * путь вида `модель.glb` приезжает в сообщение об ошибке кашей. Раньше этого не было:
+ * execFileSync отдавал готовый буфер целиком. Найдено ревью 2026-08-10 — дефект,
+ * внесённый переводом на spawn в тот же день.
+ *
+ * Потолок — тот же смысл, что был у maxBuffer: болтливый CLI на модели с сотней текстур
+ * иначе копит мегабайты текста ради последних десяти строк. Хвост важнее начала,
+ * поэтому режем начало.
+ *
+ * Экспортируется ради проверок: разрыв многобайтного символа воспроизводится только
+ * определённой нарезкой потока, и через настоящий CLI её не подстроить — короткий
+ * вывод приезжает одним куском (проверено: тест на живом CLI мутацию НЕ ловит).
+ */
+export function makeTextCollector(limit = CLI_MAX_BUFFER) {
+  const decoder = new StringDecoder('utf8');
+  let acc = '';
+  const cap = (s) => (s.length > limit ? s.slice(s.length - limit) : s);
+  return {
+    push(chunk) { acc = cap(acc + decoder.write(chunk)); },
+    // Хвост декодера: поток кончился на середине буквы — она дожидается здесь.
+    end() { acc = cap(acc + decoder.end()); return acc; },
+  };
+}
+
+/**
  * Запуск gltf-transform CLI для фазы KTX2 (кодирование через toktx).
  *
  * АСИНХРОННЫЙ. Раньше здесь стоял `execFileSync`, и это значило вот что: сервер зовёт
@@ -166,17 +196,10 @@ export function runCli(args) {
       shell: !useNode && GLTF_CLI.endsWith('.cmd'),
     });
 
-    // Вывод копим с потолком — тот же смысл, что был у maxBuffer: болтливый CLI на
-    // модели с сотней текстур иначе съедает память ради текста, который нужен только
-    // последними десятью строками. Хвост важнее начала, поэтому режем начало.
-    let out = '';
-    let err = '';
-    const add = (acc, chunk) => {
-      const s = acc + chunk.toString();
-      return s.length > CLI_MAX_BUFFER ? s.slice(s.length - CLI_MAX_BUFFER) : s;
-    };
-    child.stdout.on('data', (c) => { out = add(out, c); });
-    child.stderr.on('data', (c) => { err = add(err, c); });
+    const outBuf = makeTextCollector();
+    const errBuf = makeTextCollector();
+    child.stdout.on('data', (c) => outBuf.push(c));
+    child.stderr.on('data', (c) => errBuf.push(c));
 
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -190,6 +213,8 @@ export function runCli(args) {
 
     child.on('close', (code, signal) => {
       clearTimeout(timer);
+      const out = outBuf.end();
+      const err = errBuf.end();
       if (timedOut) {
         // при таймауте stderr пуст, а причина — сигнал: без отдельной ветки
         // пользователь увидел бы невнятное «failed» вместо причины
