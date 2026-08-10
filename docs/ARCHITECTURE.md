@@ -865,6 +865,26 @@ A **profile then stops being the target file and becomes a saved pair**: target 
 local tweaks. That is exactly the object a user creates for their own pipeline, so
 user-defined profiles need no separate mechanism.
 
+### What the target may do to the engine's list (Alexander's decision, 2026-08-10)
+
+The engine declares what it can read. **A target may subtract from that list; it may never
+define it.** If the target defined the list we would be straight back to four byte-identical
+copies. "model-viewer can read Meshopt" is true on every site — an engine fact. "This
+storefront never wired up the decoder" is a fact about one deployment — a target fact.
+
+Subtraction is `"excludeExtensions": ["meshopt"]` in the profile, and the option then
+**disappears entirely** — not greyed out, not annotated.
+
+This looks like a contradiction of the "shown, not hidden" rule below. It is not: that rule
+governs the **selector fields**, where the user arrives looking for a name they already know
+and, not finding it, goes searching outside the program. The options list is the opposite
+situation — the user has no prior expectation of what should be there, so there is no
+expectation to betray. A Shopify target with four working buttons is easier than fourteen
+buttons where ten are greyed. We do not list the world's decoders that Three.js cannot read
+either; the list has always meant "what works here", and a target is the same principle one
+level down. The full palette of an engine stays reachable by choosing that engine without a
+target.
+
 ### The UI rule: two fields that filter each other, never a hierarchy
 
 The hard question was: a person is looking at an engine, but the target they want belongs to

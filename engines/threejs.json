@@ -18,6 +18,7 @@
     },
     {
       "id": "meshopt",
+      "needsDecoder": true,
       "opts": {
         "compress": true,
         "codec": "meshopt"
@@ -31,6 +32,7 @@
     },
     {
       "id": "instance",
+      "needsDecoder": true,
       "opts": {
         "instance": true
       }
@@ -43,6 +45,7 @@
     },
     {
       "id": "ktx2",
+      "needsDecoder": true,
       "opts": {
         "noKtx": false
       }
@@ -55,6 +58,7 @@
     },
     {
       "id": "draco",
+      "needsDecoder": true,
       "opts": {
         "codec": "draco"
       }

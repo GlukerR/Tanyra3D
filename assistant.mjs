@@ -366,9 +366,27 @@ function optionText(id, field, lang, override) {
 // Состав списка берётся у ДВИЖКА (§4g): «читает ли этот проигрыватель KTX2 без
 // декодера» — свойство читателя, а не витрины. Слова к каждому id по-прежнему из
 // core/messages/, здесь только состав.
+//
+// Площадка может ВЫЧЕСТЬ из этого списка, но не задать его (решение Александра,
+// 2026-08-10). Разница существенная: «движок умеет Meshopt» верно на любом сайте, а
+// «декодер на витрине подключён» — свойство конкретного развёртывания. Если бы список
+// задавала площадка, мы вернулись бы к четырём одинаковым копиям, из которых только что
+// ушли.
+//
+// Вычтенное НЕ показывается серым с объяснением, а исчезает совсем. Человеку, выбравшему
+// Shopify, незачем знать про десятки возможностей, которых там нет: правило «показывать,
+// а не прятать» (§4g) написано для ПОЛЕЙ ВЫБОРА, где человек ищет знакомое имя и, не
+// найдя, уходит искать ответ наружу. В списке опций искать нечего — ожидания нет, обмануть
+// его нельзя. Полную палитру движка человек видит, выбрав движок без площадки.
+export function narrowToPlatform(list, profile) {
+  const drop = new Set(Array.isArray(profile && profile.excludeExtensions) ? profile.excludeExtensions : []);
+  return drop.size ? list.filter((e) => !drop.has(e.id)) : list;
+}
+
 function extensionsOf(profile, lang = DEFAULT_LANG) {
   const engine = loadEngine(engineIdOf(profile));
-  const list = engine && Array.isArray(engine.availableExtensions) ? engine.availableExtensions : [];
+  const all = engine && Array.isArray(engine.availableExtensions) ? engine.availableExtensions : [];
+  const list = narrowToPlatform(all, profile);
   // копии: мутации у потребителя не должны влиять на закешированные профили
   return list.map((e) => ({
     ...e,

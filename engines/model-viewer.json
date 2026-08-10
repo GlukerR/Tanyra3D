@@ -1,0 +1,87 @@
+{
+  "id": "model-viewer",
+  "enabled": true,
+  "title": {
+    "en": "model-viewer",
+    "ru": "model-viewer"
+  },
+  "description": {
+    "en": "Google's ready-made viewer used by online storefronts. The same renderer as Three.js inside, but the site owner does not choose its settings — the platform does.",
+    "ru": "Готовый проигрыватель Google, на котором работают витрины магазинов. Внутри тот же рендерер, что и Three.js, но настройки выбирает не автор модели, а площадка."
+  },
+  "viewer": "threejs",
+  "availableExtensions": [
+    {
+      "id": "safe",
+      "opts": {
+        "safe": true
+      }
+    },
+    {
+      "id": "meshopt",
+      "needsDecoder": true,
+      "opts": {
+        "compress": true,
+        "codec": "meshopt"
+      }
+    },
+    {
+      "id": "join",
+      "opts": {
+        "join": true
+      }
+    },
+    {
+      "id": "instance",
+      "needsDecoder": true,
+      "opts": {
+        "instance": true
+      }
+    },
+    {
+      "id": "resample",
+      "opts": {
+        "resample": true
+      }
+    },
+    {
+      "id": "ktx2",
+      "needsDecoder": true,
+      "opts": {
+        "noKtx": false
+      }
+    },
+    {
+      "id": "webp",
+      "opts": {
+        "noWebp": false
+      }
+    },
+    {
+      "id": "draco",
+      "needsDecoder": true,
+      "opts": {
+        "codec": "draco"
+      }
+    },
+    {
+      "id": "quantize",
+      "opts": {
+        "quantize": true
+      }
+    },
+    {
+      "id": "strip-colors",
+      "opts": {
+        "stripColors": true
+      }
+    }
+  ],
+  "notes": [
+    "viewer: threejs — не заглушка. В package.json Google model-viewer объявлен \"three\": \"^0.183.0\" в peerDependencies: это веб-компонент поверх three.js, а не другой рендерер. Наш вьюпорт показывает ту же геометрию и те же текстуры тем же кодом, поэтому отдельный модуль просмотра не нужен. Отличается окружение и тонмаппинг — предпросмотр и так не пиксель-в-пиксель ни с одной площадкой.",
+    "Список расширений совпадает с three.js, потому что читает model-viewer то же самое (проверено 2026-08-10 по modelviewer.dev/examples/loading/): Draco, KTX2/Basis и Meshopt поддержаны.",
+    "НО умолчания другие, и это единственная содержательная разница между двумя движками. Draco и KTX2 model-viewer подтягивает с CDN Google по требованию. Meshopt по умолчанию ВЫКЛЮЧЕН: декодер работает, только если сайт заранее задал meshoptDecoderLocation. Умеет — да; работает без настройки сайта — нет.",
+    "Отсюда следует, что вычитать Meshopt должна КОНКРЕТНАЯ площадка (excludeExtensions в профиле), а не движок: «умеет» — свойство движка и правда везде, «подключено» — свойство развёртывания. Для Shopify это пока не выяснено, см. profiles/shopify.json.",
+    "Проверено по первоисточникам: raw.githubusercontent.com/google/model-viewer/master/packages/model-viewer/package.json, modelviewer.dev/examples/loading/."
+  ]
+}

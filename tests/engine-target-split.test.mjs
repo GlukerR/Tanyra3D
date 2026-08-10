@@ -24,7 +24,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   planFor, listPlatforms, listEngines, getAvailableExtensions,
-  enginesForPlatform, platformsForEngine,
+  enginesForPlatform, platformsForEngine, narrowToPlatform,
 } from '../assistant.mjs';
 import { listRules } from '../optimize2.mjs';
 
@@ -157,10 +157,52 @@ describe('Движки — отдельная таблица (ARCHITECTURE.md §
     for (const { file, data } of profiles) {
       const движок = engineData.find((e) => e.data.id === data.engine);
       expect(движок, `${file}: движок ${data.engine} не найден`).toBeTruthy();
-      const ожидание = движок.data.availableExtensions.map((e) => e.id);
+      const ожидание = narrowToPlatform(движок.data.availableExtensions, data).map((e) => e.id);
       const факт = getAvailableExtensions(data.id).map((e) => e.id);
       expect(факт, `${file}: состав разошёлся с движком ${data.engine}`).toEqual(ожидание);
     }
+  });
+
+  it('площадка вычитает из списка движка, но не задаёт его', () => {
+    // Механизм на живых данных пока не применён: ни у одной площадки нет проверенного
+    // основания что-то вычесть (для Shopify + Meshopt основание не найдено — см.
+    // profiles/shopify.json). Поэтому проверяется сама функция, а не её следы в файлах:
+    // иначе код лежал бы непроверенным до первого настоящего применения.
+    const список = [{ id: 'safe' }, { id: 'meshopt' }, { id: 'draco' }];
+
+    expect(narrowToPlatform(список, {}).map((e) => e.id))
+      .toEqual(['safe', 'meshopt', 'draco']);
+
+    expect(
+      narrowToPlatform(список, { excludeExtensions: ['meshopt'] }).map((e) => e.id),
+      'вычтенное обязано исчезнуть из списка, а не остаться серым: список опций — не '
+        + 'поле выбора, искать в нём нечего (решение Александра 2026-08-10)',
+    ).toEqual(['safe', 'draco']);
+
+    expect(
+      narrowToPlatform(список, { excludeExtensions: ['нетакого'] }).map((e) => e.id),
+      'вычитание несуществующего не должно ничего ломать — опечатка в профиле не повод падать',
+    ).toEqual(['safe', 'meshopt', 'draco']);
+
+    // Площадка НЕ может добавить: список задаёт движок. Иначе вернутся четыре копии.
+    expect(
+      narrowToPlatform(список, { availableExtensions: [{ id: 'выдуманное' }] }).map((e) => e.id),
+      'профиль не вправе расширять список движка',
+    ).toEqual(['safe', 'meshopt', 'draco']);
+  });
+
+  it('значок «нужен декодер» приходит от движка, а не зашит в интерфейсе', () => {
+    // До 2026-08-10 список лежал в ui/app.js константой NEEDS_DECODER — верной ровно для
+    // одного движка. Сторож ловит возврат к зашитому списку.
+    const src = fs.readFileSync(path.join(ROOT, 'ui', 'app.js'), 'utf8');
+    expect(
+      /const\s+NEEDS_DECODER\s*=\s*new\s+Set\(\s*\[/.test(src),
+      'в ui/app.js снова зашит список NEEDS_DECODER — он принадлежит engines/<id>.json',
+    ).toBe(false);
+
+    const помеченные = engineData.flatMap((e) => (e.data.availableExtensions || [])
+      .filter((x) => x.needsDecoder).map((x) => x.id));
+    expect(помеченные.length, 'ни один движок не помечает needsDecoder — значки исчезнут').toBeGreaterThan(0);
   });
 
   it('расширения приходят со словами, а не голыми id', () => {

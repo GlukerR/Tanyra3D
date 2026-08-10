@@ -699,7 +699,17 @@
     { titleKey: 'group.textures', kind: 'checks', ids: ['ktx2', 'webp'] },
     { titleKey: 'group.animation', kind: 'checks', ids: ['resample'] },
   ];
-  const NEEDS_DECODER = new Set(['meshopt', 'draco', 'ktx2', 'instance']);
+  // Кому нужен декодер — говорит ДВИЖОК (engines/<id>.json, поле needsDecoder), а не
+  // интерфейс. До 2026-08-10 здесь лежал зашитый список ['meshopt','draco','ktx2',
+  // 'instance']: он был верен ровно для одного движка, а у второго умолчания другие.
+  // Второй список одной правды расходится молча — это уже случалось с EXCLUSIVE_FEATURES.
+  //
+  // Пустое множество, пока опции не пришли: значков просто не будет, а не будут
+  // проставлены наугад.
+  let needsDecoder = new Set();
+  const rememberDecoders = (list) => {
+    needsDecoder = new Set((list || []).filter((e) => e && e.needsDecoder).map((e) => e.id));
+  };
 
   // Взаимоисключающие флажки: включили один — второй гаснет.
   //
@@ -791,6 +801,9 @@
     extensions = fetched.extensions;
     exclusiveGroups = fetched.exclusiveGroups;
     platformDefaults = fetched.defaults;
+    // Значки ⚠ — из того же ответа, что и сами опции. Иначе движок сменился, а значки
+    // остались от прежнего.
+    rememberDecoders(extensions);
 
     // Раньше оба этих случая заканчивались тихим `return`, и панель оставалась скрытой:
     // расширенные опции «недоступны» выглядели как исчезнувший кусок интерфейса.
@@ -813,7 +826,7 @@
     // Легенда объясняет ⚠ ОДИН раз для всей панели — значок встречается в трёх разных
     // секциях (Structural/Geometry/Textures), поэтому показываем её, только если хотя бы
     // одна из ЭТИХ платформенных опций реально требует декодер.
-    if (decoderLegend) decoderLegend.classList.toggle('hidden', !extensions.some((e) => NEEDS_DECODER.has(e.id)));
+    if (decoderLegend) decoderLegend.classList.toggle('hidden', !extensions.some((e) => needsDecoder.has(e.id)));
     extensionsPanel.classList.remove('hidden');
     // панель пересобрана → дефолты платформы + авто-флажки [Source] + состояние кнопки
     applyDetection(keep);
@@ -1035,7 +1048,7 @@
   // Квантование стоит в этой же группе, потому что это третий ответ на тот же вопрос
   // «чем уменьшить геометрию», а не добавка к первым двум: Draco квантует сам, Meshopt
   // тянет то же расширение внутри себя. Единственное отличие — ему не нужен декодер,
-  // поэтому его нет в NEEDS_DECODER и значок ему не ставится.
+  // поэтому движок не помечает его needsDecoder и значок ему не ставится.
   function renderGeometryGroup(byId) {
     if (!byId.meshopt && !byId.draco && !byId.quantize) return null;
     const sec = optSection(t('group.geometry'), 'geometry');
@@ -1074,7 +1087,7 @@
       label.appendChild(text);
       head.appendChild(label);
 
-      if (o.ext && NEEDS_DECODER.has(o.ext.id)) head.appendChild(decoderWarning(o.ext.id));
+      if (o.ext && needsDecoder.has(o.ext.id)) head.appendChild(decoderWarning(o.ext.id));
 
       row.appendChild(head);
       if (o.ext) head.appendChild(infoButton(o.ext));
@@ -1124,7 +1137,7 @@
 
     label.appendChild(checkbox);
     label.appendChild(titleSpan);
-    if (NEEDS_DECODER.has(ext.id)) label.appendChild(decoderWarning(ext.id));
+    if (needsDecoder.has(ext.id)) label.appendChild(decoderWarning(ext.id));
 
     head.appendChild(label);
     head.appendChild(infoButton(ext));
