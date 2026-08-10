@@ -1,6 +1,6 @@
 {
   "name": "tanyra3d",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "license": "Apache-2.0",
   "description": "Умный оптимизатор GLB/glTF для веба — анализ, безопасная оптимизация, отчёты",
@@ -9,17 +9,21 @@
   "homepage": "https://github.com/GlukerR/Tanyra3D",
   "_comment_desktopName": "Лежит в КОРНЕ, а не в build.linux: схема electron-builder такого ключа в секции linux не знает и валит сборку целиком, ещё до упаковки. Пара к build.linux.syncDesktopName — вместе они связывают открытое окно с ярлыком в меню.",
   "desktopName": "tanyra3d.desktop",
-  "repository": { "type": "git", "url": "https://github.com/GlukerR/Tanyra3D.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GlukerR/Tanyra3D.git"
+  },
   "type": "module",
   "engines": {
     "node": ">=20.9.0"
   },
   "main": "desktop/main.cjs",
-  "_comment_verify": "Одна команда перед выпуском: окружение (нужные версии и инструменты на месте) и оба набора тестов. Отдельных lint/format/typecheck здесь намеренно НЕТ — их нечем выполнять: линтер в проект не заводили, а typecheck появится вместе с переходом контрактов ядра на TypeScript (порция 3 в docs/ПЛАН_исправлений.md). Пустая команда-заглушка была бы хуже отсутствующей: `npm run verify` зеленел бы, ничего не проверив.",
+  "_comment_verify": "Одна команда перед выпуском: линтер, окружение и оба набора тестов. Линтер стоит ПЕРВЫМ — он отвечает за секунду, а тесты идут десять минут, и глупо узнавать об опечатке в конце. Команды `format` здесь нет намеренно: prettier переформатирует весь код по своим правилам, а комментарии в этом проекте несут смысл в переносах и абзацах — автоформаттер уничтожит ровно то, что ценнее всего. `typecheck` появится вместе с переходом контрактов ядра на TypeScript (пункт 15 в docs/ПЛАН_исправлений.md).",
   "scripts": {
     "start": "node server.mjs",
     "test": "vitest run",
-    "verify": "node scripts/setup.mjs --check && vitest run",
+    "lint": "eslint .",
+    "verify": "eslint . && node scripts/setup.mjs --check && vitest run",
     "setup": "node scripts/setup.mjs",
     "doctor": "node scripts/setup.mjs --check",
     "app": "electron .",
@@ -49,16 +53,34 @@
     "appId": "com.tanyra3d.app",
     "productName": "Tanyra3D",
     "asar": false,
-    "directories": { "output": "dist-app", "buildResources": "desktop/build" },
+    "directories": {
+      "output": "dist-app",
+      "buildResources": "desktop/build"
+    },
     "files": [
-      "server.mjs", "optimize2.mjs", "assistant.mjs", "package.json",
-      "core/**/*", "addons/**/*", "ui/**/*", "translations/**/*",
-      "profiles/**/*", "engines/**/*", "messages/**/*", "desktop/**/*",
+      "server.mjs",
+      "optimize2.mjs",
+      "assistant.mjs",
+      "package.json",
+      "core/**/*",
+      "addons/**/*",
+      "ui/**/*",
+      "translations/**/*",
+      "profiles/**/*",
+      "engines/**/*",
+      "messages/**/*",
+      "desktop/**/*",
       "node_modules/**/*",
-      "!node_modules/electron/**", "!node_modules/electron-builder/**",
-      "!node_modules/app-builder-lib/**", "!node_modules/playwright*/**",
-      "!node_modules/vitest/**", "!node_modules/@vitest/**",
-      "!**/*.map", "!**/test/**", "!**/tests/**", "!**/docs/**",
+      "!node_modules/electron/**",
+      "!node_modules/electron-builder/**",
+      "!node_modules/app-builder-lib/**",
+      "!node_modules/playwright*/**",
+      "!node_modules/vitest/**",
+      "!node_modules/@vitest/**",
+      "!**/*.map",
+      "!**/test/**",
+      "!**/tests/**",
+      "!**/docs/**",
       "!node_modules/three/src/**",
       "!node_modules/three/build/three.cjs",
       "!node_modules/three/build/three.webgpu*.js",
@@ -66,17 +88,30 @@
       "!node_modules/three/build/*.min.js"
     ],
     "extraResources": [
-      { "from": ".tools", "to": "tools", "filter": ["**/*"] },
+      {
+        "from": ".tools",
+        "to": "tools",
+        "filter": [
+          "**/*"
+        ]
+      },
       {
         "from": "node_modules/three/examples/jsm",
         "to": "app/node_modules/three/examples/jsm",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
-      "target": ["nsis"],
+      "target": [
+        "nsis"
+      ],
       "artifactName": "Tanyra3D-${version}-windows-${arch}.${ext}",
-      "electronLanguages": ["en-US", "ru"]
+      "electronLanguages": [
+        "en-US",
+        "ru"
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -84,27 +119,40 @@
       "perMachine": false
     },
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Graphics",
       "artifactName": "Tanyra3D-${version}-linux-${arch}.${ext}",
       "synopsis": "3D model optimizer for the web",
       "syncDesktopName": true,
-      "electronLanguages": ["en-US", "ru"]
+      "electronLanguages": [
+        "en-US",
+        "ru"
+      ]
     },
     "mac": {
-      "target": ["dmg"],
+      "target": [
+        "dmg"
+      ],
       "category": "public.app-category.graphics-design",
       "identity": null,
       "artifactName": "Tanyra3D-${version}-macos-${arch}.${ext}",
-      "electronLanguages": ["en-US", "ru"]
+      "electronLanguages": [
+        "en-US",
+        "ru"
+      ]
     }
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@vitest/browser": "^4.1.10",
     "@vitest/browser-playwright": "^4.1.10",
     "electron": "^43.3.0",
     "electron-builder": "^26.15.3",
     "es-module-lexer": "^2.3.1",
+    "eslint": "^10.8.1",
     "playwright": "^1.62.0",
     "vitest": "^4.1.10"
   }

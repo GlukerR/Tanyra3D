@@ -369,7 +369,6 @@ function checkOrder(flags, where, violations) {
   // 'policy') — объяснения до исполнения: движок добавляет их раньше apply-записей,
   // и их позиция в отчёте не является порядком исполнения (замерено: disabled-запись
   // scene/join стоит раньше apply-записи scene/instance без нарушения runAfter).
-  const o = normOf(flags);
   const applied = (resultOf(flags).applied || []).map((a) => a.ruleId);
   const execSkipped = (resultOf(flags).skipped || [])
     .filter((s) => !s.kind || s.kind === 'nothing' || s.kind === 'cost')

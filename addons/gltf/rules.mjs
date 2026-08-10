@@ -141,7 +141,7 @@ function readAssetJson(srcPath) {
 function unsupportedExtensions(ctx) {
   const KEY = 'unsupportedExtensions';
   if (ctx.cache && ctx.cache.has(KEY)) return ctx.cache.get(KEY);
-  let list = [];
+  let list;
   try {
     const json = ctx.src ? readAssetJson(ctx.src) : null;
     list = ((json && json.extensionsUsed) || []).filter((name) => !KNOWN_EXTENSIONS.has(name));

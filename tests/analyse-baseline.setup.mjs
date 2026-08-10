@@ -39,6 +39,7 @@ export function setup() {
       `BASELINE GATE: analyse-test-coverage.mjs failed to run.\n` +
       `  Command: node ${analyseScript} --json\n` +
       `  ${err.message}`,
+      { cause: err },
     );
   }
 

@@ -26,7 +26,6 @@ import sharp from 'sharp';
 import { Document, NodeIO } from '@gltf-transform/core';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, '..');
 // Генерируем временные GLB-файлы в os.tmpdir(), не в fixtures/ (правило промпта: fixtures/ неприкосновенна)
 const FIXTURE_DIR = path.resolve(os.tmpdir(), 'glb_optimize_large_tex_' + Date.now());
 // Свой таймаут для ВСЕГО, что кодирует KTX2, а не общие 120 с.
@@ -130,7 +129,7 @@ beforeAll(async () => {
         fs.rmSync(FIXTURE_DIR, { force: true, recursive: true });
       }
     } catch (cleanupError) {
-      // eslint-disable-next-line no-console
+       
       console.warn(`cleanup: cannot remove ${FIXTURE_DIR} (${cleanupError.message}); оригинальная ошибка ниже`);
     }
     throw e;
@@ -252,7 +251,7 @@ describe('Large texture — metrics comparison', () => {
   });
 
   it('all 3 noise textures report non-zero textureBytes', async () => {
-    for (const [label, glbPath] of Object.entries(LARGE_MODELS)) {
+    for (const [, glbPath] of Object.entries(LARGE_MODELS)) {
       const result = await optimizeFile(glbPath, {
         advancedFeatures: ['ktx2'],
         dryRun: true,

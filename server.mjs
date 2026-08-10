@@ -66,7 +66,7 @@ const THREE_DIR = path.join(__dirname, 'node_modules', 'three');
 // pending-delete, и немедленный mkdir того же имени падает (UNKNOWN errno -4094).
 async function ensureEmptyDir(dir) {
   await fsp.mkdir(dir, { recursive: true });
-  let entries = [];
+  let entries;
   try { entries = await fsp.readdir(dir); } catch { return; }
   for (const entry of entries) {
     await fsp.rm(path.join(dir, entry), { recursive: true, force: true }).catch(() => {});
@@ -322,7 +322,7 @@ const LOCALE_MARKER = '<!--locales-->';
 
 async function localeScriptTags() {
   // Английские каталоги из ui/locales/ (en.js, validator-en.js)
-  let localeFiles = [];
+  let localeFiles;
   try {
     localeFiles = (await fsp.readdir(LOCALES_DIR)).filter((f) => f.endsWith('.js'));
   } catch (e) {
@@ -433,6 +433,7 @@ const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
 function sanitizeFileName(name) {
   const base = path.basename(name || 'model.glb');
   // убираем управляющие/запрещённые для файловой системы Windows символы, оставляем юникод (кириллицу)
+  // eslint-disable-next-line no-control-regex -- управляющие символы тут и есть цель: имя файла с \x00 внутри Windows не создаст
   let clean = base.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_');
   // Хвостовые точки и пробелы Windows молча срезает: "model.glb." станет "model.glb",
   // а "..." — пустой строкой, то есть попыткой записи в саму папку.

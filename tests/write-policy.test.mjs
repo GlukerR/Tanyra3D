@@ -10,7 +10,7 @@
 // не на всех моделях и зависит от внешних кодировщиков. Целенаправленный
 // перебор не проводится — три базовых пункта работы важнее.
 
-import { describe, it, expect } from 'vitest';
+import { it, expect } from 'vitest';
 import { optimizeFile } from '../optimize2.mjs';
 import path from 'node:path';
 import fs from 'node:fs';

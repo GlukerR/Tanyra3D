@@ -12,7 +12,7 @@
 // 4. Разные advancedFeatures параллельно — ktx2, draco, empty — не влияют друг на друга
 // 5. dryRun:false параллельно — записи не конфликтуют в output/
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { it, expect, beforeEach, afterEach } from 'vitest';
 import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -21,7 +21,6 @@ import os from 'node:os';
 import { modelPath, describeIfModels } from './helpers/model-files.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, '..');
 
 
 // Все тесты ниже используют 3 LOCAL-модели; после свежего git clone их нет — каждый

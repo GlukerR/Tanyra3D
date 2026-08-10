@@ -20,7 +20,7 @@
 //      texture.source НЕ заполнен, imageIndex лежит в
 //      texture.extensions.KHR_texture_basisu.source.
 
-import { describe, it, expect } from 'vitest';
+import { it, expect } from 'vitest';
 import { optimizeFile } from '../optimize2.mjs';
 import path from 'node:path';
 import fs from 'node:fs';

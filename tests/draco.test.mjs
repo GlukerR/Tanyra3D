@@ -14,12 +14,10 @@ import { describe, it, expect } from 'vitest';
 import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import fs from 'node:fs';
 import { modelPath, describeIfModels, eachModel } from './helpers/model-files.mjs';
 import { INPUT_DIR, inputModels as readInputModels, describeInput } from './helpers/input-folder.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, '..');
 
 // ---- Draco: базовая проверка на CarConcept.glb ----
 

@@ -88,7 +88,7 @@ async function situationsOfFile(name) {
   const classes = [];
   if (EDGE_NAME_RE.test(name)) classes.push('edge-name');
 
-  let json = null;
+  let json;
   try {
     if (fs.statSync(modelPath(name)).size > HEAVY_BYTES) classes.push('heavy');
     json = readAssetJson(modelPath(name));

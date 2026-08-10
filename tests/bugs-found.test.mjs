@@ -28,7 +28,7 @@
 // Учти: префикс `TESTBUG-*` — отдельный namespace; нумерация аудиторских находок
 // прошлых итераций к этим тестам не относится.
 
-import { describe, it, expect } from 'vitest';
+import { it, expect } from 'vitest';
 import { optimizeFile, VERSION } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -36,7 +36,6 @@ import fs from 'node:fs';
 import { modelPath, describeIfModels, eachModel } from './helpers/model-files.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, '..');
 
 describeIfModels(['CarConcept.glb'], 'TESTBUG-* — regression documentation (currently empty)', () => {
   it('skeleton — registry file present, vitest accepts an empty describe', async () => {

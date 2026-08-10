@@ -72,7 +72,7 @@ async function structureOf(file) {
  * флагов даёт тот же файл по структуре — треугольники, скины, морфы, набор
  * расширений. Никто в корпусе этого раньше не проверял.
  */
-async function idempotentPair(model, flags, timeout = 120000) {
+async function idempotentPair(model, flags, _timeout = 120000) {
   const d1 = tmpOutDir();
   const p1 = await optimizeFile(modelPath(model), { advancedFeatures: flags, dryRun: false, outDir: d1 });
   expect(p1.status).toBe('ok');

@@ -54,7 +54,7 @@ function parseBaselineBlock(content, name) {
   if (!m) return null;
   return m[1]
     .split(',')
-    .map((s) => s.trim().replace(/^['\"]|['\"]$/g, ''))
+    .map((s) => s.trim().replace(/^['"]|['"]$/g, ''))
     .filter(Boolean);
 }
 

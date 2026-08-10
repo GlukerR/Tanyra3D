@@ -180,7 +180,7 @@ const ALLOWED_LATIN = new Set([
  * ключи вида 'khr_draco_mesh_compression', 'baseline-checkpoint'.
  */
 function extractLatinWords(text) {
-  const found = text.match(/[a-zA-Z][a-zA-Z0-9_.\-]*/g) || [];
+  const found = text.match(/[a-zA-Z][a-zA-Z0-9_.-]*/g) || [];
   const result = new Set();
   for (const w of found) {
     // toLowerCase + обрезка ведущих/хвостовых не-буквенно-цифровых символов

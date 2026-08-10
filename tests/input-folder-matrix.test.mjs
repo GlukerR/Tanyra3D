@@ -60,9 +60,6 @@ const MATRIX_TOTAL = inputModels.length * COMBOS.length;
 
 // ---- Guards ----
 const shouldRun = process.env.FULL_MATRIX === '1';
-const skipReason = shouldRun
-  ? null
-  : 'FULL_MATRIX не установлен. Запусти: FULL_MATRIX=1 npx vitest run tests/input-folder-matrix.test.mjs';
 
 // ---- Вспомогательные функции ----
 
@@ -142,6 +139,7 @@ matrixDescribe(`Input folder — matrix: ${inputModels.length} models × ${COMBO
             // Инвариант 1: исключений наружу быть не должно
             throw new Error(
               `optimizeFile бросил исключение на ${modelName} / ${combo.name}: ${e.message}`,
+              { cause: e },
             );
           }
 

@@ -100,7 +100,7 @@ describeInput('Input folder — safe cleanup (core invariant)', () => {
 // ---- Edge case: имена с пробелами и кириллицей ----
 describeInput('Input folder — edge case filenames', () => {
   const edgeNames = inputModels.filter((n) =>
-    /[\s\(\)\[\]\{\}\&\+\=\%\#\@\!\,\;]/.test(n) ||
+    /[\s()[\]{}&+=%#@!,;]/.test(n) ||
     /[а-яА-ЯёЁ]/.test(n),
   );
   const edgeKnownFailing = edgeNames.filter((n) => KNOWN_FAILING.has(n));

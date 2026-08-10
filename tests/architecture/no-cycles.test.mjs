@@ -12,7 +12,7 @@
 // определению: пакет не импортирует наш код).
 
 import { describe, it, expect } from 'vitest';
-import { PROJECT_ROOT, productionFiles, buildGraph, findCycle } from './import-graph.mjs';
+import { PROJECT_ROOT, buildGraph, findCycle } from './import-graph.mjs';
 import path from 'node:path';
 
 describe('no-cycles — граф импортов production-кода ацикличен', () => {

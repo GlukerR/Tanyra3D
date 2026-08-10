@@ -139,7 +139,9 @@ function loadProfile(platformId, engineId, lang = DEFAULT_LANG) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (e) {
-    throw new Error(`Profile "${platformId}" is corrupted: ${e.message}`);
+    // cause сохраняем: без него из сообщения не видно, в каком месте JSON сломан,
+    // а именно это и нужно тому, кто правит профиль.
+    throw new Error(`Profile "${platformId}" is corrupted: ${e.message}`, { cause: e });
   }
 }
 
@@ -169,7 +171,7 @@ function loadEngine(engineId) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (e) {
-    throw new Error(`Engine "${id}" is corrupted: ${e.message}`);
+    throw new Error(`Engine "${id}" is corrupted: ${e.message}`, { cause: e });
   }
 }
 
@@ -269,7 +271,6 @@ function formatters(lang) {
   };
 }
 
-const { fmtMB, fmtInt } = formatters(DEFAULT_LANG);
 
 // Величина изменения в процентах, без знака: «18» / «220» / «0.06».
 //

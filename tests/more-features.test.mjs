@@ -12,7 +12,6 @@ import os from 'node:os';
 import { modelPath, describeIfModels } from './helpers/model-files.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, '..');
 
 // ================================================================
 // strip-colors — удаление раскрашенных вершинных цветов (lossy)

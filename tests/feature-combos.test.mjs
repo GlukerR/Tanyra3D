@@ -92,10 +92,7 @@ function tmpOutDir(prefix = 'combos-') {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
 
-const ids = (recs) => (recs || []).map((r) => r.i18n?.text?.messageId || r.ruleId || '?');
-
 const hasApplied = (result, ruleId) => (result.applied || []).some((a) => a.ruleId === ruleId);
-const hasSkippedRule = (result, ruleId) => (result.skipped || []).some((s) => s.ruleId === ruleId);
 const skippedOf = (result, ruleId) => (result.skipped || []).filter((s) => s.ruleId === ruleId);
 const appliedOf = (result, ruleId) => (result.applied || []).filter((a) => a.ruleId === ruleId);
 // ============================================================================
