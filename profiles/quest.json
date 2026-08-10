@@ -3,7 +3,10 @@
   "engine": "threejs",
   "enabled": false,
   "title": "Meta Quest (VR)",
-  "description": "A model for the Meta Quest VR headset. The headset has a mobile GPU and shared system memory, so we keep geometry and textures genuinely light.",
+  "description": {
+    "en": "A model for the Meta Quest VR headset. The headset has a mobile GPU and shared system memory, so we keep geometry and textures genuinely light.",
+    "ru": "Модель для VR-шлема Meta Quest. У шлема мобильная видеокарта и общая с системой память, поэтому геометрию и текстуры держим по-настоящему лёгкими."
+  },
   "budgets": {
     "triangles": 100000,
     "drawCalls": 50,

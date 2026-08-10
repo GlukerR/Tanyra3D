@@ -3,7 +3,10 @@
   "engine": "threejs",
   "enabled": false,
   "title": "Mobile (smartphones)",
-  "description": "A model for viewing on a phone: in a mobile browser or AR. The strictest budget — we target inexpensive devices and mobile internet.",
+  "description": {
+    "en": "A model for viewing on a phone: in a mobile browser or AR. The strictest budget — we target inexpensive devices and mobile internet.",
+    "ru": "Модель для просмотра на телефоне: в мобильном браузере или в дополненной реальности. Самый строгий бюджет — расчёт на недорогие устройства и мобильный интернет."
+  },
   "budgets": {
     "triangles": 50000,
     "drawCalls": 30,

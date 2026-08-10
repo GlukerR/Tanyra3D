@@ -241,6 +241,54 @@ describe('Движки — отдельная таблица (ARCHITECTURE.md §
     ).toEqual([]);
   });
 
+  it('слова опции одни и те же при любой площадке и любом движке', () => {
+    // Правило 10б. Состав списка зависит от движка и площадки, ТЕКСТ — никогда:
+    // он один на язык и лежит в messages/. До 2026-08-04 четыре профиля держали
+    // четыре побайтно одинаковые копии, и каждая новая площадка означала повторный
+    // перевод всех десяти опций.
+    const наборы = [
+      ['прочерк + threejs', getAvailableExtensions('', 'ru', 'threejs')],
+      ['прочерк + model-viewer', getAvailableExtensions('', 'ru', 'model-viewer')],
+      ...listPlatforms().map((p) => [p.id, getAvailableExtensions(p.id, 'ru')]),
+    ];
+    const эталон = new Map();
+    const расхождения = [];
+    for (const [где, список] of наборы) {
+      for (const e of список) {
+        const слова = JSON.stringify([e.title, e.description, e.impact]);
+        const было = эталон.get(e.id);
+        if (было === undefined) эталон.set(e.id, { слова, где });
+        else if (было.слова !== слова) {
+          расхождения.push(`${e.id}: у «${где}» текст не тот, что у «${было.где}»`);
+        }
+      }
+    }
+    expect(расхождения, расхождения.join('; ')).toEqual([]);
+  });
+
+  it('смена языка перерисовывает опции и при прочерке тоже', () => {
+    // Дефект 2026-08-10, нашёл Александр: «когда выбираю Shopify — всё на русском,
+    // а Three.js без площадки — доп. опции на английском». Причина — ранний выход
+    // relabelExtensions() по пустому значению поля площадки. Пустое значение это
+    // ПРОЧЕРК, законное состояние: панель показана, и перерисовать её обязаны.
+    // Проверка статическая: поведение живёт в браузере, а сюда смотрит сторож
+    // за той единственной строкой, возврат которой воспроизводит беду.
+    const src = fs.readFileSync(path.join(ROOT, 'ui', 'app.js'), 'utf8');
+    const начало = src.indexOf('async function relabelExtensions')
+    expect(начало, 'в ui/app.js не нашлось relabelExtensions — проверка ослепла').toBeGreaterThan(-1);
+    const тело = src.slice(начало, src.indexOf('\n  }', начало));
+    expect(
+      /if\s*\(\s*!\s*platformSelect\.value\s*\)\s*return/.test(тело),
+      'relabelExtensions снова выходит по пустой площадке — при прочерке опции '
+        + 'останутся на прежнем языке (Правило 8: смена языка перерисовывает всё)',
+    ).toBe(false);
+    expect(тело, 'relabelExtensions больше не перезагружает список опций').toMatch(/loadExtensions\(/);
+
+    // И сама перерисовка обязана вызываться из обработчика смены языка.
+    const onChange = src.slice(src.indexOf('window.I18n.onChange'));
+    expect(onChange, 'relabelExtensions не зовётся при смене языка').toMatch(/relabelExtensions\(/);
+  });
+
   it('две оси симметричны: движок ↔ площадка сходятся с обеих сторон', () => {
     for (const p of listPlatforms()) {
       const движки = enginesForPlatform(p.id).map((e) => e.id);

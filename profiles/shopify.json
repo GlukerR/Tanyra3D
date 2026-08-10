@@ -3,7 +3,10 @@
   "engine": "model-viewer",
   "enabled": true,
   "title": "Shopify",
-  "description": "A product for a Shopify store card: rotates in 3D and opens in augmented reality. What matters most is fast loading in the storefront and a clean product look.",
+  "description": {
+    "en": "A product for a Shopify store card: rotates in 3D and opens in augmented reality. What matters most is fast loading in the storefront and a clean product look.",
+    "ru": "Товар для карточки магазина Shopify: крутится в 3D и открывается в дополненной реальности. Важнее всего быстрая загрузка в витрине и опрятный вид товара."
+  },
   "budgets": {
     "fileMB": {
       "warn": 15,
