@@ -25,6 +25,17 @@ const PORT = (() => {
   return Number.isInteger(n) && n >= 0 && n <= 65535 ? n : 3210;
 })();
 
+// Слушаем ТОЛЬКО петлевой интерфейс. `listen(PORT)` без хоста в Node значит
+// «unspecified address» — обычно `::` или `0.0.0.0`, то есть все сетевые карты машины.
+// У API нет ни токена, ни пароля: любой в той же сети (кафе, коворкинг, гостиница,
+// гостевой Wi-Fi) мог обратиться к нему напрямую — загрузить модель, прочитать чужую,
+// занять диск. Программа настольная, снаружи к ней обращаться некому.
+// Ревью 2026-08-10 (P0.1).
+//
+// TANYRA_HOST оставлен на случай, когда это нужно осознанно (проверка с телефона в
+// своей сети, докер). По умолчанию его нет, и по умолчанию сервер недоступен извне.
+const HOST = process.env.TANYRA_HOST || '127.0.0.1';
+
 const UI_DIR = path.join(__dirname, 'ui');
 
 // Рабочая папка: загруженные модели и собранные результаты.
@@ -347,11 +358,28 @@ async function serveStatic(req, res, urlPath, baseDir = UI_DIR, stripPrefix = ''
   }
 }
 
+// 1 ГБ — щедрый предел для локального инструмента. Самая тяжёлая модель в наборе
+// проверок — около 600 МБ, так что предел не мешает работе.
+//
+// Отдельно от предела остаётся то, что тело копится в памяти целиком: chunk-буферы ещё
+// живы в момент Buffer.concat, и на гигабайтном файле пик заметно выше гигабайта.
+// Лечится не числом, а потоковой записью на диск — это переделка приёма файла, она в
+// порции 2 плана (docs/ПЛАН_исправлений.md).
+const MAX_BODY = 1024 * 1024 * 1024;
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
-    const MAX = 1024 * 1024 * 1024; // 1 ГБ — щедрый предел для локального инструмента
+    const MAX = MAX_BODY;
+    // Заявленный размер отвергаем ДО приёма: иначе гигабайт сначала приедет по сети
+    // и осядет в памяти, и только потом выяснится, что он не нужен.
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > MAX) {
+      reject(new Error('File too large'));
+      req.destroy();
+      return;
+    }
     req.on('data', (chunk) => {
       size += chunk.length;
       if (size > MAX) {
@@ -412,9 +440,42 @@ function asciiHeaderName(name) {
 
 // ---- HTTP сервер ----
 
+// Запрос пришёл к нам, а не к нам через чужую страницу?
+//
+// Привязки к 127.0.0.1 мало от двух вещей. Первая — DNS rebinding: чужой сайт заводит
+// имя, которое через минуту начинает разрешаться в 127.0.0.1, и его скрипт стучится
+// «на localhost» уже из браузера человека. Заголовок Host при этом остаётся чужим —
+// по нему это и видно. Вторая — обычный запрос со страницы в интернете: там приходит
+// Origin, и он не наш.
+//
+// Проверка включается только когда мы действительно слушаем петлю. Поставил человек
+// TANYRA_HOST осознанно — значит знает, что делает, и мешать ему нечем.
+// Имя хоста, а не строка целиком: `evil.com` и `localhost.evil.com` — разные вещи,
+// а `startsWith('localhost')` их не различает. `[::1]` в hostname приезжает в скобках.
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
+const loopbackHostname = (value) => {
+  if (!value) return false;
+  try { return LOOPBACK.has(new URL(`http://${value}`).hostname); } catch { return false; }
+};
+function originAllowed(req) {
+  if (HOST !== '127.0.0.1') return true;
+  if (!loopbackHostname(req.headers.host)) return false;
+  const origin = req.headers.origin;
+  // Origin нет — значит это не кросс-страница из браузера (обычный GET, curl, само
+  // окно приложения). Проверять нечего, а Host выше уже сказал главное.
+  if (!origin || origin === 'null') return true;
+  try { return LOOPBACK.has(new URL(origin).hostname); } catch { return false; }
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const pathname = url.pathname;
+
+  if (!originAllowed(req)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('Forbidden: this server answers only to the local application.');
+    return;
+  }
 
   // краткий лог каждого запроса — чтобы проблемы вроде «файл недоступен» были видны в консоли
   if (pathname.startsWith('/api/')) {
@@ -857,12 +918,16 @@ server.on('error', (e) => {
   throw e;
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, HOST, () => {
   // PORT=0 просит систему выдать любой свободный — тогда настоящий номер известен
   // только отсюда. Настольное приложение так и делает: фиксированный порт занят, если
   // человек уже запустил программу из терминала, и окно молча не открылось бы.
   const port = server.address().port;
-  const address = `http://localhost:${port}`;
+  // Адрес называем тем же именем, на котором слушаем. Раньше стояло `localhost` при
+  // прослушивании всех интерфейсов — и разница была незаметна. Теперь сокет открыт
+  // только на 127.0.0.1, а `localhost` на части машин сначала разрешается в `::1`:
+  // окно приложения постучалось бы туда, где никто не отвечает.
+  const address = `http://${HOST}:${port}`;
   console.log(`Tanyra3D UI: ${address} (core v${VERSION})`);
 
   // Родителю (настольной оболочке) адрес нужен раньше, чем человеку: окно ждёт его,

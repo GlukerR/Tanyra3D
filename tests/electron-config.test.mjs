@@ -256,6 +256,23 @@ describe('Настройка сборки приложения', () => {
       ).toEqual([]);
     });
 
+    // Ревью 2026-08-10: в манифесте стояло 0.1.0 и node >=20.9, а в корне lock-файла
+    // так и осталось 0.0.9 и node >=18. `npm ci` от этого не ломается — потому и
+    // прожило незамеченным до релиза. Плохо другое: по lock-файлу судят проверка
+    // соответствия тега и пакета, скрипты выпуска и audit-инструменты, и все трое
+    // видели прошлую версию. Обновляется это `npm install --package-lock-only`.
+    it('lock-файл говорит о версии и Node то же, что манифест', () => {
+      const lockPath = path.join(ROOT, 'package-lock.json');
+      const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+      const root = lock.packages && lock.packages[''];
+      expect(root, 'в lock-файле нет корневой записи packages[""]').toBeTruthy();
+
+      expect(lock.version, 'lock.version разошлась с package.json').toBe(pkg.version);
+      expect(root.version, 'packages[""].version разошлась с package.json').toBe(pkg.version);
+      expect(root.name).toBe(pkg.name);
+      expect(root.engines, 'engines в lock-файле разошлись с package.json').toEqual(pkg.engines);
+    });
+
     it('пути из выбрасываемых папок возвращены через extraResources', () => {
       const unpackaged = vendorRefs()
         .filter((r) => STRIPPED.test(r))
