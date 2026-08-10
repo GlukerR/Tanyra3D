@@ -483,11 +483,21 @@ const server = http.createServer(async (req, res) => {
       // называется `--etc1s`, а опция здесь `mixed`. Непроверенное значение доехало бы
       // до радиокнопок, не совпало ни с одной, и человек увидел бы «Режим: UASTC» и ни
       // одной отмеченной кнопки: результат верный, экран врёт.
-      const planDefaults = planForSafe(platformId, langOf(url)).engineOpts || {};
+      // Движок — второй, равноправный с площадкой признак (ARCHITECTURE.md §4g).
+      // Сегодня он один, и параметр служит только формой: запрос уже умеет его принять,
+      // поэтому появление второго движка станет добавлением данных, а не сменой
+      // протокола и не правкой интерфейса. Чужое значение не подставляем молча —
+      // отвечаем движком площадки и сообщаем, какой применён на самом деле.
+      const plan = planForSafe(platformId, langOf(url));
+      const planEngine = plan.engine || 'threejs';
+      const askedEngine = url.searchParams.get('engine') || '';
+      const engine = askedEngine === planEngine ? askedEngine : planEngine;
+      const planDefaults = plan.engineOpts || {};
       const advisedTexMode = (planDefaults.texMode === 'mixed' || planDefaults.texMode === 'uastc')
         ? planDefaults.texMode
         : null;
       sendJSON(res, 200, {
+        engine,
         extensions: listExtensionsSafe(platformId, langOf(url)),
         exclusiveGroups: typeof exclusiveGroups === 'function' ? exclusiveGroups() : [],
         defaults: { texMode: advisedTexMode },
