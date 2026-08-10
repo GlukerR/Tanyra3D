@@ -213,8 +213,80 @@ function outputName(src) {
 }
 
 const load = (io, src) => io.read(src);
-const writeBytes = (io, doc) => io.writeBinary(doc);
 const readBytes = (io, bytes) => io.readBinary(bytes);
+
+// Вырожденные записи, которые пишет сериализатор: пустые массивы и пустой буфер.
+//
+// Спецификация glTF 2.0 требует, чтобы массив, если он есть, был непустым — валидатор
+// Khronos отвечает на это ошибкой EMPTY_ENTITY. А gltf-transform 4.4.2 пишет пустой
+// массив всегда, даже когда детей у сцены не осталось (проверено напрямую: документ с
+// одной сценой без детей → `{"name":"Scene","nodes":[]}`).
+//
+// Дойти до этого можно так: модель без геометрии (например одни текстуры), человек
+// ставит «объединить меши», внутренняя чистка убирает единственный пустой узел — и
+// сцена остаётся ни с чем. Найдено 2026-08-10 сетью проверок по валидатору
+// (tests/validator-net.test.mjs): join добавлял EMPTY_ENTITY на четырёх моделях корпуса.
+//
+// Убираем ключ, а не выдумываем узел: сцена без поля `nodes` — законная пустая сцена,
+// и рисуется она ровно так же, то есть никак. Правилом это не сделать: пустой массив
+// существует только в сериализованном виде, в документе его нет.
+function dropEmptyArrays(glb) {
+  const view = new DataView(glb.buffer, glb.byteOffset, glb.byteLength);
+  // GLB (спецификация §4.4): заголовок 12 байт, дальше чанки. Первый — JSON.
+  if (glb.byteLength < 20 || view.getUint32(0, true) !== 0x46546c67) return glb;
+  const jsonLen = view.getUint32(12, true);
+  if (view.getUint32(16, true) !== 0x4e4f534a) return glb; // не JSON-чанк — не трогаем
+  const jsonBytes = glb.subarray(20, 20 + jsonLen);
+  const text = new TextDecoder().decode(jsonBytes);
+  let json;
+  try { json = JSON.parse(text); } catch { return glb; }
+
+  const rest0 = glb.subarray(20 + jsonLen);
+
+  let touched = false;
+  for (const scene of json.scenes || []) {
+    if (Array.isArray(scene.nodes) && scene.nodes.length === 0) { delete scene.nodes; touched = true; }
+  }
+  for (const node of json.nodes || []) {
+    if (Array.isArray(node.children) && node.children.length === 0) { delete node.children; touched = true; }
+  }
+
+  // Буфер без единого байта. Та же болезнь этажом ниже: у модели не осталось двоичных
+  // данных, а запись о буфере пишется всё равно — `"buffers": [{}]`, без обязательного
+  // byteLength. Валидатор отвечает UNDEFINED_PROPERTY.
+  //
+  // Убираем только когда убирать заведомо нечего: двоичного чанка в файле нет вовсе и
+  // ни одна запись буфера ни на что не ссылается. Иначе легко снести буфер, на который
+  // смотрит геометрия, — а это уже не чистка отчёта, а порча модели.
+  const noBinChunk = rest0.length === 0;
+  const noViews = !Array.isArray(json.bufferViews) || json.bufferViews.length === 0;
+  const allBuffersEmpty = Array.isArray(json.buffers)
+    && json.buffers.length > 0
+    && json.buffers.every((b) => b && typeof b === 'object' && Object.keys(b).length === 0);
+  if (noBinChunk && noViews && allBuffersEmpty) { delete json.buffers; touched = true; }
+
+  if (!touched) return glb;
+
+  // Пересобираем контейнер. JSON-чанк выравнивается пробелами до кратности четырём —
+  // требование спецификации; без выравнивания следующий чанк начнётся не там.
+  const encoded = new TextEncoder().encode(JSON.stringify(json));
+  const padded = new Uint8Array(Math.ceil(encoded.length / 4) * 4).fill(0x20);
+  padded.set(encoded);
+
+  const rest = rest0;
+  const out = new Uint8Array(12 + 8 + padded.length + rest.length);
+  const ov = new DataView(out.buffer);
+  ov.setUint32(0, 0x46546c67, true);          // magic
+  ov.setUint32(4, 2, true);                   // версия
+  ov.setUint32(8, out.length, true);          // общая длина
+  ov.setUint32(12, padded.length, true);      // длина JSON-чанка
+  ov.setUint32(16, 0x4e4f534a, true);         // тип чанка: JSON
+  out.set(padded, 20);
+  out.set(rest, 20 + padded.length);
+  return out;
+}
+
+const writeBytes = async (io, doc) => dropEmptyArrays(await io.writeBinary(doc));
 
 // Входное сжатие геометрии (Draco/Meshopt) снимаем сразу после загрузки — иначе каждая
 // запись молча пережимает геометрию заново (ARCHITECTURE.md §6). Возвращаем имена снятых
