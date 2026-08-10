@@ -462,12 +462,22 @@
       if (menuVersion) menuVersion.textContent = data.engineVersion ? `Tanyra3D · core v${data.engineVersion}` : 'Tanyra3D';
 
       platformSelect.innerHTML = '';
+      // Прочерк — и он же выбран по умолчанию. Без него первой вставала бы просто первая
+      // площадка по алфавиту: приложение молча заявляло бы цель, которую человек не
+      // называл, вместе с её жёсткими пределами (Shopify отклоняет файл больше 15 МБ).
+      // «Площадка не выбрана» не утверждает ничего и показывает всё, что умеет движок.
+      const none = document.createElement('option');
+      none.value = '';
+      window.I18n.setText(none, 'insp.platform.none');
+      platformSelect.appendChild(none);
+
       for (const p of platforms) {
         const opt = document.createElement('option');
         opt.value = p.id;
         opt.textContent = p.title || p.id;
         platformSelect.appendChild(opt);
       }
+      platformSelect.value = '';
       updatePlatformDescription();
       // Список платформ пуст — выбирать нечего, и загружать опции не под что. Молча
       // оставить панель скрытой нельзя: см. комментарий в loadExtensions().
@@ -648,6 +658,15 @@
     const chosen = platformSelect.value;
 
     platformSelect.innerHTML = '';
+    // Прочерк первым: «площадка не выбрана» — такой же выбор, как любая площадка
+    // (решение Александра, 2026-08-10). Человек берёт движок и видит ВСЁ, что тот умеет,
+    // без требований какой-либо витрины. Годится любому движку, поэтому не сортируется
+    // вместе с остальными и не помечается «нужен другой движок».
+    const none = document.createElement('option');
+    none.value = '';
+    window.I18n.setText(none, 'insp.platform.none');
+    platformSelect.appendChild(none);
+
     for (const p of [...platforms].sort((a, b) => Number(fits(b)) - Number(fits(a)))) {
       const opt = document.createElement('option');
       opt.value = p.id;
@@ -765,14 +784,22 @@
     infoTip.hide();
     extensionsPanel.classList.add('hidden');
     if (decoderLegend) decoderLegend.classList.add('hidden');
-    if (!platformId) return;
+    // Пустая площадка — прочерк, законный выбор: список берётся у движка (§4g). Раньше
+    // здесь стоял выход по !platformId — тогда пустое значение означало «ещё не выбрана».
+    // Выходим, только если спрашивать вообще не о чем: нет ни площадки, ни движка.
+    if (!platformId && !engineSelect.value) return;
 
     let failure = null;
     // Пустой ответ по умолчанию: при провале запроса панель обязана обнулиться, а не
     // остаться с данными предыдущей площадки.
     let fetched = { extensions: [], exclusiveGroups: [], defaults: {} };
     try {
-      const res = await fetch(`/api/extensions?platform=${encodeURIComponent(platformId)}&${langParam()}`);
+      // Движок передаём всегда: при выбранной площадке сервер его игнорирует (движок у
+      // неё свой), а при прочерке — это единственный источник, откуда движок известен.
+      const res = await fetch(
+        `/api/extensions?platform=${encodeURIComponent(platformId)}`
+        + `&engine=${encodeURIComponent(engineSelect.value || '')}&${langParam()}`,
+      );
       const data = await res.json();
       fetched = {
         extensions: (data && data.extensions) || [],
@@ -1997,7 +2024,10 @@
     const sourceParam = useSource && currentSourceId ? `&source=${encodeURIComponent(currentSourceId)}` : '';
     // режим KTX2 (UASTC/ETC1S) → texMode; актуален только когда выбран флажок ktx2
     const texParam = features.includes('ktx2') ? `&texMode=${encodeURIComponent(ktx2Mode)}` : '';
-    return `/api/optimize?platform=${encodeURIComponent(platformId)}&job=${encodeURIComponent(jobId)}&${langParam()}${featuresParam}${sourceParam}${texParam}`;
+    // Движок — по тем же основаниям, что и в /api/extensions: при прочерке базовый план
+    // берётся у него, иначе сборка пошла бы с чужими умолчаниями.
+    const engineParam = `&engine=${encodeURIComponent(engineSelect.value || '')}`;
+    return `/api/optimize?platform=${encodeURIComponent(platformId)}${engineParam}&job=${encodeURIComponent(jobId)}&${langParam()}${featuresParam}${sourceParam}${texParam}`;
   }
 
   // Повтор по sourceId — без тела (модель уже на сервере); первый прогон — с телом файла.

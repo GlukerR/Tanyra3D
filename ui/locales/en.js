@@ -83,6 +83,7 @@ window.I18N_CATALOGS.en = {
 
   // --- инспектор ---
   'insp.platform': 'Platform',
+  'insp.platform.none': '— no platform —',
   // Движок — вторая ось выбора (ARCHITECTURE.md §4g). Пока движок один, поле заперто,
   // и подсказка объясняет почему: серое поле без объяснения человек читает как поломку.
   'insp.engine': 'Engine',

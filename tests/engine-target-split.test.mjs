@@ -24,7 +24,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   planFor, listPlatforms, listEngines, getAvailableExtensions,
-  enginesForPlatform, platformsForEngine, narrowToPlatform,
+  enginesForPlatform, platformsForEngine, narrowToPlatform, explainResult,
 } from '../assistant.mjs';
 import { listRules } from '../optimize2.mjs';
 
@@ -246,8 +246,72 @@ describe('Движки — отдельная таблица (ARCHITECTURE.md §
     }
   });
 
+  it('без площадки план строится по движку, а бюджетов нет', () => {
+    // Прочерк — законный выбор (решение Александра, 2026-08-10): человек берёт движок и
+    // видит всё, что тот умеет, ничего не обещая ни одной витрине.
+    for (const { data } of engineData) {
+      const plan = planFor('', 'ru', data.id);
+      expect(plan.engine, `движок не доехал до плана: ${data.id}`).toBe(data.id);
+      expect(plan.engineOpts, `${data.id}: базовый план пуст — сборка пошла бы без умолчаний`)
+        .toEqual(data.baselineOpts);
+      expect(plan.availableExtensions.length, `${data.id}: без площадки список опций пуст`)
+        .toBe(data.availableExtensions.length);
+    }
+    // Ни одной бюджетной строки: требования предъявлять некому.
+    //
+    // Результат нужен ПОЛНЫЙ — с before и after. С одним after explainResult() выходит
+    // раньше по «нет метрик» и отдаёт пустой budgetChecks всегда: тест проходил бы, даже
+    // если бы прочерк тянул чужие бюджеты (поймано мутацией 2026-08-10).
+    const metric = {
+      fileBytes: 50 * 1024 * 1024, gpuBytes: 20 * 1024 * 1024,
+      triangles: 9999999, materials: 99, drawCalls: 999,
+    };
+    const rr = { status: 'ok', metrics: { before: metric, after: metric } };
+
+    expect(
+      explainResult(rr, '', 'ru').budgetChecks,
+      'без площадки не должно быть ни одной проверки бюджета — иначе мы предъявляем '
+        + 'требования от имени площадки, которую человек не выбирал',
+    ).toEqual([]);
+
+    // Контроль осмысленности: у настоящей площадки на тех же числах проверки ЕСТЬ.
+    // Без этой строки предыдущая ничего не значит — пустой ответ бывает и от поломки.
+    const реальные = explainResult(rr, 'threejs', 'ru').budgetChecks;
+    expect(реальные.length, 'у площадки бюджеты пропали — сравнивать не с чем').toBeGreaterThan(0);
+  });
+
+  it('жёсткий предел красный, рекомендация жёлтая', () => {
+    // Разница видна человеку цветом (ui/style.css: .budget-row.over → --error,
+    // .budget-row.warn → --warning). Решение Александра 2026-08-10: числа-советы имеют
+    // право быть, пока их нельзя спутать с настоящим отказом площадки.
+    const metric = {
+      fileBytes: 50 * 1024 * 1024, gpuBytes: 20 * 1024 * 1024,
+      triangles: 9999999, materials: 99, drawCalls: 999,
+    };
+    const rr = { status: 'ok', metrics: { before: metric, after: metric } };
+
+    const уровень = (platform, id) => (explainResult(rr, platform, 'ru').budgetChecks
+      .find((c) => c.id === id) || {}).level;
+
+    // Shopify объявляет жёсткие 15 МБ — 50 МБ обязаны стать красными.
+    expect(уровень('shopify', 'fileMB'), 'жёсткий предел площадки не покраснел').toBe('over');
+    // У веба предела нет и быть не может: это не витрина, файл никто не отклонит.
+    expect(уровень('threejs', 'fileMB'), 'рекомендация выдана за отказ').toBe('warn');
+  });
+
+  it('ведущий движок назван в данных, а не в коде интерфейса', () => {
+    const primary = engineData.filter((e) => e.data.primary === true).map((e) => e.data.id);
+    expect(
+      primary.length,
+      `движков с primary: ${primary.join(', ') || '—'}. Ровно один обязан вести список: `
+        + 'когда площадка не выбрана, выбирать движок больше не по чему, и без признака '
+        + 'решал бы алфавит.',
+    ).toBe(1);
+    expect(listEngines()[0].id, 'ведущий движок не первый в списке').toBe(primary[0]);
+  });
+
   it('listEngines отдаёт движки, а не площадки', () => {
     const ids = listEngines().map((e) => e.id);
-    expect(ids).toEqual(engineData.filter((e) => e.data.enabled !== false).map((e) => e.data.id).sort());
+    expect([...ids].sort()).toEqual(engineData.filter((e) => e.data.enabled !== false).map((e) => e.data.id).sort());
   });
 });

@@ -80,8 +80,33 @@ function profilePath(id) {
   return path.join(PROFILES_DIR, `${safe}.json`);
 }
 
-function loadProfile(platformId) {
-  if (!platformId) throw new Error('No platform specified.');
+// «Площадка не выбрана» — такой же законный выбор, как любая площадка (решение
+// Александра, 2026-08-10). Человек берёт движок и видит ВСЁ, что тот умеет, без
+// требований какой-либо витрины. Прочерк в списке площадок — это он.
+//
+// Сделано синтетическим профилем, а не особым случаем во всех вызовах: ниже по течению
+// (planFor, explainResult, extensionsOf) ничего не меняется — им приходит обычный
+// профиль, просто без бюджетов и без имени.
+export const NO_PLATFORM = '';
+
+function syntheticProfile(engineId) {
+  const id = engineId || DEFAULT_ENGINE;
+  const engine = loadEngine(id);
+  return {
+    id: NO_PLATFORM,
+    engine: id,
+    title: null,
+    description: null,
+    // Бюджетов нет, и это честно: без площадки некому предъявлять требования.
+    budgets: {},
+    // Базовый план берём у движка — он единственный, кто тут вообще что-то знает.
+    baselineOpts: (engine && engine.baselineOpts) || {},
+    notes: [],
+  };
+}
+
+function loadProfile(platformId, engineId) {
+  if (!platformId) return syntheticProfile(engineId);
   const file = profilePath(platformId);
   if (!fs.existsSync(file)) {
     const known = listPlatforms().map((p) => p.id).join(', ');
@@ -147,13 +172,18 @@ export function listEngines(lang = DEFAULT_LANG) {
           title: pick(e.title, lang) || e.id,
           description: pick(e.description, lang),
           viewer: e.viewer || e.id,
+          primary: e.primary === true,
         });
       }
     } catch {
       /* повреждённый движок просто не показываем — как и профиль */
     }
   }
-  return out;
+  // Ведущий движок — первым. Когда площадка не выбрана, выбирать движок больше не по
+  // чему, и алфавит решал бы за человека: «model-viewer» встал бы раньше «threejs»
+  // просто по букве. Признак лежит в данных (primary), а не в коде интерфейса, —
+  // иначе смена ведущего движка потребовала бы правки js.
+  return out.sort((a, b) => Number(b.primary) - Number(a.primary));
 }
 
 // Какие площадки достижимы на этом движке. Нужно для симметрии двух полей (§4g):
@@ -278,10 +308,14 @@ export function listPlatforms(lang = DEFAULT_LANG) {
 // planFor(platformId) — план обработки + объяснение выбора настроек
 // ----------------------------------------------------------------------------
 
-export function planFor(platformId, lang = DEFAULT_LANG) {
+// engineId нужен ТОЛЬКО когда площадка не выбрана: без неё движок больше неоткуда взять,
+// две оси стали по-настоящему независимыми. У выбранной площадки движок свой, и
+// переданное значение игнорируется — иначе можно было бы посчитать план для пары,
+// которой не существует.
+export function planFor(platformId, lang = DEFAULT_LANG, engineId) {
   const t = messages(lang);
   const { fmtInt } = formatters(lang);
-  const profile = loadProfile(platformId);
+  const profile = loadProfile(platformId, engineId);
   // v0.0.8: базовый план строится из baselineOpts (KTX2/Draco выключены);
   // engineOpts — legacy-поле старых профилей, оставлено как фолбэк
   const opts = profile.baselineOpts || profile.engineOpts || {};
@@ -397,8 +431,8 @@ function extensionsOf(profile, lang = DEFAULT_LANG) {
   }));
 }
 
-export function getAvailableExtensions(platformId, lang = DEFAULT_LANG) {
-  return extensionsOf(loadProfile(platformId), lang);
+export function getAvailableExtensions(platformId, lang = DEFAULT_LANG, engineId) {
+  return extensionsOf(loadProfile(platformId, engineId), lang);
 }
 
 // Алиас под имя, которое web-interface (server.mjs) уже ищет у ассистента.

@@ -10,6 +10,14 @@
     "ru": "Готовый проигрыватель Google, на котором работают витрины магазинов. Внутри тот же рендерер, что и Three.js, но настройки выбирает не автор модели, а площадка."
   },
   "viewer": "threejs",
+  "baselineOpts": {
+    "codec": "meshopt",
+    "texMode": "mixed",
+    "keepParts": false,
+    "noKtx": true,
+    "stripColors": false,
+    "dryRun": false
+  },
   "availableExtensions": [
     {
       "id": "safe",

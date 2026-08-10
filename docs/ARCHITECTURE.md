@@ -885,6 +885,46 @@ either; the list has always meant "what works here", and a target is the same pr
 level down. The full palette of an engine stays reachable by choosing that engine without a
 target.
 
+### "No target" is a choice of its own (Alexander's decision, 2026-08-10)
+
+The target list leads with a dash — **no platform** — and that is the default. Pick an engine,
+leave the platform blank, and you see everything that engine can do, with no budgets at all:
+nobody is entitled to make demands when no target has been named. It is implemented as a
+synthetic profile (`assistant.mjs`, `syntheticProfile()`), so `planFor`, `explainResult` and
+`extensionsOf` receive an ordinary profile — one without budgets or a name — and needed no
+special cases.
+
+Two consequences worth stating:
+
+- **`planFor(platformId, lang, engineId)` takes an engine.** Without a target there is nowhere
+  else to get one; this is the point at which the two axes became genuinely independent. With
+  a target chosen, the passed engine is ignored — a pair that does not exist must not be
+  costed. The parameter is additive, so §4c's stability rules hold.
+- **The default had to move.** With Shopify enabled and the list sorted, the first real
+  platform would have been selected on startup, and the app would silently have claimed a
+  target the user never picked — along with Shopify's hard 15 MB rejection. The dash claims
+  nothing. For the same reason the leading engine is named in data (`"primary": true`) rather
+  than left to alphabetical order, which would have put `model-viewer` ahead of `threejs`.
+
+This also removed the last naming wart: `profiles/threejs.json` was titled "Web (Three.js)" —
+a target named after an engine. It is now "Web — general guidance", and its description says
+plainly that the numbers are advice.
+
+### Soft advice and hard refusal must not look alike
+
+Both live in the same budget entry — `warn` and `limit` — and they already render differently
+(`ui/style.css`: `.budget-row.warn` → `--warning`, `.budget-row.over` → `--error`). That is
+what makes it acceptable to keep advisory numbers at all: 100 000 triangles from the Khronos
+asset auditor is guidance, and nothing breaks at 100 001, so it is yellow. Shopify's 15 MB is
+a real refusal, so it is red. Guarded by `tests/engine-target-split.test.mjs`.
+
+Not yet built, recorded so it is not lost: when a target declares a hard limit and the result
+exceeds it, the export dialog should say so in red — **without blocking the download**. The
+mechanism already exists for a different case (`export.integrity.*`: the file is complete, it
+saves as is, the decision is the user's), and a hard-limit warning belongs in the same place
+and behaves the same way. Refusing to hand over a file the user asked for would be the one
+unacceptable outcome.
+
 ### The UI rule: two fields that filter each other, never a hierarchy
 
 The hard question was: a person is looking at an engine, but the target they want belongs to

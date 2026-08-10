@@ -81,6 +81,7 @@ window.I18N_CATALOGS.ru = {
 
   // --- инспектор ---
   'insp.platform': 'Платформа',
+  'insp.platform.none': '— без площадки —',
   'insp.engine': 'Движок',
   'insp.engine.only': 'Пока это единственный движок в приложении. Появится второй — поле станет выбором.',
   'insp.platform.otherEngine': ({ title, engine }) => `${title} — нужен ${engine}`,

@@ -3,12 +3,12 @@
   "engine": "threejs",
   "enabled": true,
   "title": {
-    "en": "Web (Three.js)",
-    "ru": "Веб (Three.js)"
+    "en": "Web — general guidance",
+    "ru": "Веб — общие рекомендации"
   },
   "description": {
-    "en": "A model for a website: opens right in the browser on a desktop or laptop. A balance between good image quality and fast loading.",
-    "ru": "Модель для сайта: открывается прямо в браузере на компьютере или ноутбуке. Баланс между качеством картинки и быстрой загрузкой."
+    "en": "A model for a website on a desktop or laptop. The numbers here are advice, not a barrier: nobody rejects a file for exceeding them. They show up in yellow — a hard limit, shown in red, only exists where a marketplace really refuses the upload.",
+    "ru": "Модель для сайта на компьютере или ноутбуке. Числа здесь — совет, а не преграда: за их превышение файл никто не отклонит. Они подсвечиваются жёлтым; красный жёсткий предел бывает только там, где площадка правда откажется принять файл."
   },
   "budgets": {
     "triangles": {
