@@ -13,6 +13,14 @@
 export const TIER_RANK = { provable: 0, numeric: 1, perceptual: 2, lossy: 3 };
 export const AUTOFIX_MAX_TIER = 'perceptual';
 
+// Уровень известен движку? Спрашивать ЭТИМ, а не `TIER_RANK[tier] > ...` напрямую.
+//
+// Прямое сравнение работает по модели fail-open: у опечатки `perceptal` ранга нет,
+// `undefined > 2` — ложь, и правило проходит ворота как безопасное. Для движка, который
+// продаёт именно предсказуемость преобразований, это ровно наоборот тому, что нужно:
+// чего движок не понимает, то он не применяет. Найдено ревью 2026-08-10 (P0.3).
+export const isKnownTier = (tier) => Object.prototype.hasOwnProperty.call(TIER_RANK, tier);
+
 // Находки/применения уровня движка (вне правил аддона) — стабильные ruleId «engine/*».
 // Аддон может ссылаться на них (напр. gltf/validate — на inputValidation).
 export const ENGINE_META = {

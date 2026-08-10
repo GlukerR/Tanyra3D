@@ -29,6 +29,9 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import readline from 'node:readline';
+// fileURLToPath, а не `.pathname`: см. addons/gltf/tools.mjs — пробелы и кириллица
+// в пути к проекту иначе приезжают процентами. Ревью 2026-08-10 (P1.2).
+import { fileURLToPath } from 'node:url';
 
 const CHECK_ONLY = process.argv.includes('--check');
 const ASSUME_YES = process.argv.includes('--yes') || process.argv.includes('-y');
@@ -47,7 +50,7 @@ const warn = (s) => `\x1b[33m•\x1b[0m ${s}`;
 const bad = (s) => `\x1b[31m✗\x1b[0m ${s}`;
 const dim = (s) => `\x1b[2m${s}\x1b[0m`;
 
-const root = path.resolve(new URL('..', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const TOOLS_DIR = path.join(root, '.tools');
 
 let missingOptional = 0;

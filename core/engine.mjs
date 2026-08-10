@@ -23,7 +23,7 @@ register('ru', ruCoreMessages);
 // Общий словарь движка и аддона (ARCH-001): политика автофикса, engine/*-находки,
 // сверка baseline-checkpoint. Аддон берёт их оттуда же, а не из движка — иначе
 // связь двусторонняя: движок зовёт аддон, аддон импортирует внутренности движка.
-import { TIER_RANK, AUTOFIX_MAX_TIER, ENGINE_META, compareBaseline } from './contract.mjs';
+import { TIER_RANK, AUTOFIX_MAX_TIER, ENGINE_META, compareBaseline, isKnownTier } from './contract.mjs';
 
 // Реэкспорт: снаружи движок по-прежнему отдаёт эти имена, менять импорты незачем.
 export { AUTOFIX_MAX_TIER, ENGINE_META, compareBaseline };
@@ -71,14 +71,32 @@ const skipLine = (meta, reason) => ({
 });
 
 // Топологическая сортировка по meta.runAfter (устойчивая: при равенстве — порядок массива).
-// Зависимости на выключенные правила считаются выполненными.
+//
+// Список приходит ПОЛНЫЙ (все правила аддона) — выключенные отсеиваются позже, на прогоне.
+// Значит зависимость, которой нет в списке, — не «выключённая», а опечатка. Раньше такая
+// считалась выполненной, и `geometry/dedpe` вместо `geometry/dedupe` давал не ошибку
+// настройки, а ТИХО ДРУГОЙ ПОРЯДОК — при том, что у части transforms порядок жёсткий и
+// менять его нельзя. Найдено ревью 2026-08-10 (P0.4).
+//
+// Ошибка здесь — про сборку программы, а не про модель человека: до пользователя дойти
+// не может, её ловят тесты. Поэтому исключение, а не пропуск правила.
 export function orderRules(rules) {
   const ids = new Set(rules.map((r) => r.meta.id));
+  for (const r of rules) {
+    const deps = r.meta.runAfter || [];
+    const seen = new Set();
+    for (const d of deps) {
+      if (!ids.has(d)) throw new Error(`unknown runAfter dependency "${d}" in rule "${r.meta.id}"`);
+      if (d === r.meta.id) throw new Error(`rule "${r.meta.id}" depends on itself in runAfter`);
+      if (seen.has(d)) throw new Error(`duplicate runAfter dependency "${d}" in rule "${r.meta.id}"`);
+      seen.add(d);
+    }
+  }
   const done = new Set();
   const pending = [...rules];
   const out = [];
   while (pending.length) {
-    const i = pending.findIndex((r) => (r.meta.runAfter || []).every((d) => !ids.has(d) || done.has(d)));
+    const i = pending.findIndex((r) => (r.meta.runAfter || []).every((d) => done.has(d)));
     if (i === -1) throw new Error(`cycle in runAfter: ${pending.map((r) => r.meta.id).join(', ')}`);
     const [r] = pending.splice(i, 1);
     done.add(r.meta.id);
@@ -285,6 +303,14 @@ async function runFile(addon, src, dstName, o, result) {
         continue;
       }
       const tier = finding.fixSafety || rule.meta.fixSafety;
+      // Неизвестный уровень не пропускаем даже по force: force — это «я знаю, что этот
+      // фикс lossy, и всё равно хочу», а не «применяй что попало». Про уровень, которого
+      // движок не знает, никто ничего не знает.
+      if (!isKnownTier(tier)) {
+        const reason = { messageId: 'engine.policy.unknownSafetyLevel', data: { tier: String(tier) } };
+        addSkipped(rule.meta, skipLine(rule.meta, reason), reason, 'policy');
+        continue;
+      }
       if (TIER_RANK[tier] > TIER_RANK[AUTOFIX_MAX_TIER] && !decision.force) {
         const reason = { messageId: 'engine.policy.safetyLevel', data: { tier } };
         addSkipped(rule.meta, skipLine(rule.meta, reason), reason, 'policy');

@@ -41,4 +41,5 @@ export default {
 
   // --- policy ---
   'engine.policy.safetyLevel': ({ tier }) => `safety level "${tier}" is not applied automatically`,
+  'engine.policy.unknownSafetyLevel': ({ tier }) => `the engine does not know the safety level "${tier}" — the rule was skipped`,
 };

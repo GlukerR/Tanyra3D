@@ -6,6 +6,12 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+// fileURLToPath, а не `.pathname` вручную: `.pathname` отдаёт URL-строку, где пробел
+// закодирован как %20, а кириллица — процентами. Для `C:\Program Files\Tanyra3D` это
+// значило «CLI не найден», и разбираться приходилось уже по отказу KTX2. Снятие
+// префикса `/` регуляркой лечило только букву диска и молчало про всё остальное.
+// Ревью 2026-08-10 (P1.2).
+import { fileURLToPath } from 'node:url';
 
 // ---------- поиск внешних инструментов ----------
 function findInPath(names) {
@@ -28,7 +34,7 @@ function findInPath(names) {
 function findLocalCli() {
   try {
     const pkgJson = new URL('../../node_modules/@gltf-transform/cli/package.json', import.meta.url);
-    const dir = path.dirname(pkgJson.pathname.replace(/^\/([A-Za-z]:)/, '$1'));
+    const dir = path.dirname(fileURLToPath(pkgJson));
     if (!fs.existsSync(path.join(dir, 'package.json'))) return null;
     return dir;
   } catch {
@@ -85,7 +91,7 @@ export const HAS_GLTF_CLI = Boolean(GLTF_CLI_JS || GLTF_CLI);
 // должен. Нет переменной — прежнее поведение, папка `.tools/` в корне проекта.
 function findInTools() {
   const dir0 = process.env.TANYRA_TOOLS_DIR
-    || new URL('../../.tools/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1');
+    || fileURLToPath(new URL('../../.tools/', import.meta.url));
   if (!fs.existsSync(dir0)) return null;
   const stack = [dir0];
   while (stack.length) {
