@@ -115,6 +115,9 @@ export default [
       'addons/gltf/rules.mjs',
       'addons/gltf/types.mjs',
       'addons/gltf/index.mjs',
+      'optimize2.mjs',
+      'server.mjs',
+      'assistant.mjs',
     ],
   },
 

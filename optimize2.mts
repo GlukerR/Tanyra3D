@@ -45,6 +45,14 @@ import gltfAddon from './addons/gltf/index.mjs';
 import { GLTF_CLI, GLTF_CLI_JS, TOKTX } from './addons/gltf/tools.mjs';
 import { MB } from './addons/gltf/metrics.mjs';
 
+import type { Addon, RunResult, RuleMeta } from './core/types.mjs';
+
+/** Консоль как таблица методов: перехват идёт по ИМЕНИ, а не по известному полю. */
+type ConsoleTable = Record<string, (...a: any[]) => void>;
+
+/** Два числа, которые печатает сводка CLI. Есть у любого формата, шире ей не нужно. */
+type CliMetrics = { fileBytes: number; gpuBytes: number };
+
 const BASE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const INPUT_DIR = path.join(BASE_DIR, 'input');
 const OUTPUT_DIR = path.join(BASE_DIR, 'output');
@@ -52,7 +60,15 @@ const LOG_DIR = path.join(BASE_DIR, 'logs');
 const LOG_KEEP_DAYS = 30; // логи старше — удаляются при следующем запуске
 
 // Реестр аддонов. GLB-аддон всегда включён и невыключаем (единственный формат ядра).
-const registry = new Registry().register(gltfAddon);
+// Приведение здесь — единственное место, где glTF-аддон встречается с формой, которую
+// ждёт движок, и оно осознанное. Правила аддона принимают СВОЙ контекст и свои опции,
+// а правило движка обязано принимать любые: формально это сужение входа, то есть
+// подстановка, которую компилятор запретить обязан (подробнее — GltfRule в
+// addons/gltf/types.mts). Во время работы подстановка верна: движок зовёт правила
+// аддона только с тем контекстом, который сам же собрал из загруженного этим аддоном
+// документа. Один cast в композиционном корне честнее, чем ослабление типов у всех
+// десяти правил.
+const registry = new Registry().register(gltfAddon as unknown as Addon);
 
 // ============================================================================
 // ПУБЛИЧНЫЙ API (контракт: docs/ARCHITECTURE.md §4b, раздел Б).
@@ -62,8 +78,8 @@ const registry = new Registry().register(gltfAddon);
 export const VERSION = JSON.parse(fs.readFileSync(path.join(BASE_DIR, 'package.json'), 'utf8')).version;
 
 // read-only копии meta всех правил всех аддонов: мутации у потребителя не влияют на движок
-export function listRules() {
-  const out = [];
+export function listRules(): RuleMeta[] {
+  const out: RuleMeta[] = [];
   for (const addon of registry.addons()) {
     for (const r of addon.rules) {
       out.push({ ...r.meta, runAfter: [...(r.meta.runAfter || [])], touches: [...(r.meta.touches || [])] });
@@ -76,8 +92,8 @@ export function listRules() {
 // Раньше свой список держал ui/app.js: два независимых объявления, которые никто не
 // сверял и которые уже разошлись. Аддон, не умеющий их объявить, просто не даёт
 // групп — это не ошибка, а отсутствие взаимоисключений в его формате.
-export function exclusiveGroups() {
-  const out = [];
+export function exclusiveGroups(): Array<{ id: string; members: string[] }> {
+  const out: Array<{ id: string; members: string[] }> = [];
   for (const addon of registry.addons()) {
     if (typeof addon.exclusiveGroups !== 'function') continue;
     for (const g of addon.exclusiveGroups()) out.push({ ...g, members: [...g.members] });
@@ -85,13 +101,14 @@ export function exclusiveGroups() {
   return out;
 }
 
-export async function optimizeFile(srcPath, opts = {}) {
-  let addon;
+export async function optimizeFile(srcPath: string, opts: Record<string, unknown> = {}): Promise<RunResult> {
+  let addon: Addon;
   try {
     addon = registry.resolve(srcPath); // формат по расширению; неподдержанный → status:'fail'
-  } catch (e) {
+  // `any`, а не `unknown`: выражение ниже сохранено дословно (см. тот же приём в CLI).
+  } catch (e: any) {
     return {
-      status: 'fail',
+      status: 'fail' as const,
       file: { src: path.resolve(String(srcPath)), dst: null, written: false, reportPath: null },
       findings: [], skipped: [], applied: [], validation: [], metrics: { before: null, after: null },
       error: e && e.message ? e.message : String(e),
@@ -102,7 +119,7 @@ export async function optimizeFile(srcPath, opts = {}) {
 
 // Инспекция ассета без оптимизации: метаданные + валидация (для окон Metadata/Validation).
 // Формат-агностично: ядро резолвит аддон по расширению и зовёт его хук inspect().
-export async function inspectFile(srcPath) {
+export async function inspectFile(srcPath: string) {
   const addon = registry.resolve(srcPath);
   if (typeof addon.inspect !== 'function') {
     return { format: null, asset: {}, extensions: [], metadata: null, metrics: null, validation: [] };
@@ -111,7 +128,7 @@ export async function inspectFile(srcPath) {
 }
 
 // Экспорт ассета как самодостаточного JSON (для «Export as JSON»). Формат-агностично.
-export async function exportJson(srcPath) {
+export async function exportJson(srcPath: string) {
   const addon = registry.resolve(srcPath);
   if (typeof addon.toJSON !== 'function') throw new Error('This format does not support JSON export.');
   return addon.toJSON(srcPath);
@@ -123,14 +140,19 @@ export async function exportJson(srcPath) {
 
 // ---------- логи (только CLI): всё из консоли дублируется в файл logs/run_*.log ----------
 // Вызывается ТОЛЬКО из CLI-пути: при импорте как модуля консоль не перехватывается.
-function initCliLogging(opts) {
+function initCliLogging(opts: { dryRun?: boolean } & Record<string, unknown>) {
   fs.mkdirSync(LOG_DIR, { recursive: true });
   const stamp = new Date().toISOString().replace(/:/g, '-').replace('T', '_').slice(0, 19);
   const logFile = path.join(LOG_DIR, `run_${stamp}.log`);
   const logLines = [`=== Tanyra3D · run ${new Date().toISOString()} ===`, `argv: ${process.argv.slice(2).join(' ') || '(no arguments)'}`];
+  // Перехват идёт по ИМЕНИ метода, поэтому консоль здесь — таблица функций, а не класс
+  // с известными полями: приведение стоит прямо на обращении и в собранный код не попадает.
+  // `any` у списка аргументов — сознательно: сюда приходит что угодно, включая ошибки, и
+  // выражение ниже (`x && x.stack`) должно остаться дословно тем же, что было до перевода.
+  // Замена его на `x?.stack` дала бы тот же результат, но это уже правка, а не перенос.
   for (const m of ['log', 'error', 'warn']) {
-    const orig = console[m].bind(console);
-    console[m] = (...a) => {
+    const orig = (console as unknown as ConsoleTable)[m]!.bind(console);
+    (console as unknown as ConsoleTable)[m] = (...a: any[]) => {
       logLines.push(a.map((x) => (typeof x === 'string' ? x : (x && x.stack) || String(x))).join(' '));
       orig(...a);
     };
@@ -155,10 +177,10 @@ function initCliLogging(opts) {
 // ---------- аргументы CLI → opts (та же форма, что принимает optimizeFile) ----------
 // Расширения (tier advanced) — только явный opt-in флагами; кодек/цвета/KTX2
 // выводятся из advancedFeatures в addon.normalizeOpts, здесь не дублируются.
-function parseArgv(rawArgv) {
+function parseArgv(rawArgv: string[]) {
   const argv = rawArgv.map((a) => a.toLowerCase());
-  const has = (f) => argv.includes(f);
-  const advancedFeatures = [];
+  const has = (f: string) => argv.includes(f);
+  const advancedFeatures: string[] = [];
 
   // v0.1.1: ядро — opt-in (по умолчанию passthrough). CLI СОХРАНЯЕТ прежнее поведение
   // пресетом (решение Александра): без флагов = безопасная чистка + склейка + meshopt.
@@ -226,7 +248,7 @@ async function main() {
     + (OPTS.noKtx || TOKTX ? '' : ' | toktx NOT found'));
   console.log(`Files: ${files.length}\n`);
 
-  const pct = (b, a) => (b ? (a <= b ? `−${((1 - a / b) * 100).toFixed(0)}%` : `+${((a / b - 1) * 100).toFixed(0)}%`) : '—');
+  const pct = (b: number, a: number) => (b ? (a <= b ? `−${((1 - a / b) * 100).toFixed(0)}%` : `+${((a / b - 1) * 100).toFixed(0)}%`) : '—');
   let ok = 0, skip = 0, fail = 0;
   for (const f of files) {
     try {
@@ -236,10 +258,14 @@ async function main() {
         skip++;
       } else {
         console.log(`[WORKING] ${f}`);
-        const r = await optimizeFile(path.join(INPUT_DIR, f), { ...OPTS, outDir: OUTPUT_DIR, log: (m) => console.log(m) });
+        const r = await optimizeFile(path.join(INPUT_DIR, f), { ...OPTS, outDir: OUTPUT_DIR, log: (m: string) => console.log(m) });
         const reportName = r.file.reportPath ? path.basename(r.file.reportPath) : '';
         if (r.status === 'ok') {
-          const b = r.metrics.before, a = r.metrics.after;
+          // Статус 'ok' означает, что прогон дошёл до конца, — метрики при нём есть обе.
+          // Приведение к CliMetrics: состав метрик задаёт аддон, и для ядра это словарь
+          // с неизвестными значениями. Сводке CLI нужны ровно два числа, они есть у
+          // любого формата, — сужаем до них, а не тащим сюда типы glTF.
+          const b = r.metrics.before as CliMetrics, a = r.metrics.after as CliMetrics;
           const tag = OPTS.dryRun ? '[DRY-RUN]' : '[DONE]';
           console.log(`${tag} ${dstName}: file ${MB(b.fileBytes)} → ${MB(a.fileBytes)} MB (${pct(b.fileBytes, a.fileBytes)}), VRAM ${MB(b.gpuBytes)} → ${MB(a.gpuBytes)} MB (${pct(b.gpuBytes, a.gpuBytes)})${OPTS.dryRun ? ' — file NOT written' : ''}`);
           console.log(`         report: output/${reportName}`);
@@ -262,7 +288,10 @@ async function main() {
           console.log(`         report: output/${reportName}`);
         }
       }
-    } catch (e) {
+    // `any`, а не `unknown`: прежняя строка звучала `e.message || e` и на пустом `e`
+    // падала бы прямо в catch. Поведение сохранено дословно — сузить его до `e?.message`
+    // значит починить край, которого перенос касаться не должен.
+    } catch (e: any) {
       fail++;
       console.error(`[ERROR] ${f}: ${e.message || e}`);
     }

@@ -23,6 +23,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { readSource } from './helpers/source-files.mjs';
+
 import { exclusiveGroups } from '../optimize2.mjs';
 import gltfAddon from '../addons/gltf/index.mjs';
 import { getAvailableExtensions } from '../assistant.mjs';
@@ -200,7 +202,7 @@ describe('Единственное объявление — режим KTX2', ()
   });
 
   it('сервер не ставит свой режим поверх профиля', () => {
-    const src = fs.readFileSync(path.join(ROOT, 'server.mjs'), 'utf8');
+    const src = readSource('server');
     const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
     // Сборка опций обязана заканчиваться РАСКРЫТИЕМ явного выбора (пусто, если человек
     // не выбирал), а не безусловным `texMode: <что-то>` — именно эта форма и затирала

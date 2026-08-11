@@ -274,6 +274,12 @@ export interface Addon {
   validate: (args: ValidateArgs) => void | Promise<void>;
   /** Отрендерить и записать .report.md; вернуть имя файла. */
   writeReport: (args: ReportArgs) => string;
+  /**
+   * Опционально: группы взаимоисключающих возможностей формата. Единственное их
+   * объявление на весь проект — интерфейс читает его отсюда, а не держит своё.
+   * Аддон, у которого взаимоисключений нет, метод не объявляет; это не ошибка.
+   */
+  exclusiveGroups?: () => Array<{ id: string; members: string[] }>;
   /** Опционально: метаданные + валидация без оптимизации (для inspectFile()). */
   inspect?: (srcPath: string) => Promise<Record<string, unknown>>;
   /** Опционально: самодостаточный JSON-экспорт (для exportJson()). */

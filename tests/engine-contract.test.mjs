@@ -76,6 +76,7 @@ import { localizeResult, render } from '../core/i18n.mjs';
 import { RULES } from '../addons/gltf/rules.mjs';
 import gltfAddon from '../addons/gltf/index.mjs';
 import { REPO_MODELS, modelPath, isPresent } from './helpers/model-files.mjs';
+import { sourcePath } from './helpers/source-files.mjs';
 
 // ============================================================================
 // МАТРИЦА (задание): все репо-модели + локальные через eachModel-семантику,
@@ -173,7 +174,7 @@ function staticMessageIds() {
     'addons/gltf/index',
     'core/engine',
     'core/contract',
-  ].map((base) => (fs.existsSync(`${base}.mts`) ? `${base}.mts` : `${base}.mjs`));
+  ].map(sourcePath);
   const out = new Set();
   for (const f of files) {
     const src = fs.readFileSync(path.resolve(f), 'utf8');

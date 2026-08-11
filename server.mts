@@ -64,7 +64,7 @@ const THREE_DIR = path.join(__dirname, 'node_modules', 'three');
 // оптимизация хранится на диске — см. purgeBeyondLimit).
 // Чистим СОДЕРЖИМОЕ, а не саму папку: на Windows удалённый каталог остаётся в состоянии
 // pending-delete, и немедленный mkdir того же имени падает (UNKNOWN errno -4094).
-async function ensureEmptyDir(dir) {
+async function ensureEmptyDir(dir: string) {
   await fsp.mkdir(dir, { recursive: true });
   let entries;
   try { entries = await fsp.readdir(dir); } catch { return; }
@@ -82,8 +82,21 @@ const { optimizeFile, inspectFile, exportJson, VERSION, exclusiveGroups } = core
 // localizeResult здесь умеет пересобрать строки отчёта на любом подключённом языке.
 const { localizeResult } = await import('./core/i18n.mjs');
 
+/**
+ * Ассистент подключается по-настоящему динамически: его может не быть (graceful-фолбэк
+ * ниже), поэтому тип берётся у самого модуля, а не описывается здесь заново.
+ */
+type AssistantModule = typeof import('./assistant.mjs');
+
+/**
+ * Ответ planFor: состав задают профиль площадки и движок, то есть ДАННЫЕ. У фолбэка
+ * (ассистента нет) полей меньше, и читающий код это учитывает — `plan.engine || …`.
+ * Описывать здесь объединение двух форм значило бы дублировать данные типом.
+ */
+type PlanLike = Record<string, any>;
+
 // ---- Ассистент (появляется параллельно; graceful-фолбэк, если модуля ещё нет) ----
-let assistant = null;
+let assistant: AssistantModule | null = null;
 try {
   assistant = await import('./assistant.mjs');
   console.log('[assistant] assistant.mjs connected');
@@ -112,17 +125,17 @@ const FALLBACK_ENGINE_OPTS = {
 // Язык отчёта приходит от клиента параметром ?lang=. Не по заголовку Accept-Language:
 // в интерфейсе язык переключается кнопкой, и отчёт должен идти на выбранном языке,
 // а не на языке, который браузер считает предпочтительным.
-function langOf(url) {
+function langOf(url: URL): string {
   const v = url && url.searchParams ? url.searchParams.get('lang') : null;
   return v && /^[a-z]{2}$/.test(v) ? v : 'en';
 }
 
-function listPlatformsSafe(lang) {
+function listPlatformsSafe(lang: string) {
   if (assistant && typeof assistant.listPlatforms === 'function') {
     try {
       const p = assistant.listPlatforms(lang);
       if (Array.isArray(p) && p.length) return p;
-    } catch (e) {
+    } catch (e: any) {
       console.error('[assistant] listPlatforms() failed:', e.message);
     }
   }
@@ -133,12 +146,12 @@ function listPlatformsSafe(lang) {
 //   listExtensions(platformId) → [{ id, title, description, impact }]
 // Пока assistant.mjs не реализует listExtensions(), возвращаем пустой список —
 // панель «Расширенные опции» в UI просто не покажется (нет придуманных web-interface данных).
-function listExtensionsSafe(platformId, lang, engineId) {
+function listExtensionsSafe(platformId: string, lang: string, engineId?: string) {
   if (assistant && typeof assistant.listExtensions === 'function') {
     try {
       const list = assistant.listExtensions(platformId, lang, engineId);
       if (Array.isArray(list)) return list;
-    } catch (e) {
+    } catch (e: any) {
       console.error('[assistant] listExtensions() failed:', e.message);
     }
   }
@@ -149,7 +162,7 @@ function listExtensionsSafe(platformId, lang, engineId) {
 // может быть старее сервера и не знать про движки вовсе. Тогда список пуст, и поле
 // движка в интерфейсе не появляется. Выдуманного движка здесь не будет: имя читателя
 // файла — не то, что web-interface вправе сочинить.
-function listEnginesSafe(platformId, lang) {
+function listEnginesSafe(platformId: string, lang: string) {
   if (!assistant) return [];
   const fn = platformId && typeof assistant.enginesForPlatform === 'function'
     ? () => assistant.enginesForPlatform(platformId, lang)
@@ -158,7 +171,7 @@ function listEnginesSafe(platformId, lang) {
   try {
     const list = fn();
     if (Array.isArray(list)) return list;
-  } catch (e) {
+  } catch (e: any) {
     console.error('[assistant] listEngines() failed:', e.message);
   }
   return [];
@@ -167,12 +180,12 @@ function listEnginesSafe(platformId, lang) {
 // engineId нужен только когда площадка не выбрана (прочерк, §4g): движок больше неоткуда
 // взять. У выбранной площадки движок свой, и переданное значение слой ассистента
 // игнорирует — пары, которой нет, посчитать нельзя.
-function planForSafe(platformId, lang, engineId) {
+function planForSafe(platformId: string, lang: string, engineId?: string): PlanLike {
   if (assistant && typeof assistant.planFor === 'function') {
     try {
       const plan = assistant.planFor(platformId, lang, engineId);
       if (plan && typeof plan === 'object') return plan;
-    } catch (e) {
+    } catch (e: any) {
       console.error('[assistant] planFor() failed:', e.message);
     }
   }
@@ -185,12 +198,12 @@ function planForSafe(platformId, lang, engineId) {
   };
 }
 
-function explainResultSafe(runResult, platformId, lang) {
+function explainResultSafe(runResult: unknown, platformId: string, lang: string) {
   if (assistant && typeof assistant.explainResult === 'function') {
     try {
-      const explain = assistant.explainResult(runResult, platformId, lang);
+      const explain = assistant.explainResult(runResult as Record<string, unknown>, platformId, lang);
       if (explain && typeof explain === 'object') return explain;
-    } catch (e) {
+    } catch (e: any) {
       console.error('[assistant] explainResult() failed:', e.message);
     }
   }
@@ -251,7 +264,7 @@ const sourceRuns = new Map();
 // писал. Замер ревьюера: пять параллельных прогонов BoomBox — двое падали с ENOENT.
 const activeRuns = new Set();
 
-const runKey = (sourceId, runId) => `${sourceId}/${runId}`;
+const runKey = (sourceId: string, runId: string) => `${sourceId}/${runId}`;
 
 /**
  * Записать прогон в учёт и убрать лишние.
@@ -259,7 +272,7 @@ const runKey = (sourceId, runId) => `${sourceId}/${runId}`;
  * Зовётся ПОСЛЕ того, как прогон закончил писать. Пока идут пять параллельных, никто
  * никого не трогает; когда закончатся — останутся три последних, как и задумано.
  */
-async function rememberRun(sourceId, runId) {
+async function rememberRun(sourceId: string, runId: string) {
   const runs = sourceRuns.get(sourceId) || [];
   runs.push(runId);
   sourceRuns.set(sourceId, runs);
@@ -267,7 +280,7 @@ async function rememberRun(sourceId, runId) {
   // Идём с начала, пропуская тех, кто ещё работает: удалить их нельзя, а прерывать
   // уборку из-за одного занятого — значит копить остальные.
   while (runs.length > MAX_KEPT_RUNS) {
-    const victim = runs.find((id) => !activeRuns.has(runKey(sourceId, id)));
+    const victim = runs.find((id: string) => !activeRuns.has(runKey(sourceId, id)));
     if (!victim) break; // все лишние ещё пишут — уберём их следующий раз
     const ok = await fsp.rm(path.join(RESULTS_DIR, sourceId, victim), { recursive: true, force: true })
       .then(() => true)
@@ -280,7 +293,7 @@ async function rememberRun(sourceId, runId) {
   }
 }
 
-async function dropSource(id) {
+async function dropSource(id: string) {
   sourceUploads.delete(id);
   sourceRuns.delete(id);
   await fsp.rm(path.join(UPLOADS_DIR, id), { recursive: true, force: true }).catch(() => {});
@@ -295,7 +308,7 @@ async function purgeBeyondLimit() {
   for (const [id] of entries.slice(MAX_KEPT_SOURCES)) await dropSource(id);
 }
 
-function sendSSE(jobId, payload) {
+function sendSSE(jobId: string, payload: unknown) {
   const res = progressClients.get(jobId);
   if (!res) return;
   try {
@@ -307,7 +320,7 @@ function sendSSE(jobId, payload) {
 
 // ---- Утилиты ----
 
-const MIME = {
+const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
@@ -321,7 +334,7 @@ const MIME = {
   '.wasm': 'application/wasm',
 };
 
-function safeJoin(baseDir, relPath) {
+function safeJoin(baseDir: string, relPath: string): string | null {
   const base = path.resolve(baseDir);
   const resolved = path.resolve(base, relPath);
   // Граница по разделителю пути, а не просто startsWith — иначе "base"+"-evil" (сосед,
@@ -356,7 +369,7 @@ async function localeScriptTags() {
   localeFiles.sort((a, b) => (a === 'en.js' ? -1 : b === 'en.js' ? 1 : a.localeCompare(b)));
 
   // Переводы из translations/ (ru.js, validator-ru.js, …)
-  let transFiles = [];
+  let transFiles: string[] = [];
   try {
     transFiles = (await fsp.readdir(TRANSLATIONS_DIR)).filter((f) => f.endsWith('.js'));
   } catch (e) {
@@ -378,9 +391,9 @@ async function localeScriptTags() {
   return tags.join('\n');
 }
 
-async function serveStatic(req, res, urlPath, baseDir = UI_DIR, stripPrefix = '') {
+async function serveStatic(req: http.IncomingMessage, res: http.ServerResponse, urlPath: string, baseDir: string = UI_DIR, stripPrefix: string = '') {
   let rel = urlPath === '/' ? '/index.html' : urlPath;
-  rel = decodeURIComponent(rel.split('?')[0]);
+  rel = decodeURIComponent(rel.split('?')[0]!);
   if (stripPrefix && rel.startsWith(stripPrefix)) rel = rel.slice(stripPrefix.length);
   const filePath = safeJoin(baseDir, '.' + rel);
   if (!filePath) {
@@ -414,9 +427,9 @@ async function serveStatic(req, res, urlPath, baseDir = UI_DIR, stripPrefix = ''
 // порции 2 плана (docs/ПЛАН_исправлений.md).
 const MAX_BODY = 1024 * 1024 * 1024;
 
-function readBody(req) {
+function readBody(req: http.IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const chunks = [];
+    const chunks: Buffer[] = [];
     let size = 0;
     const MAX = MAX_BODY;
     // Заявленный размер отвергаем ДО приёма: иначе гигабайт сначала приедет по сети
@@ -427,7 +440,7 @@ function readBody(req) {
       req.destroy();
       return;
     }
-    req.on('data', (chunk) => {
+    req.on('data', (chunk: Buffer) => {
       size += chunk.length;
       if (size > MAX) {
         reject(new Error('File too large'));
@@ -441,7 +454,7 @@ function readBody(req) {
   });
 }
 
-function sendJSON(res, status, obj) {
+function sendJSON(res: http.ServerResponse, status: number, obj: unknown) {
   const body = JSON.stringify(obj);
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -455,7 +468,7 @@ function sendJSON(res, status, obj) {
 // пропадает без внятной ошибки. Точку с расширением Windows при сопоставлении отбрасывает.
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i;
 
-function sanitizeFileName(name) {
+function sanitizeFileName(name: string): string {
   const base = path.basename(name || 'model.glb');
   // убираем управляющие/запрещённые для файловой системы Windows символы, оставляем юникод (кириллицу)
   // eslint-disable-next-line no-control-regex -- управляющие символы тут и есть цель: имя файла с \x00 внутри Windows не создаст
@@ -470,7 +483,7 @@ function sanitizeFileName(name) {
 // Имя файла для скачивания: если клиент прислал ?name= (окно экспорта), берём его —
 // чистим, снимаем расширение и ставим нужное для выбранного формата; иначе fallback.
 // Расширение задаёт формат, не пользователь: экспортёр решает, что он пишет.
-function chosenExportName(reqName, fallback, ext) {
+function chosenExportName(reqName: string | null | undefined, fallback: string, ext: string): string {
   if (!reqName) return fallback;
   const clean = sanitizeFileName(reqName).replace(/\.[^.]+$/, '');
   return (clean || 'model') + ext;
@@ -482,7 +495,7 @@ function chosenExportName(reqName, fallback, ext) {
 // отдельным параметром заголовка — поэтому вычищаются отдельно от не-ASCII.
 // Сейчас сюда и так приходит результат sanitizeFileName(), но фолбэк-ветка
 // chosenExportName() берёт имя с диска: страховка на случай, если правила разойдутся.
-function asciiHeaderName(name) {
+function asciiHeaderName(name: string): string {
   return name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
 }
 
@@ -501,11 +514,11 @@ function asciiHeaderName(name) {
 // Имя хоста, а не строка целиком: `evil.com` и `localhost.evil.com` — разные вещи,
 // а `startsWith('localhost')` их не различает. `[::1]` в hostname приезжает в скобках.
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
-const loopbackHostname = (value) => {
+const loopbackHostname = (value: string | undefined | null) => {
   if (!value) return false;
   try { return LOOPBACK.has(new URL(`http://${value}`).hostname); } catch { return false; }
 };
-function originAllowed(req) {
+function originAllowed(req: http.IncomingMessage): boolean {
   if (HOST !== '127.0.0.1') return true;
   if (!loopbackHostname(req.headers.host)) return false;
   const origin = req.headers.origin;
@@ -524,7 +537,7 @@ function originAllowed(req) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const url = new URL(req.url, `http://localhost:${PORT}`);
+  const url = new URL(req.url!, `http://localhost:${PORT}`);
   const pathname = url.pathname;
 
   if (!originAllowed(req)) {
@@ -535,7 +548,7 @@ const server = http.createServer(async (req, res) => {
 
   // краткий лог каждого запроса — чтобы проблемы вроде «файл недоступен» были видны в консоли
   if (pathname.startsWith('/api/')) {
-    res.on('finish', () => console.log(`[${req.method}] ${decodeURIComponent(req.url)} → ${res.statusCode}`));
+    res.on('finish', () => console.log(`[${req.method}] ${decodeURIComponent(req.url!)} → ${res.statusCode}`));
   }
 
   try {
@@ -611,7 +624,7 @@ const server = http.createServer(async (req, res) => {
       // остался списком площадок и его длина ничего не подменяла.
       let noPlatform = null;
       if (assistant && typeof assistant.noPlatformInfo === 'function') {
-        try { noPlatform = assistant.noPlatformInfo(langOf(url)); } catch (e) {
+        try { noPlatform = assistant.noPlatformInfo(langOf(url)); } catch (e: any) {
           console.error('[assistant] noPlatformInfo() failed:', e.message);
         }
       }
@@ -724,7 +737,7 @@ const server = http.createServer(async (req, res) => {
     // Модель загружается один раз здесь (при импорте); последующая сборка переиспользует
     // тот же sourceId без перезаливки.
     if (req.method === 'POST' && pathname === '/api/inspect') {
-      const rawName = req.headers['x-filename'] || 'model.glb';
+      const rawName = (req.headers['x-filename'] as string) || 'model.glb';
       let decodedName;
       try { decodedName = decodeURIComponent(rawName); } catch (e) { decodedName = rawName; }
       const fileName = sanitizeFileName(decodedName);
@@ -748,7 +761,7 @@ const server = http.createServer(async (req, res) => {
       let data;
       try {
         data = await inspectFile(uploadPath);
-      } catch (e) {
+      } catch (e: any) {
         console.error('[inspect] failed:', e);
         sendJSON(res, 500, { error: 'Inspection failed: ' + e.message });
         return;
@@ -794,7 +807,7 @@ const server = http.createServer(async (req, res) => {
         // тело не ожидается — на всякий случай выкачиваем и игнорируем
         await readBody(req).catch(() => {});
       } else {
-        const rawName = req.headers['x-filename'] || 'model.glb';
+        const rawName = (req.headers['x-filename'] as string) || 'model.glb';
         let decodedName;
         try {
           decodedName = decodeURIComponent(rawName);
@@ -833,7 +846,7 @@ const server = http.createServer(async (req, res) => {
       // Порядок значим: фолбэк → профиль площадки → явный выбор человека.
       const engineOpts = { ...FALLBACK_ENGINE_OPTS, ...(plan.engineOpts || {}), ...texModeChoice };
 
-      const onProgress = (e) => {
+      const onProgress = (e: Record<string, unknown>) => {
         if (jobId) sendSSE(jobId, e);
       };
 
@@ -867,7 +880,7 @@ const server = http.createServer(async (req, res) => {
           // строки правил («что сделано», находки анализа) рендерит ядро — язык нужен ему
           locale: langOf(url),
         });
-      } catch (e) {
+      } catch (e: any) {
         console.error('[optimize] exception during processing:', e);
         sendJSON(res, 500, { error: 'Could not process the model: ' + e.message });
         return;
@@ -907,7 +920,7 @@ const server = http.createServer(async (req, res) => {
       let data;
       try {
         data = await inspectFile(filePath);
-      } catch (e) {
+      } catch (e: any) {
         console.error('[inspect-result] failed:', e);
         sendJSON(res, 500, { error: 'Inspection failed: ' + e.message });
         return;
@@ -928,7 +941,7 @@ const server = http.createServer(async (req, res) => {
       let json;
       try {
         json = await exportJson(filePath);
-      } catch (e) {
+      } catch (e: any) {
         sendJSON(res, 500, { error: 'JSON export failed: ' + e.message });
         return;
       }
@@ -974,7 +987,7 @@ const server = http.createServer(async (req, res) => {
 
     res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
     res.end('Not found');
-  } catch (e) {
+  } catch (e: any) {
     console.error('[server] unhandled error:', e);
     if (!res.headersSent) {
       sendJSON(res, 500, { error: 'Internal server error: ' + e.message });
@@ -982,7 +995,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.on('error', (e) => {
+server.on('error', (e: NodeJS.ErrnoException) => {
   if (e.code === 'EADDRINUSE') {
     console.error(`Port ${PORT} is already in use — the server seems to be running already.`);
     console.error(`Open http://localhost:${PORT} in a browser or close the other run (the npm start window).`);
@@ -995,7 +1008,8 @@ server.listen(PORT, HOST, () => {
   // PORT=0 просит систему выдать любой свободный — тогда настоящий номер известен
   // только отсюда. Настольное приложение так и делает: фиксированный порт занят, если
   // человек уже запустил программу из терминала, и окно молча не открылось бы.
-  const port = server.address().port;
+  // Слушаем TCP, поэтому адрес — объект с портом, а не путь к сокету.
+  const port = (server.address() as import('node:net').AddressInfo).port;
   // Адрес называем тем же именем, на котором слушаем. Раньше стояло `localhost` при
   // прослушивании всех интерфейсов — и разница была незаметна. Теперь сокет открыт
   // только на 127.0.0.1, а `localhost` на части машин сначала разрешается в `::1`:

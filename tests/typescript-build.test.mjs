@@ -38,9 +38,12 @@ function readTsconfig() {
 /** Все переведённые модули: core/x.mts → 'core/x'. */
 function migratedModules() {
   const out = [];
-  for (const dir of ['core', 'addons/gltf']) {
+  // Корень тоже: optimize2 — публичное API ядра, он лежит там же, где server.mjs.
+  for (const dir of ['.', 'core', 'addons/gltf']) {
     for (const f of fs.readdirSync(path.join(ROOT, dir))) {
-      if (f.endsWith('.mts') && !f.endsWith('.d.mts')) out.push(`${dir}/${f.slice(0, -4)}`);
+      if (!f.endsWith('.mts') || f.endsWith('.d.mts')) continue;
+      const base = f.slice(0, -4);
+      out.push(dir === '.' ? base : `${dir}/${base}`);
     }
   }
   return out;
@@ -54,6 +57,8 @@ const HANDWRITTEN_DECLARATIONS = [
   'core/messages/ru.d.mts',
   'addons/gltf/messages/en.d.mts',
   'addons/gltf/messages/ru.d.mts',
+  'messages/en.d.mts',
+  'messages/ru.d.mts',
   // Описания чужих пакетов без собственных типов (draco3dgltf, gltf-validator).
   'types/externals.d.mts',
 ];
@@ -130,7 +135,7 @@ describe('слой TypeScript', () => {
     const tracked = new Set(
       execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' }).split('\n'),
     );
-    for (const dir of ['core/messages', 'addons/gltf/messages']) {
+    for (const dir of ['core/messages', 'addons/gltf/messages', 'messages']) {
       for (const f of fs.readdirSync(path.join(ROOT, dir))) {
         expect(
           f.endsWith('.mts') && !f.endsWith('.d.mts'),
@@ -149,7 +154,15 @@ describe('слой TypeScript', () => {
     expect(files, 'исходники .mts едут в установщик — они там не нужны').toContain('!core/**/*.mts');
     // То же для аддона: у каждой папки с переведёнными модулями должно быть своё
     // исключение, иначе исходники поедут в установщик молча.
-    for (const dir of new Set(MODULES.map((m) => m.split('/')[0]))) {
+    for (const m of MODULES) {
+      if (!m.includes('/')) {
+        // Корневой модуль перечислен в build.files поимённо ("optimize2.mjs"), маской
+        // его не забирают — значит и исключать нечего: .mts туда просто не попадает.
+        expect(files, `корневой ${m}.mjs не кладётся в пакет`).toContain(`${m}.mjs`);
+        expect(files, `в пакет попадёт исходник ${m}.mts`).not.toContain(`${m}.mts`);
+        continue;
+      }
+      const dir = m.split('/')[0];
       expect(files, `нет исключения !${dir}/**/*.mts`).toContain(`!${dir}/**/*.mts`);
     }
   });

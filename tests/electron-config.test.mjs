@@ -22,6 +22,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { readSource } from './helpers/source-files.mjs';
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 
@@ -96,7 +98,7 @@ describe('Настройка сборки приложения', () => {
   // лежит в собственной папке проекта, куда запись разрешена. Отсюда и сторож —
   // проверять глазами тут нечего.
   describe('рабочая папка — не внутри программы', () => {
-    const serverSrc = fs.readFileSync(path.join(ROOT, 'server.mjs'), 'utf8');
+    const serverSrc = readSource('server');
     const shellSrc = fs.readFileSync(path.join(ROOT, 'desktop', 'main.cjs'), 'utf8');
 
     it('сервер берёт адрес рабочей папки из TANYRA_DATA_DIR', () => {
@@ -240,7 +242,7 @@ describe('Настройка сборки приложения', () => {
       // Список папок не выписан руками, а взят из самого кода: assistant.mjs строит
       // адреса как path.join(BASE_DIR, '<папка>'). Значит сторож найдёт и следующую
       // папку, о которой сегодня никто не знает.
-      const src = fs.readFileSync(path.join(ROOT, 'assistant.mjs'), 'utf8');
+      const src = readSource('assistant');
       const dirs = [...src.matchAll(/path\.join\(BASE_DIR,\s*'([^']+)'\)/g)].map((m) => m[1]);
       expect(dirs.length, 'в assistant.mjs не нашлось ни одной папки данных — сторож ослеп').toBeGreaterThan(0);
 
