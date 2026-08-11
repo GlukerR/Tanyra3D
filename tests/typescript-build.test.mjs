@@ -48,6 +48,9 @@ function migratedModules() {
 
 const MODULES = migratedModules();
 
+/** Рукописные объявления рядом с JS-файлами: они В git и собранными не являются. */
+const HANDWRITTEN_DECLARATIONS = ['core/messages/en.d.mts', 'core/messages/ru.d.mts'];
+
 describe('слой TypeScript', () => {
   it('переведён хотя бы один модуль — иначе проверки ниже пусты', () => {
     expect(MODULES.length, 'в core нет ни одного .mts').toBeGreaterThan(0);
@@ -112,6 +115,27 @@ describe('слой TypeScript', () => {
     expect(test, 'CI не проверяет типы').toMatch(/npm run typecheck/);
   });
 
+  // Каталоги сообщений правит переводчик (assistants/translate/TRANSLATOR_PROMPT.md).
+  // Сделать их собранными из .mts — значит подставить его: правка попадёт в файл, который
+  // затрёт следующая сборка, и пропажу заметят не сразу. Форма каталога описана рядом
+  // рукописным .d.mts; он в git, потому что не генерируется.
+  it('каталоги сообщений остаются на JavaScript, а их объявления лежат в git', () => {
+    const tracked = new Set(
+      execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' }).split('\n'),
+    );
+    for (const dir of ['core/messages', 'addons/gltf/messages']) {
+      for (const f of fs.readdirSync(path.join(ROOT, dir))) {
+        expect(
+          f.endsWith('.mts') && !f.endsWith('.d.mts'),
+          `${dir}/${f} переведён на TypeScript — правка переводчика будет затёрта сборкой`,
+        ).toBe(false);
+      }
+    }
+    for (const d of HANDWRITTEN_DECLARATIONS) {
+      expect(tracked.has(d), `${d} не в git — сборка сломается на чистом клоне`).toBe(true);
+    }
+  });
+
   it('в установщик едет собранное, а не исходники', () => {
     const files = JSON.parse(read('package.json')).build.files;
     expect(files, 'core больше не кладётся в пакет').toContain('core/**/*');
@@ -131,6 +155,40 @@ describe('контракт пережил перевод на TypeScript', () =>
     // Наследственные имена не должны считаться уровнями (hasOwnProperty, а не `in`).
     expect(c.isKnownTier('toString')).toBe(false);
     expect(c.ENGINE_META.inputValidation.id).toBe('engine/input-validation');
+  });
+
+  // Движок и шов языка переехали 2026-08-11. Здесь — не повторение engine-contract и
+  // i18n-discipline (они гоняют весь пайплайн на моделях), а точечная проверка того, что
+  // ИМЕННО перевод не съел: ошибки топологической сортировки и откат языка. Обе ветки
+  // при переносе получили приведения типов, и обе легко было испортить молча.
+  it('движок и шов языка отдают то же, что и раньше', async () => {
+    const { orderRules } = await import('../core/engine.mjs');
+    const rule = (id, runAfter = []) => ({ meta: { id, runAfter }, analyze: () => [] });
+
+    // Порядок устойчивый: при равенстве зависимостей — порядок массива.
+    expect(orderRules([rule('b', ['a']), rule('a')]).map((r) => r.meta.id)).toEqual(['a', 'b']);
+    // Опечатка в runAfter — исключение, а не тихо другой порядок (ревью P0.4).
+    expect(() => orderRules([rule('a', ['опечатка'])])).toThrow(/unknown runAfter/);
+    expect(() => orderRules([rule('a', ['a'])])).toThrow(/depends on itself/);
+    expect(() => orderRules([rule('a', ['b']), rule('b', ['a'])])).toThrow(/cycle in runAfter/);
+
+    const { register, render, localizeResult } = await import('../core/i18n.mjs');
+    register('en', { 'tst.plain': 'plain {who}', 'tst.fn': ({ who }) => `fn ${who}` });
+    register('xx', { 'tst.fn': ({ who }) => `хх ${who}` });
+    expect(render('tst.plain', { who: 'A' })).toBe('plain A');
+    expect(render('tst.fn', { who: 'A' })).toBe('fn A');
+    // Неполный каталог откатывается на английский, а не падает.
+    expect(render('tst.plain', { who: 'A' }, 'xx')).toBe('plain A');
+    // Вложенная подстановка разворачивается сама (Правило 8: не склеивать в коде).
+    expect(render('tst.fn', { who: { messageId: 'tst.plain', data: { who: 'B' } } })).toBe('fn plain B');
+    // Ключа нет нигде — это ошибка разработчика, и она громкая.
+    expect(() => render('tst.нет')).toThrow(/i18n/);
+
+    // Готовый результат пересобирается на другом языке БЕЗ повторной обработки.
+    const result = { applied: [{ text: 'fn A', i18n: { text: { messageId: 'tst.fn', data: { who: 'Б' } } } }] };
+    const localized = localizeResult(result, 'xx');
+    expect(localized.applied[0].text).toBe('хх Б');
+    expect(result.applied[0].text, 'localizeResult обязана быть чистой').toBe('fn A');
   });
 
   it('сверка baseline ведёт себя как прежде', async () => {

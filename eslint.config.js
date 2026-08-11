@@ -107,6 +107,9 @@ export default [
       // — тогда и подключим typescript-eslint.
       'core/types.mjs',
       'core/contract.mjs',
+      'core/registry.mjs',
+      'core/i18n.mjs',
+      'core/engine.mjs',
     ],
   },
 

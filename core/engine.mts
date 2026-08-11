@@ -1,4 +1,4 @@
-// core/engine.mjs — формат-агностичный движок: пять фаз над массивом правил аддона
+// core/engine.mts — формат-агностичный движок: пять фаз над массивом правил аддона
 // (АНАЛИЗ → ПЛАН → ПРИМЕНЕНИЕ → ВАЛИДАЦИЯ → ОТЧЁТ). Движок ничего не знает о
 // конкретных правилах и о формате модели — всё специфичное для формата он делегирует
 // аддону (load/write/collectMetrics/baselineMetrics/validate/writeReport). Логика
@@ -8,6 +8,13 @@
 // (tier basic, им можно менять структуру), затем checkpoint baseline-метрик, затем
 // расширения (tier advanced — только сжатие/кодирование); фаза 4 строго сверяет
 // структуру с checkpoint, расхождение блокирует запись.
+//
+// Переведён на TypeScript 2026-08-11, четвёртым — вместе с core/i18n. Перенос без
+// изменения поведения: собранный core/engine.mjs отличается от прежнего оформлением,
+// приведениями типов и ничем больше. Что перевод показал, чего не было видно в JSDoc:
+// движок читает у опций поля `compress` и `codec`, которых в его собственном контракте
+// нет, — они принадлежат glTF-аддону. Это давняя протечка формата в ядро; тут она
+// сохранена как есть (перенос ≠ переделка) и помечена на месте, чтобы не забылась.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,10 +35,61 @@ import { TIER_RANK, AUTOFIX_MAX_TIER, ENGINE_META, compareBaseline, isKnownTier 
 // Реэкспорт: снаружи движок по-прежнему отдаёт эти имена, менять импорты незачем.
 export { AUTOFIX_MAX_TIER, ENGINE_META, compareBaseline };
 
-/** @typedef {import('./types.mjs').Addon} Addon */
-/** @typedef {import('./types.mjs').RunResult} RunResult */
+import type {
+  Addon,
+  AppliedEntry,
+  Context,
+  FindingEntry,
+  FoundMeta,
+  FixResult,
+  I18nRefs,
+  Message,
+  MessageRef,
+  NormalizedOpts,
+  ReportLines,
+  Rule,
+  RunResult,
+  SkipKind,
+  SkippedEntry,
+} from './types.mjs';
 
-const asLines = (v) => (v == null ? [] : Array.isArray(v) ? v : [v]);
+// Три узких описания «того, от чьего имени идёт запись» — по одному на канал отчёта.
+// Одного общего мало: у записи в «Найдено» обязаны быть категория и важность, у записи
+// в «Применено» — обратимость, а addExclusiveConflicts собирает заготовку из трёх полей
+// и ни того ни другого не имеет. Правило (RuleMeta) и ENGINE_META подходят под нужные
+// им формы целиком — общий предок не нужен, важна форма, а не происхождение.
+//
+// Разделение это не украшение: пока меты были одной широкой формой со всеми полями
+// необязательными, компилятор требовал приводить их к строке — и в собранном коде
+// вместо отсутствующей категории появлялось бы слово «undefined». Узкая форма
+// требует поле там, где оно и правда нужно, и приведения исчезают.
+
+/** → «Пропущено (и почему)». title/titleKey нужны строке «Заголовок — причина». */
+interface SkipMeta {
+  id: string;
+  title?: string;
+  titleKey?: string;
+  feature?: string | undefined;
+}
+
+/** → «Применено». Обратимость по §4d. */
+interface AppliedMeta {
+  id: string;
+  fixSafety: string;
+  reversible?: boolean;
+  dataLoss?: string;
+}
+
+/** Переопределение полей обратимости для отдельных строк (см. addApplied). */
+interface AppliedOverrides {
+  fixSafety?: string | undefined;
+  reversible?: boolean;
+  dataLoss?: string;
+}
+
+const asLines = (v: ReportLines | undefined | null): Message[] => (
+  v == null ? [] : Array.isArray(v) ? v : [v]
+);
 
 // Строки правил приходят как { messageId, data } и рендерятся здесь: text в отчёте —
 // по-прежнему готовая строка (контракт §4b). Вместе с ней сохраняется РЕЦЕПТ строки —
@@ -44,28 +102,36 @@ const asLines = (v) => (v == null ? [] : Array.isArray(v) ? v : [v]);
 // результата за микросекунды (localizeResult в core/i18n.mjs).
 //
 // Готовая строка (без messageId) идёт как есть: пересобирать её не из чего.
-const entriesOf = (v, locale) => asLines(v).map((x) => (typeof x === 'string'
-  ? { text: x, ref: null }
-  : { text: render(x.messageId, x.data, locale), ref: { messageId: x.messageId, data: x.data ?? {} } }));
+interface Entry { text: string; ref: MessageRef | null }
+
+const entriesOf = (v: ReportLines | undefined | null, locale: string | undefined): Entry[] =>
+  asLines(v).map((x) => (typeof x === 'string'
+    ? { text: x, ref: null }
+    : { text: render(x.messageId, x.data, locale), ref: { messageId: x.messageId, data: x.data ?? {} } }));
 
 // Рецепты складываются в ОДНО поле i18n: { поле записи → рецепт }. Отдельными ключами
 // messageId/data было бы не выразить, что у skipped рецепт нужен и тексту, и причине.
 // Записи без рецептов поля не получают вовсе — пустой ключ только мусорил бы отчёт.
-const withRefs = (rec, refs) => {
-  const i18n = {};
+const withRefs = <T extends { i18n?: I18nRefs }>(rec: T, refs: Record<string, MessageRef | null>): T => {
+  const i18n: I18nRefs = {};
   for (const [field, ref] of Object.entries(refs)) if (ref) i18n[field] = ref;
   if (Object.keys(i18n).length) rec.i18n = i18n;
   return rec;
 };
 
 // Ссылка на заголовок правила: у правил с titleKey он переводится, у остальных — нет.
-const titleRef = (meta) => (meta.titleKey ? { messageId: meta.titleKey, data: {} } : meta.title);
+// `as string` вместо String(): у правил без titleKey заголовок есть всегда, а приведение
+// подменило бы его отсутствие словом «undefined» в отчёте — то есть спрятало бы дефект
+// вместо того, чтобы дать ему проявиться так же, как до перевода.
+const titleRef = (meta: SkipMeta): Message => (
+  meta.titleKey ? { messageId: meta.titleKey, data: {} } : (meta.title as string)
+);
 
 // Строка «Заголовок правила — причина». Собирается сообщением, а не склейкой на месте:
 // иначе половина строки (заголовок) была бы непереводимой при смене языка, а тире между
 // частями стало бы намертво зашитым в код разделителем, который другому языку может и
 // не подойти.
-const skipLine = (meta, reason) => ({
+const skipLine = (meta: SkipMeta, reason: Message): MessageRef => ({
   messageId: 'engine.skipped.line',
   data: { title: titleRef(meta), reason },
 });
@@ -80,11 +146,11 @@ const skipLine = (meta, reason) => ({
 //
 // Ошибка здесь — про сборку программы, а не про модель человека: до пользователя дойти
 // не может, её ловят тесты. Поэтому исключение, а не пропуск правила.
-export function orderRules(rules) {
+export function orderRules(rules: Rule[]): Rule[] {
   const ids = new Set(rules.map((r) => r.meta.id));
   for (const r of rules) {
     const deps = r.meta.runAfter || [];
-    const seen = new Set();
+    const seen = new Set<string>();
     for (const d of deps) {
       if (!ids.has(d)) throw new Error(`unknown runAfter dependency "${d}" in rule "${r.meta.id}"`);
       if (d === r.meta.id) throw new Error(`rule "${r.meta.id}" depends on itself in runAfter`);
@@ -92,15 +158,18 @@ export function orderRules(rules) {
       seen.add(d);
     }
   }
-  const done = new Set();
+  const done = new Set<string>();
   const pending = [...rules];
-  const out = [];
+  const out: Rule[] = [];
   while (pending.length) {
     const i = pending.findIndex((r) => (r.meta.runAfter || []).every((d) => done.has(d)));
     if (i === -1) throw new Error(`cycle in runAfter: ${pending.map((r) => r.meta.id).join(', ')}`);
+    // splice по найденному индексу всегда вернёт ровно один элемент; компилятор об этом
+    // не знает (noUncheckedIndexedAccess), отсюда `!`. Проверкой во время работы это не
+    // делаем намеренно: лишняя ветка в собранном коде — уже не перенос, а правка.
     const [r] = pending.splice(i, 1);
-    done.add(r.meta.id);
-    out.push(r);
+    done.add(r!.meta.id);
+    out.push(r!);
   }
   return out;
 }
@@ -121,10 +190,14 @@ export function orderRules(rules) {
 // громким, а не запирающим. Спрашивающему «есть ли файл» отвечает `file.written`,
 // а не статус: статус говорит о доверии к результату.
 // ============================================================================
-export async function runOptimize(addon, srcPath, opts = {}) {
+export async function runOptimize(
+  addon: Addon,
+  srcPath: string,
+  opts: Record<string, unknown> = {},
+): Promise<RunResult> {
   const src = path.resolve(String(srcPath));
   const dstName = addon.outputName(src);
-  const result = {
+  const result: RunResult = {
     status: 'ok',
     file: { src, dst: null, written: false, reportPath: null },
     findings: [],   // { ruleId, category, severity, fixSafety, text }
@@ -140,14 +213,23 @@ export async function runOptimize(addon, srcPath, opts = {}) {
     return await runFile(addon, src, dstName, o, result);
   } catch (e) {
     // исключение (модель не читается и т.п.) — наружу не летит, а становится status:'fail'
+    const err = e as { message?: string } | null | undefined;
     result.status = 'fail';
-    result.error = e && e.message ? e.message : String(e);
+    result.error = err && err.message ? err.message : String(e);
     return result;
   }
 }
 
-async function runFile(addon, src, dstName, o, result) {
-  const dst = result.file.dst;
+async function runFile(
+  addon: Addon,
+  src: string,
+  dstName: string,
+  o: NormalizedOpts,
+  result: RunResult,
+): Promise<RunResult> {
+  // dst проставлен в runOptimize до вызова — приведение, а не проверка: проверка была бы
+  // новой веткой в собранном коде.
+  const dst = result.file.dst as string;
   if (!o.dryRun && !o.force && fs.existsSync(dst)) {
     result.status = 'skip';
     return result;
@@ -155,31 +237,31 @@ async function runFile(addon, src, dstName, o, result) {
   const progress = o.onProgress || (() => {});
   const log = o.log;
   const locale = o.locale;
-  const addFound = (meta, v) => {
+  const addFound = (meta: FoundMeta, v: ReportLines | undefined | null): void => {
     for (const e of entriesOf(v, locale)) {
-      result.findings.push(withRefs({ ruleId: meta.id, category: meta.category, severity: meta.severity, fixSafety: meta.fixSafety, text: e.text }, { text: e.ref }));
+      result.findings.push(withRefs<FindingEntry>({ ruleId: meta.id, category: meta.category, severity: meta.severity, fixSafety: meta.fixSafety, text: e.text }, { text: e.ref }));
     }
   };
   // kind — почему пропущено. Нужен потребителю отчёта, чтобы отличать «пользователь
   // не включал» и «включено, но делать было нечего» от «отказались по безопасности».
   // Первые два для человека — не предупреждение, а тишина: показывать их наравне с
   // отказом значит топить единственную важную строку в перечислении небытия.
-  //   'disabled' — фича не включена флажком
-  //   'nothing'  — правило отработало, менять было нечего
-  //   'unsafe'   — правило отказалось: небезопасно на этой модели
-  //   'policy'   — уровень риска выше того, что применяется автоматически
-  //   'cost'     — правило отработало, но дорого: результат вырос, и человеку надо
-  //                показать цену рядом с той галочкой, которая её назначила
+  // Полный список случаев и их смысл — SkipKind в core/types.mts.
   //
   // feature — та самая галочка (advancedFeatures), а не ruleId. Без неё интерфейсу
   // пришлось бы держать свою таблицу «правило → флажок», то есть знание движка,
   // которое разъедется при первом же переименовании правила.
   // reason принимает и готовую строку, и { messageId, data } — тогда причина тоже
   // переживает смену языка. Пропущенный reason означает «причина и есть сам текст».
-  const addSkipped = (meta, v, reason, kind = 'nothing') => {
+  const addSkipped = (
+    meta: SkipMeta,
+    v: ReportLines | undefined | null,
+    reason?: Message | null,
+    kind: SkipKind = 'nothing',
+  ): void => {
     const r = reason == null ? null : entriesOf(reason, locale)[0];
     for (const e of entriesOf(v, locale)) {
-      result.skipped.push(withRefs(
+      result.skipped.push(withRefs<SkippedEntry>(
         { ruleId: meta.id, feature: meta.feature ?? null, text: e.text, reason: r ? r.text : e.text, kind },
         { text: e.ref, reason: r ? r.ref : e.ref },
       ));
@@ -189,16 +271,16 @@ async function runFile(addon, src, dstName, o, result) {
   // только честно отражает его в обычном канале skipped. Так HTTP/API-вызов не
   // может молча потерять выбор, а следующий формат получает тот же механизм без
   // знания glTF или конкретных кодеков.
-  const addExclusiveConflicts = () => {
+  const addExclusiveConflicts = (): void => {
     for (const conflict of o.exclusiveConflicts || []) {
-      const selected = { messageId: conflict.selected.titleKey, data: {} };
+      const selected: MessageRef = { messageId: conflict.selected.titleKey, data: {} };
       for (const rejected of conflict.rejected || []) {
-        const meta = {
+        const meta: SkipMeta = {
           id: conflict.ruleId,
           feature: rejected.feature,
           titleKey: rejected.titleKey,
         };
-        const reason = {
+        const reason: MessageRef = {
           messageId: 'engine.feature.exclusive',
           data: { selected },
         };
@@ -214,9 +296,13 @@ async function runFile(addon, src, dstName, o, result) {
   // раскрашенных vertex colors отчитывалось как «provable», хотя человек только что
   // потерял данные. Ярлык в отчёте — не украшение: по нему интерфейс решает, что
   // показать перед выгрузкой.
-  const addApplied = (meta, v, over = {}) => {
+  const addApplied = (
+    meta: AppliedMeta,
+    v: ReportLines | undefined | null,
+    over: AppliedOverrides = {},
+  ): void => {
     for (const e of entriesOf(v, locale)) {
-      result.applied.push(withRefs({
+      result.applied.push(withRefs<AppliedEntry>({
         ruleId: meta.id,
         fixSafety: over.fixSafety ?? meta.fixSafety,
         reversible: over.reversible ?? meta.reversible ?? false,
@@ -230,13 +316,10 @@ async function runFile(addon, src, dstName, o, result) {
   const io = await addon.createIO();
 
   // -------- загрузка: исходный файл НЕ трогаем никогда, работаем с копией в памяти --------
-  const ctx = {
+  const ctx: Context = {
     document: await addon.load(io, src),
     io,
     opts: o,
-    // Путь к ИСХОДНОМУ файлу. Нужен правилам, которым важно то, что осталось за бортом
-    // разбора: список расширений из самого файла нельзя восстановить по документу —
-    // неизвестное расширение библиотека при загрузке просто отбрасывает.
     src,
     outDir: o.outDir,
     dstName,
@@ -256,13 +339,17 @@ async function runFile(addon, src, dstName, o, result) {
   const strippedCodecs = addon.stripInputCompression(ctx.document);
   if (strippedCodecs.length) {
     const codecs = strippedCodecs.join(', ');
-    addFound(ENGINE_META.inputCompression, { messageId: 'engine.inputCompression.found', data: { codecs } });
+    addFound(ENGINE_META.inputCompression!, { messageId: 'engine.inputCompression.found', data: { codecs } });
     // Вложенная подстановка: note — само сообщение, а не готовая строка. Иначе при
     // смене языка внешняя фраза перевелась бы, а её хвост остался прежним.
-    const reencodeNote = o.compress
+    //
+    // compress/codec — поля glTF-аддона, движок читает их через индексную сигнатуру
+    // опций. Протечка формата в ядро, замеченная при переводе на TypeScript и оставленная
+    // как есть: чинить её нужно отдельной задачей, а не заодно с переносом.
+    const reencodeNote: MessageRef = o.compress
       ? { messageId: 'engine.inputCompression.reencode', data: { codec: o.codec } }
       : { messageId: 'engine.inputCompression.noCompress', data: {} };
-    addApplied(ENGINE_META.inputCompression, { messageId: 'engine.inputCompression.applied', data: { codecs, note: reencodeNote } });
+    addApplied(ENGINE_META.inputCompression!, { messageId: 'engine.inputCompression.applied', data: { codecs, note: reencodeNote } });
   }
 
   // ==========================================================================
@@ -275,9 +362,9 @@ async function runFile(addon, src, dstName, o, result) {
   // ==========================================================================
   const orderedRules = orderRules(addon.rules);
   const activeCount = orderedRules.filter((r) => r.meta.enabled(o)).length;
-  const basicPass = [];
-  const advancedPass = [];
-  const deferredIds = new Set(); // id правил, реально выполняющихся во втором проходе
+  const basicPass: Rule[] = [];
+  const advancedPass: Rule[] = [];
+  const deferredIds = new Set<string>(); // id правил, реально выполняющихся во втором проходе
   for (const rule of orderedRules) {
     const dependsOnDeferred = (rule.meta.runAfter || []).some((d) => deferredIds.has(d));
     if (rule.meta.tier === 'advanced' || dependsOnDeferred) {
@@ -288,14 +375,16 @@ async function runFile(addon, src, dstName, o, result) {
     }
   }
 
+  interface Planned { rule: Rule; finding: ReturnType<Rule['analyze']>[number] }
+
   // Фазы 1–2 одного прохода: АНАЛИЗ (только чтение; анализируются и невыбранные
   // расширения — их находки видны в отчёте, advanced ≠ невидимый) + ПЛАН.
-  const analyzeAndPlan = (rules) => {
-    const findings = [];
+  const analyzeAndPlan = (rules: Rule[]): Planned[] => {
+    const findings: Planned[] = [];
     for (const rule of rules) {
       for (const f of rule.analyze(ctx)) findings.push({ rule, finding: f });
     }
-    const planned = [];
+    const planned: Planned[] = [];
     for (const { rule, finding } of findings) {
       if (!rule.meta.enabled(o)) {
         // Правило гейтится ОДНИМ конкретным opt-in флажком (meta.feature: 'ktx2'/'join'/
@@ -306,7 +395,7 @@ async function runFile(addon, src, dstName, o, result) {
         // Правила-бандлы без единого feature (например safe-чистка на много правил
         // одновременно) остаются тихими — как и раньше.
         if (rule.meta.feature) {
-          const reason = { messageId: 'feature.notEnabled', data: { feature: rule.meta.feature } };
+          const reason: MessageRef = { messageId: 'feature.notEnabled', data: { feature: rule.meta.feature } };
           addSkipped(rule.meta, skipLine(rule.meta, reason), reason, 'disabled');
         }
         continue;
@@ -314,7 +403,7 @@ async function runFile(addon, src, dstName, o, result) {
       if (!rule.fix) { addFound(rule.meta, finding.text); continue; }
       const decision = rule.canFix ? rule.canFix(finding, ctx) : { safe: true };
       if (!decision.safe) {
-        const reason = decision.messageId
+        const reason: Message = decision.messageId
           ? { messageId: decision.messageId, data: decision.data || {} }
           : (decision.reason || '');
         addSkipped(rule.meta, skipLine(rule.meta, reason), reason, 'unsafe');
@@ -325,12 +414,12 @@ async function runFile(addon, src, dstName, o, result) {
       // фикс lossy, и всё равно хочу», а не «применяй что попало». Про уровень, которого
       // движок не знает, никто ничего не знает.
       if (!isKnownTier(tier)) {
-        const reason = { messageId: 'engine.policy.unknownSafetyLevel', data: { tier: String(tier) } };
+        const reason: MessageRef = { messageId: 'engine.policy.unknownSafetyLevel', data: { tier: String(tier) } };
         addSkipped(rule.meta, skipLine(rule.meta, reason), reason, 'policy');
         continue;
       }
       if (TIER_RANK[tier] > TIER_RANK[AUTOFIX_MAX_TIER] && !decision.force) {
-        const reason = { messageId: 'engine.policy.safetyLevel', data: { tier } };
+        const reason: MessageRef = { messageId: 'engine.policy.safetyLevel', data: { tier } };
         addSkipped(rule.meta, skipLine(rule.meta, reason), reason, 'policy');
         continue;
       }
@@ -340,12 +429,14 @@ async function runFile(addon, src, dstName, o, result) {
   };
 
   // Фаза 3 одного прохода: ПРИМЕНЕНИЕ (по порядку, меняем рабочую копию)
-  const applyPlanned = async (planned) => {
+  const applyPlanned = async (planned: Planned[]): Promise<void> => {
     for (const { rule, finding } of planned) {
       const titleText = rule.meta.titleKey ? render(rule.meta.titleKey, {}, locale) : rule.meta.title;
       progress({ type: 'rule', phase: 3, ruleId: rule.meta.id, title: titleText });
       log(`      • ${titleText}`);
-      const res = (await rule.fix(finding, ctx)) || {};
+      // Сюда доходят только правила с fix (см. analyzeAndPlan); компилятору это
+      // приходится сказать отдельно.
+      const res: FixResult = (await rule.fix!(finding, ctx)) || {};
       // Включённая фича не может молча исчезнуть из отчёта. Правило, которому
       // нечего было делать, раньше возвращало пустой результат — и человек,
       // поставивший галочку, не находил о ней ни строчки: сработало? не сработало?
@@ -357,7 +448,7 @@ async function runFile(addon, src, dstName, o, result) {
       const saidSomething = [res.found, res.skipped, res.cost, res.details, res.detail, res.irreversible]
         .some((v) => (Array.isArray(v) ? v.length > 0 : v != null));
       if (!saidSomething && rule.meta.feature) {
-        const reason = { messageId: 'engine.nothingToDo', data: { feature: rule.meta.feature } };
+        const reason: MessageRef = { messageId: 'engine.nothingToDo', data: { feature: rule.meta.feature } };
         addSkipped(rule.meta, skipLine(rule.meta, reason), reason, 'nothing');
       }
       addFound(rule.meta, res.found);
@@ -399,7 +490,7 @@ async function runFile(addon, src, dstName, o, result) {
   // кодирование (байты/VRAM). Сверка — в фазе 4 (addon.validate → compareBaseline),
   // расхождение блокирует запись.
   ctx.baselineMetrics = addon.baselineMetrics(ctx.document);
-  log(`      baseline-checkpoint: ${addon.BASELINE_METRICS.map((k) => `${k}=${ctx.baselineMetrics[k]}`).join(', ')}`);
+  log(`      baseline-checkpoint: ${addon.BASELINE_METRICS.map((k) => `${k}=${ctx.baselineMetrics![k]}`).join(', ')}`);
 
   // -------- ПРОХОД 2 · РАСШИРЕНИЯ (фазы 1–3 повторно, только advanced и отложенные) --------
   const advancedPlanned = analyzeAndPlan(advancedPass);
