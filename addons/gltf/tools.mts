@@ -1,7 +1,13 @@
-// addons/gltf/tools.mjs — обнаружение внешних бинарников glTF-тулинга (gltf-transform
+// addons/gltf/tools.mts — обнаружение внешних бинарников glTF-тулинга (gltf-transform
 // CLI и KTX-Software `ktx`/`toktx`) и запуск CLI. Инфраструктура аддона gltf, а не
 // отдельный формат: KTX2-кодирование идёт через gltf-transform CLI + toktx, оба нужны
 // только правилу textures/ktx2. Вынесено из optimize2.mjs без изменения логики.
+//
+// Переведён на TypeScript 2026-08-11, вторым модулем аддона. Перенос без изменения
+// поведения: там, где компилятор требовал проверки на пустоту, поставлены приведения
+// (`!`), а не новые ветки, — иначе в собранном коде появилось бы поведение, которого
+// в нём не было. Пустота здесь и правда возможна (инструмент может быть не найден),
+// но обрабатывают её ВЫШЕ: правило textures/ktx2 не включается без HAS_GLTF_CLI.
 
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
@@ -15,7 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // ---------- поиск внешних инструментов ----------
-function findInPath(names) {
+function findInPath(names: string[]): string | null {
   const dirs = (process.env.PATH || '').split(path.delimiter);
   for (const dir of dirs) {
     for (const name of names) {
@@ -32,7 +38,7 @@ function findInPath(names) {
 // его глобально — и узнавал об этом, когда KTX2 уже отказался работать. Теперь
 // пакет стоит в зависимостях и приезжает вместе с `npm install`; поиск в PATH
 // остался запасным путём для тех, у кого он уже стоит глобально.
-function findLocalCli() {
+function findLocalCli(): string | null {
   try {
     const pkgJson = new URL('../../node_modules/@gltf-transform/cli/package.json', import.meta.url);
     const dir = path.dirname(fileURLToPath(pkgJson));
@@ -47,13 +53,18 @@ const LOCAL_CLI_DIR = findLocalCli();
 
 export const GLTF_CLI = findInPath(['gltf-transform.cmd', 'gltf-transform']);
 
+/** Форма package.json, из которой берётся путь к JS-входу CLI. */
+interface CliPackageJson {
+  bin?: string | Record<string, string>;
+}
+
 // JS-вход CLI: вызываем его напрямую текущим node, минуя .cmd-обёртку
 // (.cmd внутри вызывает "node" через shell — ломается двойным слоем кавычек на Windows)
-function findCliJs() {
+function findCliJs(): string | null {
   // своя зависимость важнее глобальной: её версия сверена с ядром
   if (LOCAL_CLI_DIR) {
     try {
-      const pkg = JSON.parse(fs.readFileSync(path.join(LOCAL_CLI_DIR, 'package.json'), 'utf8'));
+      const pkg = JSON.parse(fs.readFileSync(path.join(LOCAL_CLI_DIR, 'package.json'), 'utf8')) as CliPackageJson;
       let bin = pkg.bin;
       if (bin && typeof bin === 'object') bin = bin['gltf-transform'] || Object.values(bin)[0];
       if (typeof bin === 'string') {
@@ -65,7 +76,7 @@ function findCliJs() {
   if (!GLTF_CLI) return null;
   const pkgDir = path.join(path.dirname(GLTF_CLI), 'node_modules', '@gltf-transform', 'cli');
   try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf8'));
+    const pkg = JSON.parse(fs.readFileSync(path.join(pkgDir, 'package.json'), 'utf8')) as CliPackageJson;
     let bin = pkg.bin;
     if (bin && typeof bin === 'object') bin = bin['gltf-transform'] || Object.values(bin)[0];
     if (typeof bin === 'string') {
@@ -90,13 +101,15 @@ export const HAS_GLTF_CLI = Boolean(GLTF_CLI_JS || GLTF_CLI);
 // собранного пакета, и путь туда знает только оболочка. Она называет его переменной —
 // иначе аддону пришлось бы догадываться о раскладке Electron, о которой он знать не
 // должен. Нет переменной — прежнее поведение, папка `.tools/` в корне проекта.
-function findInTools() {
+function findInTools(): string | null {
   const dir0 = process.env.TANYRA_TOOLS_DIR
     || fileURLToPath(new URL('../../.tools/', import.meta.url));
   if (!fs.existsSync(dir0)) return null;
   const stack = [dir0];
   while (stack.length) {
-    const dir = stack.pop();
+    // pop при непустом стеке всегда вернёт значение — приведение, а не проверка:
+    // проверка была бы новой веткой в собранном коде.
+    const dir = stack.pop()!;
     let entries;
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
     for (const e of entries) {
@@ -108,7 +121,7 @@ function findInTools() {
   return null;
 }
 
-function findToktx() {
+function findToktx(): string | null {
   // gltf-transform CLI v4 требует бинарник `ktx` (KTX-Software 4.3+); toktx — запасной признак установки
   const inPath = findInPath(['ktx.exe', 'ktx', 'toktx.exe', 'toktx']);
   if (inPath) return inPath;
@@ -124,7 +137,7 @@ function findToktx() {
 // Инструмент ищем всегда (нужен и API-вызовам); --no-ktx отключает само правило
 // textures/ktx2 через meta.enabled, поэтому найденный TOKTX при noKtx не используется.
 export const TOKTX = findToktx();
-const childEnv = { ...process.env };
+const childEnv: NodeJS.ProcessEnv = { ...process.env };
 if (TOKTX) {
   const dir = path.dirname(TOKTX);
   // на Windows ключ называется `Path` — ищем реальный ключ без учёта регистра,
@@ -141,6 +154,13 @@ const CLI_TIMEOUT_MS = 10 * 60_000;
 // Потолок на собранный вывод. Болтливый CLI на модели с сотней текстур иначе копит
 // мегабайты текста, из которого нужны последние десять строк.
 const CLI_MAX_BUFFER = 32 * 1024 * 1024;
+
+/** Сборщик текста из кусков потока (см. makeTextCollector). */
+export interface TextCollector {
+  push(chunk: Buffer): void;
+  /** Дочитывает хвост декодера и отдаёт собранный текст. */
+  end(): string;
+}
 
 /**
  * Сборщик текста из кусков потока, с потолком.
@@ -160,21 +180,21 @@ const CLI_MAX_BUFFER = 32 * 1024 * 1024;
  * определённой нарезкой потока, и через настоящий CLI её не подстроить — короткий
  * вывод приезжает одним куском (проверено: тест на живом CLI мутацию НЕ ловит).
  */
-export function makeTextCollector(limit = CLI_MAX_BUFFER) {
+export function makeTextCollector(limit: number = CLI_MAX_BUFFER): TextCollector {
   const decoder = new StringDecoder('utf8');
   // Куски копим списком и склеиваем один раз в конце. Через `acc = acc + кусок`
   // получалось квадратично: после переполнения потолка КАЖДАЯ порция расплющивала
   // всю строку заново. Замер ревьюера на боевом потолке в 32 МБ — 11,7 секунды
   // полностью занятого event loop, то есть ровно та беда, ради устранения которой
   // функцию днём раньше переводили на spawn. Ревью 2026-08-10 (D5).
-  const parts = [];
+  const parts: string[] = [];
   let size = 0;
-  const add = (text) => {
+  const add = (text: string) => {
     if (!text) return;
     parts.push(text);
     size += text.length;
     // Держим потолок, выбрасывая куски С НАЧАЛА: причина отказа всегда в хвосте.
-    while (parts.length > 1 && size - parts[0].length >= limit) size -= parts.shift().length;
+    while (parts.length > 1 && size - parts[0]!.length >= limit) size -= parts.shift()!.length;
   };
   const joined = () => {
     const s = parts.join('');
@@ -200,22 +220,24 @@ export function makeTextCollector(limit = CLI_MAX_BUFFER) {
  * Поведение при отказе оставлено прежним дословно: те же два сообщения, тот же хвост
  * вывода. Менялся способ ожидания, а не то, что видит человек.
  */
-export function runCli(args) {
+export function runCli(args: string[]): Promise<void> {
   const useNode = Boolean(GLTF_CLI_JS);
-  const file = useNode ? process.execPath : GLTF_CLI;
-  const argv = useNode ? [GLTF_CLI_JS, ...args] : args;
+  // Приведения, а не проверки: сюда не приходят без найденного CLI (HAS_GLTF_CLI
+  // гейтит правило выше), и лишняя ветка изменила бы собранный код.
+  const file = (useNode ? process.execPath : GLTF_CLI) as string;
+  const argv = useNode ? [GLTF_CLI_JS!, ...args] : args;
 
-  return new Promise((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     const child = spawn(file, argv, {
       env: childEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
-      shell: !useNode && GLTF_CLI.endsWith('.cmd'),
+      shell: !useNode && GLTF_CLI!.endsWith('.cmd'),
     });
 
     const outBuf = makeTextCollector();
     const errBuf = makeTextCollector();
-    child.stdout.on('data', (c) => outBuf.push(c));
-    child.stderr.on('data', (c) => errBuf.push(c));
+    child.stdout!.on('data', (c: Buffer) => outBuf.push(c));
+    child.stderr!.on('data', (c: Buffer) => errBuf.push(c));
 
     let timedOut = false;
     let settled = false;
@@ -236,16 +258,16 @@ export function runCli(args) {
     // Плата за 'exit' — можно не дочитать последние байты вывода. Она мала: сообщение
     // об отказе почти всегда уже пришло, а зависший навсегда запрос хуже усечённого
     // текста. Осиротевшего внука мы всё равно не убьём — это оговорено у CLI_TIMEOUT_MS.
-    const settle = (fn) => (...a) => {
+    const settle = <A extends unknown[]>(fn: (...a: A) => void) => (...a: A): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       fn(...a);
     };
-    const fail = settle((message) => reject(new Error(message)));
+    const fail = settle((message: string) => reject(new Error(message)));
     const done = settle(() => resolve());
 
-    child.on('error', (e) => fail(`gltf-transform ${args[0]} failed:\n    ${e.message}`));
+    child.on('error', (e: Error) => fail(`gltf-transform ${args[0]} failed:\n    ${e.message}`));
 
     child.on('exit', (code, signal) => {
       const out = outBuf.end();

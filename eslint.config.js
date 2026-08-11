@@ -111,6 +111,7 @@ export default [
       'core/i18n.mjs',
       'core/engine.mjs',
       'addons/gltf/metrics.mjs',
+      'addons/gltf/tools.mjs',
     ],
   },
 

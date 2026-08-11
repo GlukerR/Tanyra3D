@@ -17,13 +17,17 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
+// Часть этих модулей с 2026-08-11 живёт в `.mts`, а `.mjs` рядом — собранный. Стеречь
+// надо ИСТОЧНИК: собранного на чистом клоне до сборки нет, да и правит человек не его.
+// Список остаётся в одном виде — какое расширение сейчас настоящее, решает файловая
+// система, а не запись здесь.
 const SOURCES = [
-  'addons/gltf/tools.mjs',
-  'scripts/setup.mjs',
-  'core/engine.mjs',
-  'server.mjs',
-  'assistant.mjs',
-];
+  'addons/gltf/tools',
+  'scripts/setup',
+  'core/engine',
+  'server',
+  'assistant',
+].map((base) => (fs.existsSync(`${base}.mts`) ? `${base}.mts` : `${base}.mjs`));
 
 describe('путь из file:-URL', () => {
   it('пробел и кириллица переживают дорогу туда и обратно', () => {

@@ -108,3 +108,5 @@ core/engine.mjs
 core/engine.d.mts
 addons/gltf/metrics.mjs
 addons/gltf/metrics.d.mts
+addons/gltf/tools.mjs
+addons/gltf/tools.d.mts
