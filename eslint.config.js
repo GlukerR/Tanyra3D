@@ -112,6 +112,9 @@ export default [
       'core/engine.mjs',
       'addons/gltf/metrics.mjs',
       'addons/gltf/tools.mjs',
+      'addons/gltf/rules.mjs',
+      'addons/gltf/types.mjs',
+      'addons/gltf/index.mjs',
     ],
   },
 

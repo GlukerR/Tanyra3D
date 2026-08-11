@@ -49,7 +49,14 @@ function migratedModules() {
 const MODULES = migratedModules();
 
 /** Рукописные объявления рядом с JS-файлами: они В git и собранными не являются. */
-const HANDWRITTEN_DECLARATIONS = ['core/messages/en.d.mts', 'core/messages/ru.d.mts'];
+const HANDWRITTEN_DECLARATIONS = [
+  'core/messages/en.d.mts',
+  'core/messages/ru.d.mts',
+  'addons/gltf/messages/en.d.mts',
+  'addons/gltf/messages/ru.d.mts',
+  // Описания чужих пакетов без собственных типов (draco3dgltf, gltf-validator).
+  'types/externals.d.mts',
+];
 
 describe('слой TypeScript', () => {
   it('переведён хотя бы один модуль — иначе проверки ниже пусты', () => {

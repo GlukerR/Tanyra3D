@@ -30,6 +30,74 @@ import ruMessages from './messages/ru.mjs';
 import { RULES } from './rules.mjs';
 import { TOKTX } from './tools.mjs';
 
+import type { Document, NodeIO as NodeIOType } from '@gltf-transform/core';
+import type { ExclusiveConflict, ReportArgs, ValidateArgs } from '../../core/types.mjs';
+import type { GltfMetrics } from './metrics.mjs';
+import type { ValidatorMessage } from 'gltf-validator';
+import type { GltfContext, GltfOpts } from './types.mjs';
+
+/** Что движок передаёт аддону в фазе 4: контракт ядра, но с документом своего формата. */
+type GltfValidateArgs = Omit<ValidateArgs, 'ctx' | 'before' | 'after'> & {
+  ctx: GltfContext;
+  before: GltfMetrics;
+  after: GltfMetrics;
+};
+
+/** Что движок передаёт аддону в фазе 5: то же, но опции — свои. */
+type GltfReportArgs = Omit<ReportArgs, 'opts' | 'before' | 'after'> & {
+  opts: GltfOpts;
+  before: GltfMetrics;
+  after: GltfMetrics;
+};
+
+/**
+ * Сообщение валидатора, помеченное расширением, из-за которого оно появилось.
+ * Сообщения НЕ удаляются: данные валидатора остаются полными, а интерфейс показывает
+ * помеченные отдельной свёрнутой группой и не считает их за проблемы модели.
+ */
+type ExplainedMessage = ValidatorMessage & { explainedBy?: string };
+
+/** Схлопнутая запись: один вид нарушения, число повторений и несколько примеров. */
+type GroupedMessage = ExplainedMessage & { count: number; pointers: string[] };
+
+/** Индекс объекта → имя расширения, которое на него ссылается (валидатор его не читает). */
+interface HiddenRefs {
+  bufferViews: Map<number, string>;
+  buffers: Map<number, string>;
+  accessors: Map<number, string>;
+  images: Map<number, string>;
+}
+
+/** Разобранный JSON ассета: читаем ровно те массивы, где прячутся ссылки расширений. */
+type GltfJson = Record<string, any>;
+
+/**
+ * Таблицы метаданных. Форма — от fns.inspect(); своё имя нужно ради запасного значения:
+ * без него пустые таблицы вывелись бы как `properties: never[]`, и настоящий отчёт
+ * в ту же переменную уже не лёг бы.
+ */
+type InspectLike = ReturnType<typeof fns.inspect> | {
+  scenes: { properties: unknown[] };
+  meshes: { properties: unknown[] };
+  materials: { properties: unknown[] };
+  textures: { properties: unknown[] };
+  animations: { properties: unknown[] };
+};
+
+/** Опции, как они пришли снаружи: до нормализации о них не известно ничего. */
+type RawOpts = Record<string, unknown>;
+
+/** Объявление взаимоисключающей группы. Читается и отсюда, и интерфейсом через API. */
+interface ExclusiveGroupDef {
+  ruleId: string;
+  members: string[];
+  /** порядок совместимости, а не порядок флажков пользователя */
+  priority: string[];
+  titleKeys: Record<string, string>;
+  /** кого объясняет САМ движок; остальных объясняют их правила */
+  engineExplains: string[];
+}
+
 // Каталоги правил регистрируются при импорте аддона. Английский обязателен — на него
 // core/i18n.mjs откатывается, когда в другом каталоге не хватает ключа.
 register('en', enMessages);
@@ -42,8 +110,8 @@ const { NodeIO } = gltfCore;
 // плата. NodeIO держит регистрации расширений и зависимостей, но не состояние документа,
 // поэтому один экземпляр на процесс корректен: состояния между вызовами он не
 // держит, а повторное создание стоит дороже переиспользования.
-let _ioPromise = null;
-function createIO() {
+let _ioPromise: Promise<NodeIOType> | null = null;
+function createIO(): Promise<NodeIOType> {
   if (!_ioPromise) {
     _ioPromise = (async () => {
       await MeshoptEncoder.ready;
@@ -99,7 +167,7 @@ const ADVANCED_FEATURES = {
 // `engineExplains` — кого объясняет САМ движок. Там, где причину уже называет
 // правило, и называет лучше (с именем кодека или формата), движок молчит: две
 // записи об одном — это толпа строк (docs/EXTENDING.md §5b).
-const EXCLUSIVE_FEATURES = {
+const EXCLUSIVE_FEATURES: Record<string, ExclusiveGroupDef> = {
   geometry: {
     ruleId: 'geometry/compress',
     members: ['meshopt', 'draco', 'quantize'],
@@ -128,8 +196,8 @@ export function exclusiveGroups() {
   return Object.entries(EXCLUSIVE_FEATURES).map(([id, d]) => ({ id, members: [...d.members] }));
 }
 
-function exclusiveConflicts(requested) {
-  const conflicts = [];
+function exclusiveConflicts(requested: Set<string>): ExclusiveConflict[] {
+  const conflicts: ExclusiveConflict[] = [];
   for (const [group, definition] of Object.entries(EXCLUSIVE_FEATURES)) {
     const selected = definition.priority.find((feature) => requested.has(feature));
     if (!selected) continue;
@@ -141,8 +209,8 @@ function exclusiveConflicts(requested) {
     conflicts.push({
       group,
       ruleId: definition.ruleId,
-      selected: { feature: selected, titleKey: definition.titleKeys[selected] },
-      rejected: rejected.map((feature) => ({ feature, titleKey: definition.titleKeys[feature] })),
+      selected: { feature: selected, titleKey: definition.titleKeys[selected]! },
+      rejected: rejected.map((feature) => ({ feature, titleKey: definition.titleKeys[feature]! })),
     });
   }
   return conflicts;
@@ -151,8 +219,8 @@ function exclusiveConflicts(requested) {
 // Значения по умолчанию — ровно как у CLI без флагов (контракт §4b): ТОЛЬКО базовые
 // оптимизации, расширения — через advancedFeatures. Неизвестная фича → Error
 // (optimizeFile превратит его в status:'fail', а не молча проигнорирует).
-function normalizeOpts(opts = {}) {
-  const adv = [...new Set((opts.advancedFeatures || []).map(String))];
+function normalizeOpts(opts: RawOpts = {}): GltfOpts {
+  const adv = [...new Set(((opts.advancedFeatures as unknown[]) || []).map(String))];
   const unknown = adv.filter((f) => !(f in ADVANCED_FEATURES));
   if (unknown.length) {
     throw new Error(`Unknown advancedFeatures: ${unknown.join(', ')}. Available: ${Object.keys(ADVANCED_FEATURES).join(', ')}.`);
@@ -201,19 +269,19 @@ function normalizeOpts(opts = {}) {
     locale: typeof opts.locale === 'string' ? opts.locale : 'en',
     outDir: path.resolve(String(opts.outDir || 'output')),
     force: !!opts.force,
-    onProgress: typeof opts.onProgress === 'function' ? opts.onProgress : null,
+    onProgress: typeof opts.onProgress === 'function' ? opts.onProgress as GltfOpts['onProgress'] : null,
     // аддитивная опция (не в контракте, разрешено правилами стабильности): приёмник
     // строк хода работы. По умолчанию тишина; CLI передаёт console.log.
-    log: typeof opts.log === 'function' ? opts.log : () => {},
+    log: typeof opts.log === 'function' ? opts.log as GltfOpts['log'] : () => {},
   };
 }
 
-function outputName(src) {
+function outputName(src: string): string {
   return path.basename(src).replace(/\.gltf$/i, '.glb');
 }
 
-const load = (io, src) => io.read(src);
-const readBytes = (io, bytes) => io.readBinary(bytes);
+const load = (io: NodeIOType, src: string) => io.read(src);
+const readBytes = (io: NodeIOType, bytes: Uint8Array) => io.readBinary(bytes);
 
 // Вырожденные записи, которые пишет сериализатор: пустые массивы и пустой буфер.
 //
@@ -230,7 +298,7 @@ const readBytes = (io, bytes) => io.readBinary(bytes);
 // Убираем ключ, а не выдумываем узел: сцена без поля `nodes` — законная пустая сцена,
 // и рисуется она ровно так же, то есть никак. Правилом это не сделать: пустой массив
 // существует только в сериализованном виде, в документе его нет.
-function dropEmptyArrays(glb) {
+function dropEmptyArrays(glb: Uint8Array): Uint8Array {
   const view = new DataView(glb.buffer, glb.byteOffset, glb.byteLength);
   // GLB (спецификация §4.4): заголовок 12 байт, дальше чанки. Первый — JSON.
   if (glb.byteLength < 20 || view.getUint32(0, true) !== 0x46546c67) return glb;
@@ -262,7 +330,7 @@ function dropEmptyArrays(glb) {
   const noViews = !Array.isArray(json.bufferViews) || json.bufferViews.length === 0;
   const allBuffersEmpty = Array.isArray(json.buffers)
     && json.buffers.length > 0
-    && json.buffers.every((b) => b && typeof b === 'object' && Object.keys(b).length === 0);
+    && json.buffers.every((b: unknown) => b && typeof b === 'object' && Object.keys(b).length === 0);
   if (noBinChunk && noViews && allBuffersEmpty) { delete json.buffers; touched = true; }
 
   if (!touched) return glb;
@@ -286,12 +354,12 @@ function dropEmptyArrays(glb) {
   return out;
 }
 
-const writeBytes = async (io, doc) => dropEmptyArrays(await io.writeBinary(doc));
+const writeBytes = async (io: NodeIOType, doc: Document) => dropEmptyArrays(await io.writeBinary(doc));
 
 // Входное сжатие геометрии (Draco/Meshopt) снимаем сразу после загрузки — иначе каждая
 // запись молча пережимает геометрию заново (ARCHITECTURE.md §6). Возвращаем имена снятых
 // кодеков — движок отражает их в отчёте (engine/input-compression).
-function stripInputCompression(doc) {
+function stripInputCompression(doc: Document): string[] {
   const stripped = [];
   for (const ext of doc.getRoot().listExtensionsUsed()) {
     if (ext.extensionName === 'KHR_draco_mesh_compression' || ext.extensionName === 'EXT_meshopt_compression') {
@@ -309,14 +377,14 @@ function stripInputCompression(doc) {
 // человек должен иметь возможность посмотреть, насколько всё плохо). Здесь до
 // 2026-08-10 стояло обратное утверждение — комментарий отстал от кода на полтора
 // месяца и был найден ревью (P1.4).
-async function validate({ ctx, before, after, glbBytes, src, result, advancedPlannedIds, addFound, log }) {
+async function validate({ ctx, before, after, glbBytes, src, result, advancedPlannedIds, addFound, log }: GltfValidateArgs): Promise<void> {
   const v = result.validation;
   // vp — обёртка для записей валидации. Принимает messageId + data и кладёт в запись
   // не только готовую строку, но и рецепт (поле i18n) — по нему localizeResult() соберёт
   // её заново на другом языке. Без рецепта строки проверки застревали на языке сборки,
   // а именно их интерфейс показывает у кнопки выгрузки — то есть в самом важном месте.
   const locale = ctx.opts.locale;
-  const vp = (level, messageId, data = {}) => v.push({
+  const vp = (level: 'pass' | 'info' | 'fail', messageId: string, data: Record<string, unknown> = {}) => v.push({
     level,
     text: render(messageId, data, locale),
     i18n: { text: { messageId, data } },
@@ -336,14 +404,15 @@ async function validate({ ctx, before, after, glbBytes, src, result, advancedPla
   else if (after.triangles > 0) vp('pass', 'check.geometryPresent');
   else vp('fail', 'check.geometryBroken');
   // 2. треугольники не изменились (кроме вырожденных); окно отсчёта — как в v2 (до weld)
-  const trianglesBase = ctx.cache.get('trianglesBeforeWeld') ?? before.triangles;
-  const degenerateRemoved = ctx.cache.get('degenerateRemoved') ?? 0;
+  // Кэш общий для всех правил, значения в нём нетипизированы — сужаем на месте.
+  const trianglesBase = (ctx.cache.get('trianglesBeforeWeld') as number | undefined) ?? before.triangles;
+  const degenerateRemoved = (ctx.cache.get('degenerateRemoved') as number | undefined) ?? 0;
   const triangleDelta = trianglesBase - after.triangles;
   if (triangleDelta === 0) vp('pass', 'check.trianglesUnchanged');
   else if (triangleDelta === degenerateRemoved) vp('info', 'check.trianglesDropped', { n: triangleDelta });
   else vp('fail', 'check.trianglesMismatch', { expected: trianglesBase - degenerateRemoved, got: after.triangles });
   // 2b. BASELINE-CHECKPOINT — строгая сверка структуры со снимком после базового прохода (движок)
-  for (const line of compareBaseline(ctx.baselineMetrics, after, BASELINE_METRICS, { advancedPlannedIds, log, soft: BASELINE_SOFT })) {
+  for (const line of compareBaseline(ctx.baselineMetrics!, after, BASELINE_METRICS, { advancedPlannedIds, log, soft: BASELINE_SOFT })) {
     // compareBaseline возвращает { level, messageId, data } — рендерим через vp
     vp(line.level, line.messageId, line.data);
   }
@@ -365,16 +434,19 @@ async function validate({ ctx, before, after, glbBytes, src, result, advancedPla
   if (noGeometry) {
     vp('info', 'check.boundsNoGeometry');
   } else if (before.bounds && after.bounds) {
-    const diag = Math.hypot(...[0, 1, 2].map((i) => before.bounds.max[i] - before.bounds.min[i]));
+    // `!` вместо локальных переменных: проверка на непустоту стоит строкой выше, но
+    // внутри стрелки компилятор о ней уже не помнит. Заводить локальные копии значило бы
+    // менять собранный код — приведения из него исчезают без следа.
+    const diag = Math.hypot(...[0, 1, 2].map((i) => before.bounds!.max[i]! - before.bounds!.min[i]!));
     const eps = Math.max(1e-6, diag * 0.01);
     const ok = [0, 1, 2].every((i) =>
-      Math.abs(before.bounds.min[i] - after.bounds.min[i]) <= eps && Math.abs(before.bounds.max[i] - after.bounds.max[i]) <= eps);
+      Math.abs(before.bounds!.min[i]! - after.bounds!.min[i]!) <= eps && Math.abs(before.bounds!.max[i]! - after.bounds!.max[i]!) <= eps);
     if (ok) vp('pass', 'check.boundsUnchanged');
     // @gltf-transform/core getBounds() не умеет EXT_mesh_gpu_instancing (не учитывает
     // per-instance трансформы) — после реального инстансинга даёт заведомо неверные
     // числа, хотя рендер не меняется. Не блокируем запись в этом единственном известном
     // случае — только информируем; иначе (без инстансинга) расхождение остаётся fail.
-    else if (result.applied.some((a) => a.ruleId === 'scene/instance')) {
+    else if (result.applied.some((a: { ruleId: string }) => a.ruleId === 'scene/instance')) {
       vp('info', 'check.boundsSkippedAfterInstance');
     // Второй случай, где инструмент меряет не то. У скинованной модели трансформация узла
     // по спецификации glTF ИГНОРИРУЕТСЯ — форму задают матрицы скина (inverseBindMatrices).
@@ -386,7 +458,7 @@ async function validate({ ctx, before, after, glbBytes, src, result, advancedPla
     // Условие узкое: только когда скины есть И геометрия действительно квантована. Модель
     // без скинов и модель без квантования по-прежнему обязаны сойтись по bbox.
     } else if (after.skins > 0 && ctx.document.getRoot().listExtensionsUsed()
-      .some((e) => e.extensionName === 'KHR_mesh_quantization')) {
+      .some((e: { extensionName: string }) => e.extensionName === 'KHR_mesh_quantization')) {
       vp('info', 'check.boundsSkinnedQuantized');
     } else vp('fail', 'check.boundsChanged');
   } else {
@@ -408,7 +480,7 @@ async function validate({ ctx, before, after, glbBytes, src, result, advancedPla
       const inErrs = inRes.issues.numErrors;
       // Рецепт, а не готовая строка: иначе запись не переживает смену языка —
       // движок разворачивает { messageId, data } сам.
-      if (inErrs > 0) addFound(ENGINE_META.inputValidation, { messageId: 'engine.inputValidation.found', data: { n: inErrs } });
+      if (inErrs > 0) addFound(ENGINE_META.inputValidation!, { messageId: 'engine.inputValidation.found', data: { n: inErrs } });
       if (errs <= inErrs) {
         vp('info', 'check.validatorErrorsRemain', { errs, inErrs });
         for (const m of res.issues.messages.filter((m) => m.severity === 0).slice(0, 3)) {
@@ -424,14 +496,14 @@ async function validate({ ctx, before, after, glbBytes, src, result, advancedPla
 }
 
 // -------- ФАЗА 5 · отчёт (централизованно из данных RunResult, специфичен для glTF) --------
-function diffLine(label, before, after, fmt = (v) => v) {
+function diffLine(label: string, before: number, after: number, fmt: (v: number) => string | number = (v) => v) {
   return `| ${label} | ${fmt(before)} | ${fmt(after)} |`;
 }
 
 // уровень → префикс строки валидации в md (разбор обратно: level хранится в RunResult)
-const LEVEL_PREFIX = { pass: '✅', info: 'ℹ', fail: '❌' };
+const LEVEL_PREFIX: Record<string, string> = { pass: '✅', info: 'ℹ', fail: '❌' };
 
-function writeReport({ name, result, before, after, assetWritten, opts }) {
+function writeReport({ name, result, before, after, assetWritten, opts }: GltfReportArgs): string {
   const report = result;
   const flags = (opts.keepParts ? ' · no join' : '')
     + (opts.noKtx ? ' · no KTX2' : ` · textures: ${opts.texMode}`)
@@ -441,7 +513,7 @@ function writeReport({ name, result, before, after, assetWritten, opts }) {
   // и всё остальное (docs/ARCHITECTURE.md §4b). До 2026-08-04 она была зашита по-английски: тело
   // записей переводилось вслед за интерфейсом, а заголовки над ним оставались
   // английскими, и русский человек скачивал отчёт наполовину на чужом языке.
-  const t = (key, data = {}) => render(key, data, opts.locale);
+  const t = (key: string, data: Record<string, unknown> = {}) => render(key, data, opts.locale);
   const lines = [
     `# ${t('report.title', { name })}`,
     '',
@@ -449,19 +521,19 @@ function writeReport({ name, result, before, after, assetWritten, opts }) {
     '',
     `## ${t('report.section.found')}`,
     '',
-    ...(report.findings.length ? report.findings.map((f) => `- ✓ ${f.text}`) : [`- ${t('report.found.none')}`]),
+    ...(report.findings.length ? report.findings.map((f: { text: string }) => `- ✓ ${f.text}`) : [`- ${t('report.found.none')}`]),
     '',
     `## ${t('report.section.skipped')}`,
     '',
-    ...(report.skipped.length ? report.skipped.map((s) => `- ${s.text}`) : [`- ${t('report.none')}`]),
+    ...(report.skipped.length ? report.skipped.map((s: { text: string }) => `- ${s.text}`) : [`- ${t('report.none')}`]),
     '',
     `## ${t('report.section.applied')}`,
     '',
-    ...(report.applied.length ? report.applied.map((a) => `- ${a.text}`) : [`- ${t('report.none')}`]),
+    ...(report.applied.length ? report.applied.map((a: { text: string }) => `- ${a.text}`) : [`- ${t('report.none')}`]),
     '',
     `## ${t('report.section.validation')}`,
     '',
-    ...report.validation.map((s) => `- ${LEVEL_PREFIX[s.level]} ${s.text}`),
+    ...report.validation.map((s: { level: string; text: string }) => `- ${LEVEL_PREFIX[s.level]} ${s.text}`),
     ...(assetWritten ? [] : [
       '',
       opts.dryRun ? t('report.dryRun') : t('report.notWritten'),
@@ -503,7 +575,7 @@ function writeReport({ name, result, before, after, assetWritten, opts }) {
 
 // JSON-чанк РОВНО тех байтов, которые проверял валидатор: пере-сериализация документа дала бы
 // другие индексы, и указатели сообщений (`/bufferViews/3`) перестали бы совпадать.
-function parseGltfJson(bytes) {
+function parseGltfJson(bytes: Buffer): GltfJson | null {
   try {
     const GLB_MAGIC = 0x46546c67;
     if (bytes.length >= 20 && bytes.readUInt32LE(0) === GLB_MAGIC) {
@@ -517,9 +589,9 @@ function parseGltfJson(bytes) {
 }
 
 // Индекс объекта → имя расширения, которое на него ссылается (и которое валидатор не читает).
-function referencesHiddenInExtensions(json, unsupported) {
-  const refs = { bufferViews: new Map(), buffers: new Map(), accessors: new Map(), images: new Map() };
-  const add = (kind, index, ext) => { if (Number.isInteger(index)) refs[kind].set(index, ext); };
+function referencesHiddenInExtensions(json: GltfJson, unsupported: Set<string>): HiddenRefs {
+  const refs: HiddenRefs = { bufferViews: new Map(), buffers: new Map(), accessors: new Map(), images: new Map() };
+  const add = (kind: keyof HiddenRefs, index: unknown, ext: string) => { if (Number.isInteger(index)) refs[kind].set(index as number, ext); };
 
   if (unsupported.has('KHR_draco_mesh_compression')) {
     // сжатая геометрия: у accessors нет bufferView, данные лежат в буфере расширения
@@ -553,12 +625,12 @@ function referencesHiddenInExtensions(json, unsupported) {
 }
 
 // Какое расширение объясняет это сообщение (или null, если сообщение настоящее).
-function explanationFor(message, refs, json, unsupported) {
+function explanationFor(message: ValidatorMessage, refs: HiddenRefs, json: GltfJson, unsupported: Set<string>): string | null {
   const pointer = String(message.pointer || '');
 
   if (message.code === 'UNUSED_OBJECT') {
     const hit = /^\/(bufferViews|buffers|accessors|images)\/(\d+)$/.exec(pointer);
-    if (hit) return refs[hit[1]].get(Number(hit[2])) || null;
+    if (hit) return refs[hit[1] as keyof HiddenRefs].get(Number(hit[2])) || null;
     return null;
   }
 
@@ -566,7 +638,7 @@ function explanationFor(message, refs, json, unsupported) {
   // оба сообщения появляются ровно потому, что расширение не поддержано.
   if (unsupported.has('KHR_texture_basisu')) {
     const images = json.images || [];
-    const isKtx2 = (i) => images[i] && images[i].mimeType === 'image/ktx2';
+    const isKtx2 = (i: number) => images[i] && images[i].mimeType === 'image/ktx2';
     const mime = /^\/images\/(\d+)\/mimeType$/.exec(pointer);
     if (message.code === 'VALUE_NOT_IN_LIST' && mime && isKtx2(Number(mime[1]))) return 'KHR_texture_basisu';
     const img = /^\/images\/(\d+)$/.exec(pointer);
@@ -577,14 +649,14 @@ function explanationFor(message, refs, json, unsupported) {
 
 // Имя расширения из текста «Cannot validate an extension ... : '<name>'.» (см. ISSUES.md
 // валидатора — формат сообщения с именем в кавычках стабилен для UNSUPPORTED_EXTENSION).
-function unsupportedExtName(message) {
+function unsupportedExtName(message: ValidatorMessage): string | null {
   const hit = /'([^']+)'/.exec(message.message || '');
-  return hit ? hit[1] : null;
+  return hit ? hit[1]! : null;
 }
 
-function explainValidatorBlindSpots(json, messages) {
+function explainValidatorBlindSpots(json: GltfJson | null, messages: ExplainedMessage[]): ExplainedMessage[] {
   if (!json || !messages.length) return messages;
-  const unsupported = new Set();
+  const unsupported = new Set<string>();
   for (const m of messages) {
     if (m.code !== 'UNSUPPORTED_EXTENSION') continue;
     const name = unsupportedExtName(m);
@@ -593,7 +665,7 @@ function explainValidatorBlindSpots(json, messages) {
   if (!unsupported.size) return messages;
 
   const refs = referencesHiddenInExtensions(json, unsupported);
-  return messages.map((m) => {
+  return messages.map((m): ExplainedMessage => {
     // сама строка «расширение не поддержано» — не дефект, а объяснение остальных; в ту же группу
     if (m.code === 'UNSUPPORTED_EXTENSION') {
       const name = unsupportedExtName(m);
@@ -614,8 +686,8 @@ function explainValidatorBlindSpots(json, messages) {
 // главное, что говорит эта груда: не «есть проблема», а «проблема в 79 398 местах».
 const VALIDATION_EXAMPLES = 5;
 
-function groupValidation(messages, examples = VALIDATION_EXAMPLES) {
-  const groups = new Map();
+function groupValidation(messages: ExplainedMessage[], examples: number = VALIDATION_EXAMPLES): GroupedMessage[] {
+  const groups = new Map<string, GroupedMessage>();
   for (const m of messages) {
     if (!m) continue;
     const key = `${m.code}|${m.severity}|${m.explainedBy || ''}`;
@@ -635,17 +707,17 @@ function groupValidation(messages, examples = VALIDATION_EXAMPLES) {
 // Формат-специфично: метаданные из fns.inspect (те же таблицы, что у gltf.report) +
 // issues от Khronos gltf-validator. Ядро отдаёт это через inspectFile() формат-агностично;
 // будущий аддон другого формата реализует тот же хук со своими данными.
-async function inspect(srcPath) {
+async function inspect(srcPath: string): Promise<Record<string, unknown>> {
   const io = await createIO();
   const bytes = fs.readFileSync(srcPath);
   const doc = await io.read(srcPath);
   const asset = doc.getRoot().getAsset() || {};
-  const extensions = doc.getRoot().listExtensionsUsed().map((e) => e.extensionName);
+  const extensions = doc.getRoot().listExtensionsUsed().map((e: { extensionName: string }) => e.extensionName);
 
-  let metadata = { scenes: { properties: [] }, meshes: { properties: [] }, materials: { properties: [] }, textures: { properties: [] }, animations: { properties: [] } };
+  let metadata: InspectLike = { scenes: { properties: [] }, meshes: { properties: [] }, materials: { properties: [] }, textures: { properties: [] }, animations: { properties: [] } };
   try { metadata = fns.inspect(doc); } catch { /* экзотика — отдаём пустые таблицы */ }
 
-  let validation = [];
+  let validation: ExplainedMessage[] = [];
   try {
     const validator = await import('gltf-validator');
     const res = await validator.validateBytes(new Uint8Array(bytes));
@@ -678,7 +750,7 @@ async function inspect(srcPath) {
 
 // -------- Экспорт glTF как самодостаточного JSON (как «Export → JSON» на gltf.report) --------
 // Буферы/изображения инлайнятся data-URI, чтобы получился один JSON без внешних файлов.
-function mimeFromUri(uri) {
+function mimeFromUri(uri: string): string {
   const ext = (String(uri).split('.').pop() || '').toLowerCase();
   return {
     png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
@@ -686,18 +758,20 @@ function mimeFromUri(uri) {
   }[ext] || 'application/octet-stream';
 }
 
-async function toJSON(srcPath) {
+async function toJSON(srcPath: string): Promise<Record<string, unknown>> {
   const io = await createIO();
   const doc = await io.read(srcPath);
   const { json, resources } = await io.writeJSON(doc, {});
-  const inline = (uri, mime) => {
+  const inline = (uri: string, mime: string) => {
     const bytes = resources && resources[uri];
     if (!bytes) return uri;
     return `data:${mime};base64,${Buffer.from(bytes).toString('base64')}`;
   };
   for (const b of json.buffers || []) if (b.uri) b.uri = inline(b.uri, 'application/octet-stream');
   for (const img of json.images || []) if (img.uri) img.uri = inline(img.uri, img.mimeType || mimeFromUri(img.uri));
-  return json;
+  // Приведение, а не преобразование: наружу уходит тот же объект. Тип библиотеки
+  // (IGLTF) описывает конкретные поля glTF и под «просто объект» формально не подходит.
+  return json as unknown as Record<string, unknown>;
 }
 
 /** @type {import('../../core/types.mjs').Addon} */
