@@ -361,7 +361,7 @@
     for (const f of PER_MODEL_STATE) rec.state[f.key] = f.get();
   }
 
-  function applyModelState(state: Record<string, any>) {
+  function applyModelState(state: Record<string, any> | null) {
     for (const f of PER_MODEL_STATE) f.set(state ? state[f.key] ?? null : null);
   }
 
@@ -906,7 +906,7 @@
     updateRunButtonState();
   }
 
-  function optSection(title: string, groupKind: string) {
+  function optSection(title: string, groupKind: string | null) {
     const sec = document.createElement('div');
     sec.className = 'opt-section';
     // Метка нужна, чтобы строку «Сейчас в модели» можно было вставить ПОЗЖЕ:
@@ -1174,7 +1174,7 @@
     if (!items.length) return null;
     // Текстурная группа — такой же случай, как геометрия: входной формат снимается,
     // и человек должен узнать об этом до сборки, а не из отчёта.
-    const sec = optSection(t(group.titleKey), group.ids!.includes('ktx2') ? 'textures' : null!);
+    const sec = optSection(t(group.titleKey), group.ids!.includes('ktx2') ? 'textures' : null);
     for (const ext of items) sec.appendChild(buildExtensionRow(ext));
     return sec;
   }
@@ -1796,7 +1796,7 @@
     const rec = { id: `m${++modelSeq}`, file, state: {} };
     models.push(rec);
     activeModelId = rec.id;
-    applyModelState(null!);         // новая модель начинает с чистого состояния
+    applyModelState(null);          // новая модель начинает с чистого состояния
     selectedFile = file;
     return rec;
   }
@@ -1827,7 +1827,7 @@
     // возвращаем интерфейс в состояние «модель ещё не загружали».
     const next = models[i] || models[i - 1] || null;
     activeModelId = next ? next.id : null;
-    applyModelState(next ? next.state : null!);
+    applyModelState(next ? next.state : null);
     renderModelList();
     if (next) showActiveModel();
     else resetToEmpty();
@@ -1903,7 +1903,7 @@
 
   // Список опустел — вернуть интерфейс к виду «модель ещё не загружали».
   function resetToEmpty() {
-    applyModelState(null!);
+    applyModelState(null);
     clearResultPanels();
     statsBefore.innerHTML = '';
     chosenFileLabel.textContent = '';

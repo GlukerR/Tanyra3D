@@ -55,9 +55,16 @@ function migratedModules() {
  * как модули. Поэтому отдельный список, а не ещё одна папка в migratedModules().
  */
 function migratedUiModules() {
-  return fs.readdirSync(path.join(ROOT, 'ui'))
-    .filter((f) => f.endsWith('.ts') && !f.endsWith('.d.ts'))
-    .map((f) => `ui/${f.slice(0, -3)}`);
+  const out = [];
+  // ui/ — классические скрипты (app, i18n), ui/viewer/ — настоящие ES-модули.
+  // Проект сборки у них один, правила учёта тоже, поэтому и список общий.
+  for (const dir of ['ui', 'ui/viewer']) {
+    for (const f of fs.readdirSync(path.join(ROOT, dir))) {
+      if (!f.endsWith('.ts') || f.endsWith('.d.ts')) continue;
+      out.push(`${dir}/${f.slice(0, -3)}`);
+    }
+  }
+  return out;
 }
 
 const UI_MODULES = migratedUiModules();
@@ -206,6 +213,10 @@ describe('слой TypeScript', () => {
     const files = JSON.parse(read('package.json')).build.files;
     expect(files, 'core больше не кладётся в пакет').toContain('core/**/*');
     expect(files, 'исходники .mts едут в установщик — они там не нужны').toContain('!core/**/*.mts');
+    // Каталоги сообщений остаются на JavaScript, но рядом с ними лежат рукописные
+    // объявления .d.mts. В работающем приложении они не нужны: типы стираются.
+    // Замечено 2026-08-11 при осмотре собранного пакета — уезжали два файла.
+    expect(files, 'объявления типов каталогов едут в установщик').toContain('!messages/**/*.mts');
     // То же для аддона: у каждой папки с переведёнными модулями должно быть своё
     // исключение, иначе исходники поедут в установщик молча.
     for (const m of MODULES) {

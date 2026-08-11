@@ -120,6 +120,8 @@ export default [
       'assistant.mjs',
       'ui/app.js',
       'ui/i18n.js',
+      'ui/viewer/index.js',
+      'ui/viewer/viewer.js',
     ],
   },
 

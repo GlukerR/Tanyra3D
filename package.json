@@ -1,6 +1,6 @@
 {
   "name": "tanyra3d",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "license": "Apache-2.0",
   "description": "Умный оптимизатор GLB/glTF для веба — анализ, безопасная оптимизация, отчёты",
@@ -75,6 +75,7 @@
       "profiles/**/*",
       "engines/**/*",
       "messages/**/*",
+      "!messages/**/*.mts",
       "desktop/**/*",
       "node_modules/**/*",
       "!node_modules/electron/**",
@@ -154,6 +155,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.2.0",
+    "@types/three": "^0.185.0",
     "@vitest/browser": "^4.1.10",
     "@vitest/browser-playwright": "^4.1.10",
     "electron": "^43.3.0",

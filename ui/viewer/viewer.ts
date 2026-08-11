@@ -1,16 +1,16 @@
-// viewer.js — встроенный 3D-просмотрщик одной GLB-модели (движок Three.js).
+// viewer.ts — встроенный 3D-просмотрщик одной GLB-модели (движок Three.js).
 // Портирован из просмотрщика D:\others\threejsview (класс Viewer, Three.js r185) и
 // адаптирован под ПРОИЗВОЛЬНЫЕ модели: авто-кадрирование по bounding box вместо
 // хардкод-камеры + KTX2Loader (оптимизированные файлы бывают сжаты в KTX2, чего в
 // исходном просмотрщике не было) + корректная выгрузка/перезагрузка модели.
 //
 // Это конкретная РЕАЛИЗАЦИЯ движка просмотра за узким интерфейсом (см. createViewer в
-// index.js) — по аналогии с core/addon в ядре: обвязка двух вьюпортов не знает про
+// index.ts) — по аналогии с core/addon в ядре: обвязка двух вьюпортов не знает про
 // Three.js, а будущий движок/режим (дизайнерский режим, показ пропавших точек, свой
 // свет) подключается через тот же интерфейс, не переписывая dual-viewport.js.
 
 import * as THREE from "three";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { GLTFLoader, type GLTF } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
@@ -22,20 +22,65 @@ const DRACO_DECODER_PATH = "/vendor/three/examples/jsm/libs/draco/gltf/";
 const KTX2_TRANSCODER_PATH = "/vendor/three/examples/jsm/libs/basis/";
 
 /**
+ * Узел при обходе сцены. Обход отдаёт узлы ЛЮБОГО вида — свет, кости, пустышки, —
+ * а геометрия и материал есть только у мешей. Отсюда «меш, у которого всё
+ * необязательно»: проверки на наличие поля в коде ниже остаются ровно теми, какими
+ * были, и ни одного приведения типа в теле обхода не появляется.
+ */
+type MaybeMesh = THREE.Object3D & {
+  isMesh?: boolean | undefined;
+  geometry?: THREE.BufferGeometry | undefined;
+  material?: THREE.Material | THREE.Material[] | undefined;
+};
+
+/**
+ * Разобранный JSON модели — ровно те поля, которые читают проверки ниже.
+ *
+ * Полной схемы glTF здесь нет намеренно: это не разбор формата, а два вопроса к
+ * готовому файлу («что уже сжато» и «что напрашивается»). Описывать ради них весь
+ * стандарт значило бы завести вторую копию спецификации, которая начнёт расходиться
+ * с настоящей при первом же расширении.
+ */
+interface GltfJson {
+  extensionsUsed?: string[];
+  images?: Array<{ mimeType?: string }>;
+  nodes?: Array<{ mesh?: number }>;
+}
+
+/**
+ * Состояние камеры, которым обмениваются два вьюпорта. Поля — не только позиция:
+ * почему в снимок входят near/far и пределы приближения, объяснено у getCameraState().
+ */
+export interface CameraState {
+  position: THREE.Vector3;
+  target: THREE.Vector3;
+  near: number;
+  far: number;
+  minDistance: number;
+  maxDistance: number;
+}
+
+/** Что просмотрщику нужно знать о загрузке: ход дела и ракурс, который надо сохранить. */
+export interface LoadOptions {
+  onProgress?: ((event: ProgressEvent) => void) | undefined;
+  camera?: CameraState | null;
+}
+
+/**
  * Освободить память под поддеревом: геометрии, материалы и все их текстуры.
  * Отдельной функцией, потому что освобождать приходится два разных дерева — модель,
  * которая была в сцене, и модель устаревшей загрузки, которая до сцены не дошла.
  * Из сцены объект снимает вызывающий: у второго случая сцены и нет.
  */
-function disposeSubtree(root) {
+function disposeSubtree(root: THREE.Object3D | null) {
   if (!root) return;
-  root.traverse((obj) => {
+  root.traverse((obj: MaybeMesh) => {
     if (obj.geometry) obj.geometry.dispose();
     if (obj.material) {
       const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
       for (const mat of mats) {
         for (const key of Object.keys(mat)) {
-          const val = mat[key];
+          const val = (mat as unknown as Record<string, unknown>)[key] as THREE.Texture | undefined;
           if (val && val.isTexture) val.dispose();
         }
         mat.dispose();
@@ -49,14 +94,14 @@ function disposeSubtree(root) {
  * треугольники, вершины, число мешей (draw calls), уникальные материалы/текстуры.
  * После сборки эти цифры заменяются авторитетными метриками ядра (before/after).
  */
-function computeSceneStats(root) {
+function computeSceneStats(root: THREE.Object3D) {
   let triangles = 0;
   let vertices = 0;
   let drawCalls = 0;
-  const materials = new Set();
-  const textures = new Set();
+  const materials = new Set<THREE.Material>();
+  const textures = new Set<THREE.Texture>();
 
-  root.traverse((o) => {
+  root.traverse((o: MaybeMesh) => {
     if (!o.isMesh || !o.geometry) return;
     drawCalls++;
     const pos = o.geometry.attributes.position;
@@ -67,7 +112,7 @@ function computeSceneStats(root) {
       if (!m) continue;
       materials.add(m);
       for (const key of Object.keys(m)) {
-        const val = m[key];
+        const val = (m as unknown as Record<string, unknown>)[key] as THREE.Texture | undefined;
         if (val && val.isTexture) textures.add(val);
       }
     }
@@ -88,11 +133,11 @@ function computeSceneStats(root) {
 // image/ktx2, не объявляя KHR_texture_basisu корректно (та же "слепота" валидатора,
 // что разбирается в addons/gltf/index.mjs) — без этой проверки такие модели не помечались
 // бы как источник KTX2, хотя KTX2 в них фактически есть.
-function detectSource(gltf) {
-  const json = (gltf && gltf.parser && gltf.parser.json) || {};
+function detectSource(gltf: GLTF) {
+  const json: GltfJson = (gltf && gltf.parser && gltf.parser.json) || {};
   const used = json.extensionsUsed || [];
   const images = json.images || [];
-  const hasKtx2Mime = images.some((img) => img.mimeType === 'image/ktx2');
+  const hasKtx2Mime = images.some((img: { mimeType?: string }) => img.mimeType === 'image/ktx2');
   return {
     draco: used.includes('KHR_draco_mesh_compression'),
     meshopt: used.includes('EXT_meshopt_compression'),
@@ -112,9 +157,9 @@ function detectSource(gltf) {
 // выигрывает от GPU-инстансинга и ПРОИГРЫВАЕТ от объединения мешей: join обязан
 // запечь трансформ каждого узла в вершины, то есть размножить общую геометрию в копии.
 // Замерено на ABeautifulGame: join в одиночку +84 %, он же после instance — 0 %.
-function detectOpportunity(json) {
+function detectOpportunity(json: GltfJson) {
   const nodes = json.nodes || [];
-  const users = new Map();
+  const users = new Map<number, number>();
   for (const n of nodes) {
     if (n.mesh == null) continue;
     users.set(n.mesh, (users.get(n.mesh) || 0) + 1);
@@ -134,7 +179,28 @@ function detectOpportunity(json) {
  * орбитальные контролы, авто-кадрирование под размер модели.
  */
 export class Viewer {
-  constructor(canvas) {
+  // Только объявления: `declare` проверяется компилятором и не попадает в собранный
+  // файл — значения по-прежнему присваивают конструктор и методы _init*().
+  declare canvas: HTMLCanvasElement;
+  declare model: THREE.Object3D | null;
+  declare _loadToken: number;
+  declare renderer: THREE.WebGLRenderer;
+  declare scene: THREE.Scene;
+  declare camera: THREE.PerspectiveCamera;
+  declare controls: OrbitControls;
+  declare _resizeObserver: ResizeObserver;
+  declare _draco: DRACOLoader;
+  declare _ktx2: KTX2Loader;
+  declare _loader: GLTFLoader;
+  // Появляются после первой удачной загрузки — до неё полей нет вовсе, отсюда `?`.
+  declare stats?: ReturnType<typeof computeSceneStats>;
+  declare detected?: ReturnType<typeof detectSource>;
+  declare clips: THREE.AnimationClip[];
+  declare clipIndex?: number;
+  declare _mixer?: THREE.AnimationMixer | null;
+  declare _action?: THREE.AnimationAction | null;
+
+  constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.model = null;
     // Счётчик загрузок: результат отстающей загрузки в сцену не попадает (см. load()).
@@ -148,7 +214,7 @@ export class Viewer {
     this._initLoaders();
 
     this._resizeObserver = new ResizeObserver(() => this._onResize());
-    this._resizeObserver.observe(canvas.parentElement);
+    this._resizeObserver.observe(canvas.parentElement!);
     this._onResize();
   }
 
@@ -208,7 +274,7 @@ export class Viewer {
    * Загрузить модель по URL. Предыдущая модель выгружается (dispose) — просмотрщик
    * переиспользуется для перезагрузки (оригинал → оптимизированный и т.п.).
    */
-  async load(url, { onProgress, camera = null } = {}) {
+  async load(url: string, { onProgress, camera = null }: LoadOptions = {}) {
     // Метка этой загрузки. Разбор GLB — это секунды, и за них человек успевает нажать
     // «Пересобрать» или переключить модель. Раньше это кончалось так: обе загрузки
     // проходили _disposeModel() по ЕЩЁ ПУСТОЙ сцене, а потом обе добавляли свою модель.
@@ -290,7 +356,7 @@ export class Viewer {
   // ---------------------------------------------------------------------
 
   /** Подготовить микшер под клипы загруженной модели. Клипов нет — тихо ничего. */
-  _setupAnimations(clips) {
+  _setupAnimations(clips: THREE.AnimationClip[] | undefined) {
     this._disposeMixer();
     this.clips = Array.isArray(clips) ? clips : [];
     if (!this.clips.length || !this.model) return;
@@ -299,11 +365,11 @@ export class Viewer {
   }
 
   /** Включить клип по индексу. Прежнее действие останавливается. */
-  playClip(index) {
+  playClip(index: number) {
     if (!this._mixer || !this.clips.length) return;
     const i = Math.max(0, Math.min(index, this.clips.length - 1));
     this._mixer.stopAllAction();
-    this._action = this._mixer.clipAction(this.clips[i]);
+    this._action = this._mixer.clipAction(this.clips[i]!);
     this._action.reset();
     this._action.play();
     this.clipIndex = i;
@@ -317,7 +383,7 @@ export class Viewer {
    * Абсолютное, а не приращение: только так два вьюпорта гарантированно
    * показывают один и тот же момент, сколько бы кадров ни пропустил любой из них.
    */
-  setAnimationTime(seconds) {
+  setAnimationTime(seconds: number) {
     if (!this._mixer || !this._action) return;
     const dur = this._action.getClip().duration || 0;
     this._mixer.setTime(dur > 0 ? seconds % dur : seconds);
@@ -329,7 +395,7 @@ export class Viewer {
    * дефект модели и не дефект оптимизации, но рассмотреть в таком виде ничего
    * нельзя. Регулятор ничего не меняет в самом файле — только в показе.
    */
-  setExposure(value) {
+  setExposure(value: number) {
     const v = Number(value);
     this.renderer.toneMappingExposure = Number.isFinite(v) ? v : 1;
   }
@@ -391,7 +457,7 @@ export class Viewer {
   }
 
   /** Применить состояние камеры от другого вьюпорта (без анимации damping-скачка). */
-  applyCameraState(state) {
+  applyCameraState(state: CameraState | null) {
     if (!state) return;
     this.camera.position.copy(state.position);
     this.controls.target.copy(state.target);

@@ -231,9 +231,12 @@ describe('Движки — отдельная таблица (ARCHITECTURE.md §
     // если названный вьюпорт существует. Иначе движок добавят файлом, а картинка молча
     // останется от прежнего — ровно тот класс отказа, из-за которого в 0.1.0 уехала
     // сборка с мёртвым предпросмотром.
-    const src = fs.readFileSync(path.join(ROOT, 'ui', 'viewer', 'index.js'), 'utf8');
-    const блок = src.match(/const VIEWERS = \{([\s\S]*?)\n\};/);
-    expect(блок, 'в ui/viewer/index.js не найден реестр VIEWERS — проверка ослепла').toBeTruthy();
+    // Читаем ИСХОДНИК (сейчас .ts), а не собранный рядом .js: на чистом клоне до
+    // сборки его нет, и сторож упал бы на пустом месте. Объявление типа между именем
+    // и «=» — часть перевода на TypeScript, поэтому в образце оно необязательно.
+    const src = readSource('ui/viewer/index.js');
+    const блок = src.match(/const VIEWERS[^\n]*= \{([\s\S]*?)\n\};/);
+    expect(блок, 'в ui/viewer/index не найден реестр VIEWERS — проверка ослепла').toBeTruthy();
     const везём = [...блок[1].matchAll(/^\s{2}([a-z0-9_-]+):/gim)].map((m) => m[1]);
     expect(везём.length, 'реестр вьюпортов пуст').toBeGreaterThan(0);
     const нет = engineData.map((e) => e.data.viewer).filter((v) => !везём.includes(v));

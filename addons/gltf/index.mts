@@ -774,7 +774,11 @@ async function toJSON(srcPath: string): Promise<Record<string, unknown>> {
   return json as unknown as Record<string, unknown>;
 }
 
-/** @type {import('../../core/types.mjs').Addon} */
+// Прямой аннотации `: Addon` здесь нет намеренно, и JSDoc-пометка (она стояла тут со
+// времён JavaScript) убрана: в `.mts` компилятор её не читает вовсе — она обещала
+// проверку, которой не было. Настоящее согласование с типом ядра — одно, явное, в
+// точке сборки: `gltfAddon as unknown as Addon` в optimize2.mts, там же объяснено,
+// почему прямое соответствие невозможно (правила аддона сужают контекст ядра).
 const gltfAddon = {
   formats: ['glb', 'gltf'],
   rules: RULES,

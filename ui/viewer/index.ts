@@ -1,4 +1,4 @@
-// index.js — обвязка двух вьюпортов (оригинал ⇄ оптимизировано) поверх движка просмотра.
+// index.ts — обвязка двух вьюпортов (оригинал ⇄ оптимизировано) поверх движка просмотра.
 //
 // Модуль НЕ знает про Three.js напрямую: он работает через узкий интерфейс, который даёт
 // createViewer() (сейчас единственная реализация — Three.js, см. viewer.js). Это тот же
@@ -8,8 +8,12 @@
 // Наружу отдаётся глобальный API window.OptiViewer — его дёргает классический app.js
 // (который остаётся не-модульным скриптом), чтобы модульность просмотрщика не протекала
 // в остальной UI.
+//
+// Импорт пишется с расширением `.js`, хотя рядом лежит `.ts`: это адрес, по которому
+// файл запросит БРАУЗЕР, а собранное кладётся под тем же именем. Компилятор такую
+// запись понимает и не переписывает — см. tsconfig.ui.json.
 
-import { Viewer } from "./viewer.js";
+import { Viewer, type CameraState } from "./viewer.js";
 
 /**
  * Фабрика движка просмотра (шов под будущие движки/режимы: Unreal, Unity и т.д.).
@@ -41,7 +45,7 @@ import { Viewer } from "./viewer.js";
 // которое движок называет полем `viewer` в engines/<id>.json (ARCHITECTURE.md §4g):
 // «другой движок — другой вьюпорт» становится добавлением строки сюда и файла движка,
 // а не правкой обвязки и app.js.
-const VIEWERS = {
+const VIEWERS: Record<string, (canvas: HTMLCanvasElement) => Viewer> = {
   threejs: (canvas) => new Viewer(canvas),
 };
 
@@ -55,7 +59,7 @@ let wantedViewer = 'threejs';
  * предпросмотр здесь главное, ради чего приложение существует. Поэтому остаёмся на
  * прежней реализации и говорим об этом в консоль.
  */
-function useViewer(id) {
+function useViewer(id: string) {
   if (!id || id === wantedViewer) return wantedViewer;
   if (!VIEWERS[id]) {
     console.warn(`[viewer] Движок просит вьюпорт «${id}», а приложение везёт только: ${Object.keys(VIEWERS).join(', ')}. Остаюсь на «${wantedViewer}».`);
@@ -65,8 +69,8 @@ function useViewer(id) {
   return wantedViewer;
 }
 
-function createViewer(canvas) {
-  return VIEWERS[wantedViewer](canvas);
+function createViewer(canvas: HTMLCanvasElement) {
+  return VIEWERS[wantedViewer]!(canvas);
 }
 
 // Окно замера нагрузки на отрисовку: 60 кадров — примерно секунда на 60-герцовом
@@ -74,10 +78,10 @@ function createViewer(canvas) {
 // смену модели становится заметно вялой. Подробности замера — у DualViewport._pushPerf.
 const PERF_WINDOW = 60;
 
-function median(arr) {
+function median(arr: ArrayLike<number>) {
   const s = Array.from(arr).sort((a, b) => a - b);
   const mid = s.length >> 1;
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+  return s.length % 2 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
 }
 
 /**
@@ -85,16 +89,26 @@ function median(arr) {
  * Лениво создаёт движок при первой загрузке (когда контейнер уже виден и имеет размер).
  */
 class ViewportSlot {
-  constructor(container) {
+  // `declare` — объявление ТОЛЬКО для проверки типов: в собранный файл эти строки не
+  // попадают. Обычное поле класса компилятор превратил бы в реальное определение
+  // свойства перед телом конструктора, то есть добавил бы в вывод код, которого в
+  // исходном .js не было. Значения по-прежнему присваивает конструктор.
+  declare container: HTMLElement;
+  declare canvas: HTMLCanvasElement | null;
+  declare statusEl: HTMLElement | null;
+  declare viewer: Viewer | null;
+  declare _blobUrl: string | null;
+
+  constructor(container: HTMLElement) {
     this.container = container;
-    this.canvas = container.querySelector(".viewer-canvas");
-    this.statusEl = container.querySelector(".viewer-status");
+    this.canvas = container.querySelector<HTMLCanvasElement>(".viewer-canvas");
+    this.statusEl = container.querySelector<HTMLElement>(".viewer-status");
     this.viewer = null;
     this._blobUrl = null;
   }
 
   _ensureViewer() {
-    if (!this.viewer) this.viewer = createViewer(this.canvas);
+    if (!this.viewer) this.viewer = createViewer(this.canvas!);
     return this.viewer;
   }
 
@@ -110,12 +124,11 @@ class ViewportSlot {
    * и без пересчёта чего бы то ни было (Правило 8 §1). Без пометки подпись
    * «Загрузка…» осталась бы русской после переключения на английский.
    *
-   * @param {string|null} key   ключ каталога; null или '' — убрать подпись
-   * @param {object} [values]   подстановки одного сообщения (Правило 8 §3:
-   *                            «Загрузка… 45 %» — ОДНО сообщение с подстановкой,
-   *                            а не склейка слова и числа в коде)
+   * @param key     ключ каталога; null или '' — убрать подпись
+   * @param values  подстановки одного сообщения (Правило 8 §3: «Загрузка… 45 %» —
+   *                ОДНО сообщение с подстановкой, а не склейка слова и числа в коде)
    */
-  _setStatus(key, values) {
+  _setStatus(key: string | null, values?: UiParams) {
     if (!this.statusEl) return;
     // Текст живёт в отдельном span, а не прямо в контейнере. Контейнер растянут на всю
     // панель (inset: 0) и служит только для центрирования — повесь фон на него, и
@@ -141,11 +154,11 @@ class ViewportSlot {
 
   /** Загрузить модель из URL (строка) или File (создаётся blob URL).
    *  opts.camera — ракурс, который надо сохранить вместо авто-кадрирования (сборка/ребилд). */
-  async load(source, opts = {}) {
+  async load(source: string | File | Blob, opts: { camera?: CameraState | null } = {}) {
     const viewer = this._ensureViewer();
     this._setStatus("viewer.status.loading");
 
-    let url = source;
+    let url = source as string;
     if (source instanceof File || source instanceof Blob) {
       this._revokeBlob();
       url = this._blobUrl = URL.createObjectURL(source);
@@ -154,7 +167,7 @@ class ViewportSlot {
     try {
       await viewer.load(url, {
         camera: opts.camera || null,
-        onProgress: (e) => {
+        onProgress: (e: ProgressEvent) => {
           if (e && e.lengthComputable) {
             this._setStatus("viewer.status.loadingPct", { pct: Math.round((e.loaded / e.total) * 100) });
           }
@@ -176,7 +189,7 @@ class ViewportSlot {
   }
 
   /** Подсказка в пустой панели. Аргумент — КЛЮЧ каталога, не готовая строка. */
-  showHint(key, values) {
+  showHint(key: string, values?: UiParams) {
     this._setStatus(key, values);
   }
 
@@ -209,6 +222,22 @@ class ViewportSlot {
 }
 
 class DualViewport {
+  // Только объявления (см. пояснение про `declare` у ViewportSlot).
+  declare left: ViewportSlot | null;
+  declare right: ViewportSlot | null;
+  declare linked: boolean;
+  declare _syncing: boolean;
+  declare _rafId: number | null;
+  declare _animPlaying: boolean;
+  declare _animTime: number;
+  declare _animClipIndex: number;
+  declare _exposure: number;
+  declare _perf: { left: Float64Array; right: Float64Array; frame: Float64Array; i: number };
+  // Эти два появляются позже конструктора и до тех пор отсутствуют — отсюда `?`:
+  // снятие подписки заводится при связывании камер, слушатель загрузки — из UI.
+  declare _unlink?: (() => void) | null;
+  declare _onLoaded?: (() => void) | null;
+
   constructor() {
     this.left = null; // оригинал
     this.right = null; // оптимизировано
@@ -253,22 +282,22 @@ class DualViewport {
    */
   _linkCameras() {
     this._unlinkCameras();
-    if (!this.left.viewer || !this.right.viewer) return;
+    if (!this.left!.viewer || !this.right!.viewer) return;
 
-    const sync = (from, to) => {
+    const sync = (from: Viewer, to: Viewer) => {
       if (this._syncing || !this.linked) return;
       this._syncing = true;
       to.applyCameraState(from.getCameraState());
       this._syncing = false;
     };
-    const onLeftChange = () => sync(this.left.viewer, this.right.viewer);
-    const onRightChange = () => sync(this.right.viewer, this.left.viewer);
+    const onLeftChange = () => sync(this.left!.viewer!, this.right!.viewer!);
+    const onRightChange = () => sync(this.right!.viewer!, this.left!.viewer!);
 
-    this.left.viewer.controls.addEventListener("change", onLeftChange);
-    this.right.viewer.controls.addEventListener("change", onRightChange);
+    this.left!.viewer.controls.addEventListener("change", onLeftChange);
+    this.right!.viewer.controls.addEventListener("change", onRightChange);
     this._unlink = () => {
-      this.left.viewer?.controls.removeEventListener("change", onLeftChange);
-      this.right.viewer?.controls.removeEventListener("change", onRightChange);
+      this.left!.viewer?.controls.removeEventListener("change", onLeftChange);
+      this.right!.viewer?.controls.removeEventListener("change", onRightChange);
     };
   }
 
@@ -282,16 +311,16 @@ class DualViewport {
   _startLoop() {
     if (this._rafId != null) return;
     let prev = performance.now();
-    const tick = (now) => {
+    const tick = (now: number) => {
       const dt = Math.min((now - prev) / 1000, 0.1); // клип времени: вкладка была свёрнута
       prev = now;
       this._advanceAnimation(dt);
       // Время каждого вьюпорта меряется отдельно, время кадра — общее.
       // Почему именно так — см. комментарий у _perf ниже.
       const t0 = performance.now();
-      this.left.renderFrame();
+      this.left!.renderFrame();
       const t1 = performance.now();
-      this.right.renderFrame();
+      this.right!.renderFrame();
       const t2 = performance.now();
       this._pushPerf(t0, t1, t2, dt);
       this._rafId = requestAnimationFrame(tick);
@@ -327,7 +356,7 @@ class DualViewport {
   // мусора или переключения вкладки не должна дёргать цифру.
   // -----------------------------------------------------------------------
 
-  _pushPerf(t0, t1, t2, dt) {
+  _pushPerf(t0: number, t1: number, t2: number, dt: number) {
     const p = this._perf;
     p.left[p.i % PERF_WINDOW] = t1 - t0;
     p.right[p.i % PERF_WINDOW] = t2 - t1;
@@ -362,7 +391,7 @@ class DualViewport {
   // Слоты создаются лениво, в _init() при первой загрузке модели: до неё
   // this.left и this.right — null. app.js опрашивает getAnimation() с первого
   // кадра страницы, поэтому все методы ниже обязаны переживать пустое состояние.
-  _advanceAnimation(dt) {
+  _advanceAnimation(dt: number) {
     if (this._animPlaying) this._animTime = (this._animTime || 0) + dt;
     const t = this._animTime || 0;
     this.left?.viewer?.setAnimationTime(t);
@@ -384,18 +413,18 @@ class DualViewport {
     };
   }
 
-  setAnimationPlaying(playing) {
+  setAnimationPlaying(playing: boolean) {
     this._animPlaying = !!playing;
   }
 
   /** Перемотка в абсолютное время (секунды). */
-  seekAnimation(seconds) {
+  seekAnimation(seconds: number) {
     this._animTime = Math.max(0, Number(seconds) || 0);
     this._advanceAnimation(0);
   }
 
   /** Переключить клип в обоих вьюпортах и начать с нуля. */
-  selectAnimationClip(index) {
+  selectAnimationClip(index: number) {
     // Запоминаем выбор: следующая загруженная модель должна прийти на этот же
     // клип, иначе она начнёт с нулевого и разойдётся со второй (см. _applyAnimSelection).
     this._animClipIndex = Math.max(0, Number(index) || 0);
@@ -414,7 +443,7 @@ class DualViewport {
   // выглядят испорченными ещё до всякой оптимизации.
   // -----------------------------------------------------------------------
 
-  setExposure(value) {
+  setExposure(value: number) {
     const v = Number(value);
     this._exposure = Number.isFinite(v) ? Math.max(0.05, Math.min(v, 4)) : 1;
     this._applyExposure();
@@ -439,13 +468,13 @@ class DualViewport {
 
   /** Загрузить оригинал (File) в левый вьюпорт. Правый сбрасывается — прежний
    *  оптимизированный результат больше не соответствует новой исходной модели. */
-  async loadOriginal(originalFile) {
+  async loadOriginal(originalFile: File | null) {
     if (!this._init()) return null;
     this._unlinkCameras();
-    this.right.reset();
-    this.right.showHint("viewer.hint.compare");
+    this.right!.reset();
+    this.right!.showHint("viewer.hint.compare");
     let info = null;
-    if (originalFile) info = await this.left.load(originalFile);
+    if (originalFile) info = await this.left!.load(originalFile);
     this._afterLoad();
     return info; // { stats, detected } — метрики модели + что уже сжато в исходнике
   }
@@ -454,20 +483,20 @@ class DualViewport {
    *  Ракурс НЕ сбрасывается: берём текущую камеру левого вьюпорта (камеры связаны, bbox
    *  тот же) и применяем к результату — приближённая деталь остаётся на месте после
    *  любой сборки/ребилда. Левый (оригинал) не трогаем. */
-  async loadOptimized(optimizedUrl) {
+  async loadOptimized(optimizedUrl: string | null) {
     if (!this._init()) return;
     if (optimizedUrl) {
-      const camera = this.left.viewer ? this.left.viewer.getCameraState() : null;
-      await this.right.load(optimizedUrl, { camera });
+      const camera = this.left!.viewer ? this.left!.viewer.getCameraState() : null;
+      await this.right!.load(optimizedUrl, { camera });
     } else {
-      this.right.showHint("viewer.hint.noOutput");
+      this.right!.showHint("viewer.hint.noOutput");
     }
     this._afterLoad();
   }
 
   _afterLoad() {
     this._resetPerf(); // сцена сменилась — прежние кадры мерили другую модель
-    if (this.left.viewer && this.right.viewer) this._linkCameras();
+    if (this.left!.viewer && this.right!.viewer) this._linkCameras();
     this._applyAnimSelection();
     this._applyExposure();
     this._startLoop();
@@ -479,7 +508,7 @@ class DualViewport {
   }
 
   /** Подписка UI на «модель загружена/сменилась». Один слушатель — больше не нужно. */
-  setOnLoaded(fn) {
+  setOnLoaded(fn: (() => void) | null) {
     this._onLoaded = typeof fn === 'function' ? fn : null;
   }
 
@@ -538,7 +567,7 @@ class DualViewport {
     };
   }
 
-  setLinked(on) {
+  setLinked(on: boolean) {
     this.linked = !!on;
   }
 
