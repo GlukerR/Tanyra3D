@@ -440,11 +440,8 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 
 **0.2.0 — the sources are TypeScript.** Core, interface and viewer are compiled from
 `.mts`/`.ts`; what the program does is what 0.1.1 did — the number records a change of
-language, not of features. The suite is green: 2878 tests, no failures.
-
-**0.1.1 is the last tagged build.** Core, web interface and viewer work, the test suite is
-green on Node 20, 22 and 24. The desktop application installs like any other program — no
-terminal needed. The API may still change.
+language, not of features. The test suite is green on Node 20, 22 and 24. The desktop
+application installs like any other program — no terminal needed. The API may still change.
 
 Installed and used on Windows. The macOS and Linux packages are built by CI from the same
 source and pass the same checks, but nobody has run them on real hardware yet — if you do,
