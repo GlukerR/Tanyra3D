@@ -34,7 +34,7 @@ interface I18nApi {
 
 /**
  * Просмотрщик. ui/viewer/ — настоящий ES-модуль, а app.js — классический скрипт, и
- * связать их можно только через window (см. шапку ui/viewer/index.js). Здесь описано
+ * связать их можно только через window (см. шапку ui/viewer/index.ts). Здесь описано
  * ровно то, что отдаётся наружу, — форма взята из `window.OptiViewer = {...}` там же.
  */
 interface OptiViewerApi {
@@ -48,7 +48,7 @@ interface OptiViewerApi {
   setLinked(on: boolean): void;
   reset(): void;
   cameraStates(): unknown;
-  /** Сведения об анимации. Форма — из DualViewport.getAnimation() в ui/viewer/index.js. */
+  /** Сведения об анимации. Форма — из DualViewport.getAnimation() в ui/viewer/index.ts. */
   getAnimation(): {
     count: number;
     names: string[];
@@ -65,7 +65,7 @@ interface OptiViewerApi {
   getExposure(): number;
   /** Нагрузка на отрисовку либо null, пока окно замера не набралось. */
   getPerf(): { leftMs?: number; rightMs?: number; fps?: number } | null;
-  setOnLoaded(fn: (info: unknown) => void): void;
+  setOnLoaded(fn: () => void): void;
 }
 
 interface Window {
@@ -74,7 +74,7 @@ interface Window {
   I18n: I18nApi;
   OptiViewer: OptiViewerApi;
   /** Мост из модуля вьюпорта: он не видит window.OptiViewer в момент подписки. */
-  onOptiViewerModelLoaded?: (info: unknown) => void;
+  onOptiViewerModelLoaded?: () => void;
 }
 
 /**

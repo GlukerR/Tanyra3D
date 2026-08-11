@@ -38,7 +38,7 @@ const SOURCE_EXTENSIONS = ['.mts', '.ts', '.mjs', '.js', '.cjs'];
  * существующие списки, не переписывая их поэлементно.
  */
 export function sourcePath(moduleName) {
-  const base = String(moduleName).replace(/\.(mts|mjs|cjs|js)$/i, '');
+  const base = String(moduleName).replace(/\.(mts|mjs|cjs|ts|js)$/i, '');
   for (const ext of SOURCE_EXTENSIONS) {
     const candidate = path.join(ROOT, `${base}${ext}`);
     if (fs.existsSync(candidate)) return candidate;

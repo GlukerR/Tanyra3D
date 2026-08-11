@@ -153,10 +153,15 @@ describe('Настройка сборки приложения', () => {
 
     /** Пути под /vendor/three/, которые упоминает код вьюера и разметка. */
     const vendorRefs = () => {
-      const sources = ['ui/index.html', 'ui/viewer/viewer.js'];
+      // Разметка читается как файл, код вьюера — через помощник: у него источник
+      // теперь `.ts`, а собранного `.js` на чистом клоне до сборки ещё нет.
+      const sources = [
+        () => fs.readFileSync(path.join(ROOT, 'ui/index.html'), 'utf8'),
+        () => readSource('ui/viewer/viewer'),
+      ];
       const refs = new Set();
-      for (const rel of sources) {
-        const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
+      for (const read of sources) {
+        const src = read();
         for (const m of src.matchAll(/\/vendor\/three\/([A-Za-z0-9_./-]*)/g)) {
           if (m[1]) refs.add(m[1].replace(/\/$/, ''));
         }

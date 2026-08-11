@@ -55,9 +55,16 @@ function migratedModules() {
  * как модули. Поэтому отдельный список, а не ещё одна папка в migratedModules().
  */
 function migratedUiModules() {
-  return fs.readdirSync(path.join(ROOT, 'ui'))
-    .filter((f) => f.endsWith('.ts') && !f.endsWith('.d.ts'))
-    .map((f) => `ui/${f.slice(0, -3)}`);
+  const out = [];
+  // ui/ — классические скрипты (app, i18n), ui/viewer/ — настоящие ES-модули.
+  // Проект сборки у них один, правила учёта тоже, поэтому и список общий.
+  for (const dir of ['ui', 'ui/viewer']) {
+    for (const f of fs.readdirSync(path.join(ROOT, dir))) {
+      if (!f.endsWith('.ts') || f.endsWith('.d.ts')) continue;
+      out.push(`${dir}/${f.slice(0, -3)}`);
+    }
+  }
+  return out;
 }
 
 const UI_MODULES = migratedUiModules();
