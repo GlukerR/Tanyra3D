@@ -144,7 +144,7 @@ describe('Единственное объявление — взаимоискл
   });
 
   it('в интерфейсе нет своего списка взаимоисключений (копия не вернулась)', () => {
-    const src = fs.readFileSync(path.join(ROOT, 'ui/app.js'), 'utf8');
+    const src = readSource('ui/app');
     // Комментарии вырезаем: в них про старый список рассказывает история правки.
     const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
     expect(code, 'ui/app.js снова объявляет группы сам — их объявляет аддон')
@@ -215,7 +215,7 @@ describe('Единственное объявление — режим KTX2', ()
   });
 
   it('интерфейс берёт режим у площадки, а не назначает сам', () => {
-    const src = fs.readFileSync(path.join(ROOT, 'ui/app.js'), 'utf8');
+    const src = readSource('ui/app');
     const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
 
     // Сторожим МЕХАНИЗМ, а не написание. Первая версия этого теста искала литерал

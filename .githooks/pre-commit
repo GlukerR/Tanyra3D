@@ -26,7 +26,7 @@
 # версию модуля — зелёный результат, ничего не говорящий о том, что коммитится.
 # Идёт около секунды. noEmitOnError в tsconfig означает, что битый тип сюда не пройдёт.
 echo "🔧 Building TypeScript..."
-npx tsc
+npm run build --silent
 if [ $? -ne 0 ]; then
   echo "❌ TypeScript build failed. Commit aborted."
   exit 1

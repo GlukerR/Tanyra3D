@@ -19,6 +19,8 @@
 //   3. API отдаёт движок и умеет принимать его в запросе.
 
 import { describe, it, expect } from 'vitest';
+
+import { readSource } from './helpers/source-files.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -198,7 +200,7 @@ describe('Движки — отдельная таблица (ARCHITECTURE.md §
   it('значок «нужен декодер» приходит от движка, а не зашит в интерфейсе', () => {
     // До 2026-08-10 список лежал в ui/app.js константой NEEDS_DECODER — верной ровно для
     // одного движка. Сторож ловит возврат к зашитому списку.
-    const src = fs.readFileSync(path.join(ROOT, 'ui', 'app.js'), 'utf8');
+    const src = readSource('ui/app');
     expect(
       /const\s+NEEDS_DECODER\s*=\s*new\s+Set\(\s*\[/.test(src),
       'в ui/app.js снова зашит список NEEDS_DECODER — он принадлежит engines/<id>.json',
@@ -273,7 +275,7 @@ describe('Движки — отдельная таблица (ARCHITECTURE.md §
     // ПРОЧЕРК, законное состояние: панель показана, и перерисовать её обязаны.
     // Проверка статическая: поведение живёт в браузере, а сюда смотрит сторож
     // за той единственной строкой, возврат которой воспроизводит беду.
-    const src = fs.readFileSync(path.join(ROOT, 'ui', 'app.js'), 'utf8');
+    const src = readSource('ui/app');
     const начало = src.indexOf('async function relabelExtensions')
     expect(начало, 'в ui/app.js не нашлось relabelExtensions — проверка ослепла').toBeGreaterThan(-1);
     const тело = src.slice(начало, src.indexOf('\n  }', начало));

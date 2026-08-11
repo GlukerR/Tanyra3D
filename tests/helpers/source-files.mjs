@@ -25,7 +25,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 /** Расширения источника в порядке предпочтения: сначала TypeScript, потом JavaScript. */
-const SOURCE_EXTENSIONS = ['.mts', '.mjs', '.js', '.cjs'];
+// `.ts` — браузерный слой (ui/): у него своя сборка, но правило то же.
+const SOURCE_EXTENSIONS = ['.mts', '.ts', '.mjs', '.js', '.cjs'];
 
 /**
  * Абсолютный путь к исходнику модуля по имени БЕЗ расширения.
