@@ -35,7 +35,7 @@ function readTsconfig() {
   return JSON.parse(noComments);
 }
 
-/** Все переведённые модули: core/x.mts → 'core/x'. */
+/** Все переведённые модули СЕРВЕРНОГО слоя: core/x.mts → 'core/x'. */
 function migratedModules() {
   const out = [];
   // Корень тоже: optimize2 — публичное API ядра, он лежит там же, где server.mjs.
@@ -49,6 +49,19 @@ function migratedModules() {
   return out;
 }
 
+/**
+ * Браузерный слой — ВТОРОЙ проект сборки (tsconfig.ui.json), и расширения у него другие:
+ * `.ts` → `.js`, потому что ui/index.html подключает их обычными тегами <script>, а не
+ * как модули. Поэтому отдельный список, а не ещё одна папка в migratedModules().
+ */
+function migratedUiModules() {
+  return fs.readdirSync(path.join(ROOT, 'ui'))
+    .filter((f) => f.endsWith('.ts') && !f.endsWith('.d.ts'))
+    .map((f) => `ui/${f.slice(0, -3)}`);
+}
+
+const UI_MODULES = migratedUiModules();
+
 const MODULES = migratedModules();
 
 /** Рукописные объявления рядом с JS-файлами: они В git и собранными не являются. */
@@ -61,6 +74,10 @@ const HANDWRITTEN_DECLARATIONS = [
   'messages/ru.d.mts',
   // Описания чужих пакетов без собственных типов (draco3dgltf, gltf-validator).
   'types/externals.d.mts',
+  // Браузерный слой: глобальные имена (window.I18n, window.OptiViewer) и формы ответов
+  // сервера. Оба рукописные — генерировать их не из чего.
+  'ui/globals.d.ts',
+  'ui/dto.d.ts',
 ];
 
 describe('слой TypeScript', () => {
@@ -146,6 +163,43 @@ describe('слой TypeScript', () => {
     for (const d of HANDWRITTEN_DECLARATIONS) {
       expect(tracked.has(d), `${d} не в git — сборка сломается на чистом клоне`).toBe(true);
     }
+  });
+
+  // Браузерный слой живёт по тем же правилам, но в своём проекте сборки: источник в git,
+  // собранное — нет, сборка привязана к тем же командам. Отдельный тест, потому что и
+  // расширения другие, и tsconfig другой.
+  it('браузерный слой собирается своим проектом и по тем же правилам', () => {
+    expect(UI_MODULES.length, 'в ui нет ни одного .ts').toBeGreaterThan(0);
+
+    const tracked = new Set(
+      execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' }).split('\n'),
+    );
+    const ignore = read('.gitignore');
+    for (const m of UI_MODULES) {
+      expect(tracked.has(`${m}.ts`), `${m}.ts не в git — источник потеряется`).toBe(true);
+      expect(tracked.has(`${m}.js`), `${m}.js в git — собранное учитывать не надо`).toBe(false);
+      expect(ignore.includes(`${m}.js`), `${m}.js не закрыт в .gitignore`).toBe(true);
+      expect(fs.existsSync(path.join(ROOT, `${m}.js`)), `нет ${m}.js — не выполнен npm run build`).toBe(true);
+    }
+
+    // Свой tsconfig: другая среда (DOM вместо Node) и другой вид модуля.
+    const rawUi = read('tsconfig.ui.json').replace(/^\s*\/\/[^\n]*$/gm, '');
+    const ui = JSON.parse(rawUi);
+    expect(ui.compilerOptions.strict, 'strict выключен в браузерном проекте').toBe(true);
+    expect(ui.compilerOptions.noEmitOnError, 'noEmitOnError выключен в браузерном проекте').toBe(true);
+    expect(ui.compilerOptions.lib.join(','), 'без DOM браузерный слой не соберётся').toMatch(/dom/i);
+    // Node-типы сюда не подключаются: это браузер, и `process` тут взяться неоткуда.
+    expect(ui.compilerOptions.types, 'в браузерный проект подключены типы Node').toEqual([]);
+
+    // В установщик едет собранное. Тут исходник — `.ts`, и своё исключение ему нужно
+    // отдельное: маска `!ui/**/*.mts` его не поймала бы, а `ui/**/*` тащит всю папку.
+    const files = JSON.parse(read('package.json')).build.files;
+    expect(files, 'исходники интерфейса едут в установщик').toContain('!ui/**/*.ts');
+
+    // Обе сборки идут одной командой — иначе половину дерева забудут собрать.
+    const pkg = JSON.parse(read('package.json'));
+    expect(pkg.scripts.build, 'npm run build не собирает браузерный слой').toMatch(/tsconfig\.ui\.json/);
+    expect(pkg.scripts.typecheck, 'npm run typecheck не проверяет браузерный слой').toMatch(/tsconfig\.ui\.json/);
   });
 
   it('в установщик едет собранное, а не исходники', () => {

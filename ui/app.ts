@@ -5,28 +5,35 @@
 (() => {
   'use strict';
 
-  const $ = (id) => document.getElementById(id);
+  // `!` тут не бравада: каждый из этих идентификаторов есть в ui/index.html, и если его
+  // не станет, приложение сломается на первой же строке, а не в середине сценария. Одна
+  // пометка на весь файл вместо трёхсот проверок, которых в прежнем коде тоже не было.
+  // Места, где элемента может НЕ быть по замыслу, спрашивают document напрямую.
+  const $ = (id: string) => document.getElementById(id)!;
   // Короткий доступ к каталогу строк (ui/i18n.js). Тексты интерфейса берутся ТОЛЬКО
   // отсюда — иначе смена языка оставляет островки английского.
-  const t = (key, params) => window.I18n.t(key, params);
+  const t = (key: string, params?: UiParams) => window.I18n.t(key, params);
   // Подпись, которую ставит код, а не разметка. Отличается от `el.textContent = t(...)`
   // тем, что элемент запоминает ключ: смена языка перерисует его сама и не откатит на
   // ключ из разметки. Всё, что меняется по ходу работы (кнопка сборки, строка статуса,
   // счётчики на кнопках окон), обязано ставиться через это.
-  const setText = (el, key, params) => window.I18n.setText(el, key, params);
+  const setText = (el: Element | null, key: string, params?: UiParams) => window.I18n.setText(el, key, params);
   // Язык отчёта запрашивается у сервера явно: тексты итога, планов и описаний опций
   // живут в assistant.mjs и profiles/*.json, клиент их не хранит.
   const langParam = () => `lang=${encodeURIComponent(window.I18n.lang)}`;
 
   const dropzone = $('dropzone');
-  const fileInput = $('file-input');
+  // Точный тип элемента ставится ЗДЕСЬ, на объявлении, а не на каждом `.value` ниже:
+  // $ отдаёт общий HTMLElement, а какой это тег — знает разметка. Одно уточнение на
+  // элемент вместо десятков приведений по коду.
+  const fileInput = $('file-input') as HTMLInputElement;
   const chooseFileBtn = $('choose-file-btn');
   const chosenFileLabel = $('chosen-file');
   const modelList = $('model-list');
   const stageHint = $('stage-hint');
 
-  const btnMetadata = $('btn-metadata');
-  const btnValidation = $('btn-validation');
+  const btnMetadata = $('btn-metadata') as HTMLButtonElement;
+  const btnValidation = $('btn-validation') as HTMLButtonElement;
   const metadataWindow = $('metadata-window');
   const validationWindow = $('validation-window');
   const metadataBody = $('metadata-body');
@@ -55,17 +62,17 @@
   const linkToggleBtn = $('link-toggle-btn');
   const animControls = $('anim-controls');
   const animPlayBtn = $('anim-play-btn');
-  const animClipSel = $('anim-clip');
-  const animSeek = $('anim-seek');
+  const animClipSel = $('anim-clip') as HTMLSelectElement;
+  const animSeek = $('anim-seek') as HTMLInputElement;
   const animTimeEl = $('anim-time');
-  const exposureSlider = $('exposure-slider');
+  const exposureSlider = $('exposure-slider') as HTMLInputElement;
   const exposureValue = $('exposure-value');
 
-  const platformSelect = $('platform-select');
+  const platformSelect = $('platform-select') as HTMLSelectElement;
   const platformInfo = $('platform-info');
 
   const engineSection = $('engine-section');
-  const engineSelect = $('engine-select');
+  const engineSelect = $('engine-select') as HTMLSelectElement;
   const engineInfo = $('engine-info');
 
   const extensionsPanel = $('extensions-panel');
@@ -97,10 +104,10 @@
   const validationSection = $('validation-section');
   const validationList = $('validation-list');
 
-  const runBtn = $('run-btn');
+  const runBtn = $('run-btn') as HTMLButtonElement;
   const downloadBtn = $('download-btn');       // открывает окно экспорта
   const exportWindow = $('export-window');
-  const exportName = $('export-name');
+  const exportName = $('export-name') as HTMLInputElement;
   const exportSave = $('export-save');
   const irreversibleWarning = $('irreversible-warning');
   const integrityWarning = $('integrity-warning');
@@ -135,7 +142,7 @@
     for (const id of ['preview-original', 'preview-optimized']) {
       const pane = document.getElementById(id);
       if (!pane) continue;
-      const node = tpl.content.firstElementChild.cloneNode(true);
+      const node = (tpl as HTMLTemplateElement).content.firstElementChild!.cloneNode(true) as HTMLElement;
       pane.appendChild(node);
       busyByPane.set(id, node);
     }
@@ -143,7 +150,7 @@
 
   // messageKey === null снимает индикатор. Ключ, а не готовая строка: подпись должна
   // перевестись, если язык переключат прямо во время долгой сборки.
-  function setBusy(paneId, messageKey) {
+  function setBusy(paneId: string, messageKey: string | null) {
     const node = busyByPane.get(paneId);
     if (!node) return;
     if (messageKey) node.dataset.i18nKey = messageKey;
@@ -173,7 +180,7 @@
   // Обновление раз в 500 мс, а не каждый кадр: цифра, меняющаяся 60 раз в секунду,
   // нечитаема, а запись в DOM в цикле отрисовки — лишняя работа в самом горячем месте.
   const PERF_TICK_MS = 500;
-  let perfTimer = null;
+  let perfTimer: ReturnType<typeof setInterval> | null = null;
 
   function initPerfMeter() {
     if (!perfBefore || !perfAfter || perfTimer != null) return;
@@ -191,7 +198,7 @@
       return;
     }
     // fps общий на оба вьюпорта, поэтому показывается один раз — слева.
-    setPerfLine(perfBefore, perf.leftMs, `${Math.round(perf.fps)} ${t('perf.fps')}`);
+    setPerfLine(perfBefore, perf.leftMs, `${Math.round(perf.fps!)} ${t('perf.fps')}`);
     setPerfLine(perfAfter, perf.rightMs, deltaText(perf.leftMs, perf.rightMs));
   }
 
@@ -207,20 +214,20 @@
   // 2. Пять процентов. Даже выше порога мелкая разница — дрожание, а не результат.
   const PERF_RATIO_FLOOR_MS = 1;
 
-  function deltaText(leftMs, rightMs) {
-    if (!(leftMs > 0) || !(rightMs > 0)) return '';
-    if (leftMs < PERF_RATIO_FLOOR_MS && rightMs < PERF_RATIO_FLOOR_MS) return '';
-    const ratio = leftMs / rightMs;
+  function deltaText(leftMs: number | undefined, rightMs: number | undefined) {
+    if (!(leftMs! > 0) || !(rightMs! > 0)) return '';
+    if (leftMs! < PERF_RATIO_FLOOR_MS && rightMs! < PERF_RATIO_FLOOR_MS) return '';
+    const ratio = leftMs! / rightMs!;
     if (ratio > 1.05) return `×${ratio.toFixed(1)} ${t('perf.faster')}`;
     if (ratio < 0.95) return `×${(1 / ratio).toFixed(1)} ${t('perf.slower')}`;
     return '';
   }
 
-  function setPerfLine(host, ms, note) {
+  function setPerfLine(host: HTMLElement, ms: number | undefined, note?: string | null) {
     host.innerHTML = '';
     // Один знак после запятой, а не два: часы браузера огрублены до 0.1 мс,
     // и «0.30» рисовало бы точность, которой у замера нет.
-    const row = hudLine(t('perf.draw'), `${ms.toFixed(1)} ${t('perf.ms')}`, null);
+    const row = hudLine(t('perf.draw'), `${ms!.toFixed(1)} ${t('perf.ms')}`, null);
     row.title = t('perf.title');
     if (note) {
       const extra = document.createElement('span');
@@ -231,13 +238,13 @@
     host.appendChild(row);
   }
 
-  let selectedFile = null;
+  let selectedFile: File | null = null;
   // Идентификатор загруженного исходника на сервере: пока он есть, повторная
   // оптимизация той же модели идёт без перезаливки файла (меняем только флажки).
-  let currentSourceId = null;
+  let currentSourceId: string | null = null;
   // Метрики исходной модели, посчитанные вьюером на клиенте (для левого HUD).
   // Хранятся, чтобы при возврате к модели не перегружать её ради одних цифр.
-  let originalStats = null;
+  let originalStats: Stats | null = null;
   // Анти-кэш для перезаписываемого результата (вьюпорт + скачивание) и одновременно
   // токен, по которому inspectResult() отличает свежий ответ от устаревшего — бампается
   // при каждой успешной сборке (bust()) и везде, где resultInspect сбрасывается вручную
@@ -246,30 +253,30 @@
   let runToken = 0;
   // Подпись настроек (платформа + флажки) последней УСПЕШНОЙ сборки. Пока настройки не
   // менялись, «Rebuild with New Settings» неактивна — пересборка дала бы тот же результат.
-  let lastBuildSignature = null;
+  let lastBuildSignature: string | null = null;
   // Что найдено в исходнике (draco/meshopt/ktx2) — для авто-флажков [Source].
-  let lastDetection = null;
+  let lastDetection: Detection | null = null;
   // Последний отчёт держим целиком: смена языка перерисовывает панель из этих же данных,
   // а не просит сервер собрать модель заново.
-  let lastResult = null;
-  let lastExplain = null;
+  let lastResult: RunResultDto | null = null;
+  let lastExplain: ExplainDto | null = null;
   // Идёт ли сборка прямо сейчас. Нужна отдельная переменная, а не состояние кнопки:
   // кнопку включает обратно updateRunButtonState() при любом изменении настроек.
   let buildInFlight = false;
   // Настройки, с которыми запущена текущая сборка (флажки могут поменять по ходу).
-  let startedSignature = null;
+  let startedSignature: string | null = null;
   // Результат /api/inspect (metadata + validation) для ЛЕВОЙ колонки окон — исходная модель.
-  let modelInspect = null;
+  let modelInspect: InspectDto | null = null;
   // То же самое для ПРАВОЙ колонки — собранная модель (/api/inspect-result после сборки).
-  let resultInspect = null;
+  let resultInspect: InspectDto | null = null;
   // Беда С САМОЙ МОДЕЛЬЮ, а не с нашей работой: файл не читается или в нём ошибки
   // по стандарту glTF. Отдельное состояние, потому что показывать её надо там, где
   // человек выбирает модель, а не там, где он читает отчёт о сборке.
   // null | { kind: 'unreadable' | 'validation', count?, detail? }
-  let modelIssue = null;
+  let modelIssue: ModelIssue | null = null;
   // URL готового результата (GLB) и предлагаемое имя без расширения — для окна экспорта.
   // Формат (glb/json) и расширение выбираются в окне; экспортёры добавляются там же.
-  let resultDownloadUrl = null;
+  let resultDownloadUrl: string | null = null;
   let resultExportBase = 'model';
   // Режим KTX2: 'uastc' (точнее) либо 'mixed' (ETC1S для цвета — легче).
   //
@@ -281,24 +288,24 @@
   const KTX2_MODE_FALLBACK = 'uastc';
   let ktx2Mode = KTX2_MODE_FALLBACK;
   // Что советует текущая площадка (приходит с /api/extensions).
-  let platformDefaults = {};
+  let platformDefaults: Record<string, any> = {};
   const defaultKtx2Mode = () => platformDefaults.texMode || KTX2_MODE_FALLBACK;
   // Геометрия — взаимоисключающий выбор: 'none' | 'meshopt' | 'draco'.
   let geometryChoice = 'none';
-  let platforms = [];
+  let platforms: PlatformDto[] = [];
   // Описание прочерка приходит отдельным полем /api/platforms: это не площадка, а
   // объяснение выбора БЕЗ неё (числа Khronos — советы, красного тут не бывает).
-  let noPlatform = null;
-  let engines = [];
-  let extensions = [];
+  let noPlatform: PlatformDto | null = null;
+  let engines: EngineDto[] = [];
+  let extensions: ExtensionDto[] = [];
   // Взаимоисключающие группы — приходят с /api/extensions, объявлены в аддоне.
   // Интерфейс их только применяет: [{ id, members: [...] }].
-  let exclusiveGroups = [];
+  let exclusiveGroups: Array<{ id: string; members: string[] }> = [];
   // Последний ВЫБОР пользователя по платформам: platformId → { geometryChoice, ktx2Mode,
   // checked:[...] }. Заполняется только явным действием пользователя (не дефолтами). Держит
   // настройки при загрузке новой модели и возврате на платформу. In-memory → перезагрузка
   // страницы сбрасывает всё к рекомендуемым дефолтам (так и задумано).
-  const savedSelections = {};
+  const savedSelections: Record<string, UiSelection> = {};
 
   // -----------------------------------------------------------------------
   // Несколько моделей в списке, ОДНА в сцене.
@@ -318,18 +325,18 @@
   // самый неприятный сорт бага — состояние одной модели протекает в другую, причём
   // через раз и только по одному полю.
   const PER_MODEL_STATE = [
-    { key: 'selectedFile', get: () => selectedFile, set: (v) => { selectedFile = v; } },
-    { key: 'currentSourceId', get: () => currentSourceId, set: (v) => { currentSourceId = v; } },
-    { key: 'originalStats', get: () => originalStats, set: (v) => { originalStats = v; } },
-    { key: 'lastBuildSignature', get: () => lastBuildSignature, set: (v) => { lastBuildSignature = v; } },
-    { key: 'lastDetection', get: () => lastDetection, set: (v) => { lastDetection = v; } },
-    { key: 'lastResult', get: () => lastResult, set: (v) => { lastResult = v; } },
-    { key: 'lastExplain', get: () => lastExplain, set: (v) => { lastExplain = v; } },
-    { key: 'modelInspect', get: () => modelInspect, set: (v) => { modelInspect = v; } },
-    { key: 'modelIssue', get: () => modelIssue, set: (v) => { modelIssue = v; } },
-    { key: 'resultInspect', get: () => resultInspect, set: (v) => { resultInspect = v; } },
-    { key: 'resultDownloadUrl', get: () => resultDownloadUrl, set: (v) => { resultDownloadUrl = v; } },
-    { key: 'resultExportBase', get: () => resultExportBase, set: (v) => { resultExportBase = v; } },
+    { key: 'selectedFile', get: () => selectedFile, set: (v: any) => { selectedFile = v; } },
+    { key: 'currentSourceId', get: () => currentSourceId, set: (v: any) => { currentSourceId = v; } },
+    { key: 'originalStats', get: () => originalStats, set: (v: any) => { originalStats = v; } },
+    { key: 'lastBuildSignature', get: () => lastBuildSignature, set: (v: any) => { lastBuildSignature = v; } },
+    { key: 'lastDetection', get: () => lastDetection, set: (v: any) => { lastDetection = v; } },
+    { key: 'lastResult', get: () => lastResult, set: (v: any) => { lastResult = v; } },
+    { key: 'lastExplain', get: () => lastExplain, set: (v: any) => { lastExplain = v; } },
+    { key: 'modelInspect', get: () => modelInspect, set: (v: any) => { modelInspect = v; } },
+    { key: 'modelIssue', get: () => modelIssue, set: (v: any) => { modelIssue = v; } },
+    { key: 'resultInspect', get: () => resultInspect, set: (v: any) => { resultInspect = v; } },
+    { key: 'resultDownloadUrl', get: () => resultDownloadUrl, set: (v: any) => { resultDownloadUrl = v; } },
+    { key: 'resultExportBase', get: () => resultExportBase, set: (v: any) => { resultExportBase = v; } },
   ];
 
   // Приоритет флажков оптимизации: 'advise' — каждая модель сбрасывает их под себя;
@@ -342,8 +349,8 @@
     if (stored === 'advise' || stored === 'manual') adviceMode = stored;
   } catch (e) { /* приватный режим браузера — остаёмся на значении по умолчанию */ }
 
-  const models = [];      // [{ id, file, state }] — порядок = порядок загрузки
-  let activeModelId = null;
+  const models: ModelEntry[] = [];      // [{ id, file, state }] — порядок = порядок загрузки
+  let activeModelId: string | null = null;
   let modelSeq = 0;
 
   const activeModel = () => models.find((m) => m.id === activeModelId) || null;
@@ -354,7 +361,7 @@
     for (const f of PER_MODEL_STATE) rec.state[f.key] = f.get();
   }
 
-  function applyModelState(state) {
+  function applyModelState(state: Record<string, any>) {
     for (const f of PER_MODEL_STATE) f.set(state ? state[f.key] ?? null : null);
   }
 
@@ -413,13 +420,13 @@
 
   // Единицы и разделитель разрядов — часть языка: «11.4 MB» и «500,000» посреди
   // русского интерфейса читаются как недоделка.
-  function fmtBytes(bytes) {
+  function fmtBytes(bytes: number) {
     if (bytes == null) return '—';
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} ${t('unit.kb')}`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} ${t('unit.mb')}`;
   }
 
-  function fmtInt(n) {
+  function fmtInt(n: number) {
     if (n == null) return '—';
     return Number(n).toLocaleString(t('unit.locale'));
   }
@@ -430,7 +437,7 @@
   // изменения: 6 380 → 6 376 байт это −0.06 %, а показанный ноль рядом с ЗЕЛЁНОЙ
   // строкой читается как «инструмент ничего не сделал». Ноль — только при точном
   // совпадении чисел.
-  function pctText(before, after) {
+  function pctText(before: number, after: number) {
     if (!before) return '';
     if (after === before) return '0%';
     const abs = Math.abs(((after - before) / before) * 100);
@@ -441,7 +448,7 @@
 
   // Категория находки → ключ каталога. Именно ключ, а не готовая строка: таблица
   // строится один раз при загрузке, а язык может смениться позже.
-  const CATEGORY_KEYS = {
+  const CATEGORY_KEYS: Record<string, string> = {
     geometry: 'cat.geometry',
     textures: 'cat.textures',
     materials: 'cat.materials',
@@ -451,7 +458,7 @@
     performance: 'cat.performance',
   };
 
-  const VALIDATION_ICON = { pass: '✓', info: 'i', fail: '✕' };
+  const VALIDATION_ICON: Record<string, string> = { pass: '✓', info: 'i', fail: '✕' };
 
   // ---------------------------------------------------------------
   // Инициализация: список платформ
@@ -502,7 +509,7 @@
       // не вызывался вовсе. Панель опций так и оставалась с классом hidden из разметки:
       // для пользователя вся правая колонка настроек просто исчезала, без единого слова
       // о причине. Отказ должен быть виден там, где пропало содержимое.
-      showExtensionsUnavailable('opts.noServer', { error: String((e && e.message) || e) });
+      showExtensionsUnavailable('opts.noServer', { error: String(((e as Error) && (e as Error).message) || e) });
     }
   }
 
@@ -510,7 +517,7 @@
   // отказ по дороге поэтому выглядит одинаково — «панели нет». Показываем панель с
   // причиной вместо пустого места: пропавший блок интерфейса пользователь не отличит
   // от поломки, а строка с причиной сразу говорит, где искать.
-  function showExtensionsUnavailable(messageKey, params) {
+  function showExtensionsUnavailable(messageKey: string, params?: UiParams) {
     extensions = [];
     extensionsList.innerHTML = '';
     infoTip.hide();
@@ -580,11 +587,11 @@
   // Описание поля живёт под книжечкой 📖 — той же, что у опций (infoButton/infoTip).
   // Абзацем под полем два описания превращали правую панель в свиток, который никто не
   // читает. Значка нет, когда описывать нечего: пустая книжечка обманывает ожидание.
-  function renderFieldInfo(host, item) {
+  function renderFieldInfo(host: HTMLElement, item: Record<string, any> | null) {
     infoTip.hide();
     host.textContent = '';
     if (!item || !item.description) return;
-    host.appendChild(infoButton(item));
+    host.appendChild(infoButton(item as ExtensionDto));
   }
 
   function updatePlatformDescription() {
@@ -679,8 +686,8 @@
   function syncPlatformsToEngine() {
     if (!engines.length || !platforms.length) return;
     const engineId = engineSelect.value;
-    const titleOfEngine = (id) => (engines.find((x) => x.id === id) || {}).title || id;
-    const fits = (p) => p.engine === engineId;
+    const titleOfEngine = (id: string) => (engines.find((x) => x.id === id) || ({} as EngineDto)).title || id;
+    const fits = (p: PlatformDto) => p.engine === engineId;
     const chosen = platformSelect.value;
 
     platformSelect.innerHTML = '';
@@ -750,7 +757,7 @@
   // Meshopt/Draco, обе выключены = не сжимать). Meshopt/Draco/KTX2/Instance требуют
   // подключить декодер на целевом сайте (пометка ⚠); остальное (Join/Safe/Remove colors)
   // работает на голом three.js.
-  const OPT_GROUPS = [
+  const OPT_GROUPS: Array<{ titleKey: string; kind: string; ids?: string[] }> = [
     { titleKey: 'group.cleanup', kind: 'checks', ids: ['safe', 'strip-colors'] },
     { titleKey: 'group.structural', kind: 'checks', ids: ['join', 'instance'] },
     { titleKey: 'group.geometry', kind: 'geometry' },
@@ -765,8 +772,8 @@
   // Пустое множество, пока опции не пришли: значков просто не будет, а не будут
   // проставлены наугад.
   let needsDecoder = new Set();
-  const rememberDecoders = (list) => {
-    needsDecoder = new Set((list || []).filter((e) => e && e.needsDecoder).map((e) => e.id));
+  const rememberDecoders = (list: ExtensionDto[] | null | undefined) => {
+    needsDecoder = new Set((list || []).filter((e: ExtensionDto) => e && e.needsDecoder).map((e: ExtensionDto) => e.id));
   };
 
   // Взаимоисключающие флажки: включили один — второй гаснет.
@@ -785,12 +792,12 @@
   //
   // Гашение остаётся работой интерфейса: движок обязан честно выполнить то, что
   // попросили, и отменять чужой выбор молча — не его дело.
-  function clearExclusivePartners(id) {
+  function clearExclusivePartners(id: string) {
     for (const { members } of exclusiveGroups) {
       if (!members.includes(id)) continue;
       for (const other of members) {
         if (other === id) continue;
-        const box = document.getElementById(`ext-${other}`);
+        const box = document.getElementById(`ext-${other}`) as HTMLInputElement | null;
         if (box && box.checked) {
           box.checked = false;
           box.dispatchEvent(new Event('input', { bubbles: true })); // раскрывашки режима слушают его
@@ -802,7 +809,7 @@
   // 📖 остаётся отдельным значком «пояснение, как это работает» — их нельзя путать.
   // Текст — что именно установить, отдельно на каждую технологию (не один и тот же текст
   // под всеми значками): разработчик должен понять, ЧТО конкретно подключить.
-  const DECODER_KEYS = {
+  const DECODER_KEYS: Record<string, string> = {
     meshopt: 'decoder.meshopt',
     draco: 'decoder.draco',
     ktx2: 'decoder.ktx2',
@@ -815,7 +822,7 @@
   // `keep` — снимок выбора, который надо вернуть после пересборки панели (см.
   // relabelExtensions). Без него панель заново решает, что включить, а это уже не
   // перерисовка, а изменение настроек.
-  async function loadExtensions(platformId, keep) {
+  async function loadExtensions(platformId: string, keep?: UiSelection) {
     extensions = [];
     extensionsList.innerHTML = '';
     // Подсказка живёт в <body> и переживает пересборку панели — но кнопка, к которой
@@ -850,7 +857,7 @@
         defaults: (data && data.defaults) || {},
       };
     } catch (e) {
-      failure = String((e && e.message) || e);
+      failure = String(((e as Error) && (e as Error).message) || e);
     }
 
     // Пользователь мог переключить платформу ещё раз, пока этот fetch летел — устаревший
@@ -899,7 +906,7 @@
     updateRunButtonState();
   }
 
-  function optSection(title, groupKind) {
+  function optSection(title: string, groupKind: string) {
     const sec = document.createElement('div');
     sec.className = 'opt-section';
     // Метка нужна, чтобы строку «Сейчас в модели» можно было вставить ПОЗЖЕ:
@@ -923,7 +930,7 @@
   // Отдельный пункт «не сжимать» этого не решает: при входном Draco непонятно,
   // означает он «оставить как было» или «убрать». Поэтому не пункт, а факт —
   // сказанный вовремя. Отсутствие галочки по-прежнему значит «не добавлять».
-  const GROUP_INPUT_MARKERS = {
+  const GROUP_INPUT_MARKERS: Record<string, Record<string, string>> = {
     geometry: {
       meshopt: 'EXT_meshopt_compression',
       draco: 'KHR_draco_mesh_compression',
@@ -936,11 +943,11 @@
   };
 
   // Выбрана ли хоть одна опция группы — от этого зависит вторая половина строки.
-  function groupHasChoice(groupKind) {
+  function groupHasChoice(groupKind: string) {
     if (groupKind === 'geometry') return geometryChoice !== 'none';
     const markers = GROUP_INPUT_MARKERS[groupKind] || {};
     return Object.keys(markers).some((id) => {
-      const box = document.getElementById(`ext-${id}`);
+      const box = document.getElementById(`ext-${id}`) as HTMLInputElement | null;
       return box && box.checked;
     });
   }
@@ -952,7 +959,7 @@
       const old = sec.querySelector('.opt-input-note');
       if (old) old.remove();
 
-      const groupKind = sec.dataset.group;
+      const groupKind = (sec as HTMLElement).dataset.group!;
       const markers = GROUP_INPUT_MARKERS[groupKind];
       if (!markers) continue;
       // Два источника, потому что приходят они в разное время и знают разное:
@@ -985,7 +992,7 @@
   // площадке, «!» — проблема (см. .model-alert и .ext-cost-badge). Различает их сам знак
   // и цвет; размер, начертание и посадка общие. Книжечка 📖 в семью не входит намеренно:
   // это документация, а не предупреждение, и путать их нельзя.
-  function decoderWarning(id) {
+  function decoderWarning(id?: string) {
     const w = document.createElement('span');
     w.className = 'ext-decoder-warn icon-badge';
     w.textContent = '?';
@@ -1004,8 +1011,8 @@
     const SHOW_DELAY_MS = 220; // заметно быстрее нативного title (~800 мс)
     const GAP = 6;
     const EDGE = 8;
-    let el = null;
-    let owner = null;
+    let el: HTMLElement | null = null;
+    let owner: HTMLElement | null = null;
     let timer = 0;
 
     function node() {
@@ -1017,7 +1024,7 @@
       return el;
     }
 
-    function fill(tip, ext) {
+    function fill(tip: HTMLElement, ext: ExtensionDto) {
       tip.textContent = '';
       if (ext.description) {
         const p = document.createElement('p');
@@ -1035,7 +1042,7 @@
 
     // Ширина — по панели, положение — от кнопки, но с зажимом в её границы: подсказка
     // не должна уезжать ни влево за панель, ни вниз за экран.
-    function place(tip, btn) {
+    function place(tip: HTMLElement, btn: HTMLElement) {
       const panel = btn.closest('.inspector') || document.documentElement;
       const p = panel.getBoundingClientRect();
       const b = btn.getBoundingClientRect();
@@ -1049,7 +1056,7 @@
       tip.style.top = `${Math.round(fitsBelow ? below : Math.max(EDGE, b.top - t.height - GAP))}px`;
     }
 
-    function show(btn, ext) {
+    function show(btn: HTMLElement, ext: ExtensionDto) {
       const tip = node();
       if (!fill(tip, ext)) return; // нечего показывать — не мигаем пустой карточкой
       owner = btn;
@@ -1057,19 +1064,19 @@
     }
 
     return {
-      isOpenFor: (btn) => owner === btn,
+      isOpenFor: (btn: HTMLElement) => owner === btn,
       hide() {
         clearTimeout(timer);
         timer = 0;
         owner = null;
         if (el) el.classList.add('hidden');
       },
-      showNow(btn, ext) {
+      showNow(btn: HTMLElement, ext: ExtensionDto) {
         clearTimeout(timer);
         timer = 0;
         show(btn, ext);
       },
-      showDelayed(btn, ext) {
+      showDelayed(btn: HTMLElement, ext: ExtensionDto) {
         clearTimeout(timer);
         timer = setTimeout(() => show(btn, ext), SHOW_DELAY_MS);
       },
@@ -1082,13 +1089,13 @@
   window.addEventListener('resize', () => infoTip.hide());
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') infoTip.hide(); });
   document.addEventListener('pointerdown', (e) => {
-    if (!e.target.closest('.ext-info-btn')) infoTip.hide();
+    if (!(e.target as Element).closest('.ext-info-btn')) infoTip.hide();
   });
 
   // 📖 — документация «как это работает». Отдельный смысл от ⚠: это пояснение,
   // а не требование к разработчику. Нативный title не ставим — он дублировал бы
   // кастомную подсказку вторым всплывающим окном поверх неё.
-  function infoButton(ext) {
+  function infoButton(ext: ExtensionDto) {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'ext-info-btn';
@@ -1115,14 +1122,14 @@
   // «чем уменьшить геометрию», а не добавка к первым двум: Draco квантует сам, Meshopt
   // тянет то же расширение внутри себя. Единственное отличие — ему не нужен декодер,
   // поэтому движок не помечает его needsDecoder и значок ему не ставится.
-  function renderGeometryGroup(byId) {
+  function renderGeometryGroup(byId: Record<string, ExtensionDto>) {
     if (!byId.meshopt && !byId.draco && !byId.quantize) return null;
     const sec = optSection(t('group.geometry'), 'geometry');
     const opts = [
       byId.meshopt && { v: 'meshopt', ext: byId.meshopt, label: byId.meshopt.title },
       byId.draco && { v: 'draco', ext: byId.draco, label: byId.draco.title },
       byId.quantize && { v: 'quantize', ext: byId.quantize, label: byId.quantize.title },
-    ].filter(Boolean);
+    ].filter(Boolean) as Array<{ v: string; ext: ExtensionDto; label?: string }>;
     for (const o of opts) {
       const row = document.createElement('div');
       row.className = 'opt-radio-row';
@@ -1148,7 +1155,7 @@
       });
       const text = document.createElement('span');
       text.className = 'opt-radio-text';
-      text.textContent = o.label;
+      text.textContent = o.label!;
       label.appendChild(checkbox);
       label.appendChild(text);
       head.appendChild(label);
@@ -1162,17 +1169,17 @@
     return sec;
   }
 
-  function renderCheckGroup(group, byId) {
-    const items = group.ids.map((id) => byId[id]).filter(Boolean);
+  function renderCheckGroup(group: { ids?: string[]; [key: string]: any }, byId: Record<string, ExtensionDto>) {
+    const items = group.ids!.map((id: string) => byId[id]).filter(Boolean) as ExtensionDto[];
     if (!items.length) return null;
     // Текстурная группа — такой же случай, как геометрия: входной формат снимается,
     // и человек должен узнать об этом до сборки, а не из отчёта.
-    const sec = optSection(t(group.titleKey), group.ids.includes('ktx2') ? 'textures' : null);
+    const sec = optSection(t(group.titleKey), group.ids!.includes('ktx2') ? 'textures' : null!);
     for (const ext of items) sec.appendChild(buildExtensionRow(ext));
     return sec;
   }
 
-  function buildExtensionRow(ext) {
+  function buildExtensionRow(ext: ExtensionDto) {
     const row = document.createElement('div');
     row.className = 'ext-row';
 
@@ -1194,7 +1201,7 @@
       // KTX2 могли погасить не его собственным кликом, а выбором WebP — селектор
       // режима должен уехать вместе с ним. Свой обработчик у флажка KTX2 (ниже)
       // на чужой клик не срабатывает.
-      toggleKtx2Mode(!!(document.getElementById('ext-ktx2') || {}).checked);
+      toggleKtx2Mode(!!((document.getElementById('ext-ktx2') || {}) as HTMLInputElement).checked);
       onOptionChanged();
     });
 
@@ -1230,7 +1237,7 @@
         { v: 'uastc', labelKey: 'ktx2.mode.uastc', short: 'UASTC' },
         { v: 'mixed', labelKey: 'ktx2.mode.etc1s', short: 'ETC1S' },
       ];
-      modeCurrent.textContent = (modeOpts.find((o) => o.v === ktx2Mode) || modeOpts[0]).short;
+      modeCurrent.textContent = (modeOpts.find((o) => o.v === ktx2Mode) || modeOpts[0]!).short;
       for (const o of modeOpts) {
         const optLabel = document.createElement('label');
         optLabel.className = 'ktx2-mode-opt';
@@ -1241,7 +1248,7 @@
         if (o.v === ktx2Mode) radio.checked = true;
         radio.addEventListener('change', () => {
           ktx2Mode = o.v;
-          summary.querySelector('.ktx2-mode-current').textContent = o.short;
+          summary.querySelector('.ktx2-mode-current')!.textContent = o.short;
           updateRunButtonState();
           rememberSelection(); // режим KTX2 — тоже часть выбора платформы
           logMessage('debug', t('log.ktx2mode', { mode: o.short }));
@@ -1259,7 +1266,7 @@
   }
 
   // Показать/скрыть селектор режима KTX2 (при авто-включении из detection).
-  function toggleKtx2Mode(show) {
+  function toggleKtx2Mode(show: boolean) {
     const cb = document.getElementById('ext-ktx2');
     const row = cb && cb.closest('.ext-row');
     const mode = row && row.querySelector('.ktx2-mode');
@@ -1271,20 +1278,20 @@
     if (geometryChoice === 'meshopt') feats.push('meshopt');
     else if (geometryChoice === 'draco') feats.push('draco');
     else if (geometryChoice === 'quantize') feats.push('quantize');
-    for (const cb of extensionsList.querySelectorAll('.ext-checkbox:checked')) feats.push(cb.value);
+    for (const cb of extensionsList.querySelectorAll<HTMLInputElement>('.ext-checkbox:checked')) feats.push(cb.value);
     return feats;
   }
 
-  function setCheck(id, val) {
+  function setCheck(id: string, val: boolean) {
     const cb = document.getElementById(`ext-${id}`);
-    if (cb) cb.checked = val;
+    if (cb) (cb as HTMLInputElement).checked = val;
   }
 
   // ---------------------------------------------------------------
   // Drag & drop / выбор файла
   // ---------------------------------------------------------------
 
-  async function handleFile(file) {
+  async function handleFile(file: File) {
     if (!file) return;
     if (!/\.glb$/i.test(file.name)) {
       chosenFileLabel.textContent = t('dropzone.rejected');
@@ -1311,11 +1318,11 @@
         // Пока разбирался файл, человек мог бросить следующий: тогда эти данные уже
         // не про ту модель, что на экране, и записывать их в общие переменные нельзя.
         if (selectedFile !== file) return;
-        originalStats = (info && info.stats) || null;
+        originalStats = ((info as any) && (info as any).stats) || null;
         renderSourceStats(file.size);
         // Определяем, что уже сжато в исходнике → авто-включаем флажки с бейджем [Source].
-        lastDetection = (info && info.detected) || null;
-        const found = Object.keys(lastDetection || {}).filter((k) => lastDetection[k]);
+        lastDetection = ((info as any) && (info as any).detected) || null;
+        const found = Object.keys(lastDetection || {}).filter((k) => lastDetection![k]);
         if (found.length) logMessage('info', t('log.foundCompression', { list: found.join(', ') }));
         applyDetection();
       } finally {
@@ -1329,7 +1336,7 @@
     inspectModel(file);
   }
 
-  async function inspectModel(file) {
+  async function inspectModel(file: File) {
     modelInspect = null;
     setModelIssue(null);
     btnMetadata.disabled = true;
@@ -1364,10 +1371,10 @@
       if (data.sourceId) currentSourceId = data.sourceId; // сборка переиспользует исходник
       btnMetadata.disabled = false;
       btnValidation.disabled = false;
-      const n = (data.validation || []).filter((m) => !m.explainedBy).length;
+      const n = (data.validation || []).filter((m: any) => !m.explainedBy).length;
       // Ошибка по стандарту — это дефект САМОЙ модели, а не замечание к ней:
       // предупреждения и подсказки валидатора в счёт не идут.
-      const errors = (data.validation || []).filter((m) => !m.explainedBy && m.severity === 0).length;
+      const errors = (data.validation || []).filter((m: any) => !m.explainedBy && m.severity === 0).length;
       setModelIssue(errors ? { kind: 'validation', count: errors } : null);
       updateInspectButtons();
       logMessage('info', n
@@ -1376,8 +1383,8 @@
       logBlindSpots(data.validation);
     } catch (e) {
       // инспекция недоступна — кнопки выключены, сборка всё равно работает
-      setModelIssue({ kind: 'unreadable', detail: e.message });
-      logMessage('warn', t('log.inspectUnavailable', { error: e.message }));
+      setModelIssue({ kind: 'unreadable', detail: (e as Error).message });
+      logMessage('warn', t('log.inspectUnavailable', { error: (e as Error).message }));
     }
   }
 
@@ -1389,12 +1396,12 @@
   // человек про модель думает: у неё в списке и на кнопках её инспекции.
   // ---------------------------------------------------------------
 
-  function setModelIssue(issue) {
+  function setModelIssue(issue: ModelIssue | null) {
     modelIssue = issue || null;
     renderModelList();
   }
 
-  function issueTitle(issue) {
+  function issueTitle(issue: ModelIssue) {
     if (!issue) return '';
     if (issue.kind === 'unreadable') return t('issue.unreadable', { detail: issue.detail || '' });
     return t('issue.validation', { n: issue.count });
@@ -1411,7 +1418,7 @@
     if (!modelInspect) { setText(btnValidation, 'outliner.validation'); return; }
     // считаем только настоящие проблемы: сообщения, объяснённые слепотой валидатора
     // к расширениям, дефектами модели не являются (см. explainedBy в addons/gltf).
-    const real = (data) => (data.validation || []).filter((m) => !m.explainedBy).length;
+    const real = (data: InspectDto) => (data.validation || []).filter((m: any) => !m.explainedBy).length;
     const src = real(modelInspect);
     const dst = resultInspect ? real(resultInspect) : null;
     // Обе стороны чистые — не мусорим нулями в подписи.
@@ -1422,7 +1429,7 @@
 
   // Инспекция собранного файла для правой колонки окон. Тот же формат, что и у исходника,
   // поэтому окна рисуются одной и той же функцией на два столбца.
-  async function inspectResult(downloadUrl) {
+  async function inspectResult(downloadUrl: string) {
     resultInspect = null;
     updateInspectButtons();
     if (!downloadUrl) return;
@@ -1440,13 +1447,13 @@
       updateInspectButtons();
       if (!metadataWindow.classList.contains('hidden')) renderMetadataWindow();
       if (!validationWindow.classList.contains('hidden')) renderValidationWindow();
-      const n = (data.validation || []).filter((m) => !m.explainedBy).length;
+      const n = (data.validation || []).filter((m: any) => !m.explainedBy).length;
       logMessage('info', n
         ? t('log.resultInspected', { n })
         : t('log.resultInspected', { n: 0 }));
       logBlindSpots(data.validation);
     } catch (e) {
-      logMessage('warn', t('log.resultInspectError', { error: e.message }));
+      logMessage('warn', t('log.resultInspectError', { error: (e as Error).message }));
     }
   }
 
@@ -1454,7 +1461,7 @@
   // Если пользователь уже что-то выбирал на этой платформе — ВОССТАНАВЛИВАЕМ его выбор
   // (настройки не слетают при новой модели/возврате платформы). Иначе — рекомендуемые
   // дефолты + авто-флажки по источнику. Бейджи [Source] показываем всегда по текущей модели.
-  function applyDetection(keep) {
+  function applyDetection(keep?: UiSelection) {
     // Знак цены снимается тоже: он относится к ПРОШЛОЙ сборке. Оставить его на новой
     // модели значило бы обвинить галочку в том, чего на этой модели ещё не случилось.
     extensionsList.querySelectorAll('.ext-source-badge, .ext-advised-badge, .ext-cost-badge').forEach((b) => b.remove());
@@ -1479,7 +1486,7 @@
     if (lastResult) renderCostBadges(lastResult.skipped);
     syncGeometryRadio();
     syncKtx2ModeUI();
-    toggleKtx2Mode(!!(document.getElementById('ext-ktx2') && document.getElementById('ext-ktx2').checked));
+    toggleKtx2Mode(!!(document.getElementById('ext-ktx2') && (document.getElementById('ext-ktx2') as HTMLInputElement).checked));
     // Панель пересобрана заново (смена языка) — заморозку надо наложить снова: новые
     // элементы про идущую сборку ничего не знают и приходят доступными.
     freezeSettings(buildInFlight);
@@ -1516,12 +1523,12 @@
 
   // Восстановить последний выбор пользователя на этой платформе. Геометрия, которой на
   // платформе нет (нет radio), откатывается к None; флажки берём по существующим чекбоксам.
-  function restoreSelection(saved) {
-    geometryChoice = saved.geometryChoice || 'none';
+  function restoreSelection(saved: UiSelection | null | undefined) {
+    geometryChoice = saved!.geometryChoice || 'none';
     if (geometryChoice !== 'none' && !document.getElementById(`geom-${geometryChoice}`)) geometryChoice = 'none';
-    ktx2Mode = saved.ktx2Mode || defaultKtx2Mode();
+    ktx2Mode = saved!.ktx2Mode || defaultKtx2Mode();
     for (const cb of extensionsList.querySelectorAll('.ext-checkbox')) {
-      cb.checked = saved.checked.includes(cb.value);
+      (cb as HTMLInputElement).checked = saved!.checked.includes((cb as HTMLInputElement).value);
     }
   }
 
@@ -1532,7 +1539,7 @@
     return {
       geometryChoice,
       ktx2Mode,
-      checked: [...extensionsList.querySelectorAll('.ext-checkbox:checked')].map((cb) => cb.value),
+      checked: [...extensionsList.querySelectorAll<HTMLInputElement>('.ext-checkbox:checked')].map((cb) => cb.value),
     };
   }
 
@@ -1579,7 +1586,7 @@
   // Именно у галочки, а не только в отчёте: человек смотрит на «+1064 %» и ищет
   // виноватого среди семи флажков. Отчёт он прочтёт потом — если вообще прочтёт,
   // а решение принимает здесь и сейчас.
-  function renderCostBadges(skipped) {
+  function renderCostBadges(skipped: ReportEntryDto[] | null | undefined) {
     extensionsList.querySelectorAll('.ext-cost-badge').forEach((b) => b.remove());
     for (const s of skipped || []) {
       if (!s || s.kind !== 'cost' || !s.feature) continue;
@@ -1598,7 +1605,7 @@
     }
   }
 
-  function badgeAdvised(id, opp) {
+  function badgeAdvised(id: string, opp?: unknown) {
     const cb = document.getElementById(`ext-${id}`);
     const container = cb && cb.closest('.ext-row');
     if (!container || container.querySelector('.ext-advised-badge')) return;
@@ -1606,7 +1613,7 @@
     const badge = document.createElement('span');
     badge.className = 'ext-advised-badge';
     badge.textContent = t('ext.advised');
-    badge.title = t('ext.advised.shared', { meshes: opp.sharedMeshes, nodes: opp.sharedNodes });
+    badge.title = t('ext.advised.shared', { meshes: (opp as any).sharedMeshes, nodes: (opp as any).sharedNodes });
     anchor.appendChild(badge);
   }
 
@@ -1615,28 +1622,28 @@
   function syncGeometryRadio() {
     for (const row of extensionsList.querySelectorAll('.opt-radio-row[data-geom]')) {
       const cb = row.querySelector('input[type="checkbox"]');
-      if (cb) cb.checked = (row.dataset.geom === geometryChoice);
+      if (cb) (cb as HTMLInputElement).checked = ((row as HTMLElement).dataset.geom === geometryChoice);
     }
   }
 
   // Синхронизировать UI режима KTX2 (radio + подпись) с переменной ktx2Mode при восстановлении.
   function syncKtx2ModeUI() {
     const radio = document.querySelector(`input[name="ktx2mode"][value="${ktx2Mode}"]`);
-    if (radio) radio.checked = true;
+    if (radio) (radio as HTMLInputElement).checked = true;
     const cur = document.querySelector('.ktx2-mode-current');
     if (cur) cur.textContent = ktx2Mode === 'mixed' ? 'ETC1S' : 'UASTC';
   }
 
-  function badgeGeometry(v) {
-    addSourceBadge(document.querySelector(`.opt-radio-row[data-geom="${v}"]`), '.opt-radio-text');
+  function badgeGeometry(v: string) {
+    addSourceBadge(document.querySelector(`.opt-radio-row[data-geom="${v}"]`) as HTMLElement, '.opt-radio-text');
   }
 
-  function badgeCheck(id) {
+  function badgeCheck(id: string) {
     const cb = document.getElementById(`ext-${id}`);
-    addSourceBadge(cb && cb.closest('.ext-row'), '.ext-label');
+    addSourceBadge((cb && cb.closest('.ext-row'))!, '.ext-label');
   }
 
-  function addSourceBadge(container, anchorSel) {
+  function addSourceBadge(container: HTMLElement, anchorSel: string) {
     if (!container || container.querySelector('.ext-source-badge')) return;
     const anchor = container.querySelector(anchorSel) || container;
     const badge = document.createElement('span');
@@ -1661,7 +1668,7 @@
   // Сцена осталась запасным вариантом: она приходит раньше инспекции, и на большой
   // модели эти секунды заметны. Как только инспекция ответит — цифры заменяются
   // движковыми. Обратной замены не бывает: авторитетный источник не уступает запасному.
-  function renderSourceStats(fileSize) {
+  function renderSourceStats(fileSize: number) {
     statsBefore.innerHTML = '';
     const m = modelInspect && modelInspect.metrics;
     const rows = m
@@ -1684,7 +1691,7 @@
           ['TEX', fmtInt(originalStats.textures)],
         ]
         : [];
-    for (const [k, v] of rows) statsBefore.appendChild(hudLine(k, v, null));
+    for (const [k, v] of rows) statsBefore.appendChild(hudLine(k!, v!, null));
   }
 
   // Сбросить всё, что относится к предыдущему результату оптимизации (при загрузке
@@ -1784,17 +1791,17 @@
   // Добавление, выбор и удаление моделей
   // -----------------------------------------------------------------------
 
-  function addModel(file) {
+  function addModel(file: File) {
     captureActiveModel();          // не потерять состояние той, что сейчас на экране
     const rec = { id: `m${++modelSeq}`, file, state: {} };
     models.push(rec);
     activeModelId = rec.id;
-    applyModelState(null);         // новая модель начинает с чистого состояния
+    applyModelState(null!);         // новая модель начинает с чистого состояния
     selectedFile = file;
     return rec;
   }
 
-  async function selectModel(id) {
+  async function selectModel(id: string) {
     if (id === activeModelId) return;
     const rec = models.find((m) => m.id === id);
     if (!rec) return;
@@ -1805,28 +1812,28 @@
     await showActiveModel();
   }
 
-  function removeModel(id) {
+  function removeModel(id: string) {
     const i = models.findIndex((m) => m.id === id);
     if (i === -1) return;
     const [rec] = models.splice(i, 1);
     // Сервер держит копию исходника на диске. Не сказать ему об удалении — значит
     // оставить файл лежать до перезапуска: у человека на диске молча копятся
     // десятки мегабайт, и он никогда не узнает почему.
-    releaseSource(rec.state.currentSourceId || (rec.id === activeModelId ? currentSourceId : null));
+    releaseSource(rec!.state.currentSourceId || (rec!.id === activeModelId ? currentSourceId : null));
 
-    if (rec.id !== activeModelId) { renderModelList(); return; }
+    if (rec!.id !== activeModelId) { renderModelList(); return; }
 
     // Удалили ту, что на экране: показываем соседнюю, а если список опустел —
     // возвращаем интерфейс в состояние «модель ещё не загружали».
     const next = models[i] || models[i - 1] || null;
     activeModelId = next ? next.id : null;
-    applyModelState(next ? next.state : null);
+    applyModelState(next ? next.state : null!);
     renderModelList();
     if (next) showActiveModel();
     else resetToEmpty();
   }
 
-  function releaseSource(sourceId) {
+  function releaseSource(sourceId: string | null) {
     if (!sourceId) return;
     fetch(`/api/source/${encodeURIComponent(sourceId)}`, { method: 'DELETE' })
       .catch(() => { /* сервер мог уже перезапуститься — не наша забота */ });
@@ -1896,7 +1903,7 @@
 
   // Список опустел — вернуть интерфейс к виду «модель ещё не загружали».
   function resetToEmpty() {
-    applyModelState(null);
+    applyModelState(null!);
     clearResultPanels();
     statsBefore.innerHTML = '';
     chosenFileLabel.textContent = '';
@@ -1926,7 +1933,7 @@
     for (const btn of titles) {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const name = btn.dataset.menu;
+        const name = (btn as HTMLElement).dataset.menu;
         const panel = menubar.querySelector(`[data-menu-panel="${name}"]`);
         const wasOpen = panel && !panel.classList.contains('hidden');
         closeAll();
@@ -1947,16 +1954,16 @@
       dlItem.addEventListener('click', () => { closeAll(); downloadBtn.click(); });
       // Пункт, который ничего не делает, хуже отсутствующего: пока результата нет,
       // он неактивен. Состояние обновляется при каждом открытии меню.
-      const syncDownload = () => { dlItem.disabled = !resultDownloadUrl; };
+      const syncDownload = () => { (dlItem as HTMLButtonElement).disabled = !resultDownloadUrl; };
       for (const btn of titles) btn.addEventListener('click', syncDownload);
       syncDownload();
     }
 
     for (const radio of menubar.querySelectorAll('input[name="advice-mode"]')) {
-      radio.checked = radio.value === adviceMode;
+      (radio as HTMLInputElement).checked = (radio as HTMLInputElement).value === adviceMode;
       radio.addEventListener('change', () => {
-        if (!radio.checked) return;
-        adviceMode = radio.value;
+        if (!(radio as HTMLInputElement).checked) return;
+        adviceMode = (radio as HTMLInputElement).value;
         try { localStorage.setItem(ADVICE_MODE_KEY, adviceMode); } catch (e) { /* приватный режим */ }
         logMessage('info', t(adviceMode === 'advise' ? 'log.adviceMode.advise' : 'log.adviceMode.manual'));
         // Переключили на «Советуем» — применить совет к модели, которая уже на экране,
@@ -1967,7 +1974,7 @@
   }
 
   chooseFileBtn.addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+  fileInput.addEventListener('change', (e) => handleFile((e.target as HTMLInputElement).files![0]!));
 
   dropzone.addEventListener('click', () => fileInput.click());
 
@@ -1993,12 +2000,12 @@
   let dragDepth = 0;
 
   // Тянуть можно и выделенный текст, и ссылку — на них подсветка не нужна.
-  function isFileDrag(e) {
+  function isFileDrag(e: DragEvent) {
     const types = e.dataTransfer && e.dataTransfer.types;
     return !!types && Array.prototype.includes.call(types, 'Files');
   }
 
-  function showDropOverlay(on) {
+  function showDropOverlay(on: boolean) {
     if (dropOverlay) dropOverlay.classList.toggle('hidden', !on);
     document.body.classList.toggle('drag-active', on);
   }
@@ -2014,7 +2021,7 @@
   window.addEventListener('dragover', (e) => {
     if (!isFileDrag(e)) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
+    e.dataTransfer!.dropEffect = 'copy';
   });
 
   window.addEventListener('dragleave', (e) => {
@@ -2028,8 +2035,8 @@
     dragDepth = 0;
     showDropOverlay(false);
     if (!isFileDrag(e)) return;
-    const file = e.dataTransfer.files && e.dataTransfer.files[0];
-    handleFile(file);
+    const file = e.dataTransfer!.files && e.dataTransfer!.files[0];
+    handleFile(file!);
   });
 
   // ---------------------------------------------------------------
@@ -2039,14 +2046,14 @@
   // Принимает КЛЮЧ, а не готовую строку: статус живёт на экране долго, и при смене
   // языка его надо перерисовать. Готовую строку перерисовать нельзя — она уже забыла,
   // из чего собрана, и i18n откатил бы статус к «Готово» из разметки.
-  function setPhase(key, mode, params) {
+  function setPhase(key: string, mode?: string | null, params?: UiParams) {
     setText(phaseStatus, key, params);
     statusDot.classList.remove('busy', 'fail');
     if (mode === 'busy') statusDot.classList.add('busy');
     if (mode === 'fail') statusDot.classList.add('fail');
   }
 
-  function onProgressEvent(e) {
+  function onProgressEvent(e: Record<string, any>) {
     if (e.type === 'phase') {
       setPhase('status.phase', 'busy', { n: e.phase, name: e.name });
       logMessage('debug', `Phase ${e.phase}: ${e.name}`);
@@ -2062,7 +2069,7 @@
 
   runBtn.addEventListener('click', runOptimize);
 
-  function buildOptimizeUrl(jobId, useSource) {
+  function buildOptimizeUrl(jobId: string, useSource: boolean) {
     const platformId = platformSelect.value;
     const features = getSelectedFeatures();
     const featuresParam = features.length ? `&features=${encodeURIComponent(features.join(','))}` : '';
@@ -2076,11 +2083,11 @@
   }
 
   // Повтор по sourceId — без тела (модель уже на сервере); первый прогон — с телом файла.
-  async function sendOptimize(jobId) {
-    const doFetch = (withSource) => fetch(buildOptimizeUrl(jobId, withSource), {
+  async function sendOptimize(jobId: string) {
+    const doFetch = (withSource: boolean) => fetch(buildOptimizeUrl(jobId, withSource), {
       method: 'POST',
       headers: {
-        'X-Filename': encodeURIComponent(selectedFile.name),
+        'X-Filename': encodeURIComponent(selectedFile!.name),
         'Content-Type': 'application/octet-stream',
       },
       body: withSource ? null : selectedFile,
@@ -2109,9 +2116,9 @@
   //
   // disabled, а не «клик игнорируем»: недоступный вид сам объясняет, что сейчас нельзя,
   // и не создаёт впечатления, будто интерфейс не отвечает.
-  function freezeSettings(frozen) {
+  function freezeSettings(frozen: boolean) {
     platformSelect.disabled = frozen;
-    for (const el of extensionsList.querySelectorAll('input, select, button')) el.disabled = frozen;
+    for (const el of extensionsList.querySelectorAll<HTMLInputElement>('input, select, button')) el.disabled = frozen;
     extensionsPanel.classList.toggle('is-frozen', frozen);
   }
 
@@ -2165,7 +2172,7 @@
       if (shown) await shown.catch(() => {});
     } catch (e) {
       if (es) es.close();
-      showGenericError(t('log.noServer', { error: e.message }));
+      showGenericError(t('log.noServer', { error: (e as Error).message }));
     } finally {
       buildInFlight = false;
       freezeSettings(false);
@@ -2179,12 +2186,12 @@
     }
   }
 
-  function showGenericError(message) {
+  function showGenericError(message: string) {
     setPhase('status.error', 'fail');
     logMessage('error', message);
     showWindow(failBanner);
-    failBanner.querySelector('.fail-title').textContent = t('fail.generic');
-    failBanner.querySelector('.fail-text').textContent = message;
+    failBanner.querySelector('.fail-title')!.textContent = t('fail.generic');
+    failBanner.querySelector('.fail-text')!.textContent = message;
     failValidation.innerHTML = '';
     // Кнопку не прячем; прогон не удался — разрешаем повтор даже с теми же настройками.
     lastBuildSignature = null;
@@ -2196,25 +2203,25 @@
   // Рендер результата
   // ---------------------------------------------------------------
 
-  function renderReport(result, explain) {
+  function renderReport(result: RunResultDto | null, explain: ExplainDto | null) {
     lastResult = result;
     lastExplain = explain;
-    renderComparison(result.metrics);
+    renderComparison(result!.metrics);
     renderSummary(explain);
-    renderValidation(result.validation);
-    renderIssues(result.findings, result.applied);
-    renderBudgets(explain && explain.budgetChecks);
+    renderValidation(result!.validation);
+    renderIssues(result!.findings, result!.applied);
+    renderBudgets(explain! && explain!.budgetChecks);
     renderWarnings(explain && explain.warnings);
-    renderAppliedSkipped(result.applied, result.skipped);
+    renderAppliedSkipped(result!.applied, result!.skipped);
     // Красный знак цены у галочки: правило само измерило, во что обошлась его работа
     // (kind:'cost' + feature в записях skipped). Рисуется ПОСЛЕ отчёта — иначе его
     // снёс бы перерендер панели опций, а отдельного вызова в runOptimize нет намеренно:
     // смена языка тоже перерисовывает отчёт (reexplainLastResult → renderReport),
     // и бейджи должны пережить её.
-    renderCostBadges(result.skipped);
+    renderCostBadges(result!.skipped);
   }
 
-  function renderResult(data) {
+  function renderResult(data: Record<string, any>) {
     const { result, explain, downloadUrl } = data;
 
     // Запоминаем серверный исходник даже при fail (файл уже загружен) — чтобы повтор
@@ -2268,7 +2275,7 @@
 
     // Результат перезаписывается на сервере при каждом прогоне → анти-кэш в URL,
     // чтобы вьюпорт и скачивание всегда брали свежий вариант.
-    const bust = (u) => (u ? u + (u.includes('?') ? '&' : '?') + 't=' + (++runToken) : u);
+    const bust = (u: string | null) => (u ? u + (u.includes('?') ? '&' : '?') + 't=' + (++runToken) : u);
     const freshUrl = bust(downloadUrl);
 
     // Правый вьюпорт: загрузить оптимизированную модель (оригинал уже показан слева).
@@ -2276,7 +2283,7 @@
     // когда модель ВИДНА, а не когда сервер ответил. Между этими моментами на тяжёлой
     // модели проходят секунды разбора и загрузки текстур.
     let optimizedShown = null;
-    if (window.OptiViewer) optimizedShown = Promise.resolve(window.OptiViewer.loadOptimized(freshUrl));
+    if (window.OptiViewer) optimizedShown = Promise.resolve(window.OptiViewer.loadOptimized(freshUrl!));
 
     if (downloadUrl) {
       resultDownloadUrl = freshUrl;
@@ -2285,7 +2292,7 @@
       downloadBtn.classList.remove('hidden');
       renderIrreversibleWarning(result.applied);
       // Metadata/Validation собранной модели — правая колонка тех же окон.
-      inspectResult(freshUrl);
+      inspectResult(freshUrl!);
     } else {
       resultDownloadUrl = null;
       downloadBtn.classList.add('hidden');
@@ -2303,8 +2310,8 @@
   // переехал в «Анализ» отдельной карточкой (см. renderIssues). Причина простая:
   // закреплённый над кнопкой блок не прокручивается, и на модели с десятком
   // необратимых изменений он занимал половину панели, пряча всё остальное.
-  function renderIrreversibleWarning(applied) {
-    const lossy = (applied || []).filter((a) => a.reversible === false && a.dataLoss === 'significant');
+  function renderIrreversibleWarning(applied: ReportEntryDto[] | null | undefined) {
+    const lossy = (applied || []).filter((a: ReportEntryDto) => a.reversible === false && a.dataLoss === 'significant');
     irreversibleWarning.classList.toggle('hidden', !lossy.length);
   }
 
@@ -2325,9 +2332,9 @@
   // Полный разбор — в сворачиваемом разделе «Проверка целостности» правой панели.
   // Строки берём из result.validation как есть: их собрал движок, они несут рецепт i18n
   // и переживают смену языка (core/i18n.mjs, LOCALIZED_LISTS).
-  function renderIntegrity(result) {
+  function renderIntegrity(result: RunResultDto | null) {
     const failed = (result && result.status === 'fail')
-      ? (result.validation || []).filter((v) => v.level === 'fail')
+      ? (result.validation || []).filter((v: ReportEntryDto) => v.level === 'fail')
       : [];
     const show = failed.length > 0;
 
@@ -2358,19 +2365,19 @@
     }
   }
 
-  function renderFail(result, explain) {
+  function renderFail(result: RunResultDto | null, explain: ExplainDto | null) {
     setPhase('status.failed', 'fail');
     logMessage('error', t('log.notWritten'));
     showWindow(failBanner);
-    failBanner.querySelector('.fail-title').textContent = t('fail.notWritten');
-    failBanner.querySelector('.fail-text').textContent =
+    failBanner.querySelector('.fail-title')!.textContent = t('fail.notWritten');
+    failBanner.querySelector('.fail-text')!.textContent =
       (explain && explain.summary) || t('fail.text');
 
     failValidation.innerHTML = '';
     const items = (result && result.validation) || [];
     for (const v of items) {
       const row = document.createElement('div');
-      row.textContent = `${VALIDATION_ICON[v.level] || '·'} ${v.text}`;
+      row.textContent = `${VALIDATION_ICON[v.level!] || '·'} ${v.text}`;
       failValidation.appendChild(row);
     }
 
@@ -2389,7 +2396,7 @@
 
   // Компактный HUD со статистикой в углах панелей. У оптимизированной стороны значения
   // подсвечиваются: зелёным — если метрика улучшилась (меньше), янтарным — если выросла.
-  function renderComparison(metrics) {
+  function renderComparison(metrics: Record<string, any> | null) {
     if (!metrics || !metrics.before || !metrics.after) return;
     const { before, after } = metrics;
 
@@ -2448,7 +2455,7 @@
     // выражается; пусть человек читает строки, они не врут.
   }
 
-  function hudLine(label, value, valClass) {
+  function hudLine(label: string, value: string, valClass?: string | null) {
     const row = document.createElement('div');
     row.className = 'hud-line';
     const k = document.createElement('span');
@@ -2462,7 +2469,7 @@
     return row;
   }
 
-  function renderSummary(explain) {
+  function renderSummary(explain: ExplainDto | null) {
     const hasSummary = explain && (explain.summary || (explain.highlights && explain.highlights.length));
     summarySection.classList.toggle('hidden', !hasSummary);
     if (!hasSummary) return;
@@ -2476,7 +2483,7 @@
     }
   }
 
-  function renderIssues(findings, applied) {
+  function renderIssues(findings: ReportEntryDto[] | null | undefined, applied: ReportEntryDto[] | null | undefined) {
     // Необратимые изменения — одной карточкой внутри анализа, а не списком,
     // закреплённым над кнопкой. Закреплённым остаётся только предупреждение
     // «сохраните исходник»: оно короткое, всегда одинаковое и относится к файлу
@@ -2549,7 +2556,7 @@
 
       const title = document.createElement('p');
       title.className = 'issue-title';
-      title.textContent = CATEGORY_KEYS[b.category] ? t(CATEGORY_KEYS[b.category]) : (b.category || t('cat.other'));
+      title.textContent = CATEGORY_KEYS[b.category] ? t(CATEGORY_KEYS[b.category]!) : (b.category || t('cat.other'));
       card.appendChild(title);
 
       const ul = document.createElement('ul');
@@ -2571,7 +2578,7 @@
   //
   // Текст берём готовым из budgetChecks — тот же, что показывает панель. Собирать
   // здесь свою фразу нельзя: она разошлась бы с панелью и с языком (Правило 8).
-  function renderExportBudget(budgetChecks) {
+  function renderExportBudget(budgetChecks: ExplainDto['budgetChecks'] | null) {
     const over = (budgetChecks || []).filter((b) => b.level === 'over');
     exportBudget.classList.toggle('hidden', !over.length);
     exportBudgetDetails.innerHTML = '';
@@ -2582,7 +2589,7 @@
     }
   }
 
-  function renderBudgets(budgetChecks) {
+  function renderBudgets(budgetChecks: ExplainDto['budgetChecks']) {
     const has = budgetChecks && budgetChecks.length;
     budgetsSection.classList.toggle('hidden', !has);
     if (!has) return;
@@ -2590,7 +2597,7 @@
     budgetsList.innerHTML = '';
     // Четыре состояния строки. 'none' — порога нет: показываем измеренное и молчим.
     // Значок тоже молчит: галочка означала бы «проверено и хорошо», а мы не проверяли.
-    const ICON = { ok: '✓', warn: '⚠', over: '✕', none: '·' };
+    const ICON: Record<string, string> = { ok: '✓', warn: '⚠', over: '✕', none: '·' };
     for (const b of budgetChecks) {
       const row = document.createElement('div');
       row.className = `budget-row ${b.level || 'none'}`;
@@ -2602,7 +2609,7 @@
       name.textContent = b.name;
       const icon = document.createElement('span');
       icon.className = 'budget-icon';
-      icon.textContent = ICON[b.level] || ICON.none;
+      icon.textContent = ICON[b.level] || ICON.none!;
       head.appendChild(name);
       head.appendChild(icon);
 
@@ -2644,7 +2651,7 @@
     }
   }
 
-  function renderWarnings(warnings) {
+  function renderWarnings(warnings: string[] | null | undefined) {
     const has = warnings && warnings.length;
     warningsSection.classList.toggle('hidden', !has);
     if (!has) return;
@@ -2672,11 +2679,11 @@
   const NAME_SLOT = ' ';
   const MAX_NAMES = 4; // дальше список сам становится простынёй
 
-  function condense(items) {
+  function condense(items: Array<{ text: string; [key: string]: any }>) {
     const groups = new Map();
     for (const it of items) {
       const text = String(it.text || '');
-      const names = [];
+      const names: string[] = [];
       const template = text.replace(/"([^"]*)"/g, (_, n) => { names.push(n); return NAME_SLOT; });
       // Ключ группировки — messageId, если запись несёт рецепт i18n. Он точен и не
       // зависит от языка: две записи с одним messageId — одна и та же находка про разные
@@ -2721,7 +2728,7 @@
     return out;
   }
 
-  function renderAppliedSkipped(applied, skipped) {
+  function renderAppliedSkipped(applied: ReportEntryDto[] | null | undefined, skipped: ReportEntryDto[] | null | undefined) {
     const appliedLines = condense(applied || []);
     appliedSection.classList.toggle('hidden', !appliedLines.length);
     appliedList.innerHTML = '';
@@ -2738,8 +2745,8 @@
     // и превышение уровня риска. «Фича не включена» — выбор пользователя, а
     // «делать было нечего» — нормальный исход; раздел из таких строк сообщал
     // читателю о несуществующем и занимал место наравне с настоящими находками.
-    const meaningful = (skipped || []).filter((s) => s && (s.kind === 'unsafe' || s.kind === 'policy'));
-    const skippedLines = condense(meaningful.map((s) => ({
+    const meaningful = (skipped || []).filter((s: ReportEntryDto) => s && (s.kind === 'unsafe' || s.kind === 'policy'));
+    const skippedLines = condense(meaningful.map((s: ReportEntryDto) => ({
       ruleId: s.ruleId,
       text: (s.reason && s.reason !== s.text) ? `${s.text} — ${s.reason}` : s.text,
     })));
@@ -2756,14 +2763,14 @@
     }
   }
 
-  function renderValidation(validation) {
+  function renderValidation(validation: ReportEntryDto[] | null | undefined) {
     const has = validation && validation.length;
     validationSection.classList.toggle('hidden', !has);
     if (!has) return;
 
     // Вердикт выносим в заголовок: раздел свёрнут, и без него человеку пришлось бы
     // раскрывать список, чтобы узнать ответ на главный вопрос — цела ли модель.
-    const failed = validation.filter((v) => v.level === 'fail').length;
+    const failed = validation.filter((v: ReportEntryDto) => v.level === 'fail').length;
     if (validationCount) {
       // Через setText, а не textContent: иначе вердикт застревал на языке сборки —
       // строка собиралась в коде по-английски и смену языка не переживала.
@@ -2786,7 +2793,7 @@
   // Переиспользуемый паттерн — навесить setupWindow на любой .window (класс).
   // ---------------------------------------------------------------
 
-  function setupWindow(el) {
+  function setupWindow(el: HTMLElement) {
     if (!el) return;
     const closeBtn = el.querySelector('.window-close');
     if (closeBtn) closeBtn.addEventListener('click', () => el.classList.add('hidden'));
@@ -2799,8 +2806,8 @@
     let baseLeft = 0;
     let baseTop = 0;
 
-    bar.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('.window-close, .window-action')) return;
+    bar.addEventListener('pointerdown', ((e: PointerEvent) => {
+      if ((e.target as Element).closest('.window-close, .window-action')) return;
       dragging = true;
       bar.setPointerCapture(e.pointerId);
       const rect = el.getBoundingClientRect();
@@ -2814,31 +2821,31 @@
       startX = e.clientX;
       startY = e.clientY;
       e.preventDefault();
-    });
+    }) as EventListener);
 
-    bar.addEventListener('pointermove', (e) => {
+    bar.addEventListener('pointermove', ((e: PointerEvent) => {
       if (!dragging) return;
       el.style.left = `${baseLeft + e.clientX - startX}px`;
       el.style.top = `${baseTop + e.clientY - startY}px`;
-    });
+    }) as EventListener);
 
-    const stop = (e) => {
+    const stop = (e: PointerEvent) => {
       if (!dragging) return;
       dragging = false;
       try { bar.releasePointerCapture(e.pointerId); } catch (_) { /* ignore */ }
     };
-    bar.addEventListener('pointerup', stop);
-    bar.addEventListener('pointercancel', stop);
+    bar.addEventListener('pointerup', stop as EventListener);
+    bar.addEventListener('pointercancel', stop as EventListener);
   }
 
-  function closeAllWindows(except) {
+  function closeAllWindows(except?: HTMLElement | null) {
     for (const w of document.querySelectorAll('.window')) {
       if (w !== except) w.classList.add('hidden');
     }
   }
 
   // Показать окно, вернув его в центр. Одновременно открыто не больше одного окна.
-  function showWindow(el) {
+  function showWindow(el: HTMLElement) {
     closeAllWindows(el);
     el.style.left = '';
     el.style.top = '';
@@ -2851,8 +2858,8 @@
   // окно не закрывают.
   document.addEventListener('pointerdown', (e) => {
     if (!document.querySelector('.window:not(.hidden)')) return;
-    if (e.target.closest('.window')) return;
-    if (e.target.closest('[data-window-trigger]')) return;
+    if ((e.target as Element).closest('.window')) return;
+    if ((e.target as Element).closest('[data-window-trigger]')) return;
     closeAllWindows(null);
   });
 
@@ -2864,9 +2871,9 @@
   // Одна сборка добавляет десятки debug-строк (фазы + правила) — держим запас, чтобы
   // ход предыдущих сборок не вытеснялся из окна логов сразу же.
   const LOG_LIMIT = 500;
-  const logs = [];
+  const logs: Array<{ level: string; text: string; time: Date }> = [];
 
-  function logMessage(level, text) {
+  function logMessage(level: string, text: string) {
     if (!text) return;
     logs.push({ time: new Date(), level, text: String(text) });
     if (logs.length > LOG_LIMIT) logs.shift();
@@ -2927,24 +2934,24 @@
 
   // Каталог форматов экспорта: формат → { расширение, как построить URL из resultDownloadUrl }.
   // Добавить экспортёр = добавить строку сюда и пункт радио в index.html; больше ничего.
-  const EXPORT_FORMATS = {
-    glb: { ext: '.glb', url: (base) => base },
-    json: { ext: '.gltf', url: (base) => base.replace('/api/download', '/api/export-json') },
+  const EXPORT_FORMATS: Record<string, { ext: string; url: (base: string) => string }> = {
+    glb: { ext: '.glb', url: (base: string) => base },
+    json: { ext: '.gltf', url: (base: string) => base.replace('/api/download', '/api/export-json') },
   };
 
   function currentExportFormat() {
     const r = exportWindow.querySelector('input[name="export-format"]:checked');
-    return (r && r.value) || 'glb';
+    return ((r as HTMLInputElement) && (r as HTMLInputElement).value) || 'glb';
   }
 
   exportSave.addEventListener('click', () => {
     if (!resultDownloadUrl) return;
-    const fmt = EXPORT_FORMATS[currentExportFormat()] || EXPORT_FORMATS.glb;
+    const fmt = EXPORT_FORMATS[currentExportFormat()] || EXPORT_FORMATS.glb!;
     const base = (exportName.value || resultExportBase).trim() || 'model';
     const fileName = base.replace(/\.[^.]+$/, '') + fmt.ext;
     // ?name= → сервер ставит его в Content-Disposition (см. chosenExportName); плюс атрибут
     // download как подстраховка. Место сохранения в браузере не выбирается — папка загрузок.
-    const url = fmt.url(resultDownloadUrl) + '&name=' + encodeURIComponent(fileName);
+    const url = fmt.url(resultDownloadUrl!) + '&name=' + encodeURIComponent(fileName);
     const a = document.createElement('a');
     a.href = url;
     a.download = fileName;
@@ -2997,9 +3004,9 @@
   // Окна Metadata / Validation (данные из /api/inspect: fns.inspect + gltf-validator)
   // ---------------------------------------------------------------
 
-  const severityName = (code) => t(`sev.${code}`);
+  const severityName = (code: number | string) => t(`sev.${code}`);
 
-  function fmtCell(v) {
+  function fmtCell(v: unknown) {
     if (v == null) return '';
     if (Array.isArray(v)) return v.join(', ');
     if (typeof v === 'number') return Number.isInteger(v) ? fmtInt(v) : v.toFixed(2);
@@ -3008,11 +3015,11 @@
   }
 
   // Таблица из массива объектов: колонки = ключи (с колонкой ID = индекс).
-  function buildTable(rows, sizeKeys = []) {
+  function buildTable(rows: Array<Record<string, any>>, sizeKeys: string[] = []) {
     const table = document.createElement('table');
     table.className = 'meta-table';
     if (!rows.length) return table;
-    const keys = Object.keys(rows[0]);
+    const keys = Object.keys(rows[0]!);
     const thead = document.createElement('thead');
     const htr = document.createElement('tr');
     for (const h of ['id', ...keys]) {
@@ -3027,10 +3034,10 @@
     thead.appendChild(htr);
     table.appendChild(thead);
     const tbody = document.createElement('tbody');
-    rows.forEach((row, i) => {
+    rows.forEach((row: Record<string, any>, i: number) => {
       const tr = document.createElement('tr');
       const idTd = document.createElement('td');
-      idTd.textContent = i;
+      idTd.textContent = i as unknown as string;
       tr.appendChild(idTd);
       for (const k of keys) {
         const td = document.createElement('td');
@@ -3043,7 +3050,7 @@
     return table;
   }
 
-  function metaSection(title, rows, sizeKeys) {
+  function metaSection(title: string, rows: Array<Record<string, any>>, sizeKeys?: string[]) {
     if (!rows || !rows.length) return null;
     const wrap = document.createElement('div');
     wrap.className = 'meta-block';
@@ -3060,7 +3067,7 @@
 
   // Оба окна инспекции делятся пополам: слева исходная модель, справа собранная. Формат
   // данных у обеих сторон один (inspectFile), поэтому столбец рисуется одной функцией.
-  function splitPanes(buildPane) {
+  function splitPanes(buildPane: (col: HTMLElement, data: any) => void) {
     const wrap = document.createElement('div');
     wrap.className = 'window-split';
     wrap.appendChild(inspectColumn(t('inspect.original'), modelInspect, buildPane, t('inspect.noModel')));
@@ -3069,7 +3076,7 @@
     return wrap;
   }
 
-  function inspectColumn(title, data, buildPane, emptyText) {
+  function inspectColumn(title: string, data: InspectDto | null, buildPane: (col: HTMLElement, data: any) => void, emptyText: string) {
     const col = document.createElement('div');
     col.className = 'split-col';
     const h = document.createElement('div');
@@ -3087,7 +3094,7 @@
     return col;
   }
 
-  function buildMetadataPane(col, data) {
+  function buildMetadataPane(col: HTMLElement, data: InspectDto) {
     const { asset = {}, extensions: exts = [], metadata = {} } = data;
 
     const head = document.createElement('div');
@@ -3101,19 +3108,19 @@
       const row = document.createElement('div');
       row.className = 'meta-kv';
       row.innerHTML = `<span class="meta-k">${k}</span><span class="meta-v"></span>`;
-      row.querySelector('.meta-v').textContent = v;
+      row.querySelector('.meta-v')!.textContent = v!;
       head.appendChild(row);
     }
     col.appendChild(head);
 
     const sections = [
-      metaSection('Scenes', metadata.scenes && metadata.scenes.properties),
-      metaSection('Meshes', metadata.meshes && metadata.meshes.properties, ['size']),
-      metaSection('Materials', metadata.materials && metadata.materials.properties),
-      metaSection('Textures', metadata.textures && metadata.textures.properties, ['size', 'gpuSize']),
-      metaSection('Animations', metadata.animations && metadata.animations.properties, ['size']),
+      metaSection('Scenes', metadata!.scenes && metadata!.scenes.properties),
+      metaSection('Meshes', metadata!.meshes && metadata!.meshes.properties, ['size']),
+      metaSection('Materials', metadata!.materials && metadata!.materials.properties),
+      metaSection('Textures', metadata!.textures && metadata!.textures.properties, ['size', 'gpuSize']),
+      metaSection('Animations', metadata!.animations && metadata!.animations.properties, ['size']),
     ].filter(Boolean);
-    for (const s of sections) col.appendChild(s);
+    for (const s of sections) col.appendChild(s!);
     if (!sections.length) {
       const p = document.createElement('p');
       p.className = 'meta-empty';
@@ -3128,15 +3135,15 @@
   // Перевод сообщений gltf-validator (Khronos) на стороне клиента.
   // Ключ — код ошибки (m.code), значение — ключ в каталоге ui/locales/.
   // Если перевода нет — возвращается оригинальное английское сообщение.
-  function translateValidatorMessage(code, originalMessage) {
+  function translateValidatorMessage(code: string, originalMessage: string) {
     const key = 'validator.' + code;
     const translated = t(key);
     // t() возвращает ключ как есть, если перевода нет — значит код неизвестен.
     return translated === key ? originalMessage : translated;
   }
 
-  function issuesTable(issues) {
-    const rows = issues.map((m) => ({
+  function issuesTable(issues: Array<Record<string, any>>) {
+    const rows = issues.map((m: Record<string, any>) => ({
       code: m.code,
       count: fmtInt(m.count || 1),
       message: translateValidatorMessage(m.code, m.message),
@@ -3148,7 +3155,7 @@
     scroll.className = 'meta-table-scroll';
     const table = buildTable(rows);
     const trs = table.querySelectorAll('tbody tr');
-    issues.forEach((m, i) => { if (trs[i]) trs[i].classList.add(`sev-${m.severity}`); });
+    issues.forEach((m: Record<string, any>, i: number) => { if (trs[i]) trs[i]!.classList.add(`sev-${m.severity}`); });
     scroll.appendChild(table);
     return scroll;
   }
@@ -3167,15 +3174,15 @@
   // Слепые пятна валидатора — в журнал уровнем debug, не в окно проверки. Если модель
   // однажды окажется сломанной, а мы спишем это на «валидатор не читает расширение»,
   // след должен остаться где-то, кроме нашей памяти.
-  function logBlindSpots(validation) {
-    const explained = (validation || []).filter((m) => m.explainedBy);
+  function logBlindSpots(validation: Array<Record<string, any>> | null | undefined) {
+    const explained = (validation || []).filter((m: Record<string, any>) => m.explainedBy);
     if (!explained.length) return;
-    const names = [...new Set(explained.map((m) => m.explainedBy))].sort().join(', ');
+    const names = [...new Set(explained.map((m: Record<string, any>) => m.explainedBy))].sort().join(', ');
     logMessage('debug', t('log.blindSpots', { n: explained.length, names }));
   }
 
-  function buildValidationPane(col, data) {
-    const issues = (data.validation || []).filter((m) => !m.explainedBy);
+  function buildValidationPane(col: HTMLElement, data: InspectDto) {
+    const issues = (data.validation || []).filter((m: Record<string, any>) => !m.explainedBy);
 
     if (issues.length) {
       col.appendChild(issuesTable(issues));
@@ -3220,7 +3227,7 @@
       originalPane.style.flex = `0 0 ${pct}%`;
     });
 
-    const stop = (e) => {
+    const stop = (e: PointerEvent) => {
       if (!dragging) return;
       dragging = false;
       try { viewportSplitter.releasePointerCapture(e.pointerId); } catch (_) { /* ignore */ }
@@ -3243,8 +3250,8 @@
   // быть в середине настройки.
   const inspectorDetails = () => Array.from(document.querySelectorAll('details.report-accordion'));
 
-  function closeOtherDetails(except) {
-    for (const d of inspectorDetails()) if (d !== except) d.open = false;
+  function closeOtherDetails(except?: Element | null) {
+    for (const d of inspectorDetails()) if (d !== except) (d as HTMLDetailsElement).open = false;
   }
 
   function closeAllDetails() {
@@ -3252,7 +3259,7 @@
   }
 
   for (const d of inspectorDetails()) {
-    d.addEventListener('toggle', () => { if (d.open) closeOtherDetails(d); });
+    d.addEventListener('toggle', () => { if ((d as HTMLDetailsElement).open) closeOtherDetails(d); });
   }
 
   // ---------------------------------------------------------------
@@ -3288,10 +3295,10 @@
   // ---------------------------------------------------------------
 
   const SEEK_STEPS = 1000;
-  let animPollId = null;
+  let animPollId: ReturnType<typeof setInterval> | null = null;
   let seekDragging = false;
 
-  function fmtTime(sec) {
+  function fmtTime(sec: number) {
     return `${(Number(sec) || 0).toFixed(1)}s`;
   }
 
@@ -3309,7 +3316,7 @@
     if (animClipSel && animClipSel.dataset.signature !== signature) {
       animClipSel.dataset.signature = signature;
       animClipSel.innerHTML = '';
-      info.names.forEach((name, i) => {
+      info.names.forEach((name: string, i: number) => {
         const opt = document.createElement('option');
         opt.value = String(i);
         // Имя клипа приходит из файла как есть. Пустое — значит автор его не задал,

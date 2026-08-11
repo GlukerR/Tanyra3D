@@ -118,6 +118,8 @@ export default [
       'optimize2.mjs',
       'server.mjs',
       'assistant.mjs',
+      'ui/app.js',
+      'ui/i18n.js',
     ],
   },
 

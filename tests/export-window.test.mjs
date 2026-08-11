@@ -16,6 +16,8 @@
 // приложении — модель сверх предела, окно выгрузки, обе смены языка и сброс.
 
 import { describe, it, expect } from 'vitest';
+
+import { readSource } from './helpers/source-files.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +25,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (...p) => fs.readFileSync(path.join(ROOT, ...p), 'utf8');
 
-const APP = read('ui', 'app.js');
+const APP = readSource('ui/app');
 const HTML = read('ui', 'index.html');
 
 /** Тексты, которые человек читает как подсказку у поля. */

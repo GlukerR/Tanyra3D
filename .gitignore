@@ -122,3 +122,8 @@ server.mjs
 server.d.mts
 assistant.mjs
 assistant.d.mts
+
+# Браузерный слой — второй проект сборки (tsconfig.ui.json). Источник .ts, рядом .js:
+# ui/index.html подключает их обычными тегами <script>, и имена файлов не меняются.
+ui/app.js
+ui/i18n.js

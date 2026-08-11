@@ -1,0 +1,43 @@
+// tsconfig.ui.json — ВТОРОЙ проект сборки: браузерный слой.
+//
+// Отдельный файл, а не ещё одна папка в основном tsconfig, потому что у интерфейса другая
+// среда и другой способ подключения:
+//
+//   1. Другие глобальные имена. Основной проект знает про Node (`types: ["node"]`), здесь
+//      нужен DOM: document, window, fetch, HTMLElement. Смешать нельзя — тогда серверный
+//      код начал бы «видеть» document, которого у него нет.
+//
+//   2. Другой вид модуля. `ui/i18n.js` и `ui/app.js` подключаются ОБЫЧНЫМ тегом
+//      <script src="..."> (не type="module"): это IIFE, кладущие своё в window. Поэтому
+//      исходник здесь `.ts` → `.js`, а не `.mts` → `.mjs`, и module: "none" — файл без
+//      импортов и экспортов компилятор оставляет обычным скриптом, каким он и был.
+//      ui/viewer/ — наоборот, настоящие ES-модули; они пока не переведены.
+//
+// Всё остальное — как в основном проекте: строгость с самого начала, собранное рядом с
+// источником под тем же именем (index.html не меняется), noEmitOnError, чтобы ошибка типов
+// не оставляла на диске половину интерфейса.
+{
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    // "es2022", а не "none": вариант none компилятор больше не принимает. На вывод это
+    // не влияет — файл без единого import/export остаётся обычным скриптом, каким и был.
+    "module": "es2022",
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "exactOptionalPropertyTypes": true,
+
+    "noEmitOnError": true,
+    "declaration": false,
+    "sourceMap": false,
+    "removeComments": false,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+
+    // Node-типы здесь НЕ подключаются намеренно: это браузер.
+    "types": []
+  },
+  "include": ["ui/*.ts", "ui/*.d.ts"]
+}
