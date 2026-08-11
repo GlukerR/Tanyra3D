@@ -110,6 +110,7 @@ export default [
       'core/registry.mjs',
       'core/i18n.mjs',
       'core/engine.mjs',
+      'addons/gltf/metrics.mjs',
     ],
   },
 

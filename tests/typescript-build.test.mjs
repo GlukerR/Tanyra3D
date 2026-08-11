@@ -38,7 +38,7 @@ function readTsconfig() {
 /** Все переведённые модули: core/x.mts → 'core/x'. */
 function migratedModules() {
   const out = [];
-  for (const dir of ['core']) {
+  for (const dir of ['core', 'addons/gltf']) {
     for (const f of fs.readdirSync(path.join(ROOT, dir))) {
       if (f.endsWith('.mts') && !f.endsWith('.d.mts')) out.push(`${dir}/${f.slice(0, -4)}`);
     }
@@ -140,6 +140,11 @@ describe('слой TypeScript', () => {
     const files = JSON.parse(read('package.json')).build.files;
     expect(files, 'core больше не кладётся в пакет').toContain('core/**/*');
     expect(files, 'исходники .mts едут в установщик — они там не нужны').toContain('!core/**/*.mts');
+    // То же для аддона: у каждой папки с переведёнными модулями должно быть своё
+    // исключение, иначе исходники поедут в установщик молча.
+    for (const dir of new Set(MODULES.map((m) => m.split('/')[0]))) {
+      expect(files, `нет исключения !${dir}/**/*.mts`).toContain(`!${dir}/**/*.mts`);
+    }
   });
 });
 
