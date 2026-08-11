@@ -75,6 +75,7 @@
       "profiles/**/*",
       "engines/**/*",
       "messages/**/*",
+      "!messages/**/*.mts",
       "desktop/**/*",
       "node_modules/**/*",
       "!node_modules/electron/**",
