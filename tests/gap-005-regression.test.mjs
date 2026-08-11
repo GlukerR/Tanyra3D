@@ -34,12 +34,12 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 
+import { sourcePath } from './helpers/source-files.mjs';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
-// Источник, а не собранное: .mts, пока он есть; .mjs — для истории и на случай отката.
-const METRICS_SOURCE_PATH = ['addons/gltf/metrics.mts', 'addons/gltf/metrics.mjs']
-  .map((p) => path.resolve(PROJECT_ROOT, p))
-  .find((p) => fs.existsSync(p)) || path.resolve(PROJECT_ROOT, 'addons/gltf/metrics.mts');
+// Источник, а не собранное — какое расширение настоящее, решает помощник.
+const METRICS_SOURCE_PATH = sourcePath('addons/gltf/metrics');
 
 function modelPath(name) {
   return path.resolve(PROJECT_ROOT, 'fixtures/models', name);

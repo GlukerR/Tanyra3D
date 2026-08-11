@@ -17,6 +17,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
+import { sourcePath } from './helpers/source-files.mjs';
+
 // Часть этих модулей с 2026-08-11 живёт в `.mts`, а `.mjs` рядом — собранный. Стеречь
 // надо ИСТОЧНИК: собранного на чистом клоне до сборки нет, да и правит человек не его.
 // Список остаётся в одном виде — какое расширение сейчас настоящее, решает файловая
@@ -27,7 +29,7 @@ const SOURCES = [
   'core/engine',
   'server',
   'assistant',
-].map((base) => (fs.existsSync(`${base}.mts`) ? `${base}.mts` : `${base}.mjs`));
+].map(sourcePath);
 
 describe('путь из file:-URL', () => {
   it('пробел и кириллица переживают дорогу туда и обратно', () => {

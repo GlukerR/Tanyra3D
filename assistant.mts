@@ -30,6 +30,67 @@ import { fileURLToPath } from 'node:url';
 import enMessages from './messages/en.mjs';
 import ruMessages from './messages/ru.mjs';
 
+import type { MessageCatalog, MessageData } from './core/types.mjs';
+
+/** Функция перевода для выбранного языка: ключ (+ подстановки) → готовая строка. */
+type Translate = (key: string, data?: MessageData) => string;
+
+/**
+ * Профиль площадки — ДАННЫЕ (profiles/*.json), а не код. Полей у него много и они
+ * растут вместе с площадками, поэтому здесь описана только форма доступа: любое поле
+ * читается, состав задаёт сам файл. Ужесточать это описание нельзя, не запретив
+ * сторонним профилям иметь свои ключи (docs/EXTENDING.md §4).
+ */
+type ProfileJson = Record<string, any>;
+
+/** То же для описания движка (engines/*.json). */
+type EngineJson = Record<string, any>;
+
+/**
+ * Запись списка возможностей, как её видит интерфейс. Слова опции живут в messages/
+ * и подставляются здесь (Правило 10б: один текст на язык, независимо от площадки).
+ */
+type ExtensionEntry = Record<string, any> & { id: string };
+
+/** Метрики результата, как их читает ассистент. Состав задаёт аддон — берём нужное. */
+type MetricsLike = Record<string, any>;
+
+/** Результат прогона, как его читает ассистент: он смотрит метрики и списки записей. */
+type RunResultLike = Record<string, any>;
+
+/** Порог площадки: жёлтое число плюс, по возможности, ссылка на источник. */
+interface BudgetEntry {
+  warn?: number;
+  limit?: number;
+  /** ссылка на документ площадки — откуда взято число */
+  source?: string;
+  /** наше собственное решение вместо ссылки: тоже законно, но выглядит иначе */
+  by?: string;
+  [key: string]: unknown;
+}
+
+/** Строка сверки с бюджетом площадки, как её читает интерфейс. */
+interface BudgetCheck {
+  id: string;
+  name: string;
+  actualText: string;
+  /** none — в пределах; warn — жёлтое число превышено; over — отказ площадки. */
+  level: string;
+  source?: string;
+  by?: string;
+  limitText?: string;
+  warnText?: string;
+  advice?: string;
+}
+
+/** Как считать одну метрику бюджета и в чём измеряется её порог. */
+interface BudgetSpec {
+  nameKey: string;
+  adviceKey: string;
+  value: (after: MetricsLike) => number | undefined;
+  unit: 'int' | 'mb';
+}
+
 const BASE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROFILES_DIR = path.join(BASE_DIR, 'profiles');
 const ENGINES_DIR = path.join(BASE_DIR, 'engines');
@@ -42,7 +103,7 @@ const ENGINES_DIR = path.join(BASE_DIR, 'engines');
 // и строку в CATALOGS.
 // ----------------------------------------------------------------------------
 
-const CATALOGS = { en: enMessages, ru: ruMessages };
+const CATALOGS: Record<string, MessageCatalog> = { en: enMessages, ru: ruMessages };
 const DEFAULT_LANG = 'en';
 
 export function listLanguages() {
@@ -50,10 +111,10 @@ export function listLanguages() {
 }
 
 // Возвращает функцию t(key, data) для выбранного языка.
-function messages(lang) {
-  const cat = CATALOGS[lang] || CATALOGS[DEFAULT_LANG];
-  return (key, data) => {
-    const fn = cat[key] || CATALOGS[DEFAULT_LANG][key];
+function messages(lang: string): Translate {
+  const cat = CATALOGS[lang] || CATALOGS[DEFAULT_LANG]!;
+  return (key: string, data?: MessageData) => {
+    const fn = cat[key] || CATALOGS[DEFAULT_LANG]![key];
     // Отсутствующий ключ отдаём как есть — недоперевод должен быть виден, а не
     // превращаться в пустую строку посреди отчёта.
     return typeof fn === 'function' ? fn(data || {}) : key;
@@ -63,10 +124,10 @@ function messages(lang) {
 // Поле профиля может быть строкой (тогда это английский) или объектом { en, ru, ... }.
 // Профиль от стороннего автора с обычными строками работает без изменений — требовать
 // от него перевода на все языки значит не получить сторонних профилей.
-function pick(value, lang) {
+function pick(value: unknown, lang: string): string {
   if (value == null) return '';
   if (typeof value === 'string') return value;
-  if (typeof value === 'object') return value[lang] ?? value[DEFAULT_LANG] ?? '';
+  if (typeof value === 'object') return (value as Record<string, string>)[lang] ?? (value as Record<string, string>)[DEFAULT_LANG] ?? '';
   return String(value);
 }
 
@@ -74,7 +135,7 @@ function pick(value, lang) {
 // Загрузка профилей (данные, не код)
 // ----------------------------------------------------------------------------
 
-function profilePath(id) {
+function profilePath(id: string): string {
   // защита от выхода за пределы папки профилей (id приходит из UI)
   const safe = String(id).replace(/[^a-z0-9_-]/gi, '');
   return path.join(PROFILES_DIR, `${safe}.json`);
@@ -109,7 +170,7 @@ function noneDefaults() {
   return {};
 }
 
-function syntheticProfile(engineId, lang = DEFAULT_LANG) {
+function syntheticProfile(engineId: string, lang: string = DEFAULT_LANG): ProfileJson {
   const id = engineId || DEFAULT_ENGINE;
   const engine = loadEngine(id);
   const defaults = noneDefaults();
@@ -129,8 +190,8 @@ function syntheticProfile(engineId, lang = DEFAULT_LANG) {
   };
 }
 
-function loadProfile(platformId, engineId, lang = DEFAULT_LANG) {
-  if (!platformId) return syntheticProfile(engineId, lang);
+function loadProfile(platformId: string, engineId?: string, lang: string = DEFAULT_LANG): ProfileJson {
+  if (!platformId) return syntheticProfile(engineId!, lang);
   const file = profilePath(platformId);
   if (!fs.existsSync(file)) {
     const known = listPlatforms().map((p) => p.id).join(', ');
@@ -141,7 +202,7 @@ function loadProfile(platformId, engineId, lang = DEFAULT_LANG) {
   } catch (e) {
     // cause сохраняем: без него из сообщения не видно, в каком месте JSON сломан,
     // а именно это и нужно тому, кто правит профиль.
-    throw new Error(`Profile "${platformId}" is corrupted: ${e.message}`, { cause: e });
+    throw new Error(`Profile "${platformId}" is corrupted: ${(e as Error).message}`, { cause: e });
   }
 }
 
@@ -159,29 +220,29 @@ function loadProfile(platformId, engineId, lang = DEFAULT_LANG) {
 
 const DEFAULT_ENGINE = 'threejs';
 
-function enginePath(id) {
+function enginePath(id: string): string {
   const safe = String(id).replace(/[^a-z0-9_-]/gi, '');
   return path.join(ENGINES_DIR, `${safe}.json`);
 }
 
-function loadEngine(engineId) {
+function loadEngine(engineId: string): EngineJson | null {
   const id = engineId || DEFAULT_ENGINE;
   const file = enginePath(id);
   if (!fs.existsSync(file)) return null;
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
   } catch (e) {
-    throw new Error(`Engine "${id}" is corrupted: ${e.message}`, { cause: e });
+    throw new Error(`Engine "${id}" is corrupted: ${(e as Error).message}`, { cause: e });
   }
 }
 
 // Движок площадки. Профиль обязан называть его явно; фолбэк оставлен на случай
 // профиля, написанного до §4g, — он не должен ронять приложение.
-function engineIdOf(profile) {
+function engineIdOf(profile: ProfileJson): string {
   return (profile && profile.engine) || DEFAULT_ENGINE;
 }
 
-export function listEngines(lang = DEFAULT_LANG) {
+export function listEngines(lang: string = DEFAULT_LANG) {
   let files;
   try {
     files = fs.readdirSync(ENGINES_DIR).filter((f) => f.endsWith('.json'));
@@ -218,12 +279,12 @@ export function listEngines(lang = DEFAULT_LANG) {
 // интерфейс уже спрашивает, а не узнаёт об этом при появлении второго движка.
 // Что показать под книжечкой у прочерка. Не площадка, поэтому и не в listPlatforms():
 // отдельным полем ответа, чтобы список площадок остался списком площадок.
-export function noPlatformInfo(lang = DEFAULT_LANG) {
+export function noPlatformInfo(lang: string = DEFAULT_LANG) {
   const d = noneDefaults();
   return { description: pick(d.description, lang) };
 }
 
-export function platformsForEngine(engineId, lang = DEFAULT_LANG) {
+export function platformsForEngine(engineId: string, lang: string = DEFAULT_LANG) {
   return listPlatforms(lang).filter((p) => {
     try {
       return engineIdOf(loadProfile(p.id)) === engineId;
@@ -234,7 +295,7 @@ export function platformsForEngine(engineId, lang = DEFAULT_LANG) {
 }
 
 // Обратная сторона той же симметрии: какие движки годятся для площадки.
-export function enginesForPlatform(platformId, lang = DEFAULT_LANG) {
+export function enginesForPlatform(platformId: string, lang: string = DEFAULT_LANG) {
   let wanted;
   try {
     wanted = engineIdOf(loadProfile(platformId));
@@ -248,26 +309,26 @@ export function enginesForPlatform(platformId, lang = DEFAULT_LANG) {
 // Форматирование чисел для человеческих текстов (байты → МБ здесь, не в ядре)
 // ----------------------------------------------------------------------------
 
-const MB = (bytes) => bytes / (1024 * 1024);
+const MB = (bytes: number) => bytes / (1024 * 1024);
 
 // Единицы и разделитель разрядов — часть языка, а не константа. «11.4 MB» и «500,000»
 // посреди русского текста читаются как недоделка, потому что это она и есть.
-const UNITS = {
+const UNITS: Record<string, { kb: string; mb: string; locale: string }> = {
   en: { kb: 'KB', mb: 'MB', locale: 'en-US' },
   ru: { kb: 'КБ', mb: 'МБ', locale: 'ru-RU' },
 };
 
 // Возвращает форматтеры под язык. Внутри exported-функций результат кладётся в
 // одноимённые const — они перекрывают модульные, поэтому вызовы не переписываются.
-function formatters(lang) {
-  const u = UNITS[lang] || UNITS[DEFAULT_LANG];
+function formatters(lang: string) {
+  const u = UNITS[lang] || UNITS[DEFAULT_LANG]!;
   return {
     // Человеческий размер: до 1 МБ показываем в КБ, иначе в МБ — крошечные модели
     // не должны выглядеть как «0.0 МБ».
-    fmtMB: (bytes) => (bytes < 1024 * 1024
+    fmtMB: (bytes: number) => (bytes < 1024 * 1024
       ? `${Math.round(bytes / 1024)} ${u.kb}`
       : `${MB(bytes).toFixed(1)} ${u.mb}`),
-    fmtInt: (n) => Number(n).toLocaleString(u.locale),
+    fmtInt: (n: number) => Number(n).toLocaleString(u!.locale),
   };
 }
 
@@ -278,7 +339,7 @@ function formatters(lang) {
 // настоящие изменения: 6 380 → 6 376 байт — это −0.06 %, а показанный ноль рядом с
 // зелёной строкой читается как «инструмент ничего не сделал». Чем меньше изменение,
 // тем больше знаков; если и двух мало — говорим «меньше сотой доли», но не ноль.
-function pctMagnitude(before, after) {
+function pctMagnitude(before: number, after: number) {
   if (!before) return '0';
   const abs = Math.abs(((after - before) / before) * 100);
   const shown = abs.toFixed(abs >= 1 ? 0 : abs >= 0.1 ? 1 : 2);
@@ -287,7 +348,7 @@ function pctMagnitude(before, after) {
 
 // «−18%» / «+220%» / «0%». Ноль — только когда числа совпали ровно: словами «без
 // изменений» подписывать результат нельзя там, где что-то изменилось.
-function pctText(before, after) {
+function pctText(before: number, after: number) {
   if (!before || after === before) return '0%';
   return (after < before ? '−' : '+') + pctMagnitude(before, after) + '%';
 }
@@ -296,7 +357,7 @@ function pctText(before, after) {
 const HIGHLIGHT_MIN_PCT = 1;
 
 // «4×» / «4.5×» — множитель для нейтрального объяснения падения VRAM
-function timesLess(before, after) {
+function timesLess(before: number, after: number) {
   if (!after) return null;
   const ratio = before / after;
   if (ratio < 1.15) return null;
@@ -307,7 +368,7 @@ function timesLess(before, after) {
 // listPlatforms()
 // ----------------------------------------------------------------------------
 
-export function listPlatforms(lang = DEFAULT_LANG) {
+export function listPlatforms(lang: string = DEFAULT_LANG) {
   let files;
   try {
     files = fs.readdirSync(PROFILES_DIR).filter((f) => f.endsWith('.json'));
@@ -344,7 +405,7 @@ export function listPlatforms(lang = DEFAULT_LANG) {
 // две оси стали по-настоящему независимыми. У выбранной площадки движок свой, и
 // переданное значение игнорируется — иначе можно было бы посчитать план для пары,
 // которой не существует.
-export function planFor(platformId, lang = DEFAULT_LANG, engineId) {
+export function planFor(platformId: string, lang: string = DEFAULT_LANG, engineId?: string) {
   const t = messages(lang);
   const { fmtInt } = formatters(lang);
   const profile = loadProfile(platformId, engineId, lang);
@@ -373,9 +434,9 @@ export function planFor(platformId, lang = DEFAULT_LANG, engineId) {
   if (opts.stripColors) explanation.push(t('plan.stripColors'));
 
   // цель по бюджету платформы
-  const warnOf = (id) => (budgetEntry(b[id]) || {}).warn;
+  const warnOf = (id: string) => (budgetEntry(b[id]) || {}).warn;
   const targetBits = [];
-  if (warnOf('triangles')) targetBits.push(t('plan.goal.triangles', { n: fmtInt(warnOf('triangles')) }));
+  if (warnOf('triangles')) targetBits.push(t('plan.goal.triangles', { n: fmtInt(warnOf('triangles')!) }));
   if (warnOf('textureMaxSize')) targetBits.push(t('plan.goal.textureSize', { px: warnOf('textureMaxSize') }));
   if (warnOf('vramMB')) targetBits.push(t('plan.goal.vram', { mb: warnOf('vramMB') }));
   if (targetBits.length) {
@@ -419,7 +480,7 @@ export function planFor(platformId, lang = DEFAULT_LANG, engineId) {
 // Переопределение оставлено намеренно: если у площадки опция и правда работает
 // иначе, профиль может задать СВОЁ поле — оно победит. Это одно поле, а не копия
 // блока, и такой случай обязан быть исключением, а не нормой.
-function optionText(id, field, lang, override) {
+function optionText(id: string, field: string, lang: string, override?: unknown) {
   if (override != null && override !== '') return pick(override, lang);
   const t = messages(lang);
   const key = `option.${id}.${field}`;
@@ -444,12 +505,12 @@ function optionText(id, field, lang, override) {
 // а не прятать» (§4g) написано для ПОЛЕЙ ВЫБОРА, где человек ищет знакомое имя и, не
 // найдя, уходит искать ответ наружу. В списке опций искать нечего — ожидания нет, обмануть
 // его нельзя. Полную палитру движка человек видит, выбрав движок без площадки.
-export function narrowToPlatform(list, profile) {
+export function narrowToPlatform(list: ExtensionEntry[], profile: ProfileJson): ExtensionEntry[] {
   const drop = new Set(Array.isArray(profile && profile.excludeExtensions) ? profile.excludeExtensions : []);
   return drop.size ? list.filter((e) => !drop.has(e.id)) : list;
 }
 
-function extensionsOf(profile, lang = DEFAULT_LANG) {
+function extensionsOf(profile: ProfileJson, lang: string = DEFAULT_LANG): ExtensionEntry[] {
   const engine = loadEngine(engineIdOf(profile));
   const all = engine && Array.isArray(engine.availableExtensions) ? engine.availableExtensions : [];
   const list = narrowToPlatform(all, profile);
@@ -463,7 +524,7 @@ function extensionsOf(profile, lang = DEFAULT_LANG) {
   }));
 }
 
-export function getAvailableExtensions(platformId, lang = DEFAULT_LANG, engineId) {
+export function getAvailableExtensions(platformId: string, lang: string = DEFAULT_LANG, engineId?: string) {
   return extensionsOf(loadProfile(platformId, engineId, lang), lang);
 }
 
@@ -474,7 +535,7 @@ export const listExtensions = getAvailableExtensions;
 // explainResult(runResult, platformId)
 // ----------------------------------------------------------------------------
 
-export function explainResult(runResult, platformId, lang = DEFAULT_LANG) {
+export function explainResult(runResult: RunResultLike, platformId: string, lang: string = DEFAULT_LANG) {
   const t = messages(lang);
   const { fmtMB, fmtInt } = formatters(lang);
   // валидирует platformId (throws на неизвестном) — контракт §4c; budgets нужны для сверки
@@ -537,7 +598,7 @@ export function explainResult(runResult, platformId, lang = DEFAULT_LANG) {
   // весь список: если приложение хвалится ничем, читать его перестают. Не дотянуло до
   // порога — строки просто нет.
   const highlights = [];
-  const gainPct = (b, a) => (b ? ((b - a) / b) * 100 : 0);
+  const gainPct = (b: number, a: number) => (b ? ((b - a) / b) * 100 : 0);
 
   if (gainPct(before.fileBytes, after.fileBytes) >= HIGHLIGHT_MIN_PCT) {
     highlights.push(t('hi.fileLighter', { pct: Math.round(gainPct(before.fileBytes, after.fileBytes)) }));
@@ -593,7 +654,7 @@ export function explainResult(runResult, platformId, lang = DEFAULT_LANG) {
 // ----------------------------------------------------------------------------
 
 // метрика профиля → откуда брать значение результата и в чём измеряются пороги
-const BUDGET_SPEC = {
+const BUDGET_SPEC: Record<string, BudgetSpec> = {
   triangles: { nameKey: 'budget.triangles', adviceKey: 'advice.triangles', value: (a) => a.triangles, unit: 'int' },
   materials: { nameKey: 'budget.materials', adviceKey: 'advice.materials', value: (a) => a.materials, unit: 'int' },
   drawCalls: { nameKey: 'budget.drawCalls', adviceKey: 'advice.drawCalls', value: (a) => a.drawCalls, unit: 'int' },
@@ -603,14 +664,14 @@ const BUDGET_SPEC = {
 
 // Голое число в профиле = рекомендация без ссылки. Так пишут сторонние профили, и это
 // допустимо: автор отвечает за своё число сам. В наших профилях так быть не должно.
-function budgetEntry(raw) {
+function budgetEntry(raw: unknown): BudgetEntry | null {
   if (raw == null) return null;
   if (typeof raw === 'number') return { warn: raw };
-  if (typeof raw === 'object') return raw;
+  if (typeof raw === 'object') return raw as BudgetEntry;
   return null;
 }
 
-function buildBudgetChecks(budgets, after, lang = DEFAULT_LANG) {
+function buildBudgetChecks(budgets: Record<string, unknown>, after: MetricsLike, lang: string = DEFAULT_LANG) {
   const t = messages(lang);
   const { fmtMB, fmtInt } = formatters(lang);
   const checks = [];
@@ -624,9 +685,11 @@ function buildBudgetChecks(budgets, after, lang = DEFAULT_LANG) {
     // пороги профиля заданы в МБ, метрика приходит в байтах — сравниваем в единицах порога
     const actual = spec.unit === 'mb' ? MB(raw) : raw;
     const show = spec.unit === 'mb' ? fmtMB(raw) : fmtInt(raw);
-    const fmt = (v) => (spec.unit === 'mb' ? `${v} ${t('unit.mb')}` : fmtInt(v));
+    const fmt = (v: number) => (spec.unit === 'mb' ? `${v} ${t('unit.mb')}` : fmtInt(v));
 
-    const check = { id, name: t(spec.nameKey), actualText: show, level: 'none' };
+    // Поля source/by/limitText/warnText/advice появляются ниже по ветвям — объявляем
+    // форму записи заранее, иначе к литералу из четырёх полей пятое не добавить.
+    const check: BudgetCheck = { id, name: t(spec.nameKey), actualText: show, level: 'none' };
     // Откуда порог: ссылка на документ платформы либо наше собственное решение. Второе
     // тоже законно, но обязано выглядеть иначе — выдавать решение проекта за требование
     // платформы значит ровно то же враньё, ради борьбы с которым всё это затевалось.
@@ -656,8 +719,8 @@ function buildBudgetChecks(budgets, after, lang = DEFAULT_LANG) {
 // warnings — из skipped и validation (info|fail)
 // ----------------------------------------------------------------------------
 
-function collectWarnings(rr, t = messages(DEFAULT_LANG)) {
-  const warnings = [];
+function collectWarnings(rr: RunResultLike, t: Translate = messages(DEFAULT_LANG)) {
+  const warnings: string[] = [];
 
   if (Array.isArray(rr.skipped)) {
     for (const s of rr.skipped) {

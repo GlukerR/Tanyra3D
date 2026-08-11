@@ -116,3 +116,9 @@ addons/gltf/types.mjs
 addons/gltf/types.d.mts
 addons/gltf/index.mjs
 addons/gltf/index.d.mts
+optimize2.mjs
+optimize2.d.mts
+server.mjs
+server.d.mts
+assistant.mjs
+assistant.d.mts
