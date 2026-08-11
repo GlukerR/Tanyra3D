@@ -21,6 +21,24 @@ please open an issue.
 
 `npm run doctor` re-checks your environment without changing anything.
 
+### The sources are TypeScript — edit `.mts`/`.ts`, import `.mjs`/`.js`
+
+`npm install` compiles them (the build hangs on `prepare`), and the compiler puts the result
+next to the source under the same name: `core/engine.mts` → `core/engine.mjs`. That is why
+every import in the tree still ends in `.mjs` — it is the file the runtime loads. The built
+files are not in git; a fresh checkout is not runnable until you install.
+
+Two things surprise people:
+
+- **If installation fails on type errors, nothing was written at all.** `noEmitOnError` is on
+  deliberately — a half-built tree would run on stale files and lie about the cause.
+- **Message catalogs stay JavaScript on purpose** (`core/messages/`, `translations/`,
+  `ui/locales/` and friends). A translator edits those; generating them would let the next
+  build discard their work.
+
+`npm run typecheck` checks both compile projects (engine and browser) and writes nothing.
+Full detail: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §14.
+
 Design overview: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Adding your own rule:
 [`docs/EXTENDING.md`](docs/EXTENDING.md).
 

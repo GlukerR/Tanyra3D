@@ -1159,7 +1159,10 @@ export default {
 
 ## 11. Decisions that were open at design review (and how they were resolved)
 
-1. **Language** — proposed TypeScript. **Resolved: plain JavaScript (ESM, `.mjs`).**
+1. **Language** — proposed TypeScript. **Resolved twice.** At design review: plain JavaScript
+   (ESM, `.mjs`). Reversed on 2026-08-10: the project moved to TypeScript module by module,
+   and by 2026-08-11 every non-catalog module had followed. See §14 for what that means for
+   anyone reading or building the code.
 2. **Monorepo tool** — proposed pnpm workspaces. **Not resolved, because the question is not
    live yet:** the repository is flat and moves to `packages/*` only when the first external
    package appears (§3).
@@ -1190,3 +1193,37 @@ result. Transforms are thin adapters over glTF-Transform / meshopt / toktx — n
 reimplemented. Device targets are declarative profiles, not code. Ship a deep,
 trustworthy analyze-only CLI first; earn trust with a golden-asset test corpus before
 autofix; layer scoring, CI, and GUI surfaces onto the same core afterward.
+
+---
+
+## 14. Sources are TypeScript, the files you import are not (2026-08-11)
+
+The repository stopped being plain JavaScript on 2026-08-10 and finished the move a day
+later. Nothing about the shape of the project changed — only where the text you edit lives.
+
+**The rule in one line: edit `.mts` / `.ts`, import `.mjs` / `.js`.**
+
+| Layer | You edit | The compiler puts next to it | Project file |
+|---|---|---|---|
+| Engine, addon, top level | `core/engine.mts`, `addons/gltf/rules.mts`, `server.mts` | `core/engine.mjs`, … | `tsconfig.json` |
+| Browser | `ui/app.ts`, `ui/viewer/viewer.ts` | `ui/app.js`, … | `tsconfig.ui.json` |
+
+Consequences a newcomer will otherwise discover the hard way:
+
+- **Every import path in the tree still ends in `.mjs` (or `.js`).** That is the file the
+  runtime loads — the compiler emits it under the same name, in the same folder. No import
+  was rewritten during the move, and none should be.
+- **The built files are not in git and must not be added.** They are listed by name in
+  `.gitignore` and guarded by `tests/typescript-build.test.mjs`. A checkout is not runnable
+  until they exist.
+- **`npm ci` builds them** — `npm run build` hangs on `prepare`, so a clean clone is ready
+  to run. If installation fails with type errors, the tree is genuinely unbuildable:
+  `noEmitOnError` means a single error emits nothing at all, on purpose.
+- **`npm run typecheck`** checks both projects and writes nothing. It is what CI runs.
+- **Message catalogs stay JavaScript, deliberately** — `core/messages/`, `addons/gltf/messages/`,
+  `messages/`, `translations/`, `ui/locales/`. A translator edits those files; generating them
+  would mean the next build silently discards their work. Their shape is described by
+  hand-written `.d.mts` files sitting next to them, and those *are* in git.
+- **Two compile projects, not one, because the environments differ**: Node globals and
+  `.mts` → `.mjs` for the engine; DOM globals and `.ts` → `.js` for the browser. Mixing them
+  would let server code "see" `document`.

@@ -3,6 +3,12 @@
 > How the project grows over the long run. This is designed from the start but **built only
 > as needed** — no extension point is built before it pays for itself (§5). A companion to
 > `ARCHITECTURE.md`.
+>
+> **Where the code you write lives.** Since 2026-08-11 rules and addons are TypeScript:
+> the file you edit is `addons/gltf/rules.mts`, the file that gets imported is the
+> `rules.mjs` the compiler puts beside it. Rule and addon shapes are declared in
+> `core/types.mts` and `addons/gltf/types.mts` — write against them and the compiler will
+> tell you what a rule owes the engine. `ARCHITECTURE.md` §14 has the mechanics.
 
 ---
 
