@@ -102,3 +102,7 @@ core/contract.mjs
 core/contract.d.mts
 core/registry.mjs
 core/registry.d.mts
+core/i18n.mjs
+core/i18n.d.mts
+core/engine.mjs
+core/engine.d.mts

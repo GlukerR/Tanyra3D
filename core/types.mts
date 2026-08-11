@@ -31,13 +31,41 @@ export type Metrics = Record<string, unknown>;
 /** Доказуемость безопасности правки — от «доказано» до «теряем данные». */
 export type FixSafety = 'provable' | 'numeric' | 'perceptual' | 'lossy';
 
+// --- язык отдельно от кода (Правило 8) ---------------------------------------------
+
+/** Подстановки сообщения. Значение может быть и вложенным сообщением — см. MessageRef. */
+export type MessageData = Record<string, unknown>;
+
+/**
+ * Рецепт строки: ключ каталога плюс подстановки. Именно он позволяет пересобрать готовый
+ * отчёт на другом языке, не запуская обработку заново (localizeResult в core/i18n.mjs).
+ */
+export interface MessageRef {
+  messageId: string;
+  data?: MessageData;
+}
+
+/** Значение каталога: готовая строка с плейсхолдерами {ключ} либо функция от подстановок. */
+export type MessageTemplate = string | ((data: MessageData) => string);
+
+/** Каталог одного языка: ключ сообщения → шаблон. Живёт в messages/, не в логике. */
+export type MessageCatalog = Record<string, MessageTemplate>;
+
+/** Строка отчёта: либо готовый текст, либо рецепт, который переживёт смену языка. */
+export type Message = string | MessageRef;
+
 export interface RuleMeta {
   /** Стабильный идентификатор правила ('structure/dedup'). */
   id: string;
   /** Категория для отчёта ('geometry' | 'textures' | 'scene' | ...). */
   category: string;
-  /** Человекочитаемое название. */
+  /** Человекочитаемое название. Готовая строка — переводится только через titleKey. */
   title: string;
+  /**
+   * Ключ каталога для названия. Есть — заголовок переживает смену языка; нет — в отчёт
+   * идёт title как есть. Второе допустимо для правил, которых человек не видит.
+   */
+  titleKey?: string;
   severity: 'info' | 'warn' | 'error';
   fixSafety: FixSafety;
   /** basic — всегда; advanced — только по opt-in пользователя. */
@@ -84,14 +112,17 @@ export interface Finding {
 
 export interface FixDecision {
   safe: boolean;
-  /** Причина — идёт в отчёт (в «Пропущено», если !safe). */
-  reason: string;
+  /** Причина готовой строкой. Переживает смену языка только в паре с messageId. */
+  reason?: string;
+  /** Причина рецептом: ключ каталога плюс подстановки (предпочтительно). */
+  messageId?: string;
+  data?: MessageData;
   /** Форсировать применение выше AUTOFIX_MAX_TIER (напр. lossy по флагу). */
   force?: boolean;
 }
 
-/** Строка отчёта: готовый текст либо несколько строк сразу. */
-export type ReportLines = string | string[];
+/** Строка отчёта: готовый текст, рецепт сообщения либо несколько строк сразу. */
+export type ReportLines = Message | Message[];
 
 /** Результат fix(): строки для секций отчёта. Любое поле опционально. */
 export interface FixResult {
@@ -99,6 +130,11 @@ export interface FixResult {
   found?: ReportLines;
   /** → «Пропущено (и почему)» */
   skipped?: ReportLines;
+  /**
+   * → «Пропущено» с пометкой kind:'cost'. Отдельный канал от skipped, потому что смысл
+   * противоположный: там «не сделали», здесь «сделали, и вот цена» (результат вырос).
+   */
+  cost?: ReportLines;
   /** → «Применено» */
   details?: ReportLines;
   /** синоним details */
@@ -122,6 +158,12 @@ export interface Context {
   document: AddonDocument;
   io: AddonIO;
   opts: NormalizedOpts;
+  /**
+   * Путь к ИСХОДНОМУ файлу. Нужен правилам, которым важно то, что осталось за бортом
+   * разбора: список расширений из самого файла по документу не восстановить — неизвестное
+   * расширение библиотека при загрузке просто отбрасывает.
+   */
+  src: string;
   outDir: string;
   dstName: string;
   /** Обмен данными между правилами (напр. trianglesBeforeWeld). */
@@ -142,8 +184,38 @@ export interface NormalizedOpts {
   onProgress: ((e: Record<string, unknown>) => void) | null;
   log: (msg: string) => void;
   advancedFeatures: string[];
-  /** Поля, которые заводит и читает сам аддон (codec, texMode, locale, …). */
+  /** Язык отчёта. Неизвестная локаль откатывается на английский (core/i18n.mjs). */
+  locale?: string;
+  /** Взаимоисключающие фичи, которые разрешил аддон. Движок только отражает их в отчёте. */
+  exclusiveConflicts?: ExclusiveConflict[];
+  /** Поля, которые заводит и читает сам аддон (codec, texMode, safe, …). */
   [key: string]: unknown;
+}
+
+/**
+ * Разрешённый конфликт взаимоисключающих фич. Решение принимает АДДОН (он знает свои
+ * группы и приоритеты), движок лишь честно кладёт отказ в общий канал skipped — иначе
+ * вызов по API мог бы молча потерять выбор человека.
+ */
+export interface ExclusiveConflict {
+  /** Идентификатор группы ('geometryCompression'). */
+  group: string;
+  /** Правило, от чьего имени пойдёт запись в отчёт. */
+  ruleId: string;
+  selected: { feature: string; titleKey: string };
+  rejected: Array<{ feature: string; titleKey: string }>;
+}
+
+/**
+ * Минимум, который нужен движку от «того, от чьего имени идёт запись в Найдено».
+ * Под эту форму подходят и RuleMeta правила, и ENGINE_META самого движка — общий предок
+ * им не нужен, важна форма, а не происхождение.
+ */
+export interface FoundMeta {
+  id: string;
+  category: string;
+  severity: string;
+  fixSafety: string;
 }
 
 /** Что движок передаёт аддону в фазе проверки (core/engine.mjs, ФАЗА 4). */
@@ -156,7 +228,7 @@ export interface ValidateArgs {
   result: RunResult;
   /** Id правил, которые advanced-проход собирался применить. */
   advancedPlannedIds: string[];
-  addFound: (meta: RuleMeta, value: unknown) => void;
+  addFound: (meta: FoundMeta, value: ReportLines) => void;
   log: (msg: string) => void;
 }
 
@@ -179,6 +251,8 @@ export interface ReportArgs {
 export interface Addon {
   /** Расширения без точки ('glb', 'gltf'). */
   formats: string[];
+  /** Имя выходного файла по пути исходного (для glTF — всегда .glb). */
+  outputName: (src: string) => string;
   rules: Rule[];
   /** Ключи метрик, которые advanced-проход менять НЕ должен. */
   BASELINE_METRICS: string[];
@@ -206,14 +280,72 @@ export interface Addon {
   toJSON?: (srcPath: string) => Promise<Record<string, unknown>>;
 }
 
+/**
+ * Рецепты строк записи: поле записи → чем его пересобрать. Одним полем, а не парой
+ * messageId/data на запись: у skipped рецепт нужен И тексту, И причине по отдельности.
+ * Записи без рецептов поля не получают вовсе — пустой ключ только мусорил бы отчёт.
+ */
+export type I18nRefs = Record<string, MessageRef>;
+
+/** Почему запись оказалась в «Пропущено». Потребителю отчёта эти случаи не равны. */
+export type SkipKind =
+  /** фича не включена флажком */
+  | 'disabled'
+  /** правило отработало, менять было нечего */
+  | 'nothing'
+  /** правило отказалось: небезопасно на этой модели */
+  | 'unsafe'
+  /** уровень риска выше того, что применяется автоматически */
+  | 'policy'
+  /** правило отработало, но результат вырос — цену показываем рядом с галочкой */
+  | 'cost'
+  /** выбрана другая фича из той же взаимоисключающей группы */
+  | 'exclusive';
+
+export interface FindingEntry {
+  ruleId: string;
+  category: string;
+  severity: string;
+  fixSafety: string;
+  text: string;
+  i18n?: I18nRefs;
+}
+
+export interface SkippedEntry {
+  ruleId: string;
+  /** Та самая галочка (advancedFeatures), а не ruleId: иначе интерфейсу пришлось бы
+   *  держать свою таблицу «правило → флажок» и она разъехалась бы при переименовании. */
+  feature: string | null;
+  text: string;
+  reason: string;
+  kind: SkipKind;
+  i18n?: I18nRefs;
+}
+
+export interface AppliedEntry {
+  ruleId: string;
+  fixSafety: string;
+  /** §4d: можно ли отменить результат. */
+  reversible: boolean;
+  dataLoss: string;
+  text: string;
+  i18n?: I18nRefs;
+}
+
+export interface ValidationEntry {
+  level: 'pass' | 'info' | 'fail';
+  text: string;
+  i18n?: I18nRefs;
+}
+
 /** Публичный контракт (docs/ARCHITECTURE.md §4b). */
 export interface RunResult {
   status: 'ok' | 'skip' | 'fail';
   file: { src: string; dst: string | null; written: boolean; reportPath: string | null };
-  findings: Array<{ ruleId: string; category: string; severity: string; fixSafety: string; text: string }>;
-  skipped: Array<{ ruleId: string; text: string; reason: string }>;
-  applied: Array<{ ruleId: string; fixSafety: string; reversible: boolean; dataLoss: string; text: string }>;
-  validation: Array<{ level: 'pass' | 'info' | 'fail'; text: string }>;
+  findings: FindingEntry[];
+  skipped: SkippedEntry[];
+  applied: AppliedEntry[];
+  validation: ValidationEntry[];
   metrics: { before: Metrics | null; after: Metrics | null };
   error?: string;
 }

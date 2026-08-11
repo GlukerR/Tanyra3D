@@ -108,6 +108,8 @@ export default [
       'core/types.mjs',
       'core/contract.mjs',
       'core/registry.mjs',
+      'core/i18n.mjs',
+      'core/engine.mjs',
     ],
   },
 
