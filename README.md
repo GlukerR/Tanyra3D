@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Node](https://img.shields.io/badge/Node-20.9%2B-brightgreen)](https://nodejs.org/)
-[![Version](https://img.shields.io/badge/version-0.1.0-orange)](#status)
+[![Version](https://img.shields.io/badge/version-0.2.0-orange)](#status)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#install)
 
 Drop in a `.glb`, tick the boxes you want, get a smaller model back — along with a
@@ -427,19 +427,24 @@ The honest list of what the tool doesn't do, or doesn't do fully.
   trust it; use `draco` instead.
 - **Texture dimensions aren't checked.** The platform threshold is recorded and shown,
   but the core doesn't yet expose texture width and height.
-- **One target platform** — web on three.js. Profiles for mobile, Quest and Shopify exist
+- **Two engines, one store target.** The viewer renders through three.js or model-viewer,
+  and of the store targets only Shopify is switched on. The mobile and Quest profiles exist
   as data and carry real numbers (triangle and VRAM budgets, texture limits), but they are
-  drafts: nobody has measured a model against them. They ship switched off (`enabled: false`)
-  and are not offered in the interface.
+  drafts: nobody has measured a model against them. They ship switched off
+  (`enabled: false`) and are not offered in the interface.
 - **Batch processing is command-line only**; the web interface takes one model at a time.
 
 ---
 
 ## Status
 
-**0.1.0 — first release meant for other people.** Core, web interface and viewer work,
-the test suite is green on Node 20, 22 and 24. The desktop application installs like any
-other program — no terminal needed. The API may still change.
+**0.2.0 — the sources are TypeScript.** Core, interface and viewer are compiled from
+`.mts`/`.ts`; what the program does is what 0.1.1 did — the number records a change of
+language, not of features. The suite is green: 2878 tests, no failures.
+
+**0.1.1 is the last tagged build.** Core, web interface and viewer work, the test suite is
+green on Node 20, 22 and 24. The desktop application installs like any other program — no
+terminal needed. The API may still change.
 
 Installed and used on Windows. The macOS and Linux packages are built by CI from the same
 source and pass the same checks, but nobody has run them on real hardware yet — if you do,
