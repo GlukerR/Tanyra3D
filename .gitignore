@@ -106,3 +106,13 @@ core/i18n.mjs
 core/i18n.d.mts
 core/engine.mjs
 core/engine.d.mts
+addons/gltf/metrics.mjs
+addons/gltf/metrics.d.mts
+addons/gltf/tools.mjs
+addons/gltf/tools.d.mts
+addons/gltf/rules.mjs
+addons/gltf/rules.d.mts
+addons/gltf/types.mjs
+addons/gltf/types.d.mts
+addons/gltf/index.mjs
+addons/gltf/index.d.mts

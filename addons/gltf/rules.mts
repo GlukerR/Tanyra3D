@@ -22,6 +22,37 @@ import { ALL_EXTENSIONS, EXTTextureWebP } from '@gltf-transform/extensions';
 import { MeshoptEncoder } from 'meshoptimizer';
 
 import { render } from '../../core/i18n.mjs';
+
+import type { Document, Mesh, Node, Texture } from '@gltf-transform/core';
+
+import type { FixDecision, FixOut, GltfContext, GltfRule } from './types.mjs';
+import type { Message } from '../../core/types.mjs';
+
+/**
+ * Часть @gltf-transform/functions, которую правило KTX2 передаёт помощнику. Аргументом,
+ * а не импортом: помощник вызывается и с настоящим модулем, и с подменой в тестах.
+ */
+interface TextureSlotFns {
+  listTextureSlots: (tex: Texture) => string[];
+}
+
+/** Текстура-кандидат на перекодирование в WebP плюс исход попытки. */
+interface WebpCandidate {
+  tex: Texture;
+  name: string;
+  mime: string;
+  isData: boolean;
+  /** сообщение отказа кодировщика; поле появляется только на неудачной ветке */
+  failed?: string;
+  /** результат оказался не легче исходного — картинку вернули на место */
+  reverted?: boolean;
+}
+
+/** Разобранный JSON ассета. Читается ради `extensionsUsed` — остальное не наше дело. */
+interface AssetJson {
+  extensionsUsed?: string[];
+  [key: string]: unknown;
+}
 import { collectMetrics, countTriangles, effectiveSkins, listSemantics } from './metrics.mjs';
 import { HAS_GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 
@@ -58,8 +89,8 @@ const GPU_FORMATS = new Set(['ktx2', 'ktx', 'basis', 'dds']);
 // на глаз модель темнее оригинала.
 const COLOR_SLOT_RE = /color|emissive/i;
 
-function isColorTexture(tex, listSlots) {
-  const declared = tex.getGraph().listParentEdges(tex).some((e) => e.getAttributes().isColor);
+function isColorTexture(tex: Texture, listSlots: (tex: Texture) => string[]): boolean {
+  const declared = tex.getGraph().listParentEdges(tex).some((e: { getAttributes: () => { isColor?: boolean } }) => e.getAttributes().isColor);
   return declared || COLOR_SLOT_RE.test(listSlots(tex).join(' '));
 }
 
@@ -78,7 +109,7 @@ const KHR_DF_PRIMARIES_UNSPECIFIED = 0;
 const KHR_DF_TRANSFER_LINEAR = 1;
 const KHR_DF_TRANSFER_SRGB = 2;
 
-function relabelDataTextures(document, functions, out) {
+function relabelDataTextures(document: Document, functions: TextureSlotFns, out: { details: Message[] }): void {
   const relabeled = [];
   for (const tex of document.getRoot().listTextures()) {
     if (tex.getMimeType() !== 'image/ktx2') continue;
@@ -120,7 +151,7 @@ function relabelDataTextures(document, functions, out) {
 // Список берём из САМОГО файла: в GLB он лежит в JSON-чанке, в .gltf это обычный JSON.
 const KNOWN_EXTENSIONS = new Set(ALL_EXTENSIONS.map((e) => e.EXTENSION_NAME));
 
-function readAssetJson(srcPath) {
+function readAssetJson(srcPath: string): AssetJson | null {
   const buf = fs.readFileSync(srcPath);
   // .gltf — обычный JSON; .glb — контейнер, первый чанк JSON (спецификация glTF 2.0 §4.4).
   if (buf.length >= 4 && buf.readUInt32LE(0) === 0x46546c67) {
@@ -138,13 +169,13 @@ function readAssetJson(srcPath) {
 
 // Результат кэшируется в ctx.cache: файл читают несколько правил, а он может весить
 // сотни мегабайт.
-function unsupportedExtensions(ctx) {
+function unsupportedExtensions(ctx: GltfContext): string[] {
   const KEY = 'unsupportedExtensions';
-  if (ctx.cache && ctx.cache.has(KEY)) return ctx.cache.get(KEY);
-  let list;
+  if (ctx.cache && ctx.cache.has(KEY)) return ctx.cache.get(KEY) as string[];
+  let list: string[];
   try {
     const json = ctx.src ? readAssetJson(ctx.src) : null;
-    list = ((json && json.extensionsUsed) || []).filter((name) => !KNOWN_EXTENSIONS.has(name));
+    list = ((json && json.extensionsUsed) || []).filter((name: string) => !KNOWN_EXTENSIONS.has(name));
   } catch (e) {
     list = []; // файл не разобрался — этим займётся сама загрузка, здесь молчим
   }
@@ -155,7 +186,7 @@ function unsupportedExtensions(ctx) {
 // Готовый отказ для правил, которые переставляют или удаляют свойства. Общий, чтобы
 // причина у всех была одна и та же — человек должен увидеть одно объяснение, а не пять
 // разных формулировок одной беды.
-function refuseIfUnsupported(ctx) {
+function refuseIfUnsupported(ctx: GltfContext): FixDecision | null {
   const list = unsupportedExtensions(ctx);
   if (!list.length) return null;
   return { safe: false, messageId: 'unsupportedExtension.refuse', data: { list: list.join(', '), n: list.length } };
@@ -173,11 +204,11 @@ function refuseIfUnsupported(ctx) {
 // Такие модели существуют не в теории: сцена из локаторов, пустой риг, экспорт, где
 // геометрия не выгрузилась. Правильный ответ — не трогать её и сказать почему, а не
 // разобрать и упереться в проверку.
-function refuseIfWouldEmptyScene(ctx) {
+function refuseIfWouldEmptyScene(ctx: GltfContext): FixDecision | null {
   const root = ctx.document.getRoot();
   const nodes = root.listNodes();
   if (!nodes.length) return null;
-  const hasDrawable = nodes.some((n) => n.getMesh() || n.getCamera());
+  const hasDrawable = nodes.some((n: Node) => n.getMesh() || n.getCamera());
   if (hasDrawable) return null;
   return { safe: false, messageId: 'prune.refuse.wouldEmptyScene', data: { n: nodes.length } };
 }
@@ -188,8 +219,8 @@ function refuseIfWouldEmptyScene(ctx) {
 // дубликаты Blender (Alt+D) дают её сразу, обычные копии (Ctrl+D) — после дедупликации,
 // когда побайтно одинаковые меши сведены в один. Для объединения мешей это единственное,
 // что важно: такой меш нельзя запечь в вершины, не размножив его на каждого владельца.
-function sharedMeshes(document) {
-  const shared = new Set();
+function sharedMeshes(document: Document): Set<Mesh> {
+  const shared = new Set<Mesh>();
   for (const mesh of document.getRoot().listMeshes()) {
     let users = 0;
     for (const parent of mesh.listParents()) {
@@ -203,7 +234,7 @@ function sharedMeshes(document) {
 // Порядок пайплайна ЖЁСТКИЙ и выверен в v2 (кодируется через runAfter):
 // dedup → prune → vertex-colors → weld → degenerate → orphan → (flatten+join)
 // → prune → ktx2 → geometry-compress. Не менять.
-export const RULES = [
+export const RULES: GltfRule[] = [
   {
     meta: {
       id: 'structure/dedup', category: 'materials', title: 'Duplicate resources (dedup)', titleKey: 'rule.structureDedup',
@@ -220,7 +251,7 @@ export const RULES = [
       const b = { tex: root.listTextures().length, mat: root.listMaterials().length, acc: root.listAccessors().length };
       await ctx.document.transform(fns.dedup());
       const a = { tex: root.listTextures().length, mat: root.listMaterials().length, acc: root.listAccessors().length };
-      const out = { found: [], details: [] };
+      const out: { found: Message[]; details: Message[] } = { found: [], details: [] };
       if (b.tex > a.tex) { out.found.push({ messageId: 'dedup.found.textures', data: { n: b.tex - a.tex } }); out.details.push({ messageId: 'dedup.done.textures', data: { n: b.tex - a.tex } }); }
       if (b.mat > a.mat) { out.found.push({ messageId: 'dedup.found.materials', data: { n: b.mat - a.mat } }); out.details.push({ messageId: 'dedup.done.materials', data: { n: b.mat - a.mat } }); }
       if (b.acc > a.acc) { out.found.push({ messageId: 'dedup.found.accessors', data: { n: b.acc - a.acc } }); out.details.push({ messageId: 'dedup.done.accessors', data: { n: b.acc - a.acc } }); }
@@ -246,7 +277,7 @@ export const RULES = [
       await ctx.document.transform(fns.prune({ keepAttributes: false, keepLeaves: false }));
       const semAfter = listSemantics(ctx.document);
       const a = { tex: root.listTextures().length, mat: root.listMaterials().length, skins: root.listSkins().length, effSkins: effectiveSkins(ctx.document) };
-      const out = { found: [], details: [] };
+      const out: { found: Message[]; details: Message[] } = { found: [], details: [] };
       // Одна строка на ВСЕ убранные атрибуты, а не строка на каждый. Восемь неиспользуемых
       // UV-каналов давали восемь одинаковых по смыслу записей, различавшихся только
       // именем канала. Схлопывать их в интерфейсе нельзя честно: он видит готовые строки
@@ -299,16 +330,19 @@ export const RULES = [
       return { safe: true, messageId: 'vertexColors.safe', data: {} };
     },
     fix(finding, ctx) {
-      const out = { found: [], skipped: [], details: [] };
-      const el = [];
+      // Аннотация нужна: пустой массив без неё выводится как never[], и push в него —
+      // ошибка. Необязательные каналы (irreversible, cost) объявлены здесь же, потому
+      // что правило наполняет их условно, уже после создания объекта.
+      const out: FixOut = { found: [], skipped: [], details: [] };
+      const el: number[] = [];
       // Копим по атрибуту, а не отчитываемся на каждом меше: семь мешей с белым COLOR_0 —
       // это одна находка про семь мешей, а не семь находок. Ключ — сам атрибут (COLOR_0
       // и COLOR_1 смешивать нельзя) и то, что с ним решили сделать.
-      const buckets = new Map(); // `${sem}|${kind}` → { sem, kind, meshes: [] }
-      const note = (sem, kind, meshName) => {
+      const buckets = new Map<string, { sem: string; kind: string; meshes: string[] }>(); // `${sem}|${kind}` → { sem, kind, meshes: [] }
+      const note = (sem: string, kind: string, meshName: string) => {
         const key = `${sem}|${kind}`;
         if (!buckets.has(key)) buckets.set(key, { sem, kind, meshes: [] });
-        buckets.get(key).meshes.push(meshName);
+        buckets.get(key)!.meshes.push(meshName);
       };
       for (const mesh of ctx.document.getRoot().listMeshes()) {
         for (const prim of mesh.listPrimitives()) {
@@ -316,10 +350,10 @@ export const RULES = [
             if (!sem.startsWith('COLOR_')) continue;
             const acc = prim.getAttribute(sem);
             let allWhite = true;
-            const n = acc.getCount();
+            const n = acc!.getCount();
             for (let i = 0; i < n; i++) {
-              acc.getElement(i, el); // нормализованные float-значения
-              if (el.some((v) => v < 0.999)) { allWhite = false; break; }
+              acc!.getElement(i, el); // нормализованные float-значения
+              if (el.some((v: number) => v < 0.999)) { allWhite = false; break; }
             }
             const meshName = mesh.getName() || '—';
             if (allWhite) {
@@ -342,7 +376,7 @@ export const RULES = [
         const data = one
           ? { sem: b.sem, mesh: b.meshes[0] }
           : { sem: b.sem, n: b.meshes.length, list: b.meshes.join(', ') };
-        const id = (base) => (one ? base : `${base}.many`);
+        const id = (base: string) => (one ? base : `${base}.many`);
         if (b.kind === 'white') {
           out.found.push({ messageId: id('vertexColors.found.white'), data });
           out.details.push({ messageId: id('vertexColors.done.white'), data });
@@ -408,13 +442,17 @@ export const RULES = [
           if (prim.getMode() !== 4) continue; // только TRIANGLES
           const indices = prim.getIndices();
           if (!indices || patched.has(indices)) continue;
-          const arr = indices.getArray();
-          const out = [];
+          // `!` вместо проверок: getArray() у аксессора с индексами непустой — сюда
+          // не доходят примитивы без индексов (см. проверку выше). Конструктор берётся
+          // у самого массива, чтобы сохранить его тип (Uint16Array/Uint32Array), —
+          // приведение нужно только компилятору, в собранном коде его нет.
+          const arr = indices.getArray()!;
+          const out: number[] = [];
           for (let i = 0; i + 2 < arr.length; i += 3) {
             const a = arr[i], b = arr[i + 1], c = arr[i + 2];
-            if (a !== b && b !== c && a !== c) out.push(a, b, c);
+            if (a !== b && b !== c && a !== c) out.push(a!, b!, c!);
           }
-          if (out.length < arr.length) indices.setArray(new arr.constructor(out));
+          if (out.length < arr.length) indices.setArray(new (arr.constructor as Uint32ArrayConstructor)(out));
           patched.add(indices); // общий аксессор не обрабатываем дважды
         }
       }
@@ -453,7 +491,7 @@ export const RULES = [
           if (!pos || !prim.getIndices()) continue;
           before += pos.getCount();
           fns.compactPrimitive(prim);
-          after += prim.getAttribute('POSITION').getCount();
+          after += prim.getAttribute('POSITION')!.getCount();
         }
       }
       if (before > after) {
@@ -505,7 +543,7 @@ export const RULES = [
       // логики объединения мы не пишем — это штатная опция filter самой библиотеки.
       await ctx.document.transform(fns.flatten());
       const shared = sharedMeshes(ctx.document);
-      await ctx.document.transform(fns.join({ filter: (node) => !shared.has(node.getMesh()) }));
+      await ctx.document.transform(fns.join({ filter: (node) => !shared.has(node.getMesh()!) }));
 
       const a = m();
 
@@ -642,7 +680,10 @@ export const RULES = [
       return { safe: true, messageId: 'ktx2.safe', data: {} };
     },
     async fix(finding, ctx) {
-      const out = { found: [], skipped: [], details: [] };
+      // Аннотация нужна: пустой массив без неё выводится как never[], и push в него —
+      // ошибка. Необязательные каналы (irreversible, cost) объявлены здесь же, потому
+      // что правило наполняет их условно, уже после создания объекта.
+      const out: FixOut = { found: [], skipped: [], details: [] };
       // Вес картинок до перекодирования — чтобы в конце сказать, во что обошёлся KTX2.
       // Мерить надо здесь, внутри правила: снаружи видно только итоговый файл, а в нём
       // смешаны все включённые оптимизации, и приписать рост конкретной галочке уже
@@ -674,7 +715,7 @@ export const RULES = [
         }
         if (mime === 'image/webp' || mime === 'image/jpeg') {
           const sharp = (await import('sharp')).default; // ленивый импорт: нужен только для WebP/JPEG
-          const png = await sharp(Buffer.from(tex.getImage())).png().toBuffer();
+          const png = await sharp(Buffer.from(tex.getImage()!)).png().toBuffer();
           tex.setImage(png);
           tex.setMimeType('image/png');
           toPng.set(mime, (toPng.get(mime) || 0) + 1);
@@ -730,7 +771,7 @@ export const RULES = [
       if (mixed) {
         // Имена перечисляем, только если они есть: у безымянных текстур список
         // выродился бы в «—, —, —, —, —».
-        const named = (list) => list.filter(Boolean).join(', ');
+        const named = (list: string[]) => list.filter(Boolean).join(', ');
         if (colorTex.length) out.details.push({ messageId: 'ktx2.done.color', data: { n: colorTex.length, list: named(colorTex) } });
         if (dataTex.length) out.details.push({ messageId: 'ktx2.done.data', data: { n: dataTex.length, list: named(dataTex) } });
       } else {
@@ -783,17 +824,23 @@ export const RULES = [
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
     canFix() { return { safe: true, messageId: 'webp.safe', data: {} }; },
     async fix(finding, ctx) {
-      const out = { found: [], skipped: [], details: [] };
+      // Аннотация нужна: пустой массив без неё выводится как never[], и push в него —
+      // ошибка. Необязательные каналы (irreversible, cost) объявлены здесь же, потому
+      // что правило наполняет их условно, уже после создания объекта.
+      const out: FixOut = { found: [], skipped: [], details: [] };
 
       // Что вообще можно кодировать. KTX2 (image/ktx2) не трогаем: это уже готовый
       // формат для видеокарты, и «сжать» его в WebP значило бы распаковать обратно.
       const CONVERTIBLE = new Set(['image/png', 'image/jpeg']);
-      const cands = [];
+      // Кандидат на перекодирование. Поля failed/reverted появляются ПОЗЖЕ, уже после
+      // попытки, — поэтому объявлены здесь необязательными: без объявления компилятор
+      // видел бы объект из четырёх полей и не пускал бы к нему пятое.
+      const cands: WebpCandidate[] = [];
       // Пропуски копим группами, а не пишем строкой на текстуру: на ABeautifulGame
       // это давало двадцать одинаковых строк подряд, на Production Many Materials 01 — одиннадцать.
-      const skips = { already: [], noMime: [], jpegData: [] };
-      const byFormat = new Map(); // формат для видеокарты: mime без "image/" → имена
-      const byUnsupported = new Map(); // прочие форматы, которые мы не кодируем
+      const skips: { already: string[]; noMime: string[]; jpegData: string[] } = { already: [], noMime: [], jpegData: [] };
+      const byFormat = new Map<string, string[]>(); // формат для видеокарты: mime без "image/" → имена
+      const byUnsupported = new Map<string, string[]>(); // прочие форматы, которые мы не кодируем
       for (const tex of ctx.document.getRoot().listTextures()) {
         const mime = tex.getMimeType() || '';
         const name = tex.getName() || '—';
@@ -811,7 +858,7 @@ export const RULES = [
           const short = mime.replace('image/', '');
           const bucket = GPU_FORMATS.has(short) ? byFormat : byUnsupported;
           if (!bucket.has(short)) bucket.set(short, []);
-          bucket.get(short).push(name);
+          bucket.get(short)!.push(name);
           continue;
         }
         // Тот же раздел, что у KTX2: нормали, occlusion и roughness — это ЧИСЛА,
@@ -829,7 +876,7 @@ export const RULES = [
 
       // Одна текстура — называем её по имени; несколько — только счёт. Перечислять
       // десяток безымянных «—» смысла нет, а строка отчёта становится нечитаемой.
-      const reportSkips = (names, id, extra = {}) => {
+      const reportSkips = (names: string[], id: string, extra: Record<string, unknown> = {}) => {
         if (names.length === 1) out.skipped.push({ messageId: id, data: { name: names[0], ...extra } });
         else if (names.length > 1) out.skipped.push({ messageId: `${id}.many`, data: { n: names.length, ...extra } });
       };
@@ -856,12 +903,13 @@ export const RULES = [
           });
         } catch (e) {
           // Битая или экзотическая картинка не должна ронять всю сборку.
-          c.failed = e && e.message ? e.message : String(e);
+          const err = e as { message?: string } | null | undefined;
+          c.failed = err && err.message ? err.message : String(e);
           return;
         }
         const after = c.tex.getImage();
-        if (!after || after.byteLength >= before.byteLength) {
-          c.tex.setImage(before).setMimeType(c.mime);
+        if (!after || after.byteLength >= before!.byteLength) {
+          c.tex.setImage(before!).setMimeType(c.mime);
           c.reverted = true;
         }
       }));
@@ -993,7 +1041,7 @@ export const RULES = [
       await ctx.document.transform(fns.quantize(hasSkins ? { quantizationVolume: 'scene' } : {}));
 
       const after = geomBytes();
-      const details = [{
+      const details: Message[] = [{
         messageId: 'quantize.done',
         data: { pct: before > 0 ? Math.round((before - after) / before * 100) : 0 },
       }];

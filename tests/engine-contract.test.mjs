@@ -165,12 +165,15 @@ function collectEmitted(result) {
 // Дополняет динамический сбор: ключ, упомянутый в коде, но не сработавший на
 // корпусе, — не мусор. .many-варианты и составные id — в явном списке исключений.
 function staticMessageIds() {
+  // Читается ИСТОЧНИК. Часть модулей с 2026-08-11 живёт в `.mts`, а `.mjs` рядом —
+  // собранный: на чистом клоне до сборки его нет, а ключи человек правит не в нём.
+  // Какое расширение сейчас настоящее, решает файловая система, а не запись здесь.
   const files = [
-    'addons/gltf/rules.mjs',
-    'addons/gltf/index.mjs',
-    'core/engine.mjs',
-    'core/contract.mjs',
-  ];
+    'addons/gltf/rules',
+    'addons/gltf/index',
+    'core/engine',
+    'core/contract',
+  ].map((base) => (fs.existsSync(`${base}.mts`) ? `${base}.mts` : `${base}.mjs`));
   const out = new Set();
   for (const f of files) {
     const src = fs.readFileSync(path.resolve(f), 'utf8');

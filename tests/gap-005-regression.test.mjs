@@ -14,10 +14,15 @@
 // снова (BASELINE_METRICS откатили к 6 ключам, BASELINE_SOFT снова без 'nodes',
 // geometry/compress снова на 'basic') — тесты этого файла упадут.
 //
-// Хранилище ИСТИНЫ — addons/gltf/metrics.mjs. Импорт модуля запрещён правилом
+// Хранилище ИСТИНЫ — модуль метрик аддона. Импорт модуля запрещён правилом
 // роли («только публичное API через optimize2.mjs»), поэтому читаем исходник
 // как текст через fs.readFileSync. Это текстовая проверка файла, а не
 // обращение к функциональности — не нарушает правило «не импортируй внутренности».
+//
+// С 2026-08-11 источник — `metrics.mts`, рядом с ним компилятор кладёт собранный
+// `metrics.mjs`. Читать надо ИСТОЧНИК: собранного файла на чистом клоне до сборки
+// нет вовсе, а этот тест гоняется в pre-commit — он упал бы на пустом месте. Плюс
+// смысл сторожа в том, чтобы стеречь то, что человек правит руками.
 //
 // Тяжёлый поведенческий тест на parkergirl (456 морф-сет) — в
 // tests/post-gap005-corpus.test.mjs; здесь он не дублируется, чтобы не
@@ -31,7 +36,10 @@ import fs from 'node:fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
-const METRICS_SOURCE_PATH = path.resolve(PROJECT_ROOT, 'addons/gltf/metrics.mjs');
+// Источник, а не собранное: .mts, пока он есть; .mjs — для истории и на случай отката.
+const METRICS_SOURCE_PATH = ['addons/gltf/metrics.mts', 'addons/gltf/metrics.mjs']
+  .map((p) => path.resolve(PROJECT_ROOT, p))
+  .find((p) => fs.existsSync(p)) || path.resolve(PROJECT_ROOT, 'addons/gltf/metrics.mts');
 
 function modelPath(name) {
   return path.resolve(PROJECT_ROOT, 'fixtures/models', name);
@@ -39,7 +47,7 @@ function modelPath(name) {
 
 // ----- SOURCE-OF-TRUTH: BASELINE_METRICS / BASELINE_SOFT из файла -----
 //
-// Парсим текст addons/gltf/metrics.mjs:
+// Парсим текст источника метрик (addons/gltf/metrics.mts):
 //   export const BASELINE_METRICS = [ 'a', 'b', ... ];
 //   export const BASELINE_SOFT   = new Set([ 'a', 'b' ]);
 //
@@ -49,7 +57,10 @@ function modelPath(name) {
 
 function parseBaselineBlock(content, name) {
   // Один регексп на обе формы: `= [ ... ]` и `= new Set([ ... ])`.
-  const re = new RegExp(`export\\s+const\\s+${name}\\s*=\\s*(?:new\\s+Set\\()?\\[([^\\]]*)\\]`, 'm');
+  // `(?::[^=]+)?` — необязательная аннотация типа между именем и `=`. В самом источнике
+  // её сейчас нет намеренно (см. комментарий у BASELINE_METRICS), но регексп, который
+  // молча умирает от двоеточия, — это сторож, который однажды перестанет сторожить.
+  const re = new RegExp(`export\\s+const\\s+${name}\\s*(?::[^=]+)?=\\s*(?:new\\s+Set\\()?\\[([^\\]]*)\\]`, 'm');
   const m = content.match(re);
   if (!m) return null;
   return m[1]
@@ -61,7 +72,7 @@ function parseBaselineBlock(content, name) {
 describe('GAP-005 Source Code Checks — BASELINE_METRICS · BASELINE_SOFT', () => {
   // Санти: исходник читается; оба блока находятся; иначе regex устарел
   // и остальные проверки этого describe шумят ложно.
-  it('addons/gltf/metrics.mjs parses — both BASELINE_METRICS and BASELINE_SOFT found', () => {
+  it('источник метрик разбирается — both BASELINE_METRICS and BASELINE_SOFT found', () => {
     expect(fs.existsSync(METRICS_SOURCE_PATH)).toBe(true);
     const text = fs.readFileSync(METRICS_SOURCE_PATH, 'utf-8');
     expect(parseBaselineBlock(text, 'BASELINE_METRICS')).not.toBeNull();
