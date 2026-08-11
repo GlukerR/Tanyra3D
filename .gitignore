@@ -100,3 +100,5 @@ core/types.mjs
 core/types.d.mts
 core/contract.mjs
 core/contract.d.mts
+core/registry.mjs
+core/registry.d.mts
