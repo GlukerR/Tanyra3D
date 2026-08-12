@@ -23,7 +23,7 @@ import { MeshoptEncoder } from 'meshoptimizer';
 
 import { render } from '../../core/i18n.mjs';
 
-import type { Document, Mesh, Node, Texture } from '@gltf-transform/core';
+import type { Accessor, Document, Mesh, Node, Primitive, Texture } from '@gltf-transform/core';
 
 import type { FixDecision, FixOut, GltfContext, GltfRule } from './types.mjs';
 import type { Message } from '../../core/types.mjs';
@@ -231,9 +231,175 @@ function sharedMeshes(document: Document): Set<Mesh> {
   return shared;
 }
 
+// ============================================================================
+// СКИННИНГ: общая механика трёх правил, которые чинят замечания валидатора Khronos
+// (docs/ROADMAP.md §5b1). Здесь только чтение и запись влияний костей; что именно
+// считать дефектом — дело самих правил.
+//
+// Почему это отдельный блок, а не три копии обхода. Все три правила ходят по одним и
+// тем же данным (JOINTS_n/WEIGHTS_n), и разойдись обходы — разойдётся и понимание того,
+// что такое «вершина» в модели с восемью влияниями.
+// ============================================================================
+
+/** Пара аксессоров одного набора влияний: JOINTS_n и WEIGHTS_n. */
+interface SkinSet {
+  joints: Accessor;
+  weights: Accessor;
+}
+
+// Наборы влияний примитива по порядку n. Спецификация glTF 2.0 (§3.7.3.2) требует, чтобы
+// JOINTS_n и WEIGHTS_n шли парами и нумеровались подряд с нуля, поэтому первая же дырка
+// заканчивает список. Пустой массив — примитив не скиннутый, таких большинство.
+function skinSets(prim: Primitive): SkinSet[] {
+  const out: SkinSet[] = [];
+  for (let n = 0; ; n++) {
+    const joints = prim.getAttribute(`JOINTS_${n}`);
+    const weights = prim.getAttribute(`WEIGHTS_${n}`);
+    if (!joints || !weights) break;
+    out.push({ joints, weights });
+  }
+  return out;
+}
+
+// Обход всех скиннутых вершин документа — по одному разу на НАБОР аксессоров, а не на
+// примитив. Один и тот же JOINTS_0 бывает у нескольких примитивов (общая геометрия), и
+// без этой проверки его вершины считались бы дважды: работа идемпотентна и вреда бы не
+// было, но число в отчёте оказалось бы вдвое больше правды.
+function forEachSkin(document: Document, visit: (sets: SkinSet[], vertices: number) => void): void {
+  const ids = new Map<object, number>();
+  const idOf = (o: object): number => {
+    let id = ids.get(o);
+    if (id === undefined) { id = ids.size; ids.set(o, id); }
+    return id;
+  };
+  const seen = new Set<string>();
+  for (const mesh of document.getRoot().listMeshes()) {
+    for (const prim of mesh.listPrimitives()) {
+      const sets = skinSets(prim);
+      if (!sets.length) continue;
+      const key = sets.map((s) => `${idOf(s.joints)}:${idOf(s.weights)}`).join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      visit(sets, sets[0]!.joints.getCount());
+    }
+  }
+}
+
+// Потолок нормализованного целого. Веса разрешено хранить и во float (5126), и
+// нормализованными ubyte/ushort — у последних запись это округление value × MAX.
+const NORMALIZED_MAX: Record<number, number> = { 5121: 255, 5123: 65535 };
+
+function normalizedMaxOf(acc: Accessor): number | null {
+  if (!acc.getNormalized()) return null;
+  return NORMALIZED_MAX[acc.getComponentType()] ?? null;
+}
+
+// Записать доли вершины так, чтобы сумма осталась единицей И ПОСЛЕ записи.
+//
+// Во float достаточно поделить на сумму. С нормализованными целыми деления мало:
+// три доли по 1/3 запишутся как 85+85+85 = 255 (повезло), а 0.7 и 0.3 — как 179+77 = 256
+// (не повезло), и валидатор пожалуется снова, теперь уже на нашу работу. Поэтому для
+// целых доли считаются В ЦЕЛЫХ методом наибольших остатков, а обратно кладётся ровно
+// k/MAX — обратное преобразование вернёт то самое k, без сюрпризов округления.
+function writeNormalizedWeights(sets: SkinSet[], index: number, rows: number[][], sum: number): void {
+  const max = normalizedMaxOf(sets[0]!.weights);
+  if (max === null) {
+    for (let s = 0; s < sets.length; s++) {
+      sets[s]!.weights.setElement(index, rows[s]!.map((v) => v / sum));
+    }
+    return;
+  }
+
+  // Плоский список долей: границы наборов для дележа значения не имеют, вершина одна.
+  const flat: number[] = [];
+  for (const row of rows) for (const v of row) flat.push(v);
+
+  const exact = flat.map((v) => (v / sum) * max);
+  const ints = exact.map((v) => Math.floor(v));
+  let rest = max - ints.reduce((a, b) => a + b, 0);
+  // Остаток раздаётся тем, у кого дробная часть больше, — по единице. Так расхождение с
+  // точным значением у каждой доли меньше одного шага квантования.
+  const order = exact
+    .map((v, i) => ({ i, frac: v - Math.floor(v) }))
+    .sort((a, b) => b.frac - a.frac);
+  for (let k = 0; k < order.length && rest > 0; k++, rest--) ints[order[k]!.i]! += 1;
+
+  let at = 0;
+  for (let s = 0; s < sets.length; s++) {
+    const row = rows[s]!.map(() => ints[at++]! / max);
+    sets[s]!.weights.setElement(index, row);
+  }
+}
+
+// Веса вершины одним плоским списком плюс их сумма. Наборов может быть несколько
+// (WEIGHTS_0 и WEIGHTS_1 — это восемь влияний на вершину), и сумма считается по ВСЕМ:
+// требование спецификации предъявлено к вершине, а не к отдельному аксессору.
+function readWeights(sets: SkinSet[], index: number, rows: number[][]): number {
+  let sum = 0;
+  for (let s = 0; s < sets.length; s++) {
+    const row = rows[s]!;
+    row.length = 0;
+    sets[s]!.weights.getElement(index, row);
+    for (const v of row) sum += v;
+  }
+  return sum;
+}
+
+// Узел без собственного преобразования. Сравнение точное, без допуска: «почти
+// единичное» преобразование — это уже пересчёт сцены, а правило обещает доказуемость.
+function isIdentityNode(node: Node): boolean {
+  const t = node.getTranslation();
+  const r = node.getRotation();
+  const s = node.getScale();
+  return t[0] === 0 && t[1] === 0 && t[2] === 0
+    && r[0] === 0 && r[1] === 0 && r[2] === 0 && r[3] === 1
+    && s[0] === 1 && s[1] === 1 && s[2] === 1;
+}
+
+/** Узлы, у которых хоть один канал анимации меняет преобразование. */
+function animatedNodes(document: Document): Set<Node> {
+  const out = new Set<Node>();
+  for (const anim of document.getRoot().listAnimations()) {
+    for (const channel of anim.listChannels()) {
+      const target = channel.getTargetNode();
+      if (target) out.add(target);
+    }
+  }
+  return out;
+}
+
+/** Заготовки строк под наборы влияний — чтобы не выделять массив на каждую вершину. */
+function rowsFor(sets: SkinSet[]): number[][] {
+  return sets.map(() => []);
+}
+
+// Допуск на сумму влияний — во float, потому что четыре-восемь сложений float32 дают
+// расхождение в последних битах, и гоняться за ним значит переписывать веса всей модели
+// ради нуля разницы. 1e-6 на два порядка больше шума и на пять порядков меньше того, что
+// валидатор называет ошибкой (замер: 0.86 при ожидаемой единице).
+const WEIGHT_SUM_EPS = 1e-6;
+
+// Сумма влияний уже единица? Вопрос задаётся в том виде хранения, в каком лежат данные, —
+// иначе ответ разойдётся с валидатором. У нормализованных целых единица это ТОЧНОЕ
+// равенство суммы целых потолку (255 или 65535): 0.5 + 0.5 во float безупречны, а в
+// ubyte это 128 + 128 = 256, то есть перебор на один шаг, и файл невалиден.
+function weightsAreUnit(sets: SkinSet[], rows: number[][], sum: number): boolean {
+  const max = normalizedMaxOf(sets[0]!.weights);
+  if (max === null) return Math.abs(sum - 1) <= WEIGHT_SUM_EPS;
+  let ints = 0;
+  for (const row of rows) for (const v of row) ints += Math.round(v * max);
+  return ints === max;
+}
+
 // Порядок пайплайна ЖЁСТКИЙ и выверен в v2 (кодируется через runAfter):
-// dedup → prune → vertex-colors → weld → degenerate → orphan → (flatten+join)
+// dedup → prune → vertex-colors → skin-joints-dedupe → skin-weights-normalize →
+// skin-zero-weight-joints → weld → degenerate → orphan → (flatten+join)
 // → prune → ktx2 → geometry-compress. Не менять.
+//
+// Три правила скиннинга вставлены 2026-08-12 между цветами и сваркой. Место выбрано не
+// свободным: чистка влияний обязана пройти ДО weld и до сжатия геометрии (§5b1), иначе
+// кодек закрепит мусор, а сварка не сведёт вершины, которые стали одинаковыми только
+// после чистки. Прежняя цепочка сохранена целиком — новый участок вложен внутрь неё.
 export const RULES: GltfRule[] = [
   {
     meta: {
@@ -398,8 +564,247 @@ export const RULES: GltfRule[] = [
 
   {
     meta: {
+      // Одна и та же кость записана в вершину дважды. Валидатор:
+      // ACCESSOR_JOINTS_INDEX_DUPLICATE. Починка — сложить доли в первое вхождение,
+      // второе обнулить: сумма влияний на вершину не меняется НИ НА СКОЛЬКО, поэтому
+      // provable, а не numeric. Матрица кости одна и та же, складывать её доли законно.
+      id: 'skin/joints-dedupe', category: 'geometry', title: 'Duplicate joint per vertex', titleKey: 'rule.skinJointsDedupe',
+      severity: 'warn', fixSafety: 'provable', tier: 'basic', runAfter: ['attributes/vertex-colors'], touches: ['accessor'],
+      reversible: false, dataLoss: 'none', // складываем доли одной и той же кости — данных не убыло
+      enabled: (o) => o.safe || o.compress, // чистка влияний нужна и перед сжатием (§5b1)
+    },
+    analyze() { return [{ messageId: 'pipeline', data: {} }]; },
+    canFix() { return { safe: true, messageId: 'skinJoints.safe', data: {} }; },
+    fix(finding, ctx) {
+      const out: FixOut = { found: [], skipped: [], details: [] };
+      let vertices = 0;
+      let merged = 0;
+
+      forEachSkin(ctx.document, (sets, count) => {
+        const jrows = rowsFor(sets);
+        const wrows = rowsFor(sets);
+        for (let i = 0; i < count; i++) {
+          for (let s = 0; s < sets.length; s++) {
+            jrows[s]!.length = 0;
+            sets[s]!.joints.getElement(i, jrows[s]!);
+            wrows[s]!.length = 0;
+            sets[s]!.weights.getElement(i, wrows[s]!);
+          }
+          // Плоский обход: дубль ищется по всей вершине, а не внутри одного набора —
+          // кость может стоять и в JOINTS_0, и в JOINTS_1.
+          const firstAt = new Map<number, [number, number]>();
+          let touched = false;
+          for (let s = 0; s < sets.length; s++) {
+            for (let c = 0; c < jrows[s]!.length; c++) {
+              const joint = jrows[s]![c]!;
+              const weight = wrows[s]![c]!;
+              // Место с нулевой долей — НАБИВКА, а не влияние: у вершины, которую двигает
+              // одна кость, остальные три места заняты нулями, и все три ссылаются на
+              // кость 0. Считать их повторами значит объявить дефектом обычную запись
+              // (замер 2026-08-12: 49 124 «повтора» на chibi_zenitsu там, где валидатор
+              // видит ровно два). Пустыми местами занимается skin/zero-weight-joints.
+              if (weight === 0) continue;
+              const seen = firstAt.get(joint);
+              if (seen === undefined) { firstAt.set(joint, [s, c]); continue; }
+              // Дубль: доля уезжает в первое вхождение, здесь остаётся пустое место.
+              // Индекс тоже обнуляется — иначе на его месте останется кость с нулевым
+              // весом, то есть следующее замечание валидатора вместо этого.
+              wrows[seen[0]]![seen[1]] = wrows[seen[0]]![seen[1]]! + weight;
+              wrows[s]![c] = 0;
+              jrows[s]![c] = 0;
+              merged++;
+              touched = true;
+            }
+          }
+          if (!touched) continue;
+          for (let s = 0; s < sets.length; s++) {
+            sets[s]!.joints.setElement(i, jrows[s]!);
+            sets[s]!.weights.setElement(i, wrows[s]!);
+          }
+          vertices++;
+        }
+      });
+
+      // Одна запись на класс, а не на вершину: дублей бывают тысячи (Правило 9).
+      if (vertices) {
+        out.found.push({ messageId: 'skinJoints.found.duplicate', data: { n: vertices, joints: merged } });
+        out.details.push({ messageId: 'skinJoints.done.duplicate', data: { n: vertices, joints: merged } });
+      }
+      return out;
+    },
+  },
+
+  {
+    meta: {
+      // Сумма влияний на вершину не равна единице. Валидатор:
+      // ACCESSOR_WEIGHTS_NON_NORMALIZED. Починка — поделить доли на их сумму.
+      //
+      // numeric, а не provable, и это честно: числа МЕНЯЮТСЯ. Но меняются в ту сторону,
+      // которую автор модели и имел в виду: шейдер скиннинга веса не нормализует, он
+      // просто складывает взвешенные матрицы, — при сумме 0.86 вершина стягивалась к
+      // началу координат на 14 %. То есть правило чинит видимый глазом дефект, а не
+      // приводит файл в порядок ради валидатора.
+      id: 'skin/weights-normalize', category: 'geometry', title: 'Skin weights normalization', titleKey: 'rule.skinWeightsNormalize',
+      severity: 'warn', fixSafety: 'numeric', tier: 'basic', runAfter: ['skin/joints-dedupe'], touches: ['accessor'],
+      reversible: false, dataLoss: 'none',
+      enabled: (o) => o.safe || o.compress,
+    },
+    analyze() { return [{ messageId: 'pipeline', data: {} }]; },
+    canFix() { return { safe: true, messageId: 'skinWeights.safe', data: {} }; },
+    fix(finding, ctx) {
+      const out: FixOut = { found: [], skipped: [], details: [] };
+      let fixed = 0;
+      let zeroSum = 0;
+
+      forEachSkin(ctx.document, (sets, count) => {
+        const rows = rowsFor(sets);
+        for (let i = 0; i < count; i++) {
+          const sum = readWeights(sets, i, rows);
+          // Вершина без единого влияния. Делить не на что, а выдумать ей кость мы не
+          // вправе: какая именно должна двигать эту вершину, знает только автор модели.
+          if (sum <= 0) { zeroSum++; continue; }
+          if (weightsAreUnit(sets, rows, sum)) continue;
+          writeNormalizedWeights(sets, i, rows, sum);
+          fixed++;
+        }
+      });
+
+      if (fixed) {
+        out.found.push({ messageId: 'skinWeights.found', data: { n: fixed } });
+        out.details.push({ messageId: 'skinWeights.done', data: { n: fixed } });
+      }
+      // Вершины без влияний — не наша работа и не наша вина; сказать о них надо, но
+      // одной строкой на все, а не строкой на вершину.
+      if (zeroSum) out.skipped.push({ messageId: 'skinWeights.skipped.zeroSum', data: { n: zeroSum } });
+      return out;
+    },
+  },
+
+  {
+    meta: {
+      // Кость записана в вершину с нулевым весом. Валидатор (предупреждение):
+      // ACCESSOR_JOINTS_USED_ZERO_WEIGHT. Починка — обнулить индекс: на отрисовку он не
+      // влияет никак (вес ноль), а файл после этого и сжимается лучше — столбец из
+      // одинаковых нулей кодек берёт почти даром.
+      //
+      // Счёт идёт ДЕСЯТКАМИ ТЫСЯЧ на обычном персонаже (замер 2026-08-12: 57 551 на
+      // chibi_zenitsu, 79 398 на Lilith). Отсюда жёсткое требование Правила 9: это ОДНА
+      // строка про десятки тысяч, а не десятки тысяч строк.
+      id: 'skin/zero-weight-joints', category: 'geometry', title: 'Joints referenced with zero weight', titleKey: 'rule.skinZeroWeightJoints',
+      severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['skin/weights-normalize'], touches: ['accessor'],
+      reversible: false, dataLoss: 'none', // вес нулевой — кость не влияла ни на что
+      enabled: (o) => o.safe || o.compress,
+    },
+    analyze() { return [{ messageId: 'pipeline', data: {} }]; },
+    canFix() { return { safe: true, messageId: 'skinZeroJoints.safe', data: {} }; },
+    fix(finding, ctx) {
+      const out: FixOut = { found: [], skipped: [], details: [] };
+      let cleared = 0;
+      let vertices = 0;
+
+      forEachSkin(ctx.document, (sets, count) => {
+        const jrows = rowsFor(sets);
+        const wrows = rowsFor(sets);
+        for (let i = 0; i < count; i++) {
+          let touched = false;
+          for (let s = 0; s < sets.length; s++) {
+            jrows[s]!.length = 0;
+            sets[s]!.joints.getElement(i, jrows[s]!);
+            wrows[s]!.length = 0;
+            sets[s]!.weights.getElement(i, wrows[s]!);
+            for (let c = 0; c < jrows[s]!.length; c++) {
+              if (wrows[s]![c] !== 0 || jrows[s]![c] === 0) continue;
+              jrows[s]![c] = 0;
+              cleared++;
+              touched = true;
+            }
+          }
+          if (!touched) continue;
+          for (let s = 0; s < sets.length; s++) sets[s]!.joints.setElement(i, jrows[s]!);
+          vertices++;
+        }
+      });
+
+      if (cleared) {
+        out.found.push({ messageId: 'skinZeroJoints.found', data: { n: cleared, vertices } });
+        out.details.push({ messageId: 'skinZeroJoints.done', data: { n: cleared, vertices } });
+      }
+      return out;
+    },
+  },
+
+  {
+    meta: {
+      // Узел со скиннутым мешем не в корне сцены. Валидатор (предупреждение):
+      // NODE_SKINNED_MESH_NON_ROOT — «преобразования родителей на скиннутый меш не
+      // подействуют». Это предупреждение о НЕДОПОНИМАНИИ автора модели, а не поломка
+      // файла: по спецификации glTF 2.0 (§3.6.3) преобразование узла со скином
+      // игнорируется, положение задаёт скелет, и все движки ведут себя тут одинаково.
+      //
+      // Поэтому чинится только ДОКАЗУЕМОЕ подмножество (§5b1): у узла нет детей, его
+      // собственное преобразование единичное, и вся цепочка родителей до сцены —
+      // единичная и неанимированная. Тогда перенос в корень не меняет в сцене ни одного
+      // числа, а предупреждение исчезает. Всё остальное — настоящий пересчёт (перенос
+      // преобразования родителя внутрь матриц обратной привязки), и он здесь не делается
+      // ни при каких флажках: правило откажется и скажет, почему.
+      id: 'scene/skinned-mesh-root', category: 'scene', title: 'Skinned mesh outside the scene root', titleKey: 'rule.sceneSkinnedMeshRoot',
+      severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: ['skin/zero-weight-joints'], touches: ['node'],
+      reversible: false, dataLoss: 'none', // переставляется ссылка, данные не трогаются
+      enabled: (o) => o.safe,
+    },
+    analyze() { return [{ messageId: 'pipeline', data: {} }]; },
+    canFix(finding, ctx) {
+      // Та же причина, что у остальных структурных правил: неизвестное расширение может
+      // адресовать узлы по номеру, а перестановка эти номера меняет.
+      return refuseIfUnsupported(ctx) || { safe: true, messageId: 'skinnedRoot.safe', data: {} };
+    },
+    fix(finding, ctx) {
+      const out: FixOut = { found: [], skipped: [], details: [] };
+      const root = ctx.document.getRoot();
+      const animated = animatedNodes(ctx.document);
+      let moved = 0;
+      let refused = 0;
+
+      for (const node of root.listNodes()) {
+        if (!node.getSkin() || !node.getMesh()) continue;
+        const parent = node.getParentNode();
+        if (!parent) continue; // уже в корне — валидатору не на что жаловаться
+
+        // Дети уехали бы вместе с узлом, а их-то преобразования родителя как раз
+        // касаются. Собственное преобразование единичное — требование §5b1.
+        let provable = !node.listChildren().length && isIdentityNode(node);
+        let top: Node = parent;
+        for (let p: Node | null = parent; p && provable; p = p.getParentNode()) {
+          top = p;
+          // Анимированный родитель единичен только в позе покоя. Само по себе это
+          // скиннутому мешу безразлично (его преобразование игнорируется), но проверить
+          // это утверждение нечем, кроме спецификации, — а правило обещает доказуемость.
+          if (!isIdentityNode(p) || animated.has(p)) provable = false;
+        }
+        if (!provable) { refused++; continue; }
+
+        const scene = root.listScenes().find((s) => s.listChildren().includes(top));
+        if (!scene) { refused++; continue; } // узел вне сцены — не наше дело
+
+        parent.removeChild(node);
+        scene.addChild(node);
+        moved++;
+      }
+
+      // По одной строке на класс: узлов бывает полтора десятка (замер: 14 на parkergirl).
+      if (moved) {
+        out.found.push({ messageId: 'skinnedRoot.found', data: { n: moved } });
+        out.details.push({ messageId: 'skinnedRoot.done', data: { n: moved } });
+      }
+      if (refused) out.skipped.push({ messageId: 'skinnedRoot.skipped.notProvable', data: { n: refused } });
+      return out;
+    },
+  },
+
+  {
+    meta: {
       id: 'geometry/weld', category: 'geometry', title: 'Vertex weld', titleKey: 'rule.geometryWeld',
-      severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['attributes/vertex-colors'], touches: ['geometry', 'accessor'],
+      severity: 'info', fixSafety: 'numeric', tier: 'basic', runAfter: ['skin/zero-weight-joints'], touches: ['geometry', 'accessor'],
       reversible: false, dataLoss: 'none', // свариваются только идентичные вершины
       // geometry-чистка идёт и при компрессии: спека Draco — «decode → run all geometry
       // optimizations → encode». Без неё draco роняет вырожденные треугольники на записи →

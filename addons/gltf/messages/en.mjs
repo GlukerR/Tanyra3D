@@ -45,6 +45,28 @@ export default {
   'vertexColors.stripped.many': ({ sem, n, list }) => `${sem}: PAINTED, removed via --strip-vertex-colors flag — look may change; ${n} meshes (${list})`,
   'vertexColors.skipped.many': ({ sem, n, list }) => `${sem}: real painting — NOT removed, affects the look. Force with: --strip-vertex-colors; ${n} meshes (${list})`,
 
+  // --- skin/joints-dedupe, skin/weights-normalize, skin/zero-weight-joints ---
+  // Три правила чинят то, на что жалуется валидатор Khronos. Ни одна строка не называет
+  // код замечания: человеку нужно, ЧТО с моделью, а код он и так увидит в проверке.
+  'skinJoints.safe': () => 'the shares of one and the same bone are added up — the total influence on the vertex does not change',
+  'skinJoints.found.duplicate': ({ n }) => `vertices where one bone is listed twice: ${n}`,
+  'skinJoints.done.duplicate': ({ n, joints }) => `Merged the repeated bone on ${n} vertex${n === 1 ? '' : 'es'} (${joints} duplicate${joints === 1 ? '' : 's'})`,
+
+  'skinWeights.safe': () => 'the shares are divided by their sum — the proportion between bones is preserved',
+  'skinWeights.found': ({ n }) => `vertices whose bone shares do not add up to one: ${n}`,
+  'skinWeights.done': ({ n }) => `Bone shares brought to one on ${n} vertex${n === 1 ? '' : 'es'} — the mesh no longer shrinks toward the origin`,
+  'skinWeights.skipped.zeroSum': ({ n }) => `${n} vertex${n === 1 ? ' has' : 'es have'} no bone influence at all — left as is: which bone should move them is known only to the model's author`,
+
+  'skinZeroJoints.safe': () => 'a bone with zero share affects nothing — only the reference is cleared, the shares stay untouched',
+  'skinZeroJoints.found': ({ n }) => `bone references with zero share: ${n}`,
+  'skinZeroJoints.done': ({ n, vertices }) => `Cleared ${n} bone reference${n === 1 ? '' : 's'} with zero share on ${vertices} vertex${vertices === 1 ? '' : 'es'} — the look is unchanged, the file compresses better`,
+
+  // --- scene/skinned-mesh-root ---
+  'skinnedRoot.safe': () => 'the node is moved only when every transform above it is an identity one — the scene keeps every number it had',
+  'skinnedRoot.found': ({ n }) => `skinned meshes sitting outside the scene root: ${n}`,
+  'skinnedRoot.done': ({ n }) => `Moved ${n} skinned mesh${n === 1 ? '' : 'es'} to the scene root — the pose is unchanged, the viewer no longer warns`,
+  'skinnedRoot.skipped.notProvable': ({ n }) => `${n} skinned mesh${n === 1 ? '' : 'es'} left where ${n === 1 ? 'it is' : 'they are'}: something above ${n === 1 ? 'it' : 'them'} moves or scales, and re-parenting would mean recomputing the pose`,
+
   // --- geometry/weld ---
   'weld.safe': () => 'only identical vertices are welded',
   'weld.found': ({ n }) => `identical vertices: ${n}`,
@@ -228,6 +250,10 @@ export default {
   'rule.structureDedup': () => 'Duplicate resources (dedup)',
   'rule.structurePruneUnused': () => 'Unused resources (prune)',
   'rule.attributesVertexColors': () => 'Vertex colors (COLOR_n)',
+  'rule.skinJointsDedupe': () => 'Duplicate joint per vertex',
+  'rule.skinWeightsNormalize': () => 'Skin weights normalization',
+  'rule.skinZeroWeightJoints': () => 'Joints referenced with zero weight',
+  'rule.sceneSkinnedMeshRoot': () => 'Skinned mesh outside the scene root',
   'rule.geometryWeld': () => 'Vertex weld',
   'rule.geometryDegenerate': () => 'Degenerate triangles',
   'rule.geometryOrphan': () => 'Orphan vertices',

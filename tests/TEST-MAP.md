@@ -56,6 +56,7 @@ checked is the **file**, not a metric from the report.
 | `model-situations.test.mjs` | parameterized by SITUATION rather than by filename: model classes, preservation of skins/morphs/animations, idempotence |
 | `feature-combos.test.mjs` | every feature pair, triples, and mutually exclusive pairs in both orders |
 | `quantize.test.mjs`, `webp.test.mjs`, `ktx2.test.mjs`, `draco.test.mjs` | one rule's policy and its refusals |
+| `skin-rules.test.mjs` | the four skinning rules (ROADMAP §5b1) on models built in the test itself — no skinned model is redistributable, so the corpus cannot cover them; the validator codes must disappear and no new one may appear |
 | `ktx2-colorspace.test.mjs`, `large-texture.test.mjs` | narrow properties of the texture path |
 | `gap-005-regression.test.mjs`, `post-gap005-corpus.test.mjs` | the baseline checkpoint and what it catches |
 | `write-policy.test.mjs` | when a file is written and when it is not |
