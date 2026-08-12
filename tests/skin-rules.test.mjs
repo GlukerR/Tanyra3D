@@ -159,12 +159,18 @@ describe('skin/joints-dedupe — повторная кость сводится 
       [1, 1, 0, 0],
       [0.5, 0.3, 0, 0],
     );
-    applyRule(DEDUPE, doc);
+    const res = applyRule(DEDUPE, doc);
 
     expect(read(prim, 'JOINTS_0', 0)).toEqual([1, 0, 0, 0]);
     const w = read(prim, 'WEIGHTS_0', 0);
     expect(w[0]).toBeCloseTo(0.8, 6); // 0.5 + 0.3 — суммарное влияние не изменилось
     expect(w[1]).toBe(0);
+
+    // Что именно уедет в отчёт. Без этой проверки правило могло бы вернуть любые числа
+    // в data — тест бы этого не заметил (находка ревью 2026-08-12).
+    expect(res.found).toEqual([
+      { messageId: 'skinJoints.found.duplicate', data: { n: 1, joints: 1 } },
+    ]);
   });
 
   // Дефект, найденный на замере 2026-08-12: набивка нулями считалась повтором, и
@@ -307,14 +313,19 @@ describe('плотность отчёта у правил скиннинга', (
     const joints = [];
     const weights = [];
     for (let i = 0; i < N; i++) {
-      joints.push(1, 2, 0, 0);
-      weights.push(0.6, 0, 0, 0); // и сумма не единица, и кость 2 с нулевой долей
+      // Все три дефекта разом, иначе проверка вырождается: на вершине без повтора
+      // правило дублей вернёт ноль строк и «не больше трёх» пройдёт тривиально —
+      // даже если у него сломана вся сборка находок (находка ревью 2026-08-12).
+      joints.push(1, 1, 2, 0); // кость 1 дважды; кость 2 — с нулевой долей
+      weights.push(0.4, 0.2, 0, 0); // и сумма 0.6, а не единица
     }
     const { doc } = skinnedDoc(joints, weights);
 
     for (const id of [DEDUPE, NORMALIZE, ZERO_JOINTS]) {
       const res = applyRule(id, doc);
       const lines = [...res.found, ...res.details, ...res.skipped];
+      expect(lines.length, `${id} не нашло на ${N} битых вершинах ничего — проверять нечего`)
+        .toBeGreaterThan(0);
       expect(lines.length, `${id} вернуло ${lines.length} строк на ${N} вершин`).toBeLessThanOrEqual(3);
     }
   });
