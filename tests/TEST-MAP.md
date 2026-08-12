@@ -58,6 +58,7 @@ checked is the **file**, not a metric from the report.
 | `quantize.test.mjs`, `webp.test.mjs`, `ktx2.test.mjs`, `draco.test.mjs` | one rule's policy and its refusals |
 | `skin-rules.test.mjs` | the four skinning rules (ROADMAP §5b1) on models built in the test itself — no skinned model is redistributable, so the corpus cannot cover them; the validator codes must disappear and no new one may appear |
 | `ktx2-colorspace.test.mjs`, `large-texture.test.mjs` | narrow properties of the texture path |
+| `texture-size.test.mjs` | the largest texture side is measured (longer side, not area) and compared against the platform threshold; zero means "nothing to measure", never a green "within budget" |
 | `gap-005-regression.test.mjs`, `post-gap005-corpus.test.mjs` | the baseline checkpoint and what it catches |
 | `write-policy.test.mjs` | when a file is written and when it is not |
 

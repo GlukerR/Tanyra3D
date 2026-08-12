@@ -88,7 +88,7 @@ interface BudgetSpec {
   nameKey: string;
   adviceKey: string;
   value: (after: MetricsLike) => number | undefined;
-  unit: 'int' | 'mb';
+  unit: 'int' | 'mb' | 'px';
 }
 
 const BASE_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -660,6 +660,13 @@ const BUDGET_SPEC: Record<string, BudgetSpec> = {
   drawCalls: { nameKey: 'budget.drawCalls', adviceKey: 'advice.drawCalls', value: (a) => a.drawCalls, unit: 'int' },
   vramMB: { nameKey: 'budget.vram', adviceKey: 'advice.vram', value: (a) => a.gpuBytes, unit: 'mb' },
   fileMB: { nameKey: 'budget.file', adviceKey: 'advice.file', value: (a) => a.fileBytes, unit: 'mb' },
+  // Появилась 2026-08-12 вместе с замером размерности в ядре. До этого порог во всех
+  // профилях лежал мёртвым: сравнивать было не с чем. Значение 0 (текстур нет либо
+  // размер не прочитался) в сверку не идёт — см. проверку ниже.
+  textureMaxSize: {
+    nameKey: 'budget.textureSize', adviceKey: 'advice.textureSize',
+    value: (a) => a.textureMaxSize, unit: 'px',
+  },
 };
 
 // Голое число в профиле = рекомендация без ссылки. Так пишут сторонние профили, и это
@@ -681,11 +688,21 @@ function buildBudgetChecks(budgets: Record<string, unknown>, after: MetricsLike,
     if (!entry) continue;
     const raw = spec.value(after);
     if (raw == null) continue;
+    // Размерность текстур — единственная метрика, у которой ноль означает «нечего
+    // мерить» (текстур нет либо размер не прочитался), а не «ноль пикселей». Показать
+    // «0» рядом с порогом 2048 значило бы соврать зелёным цветом.
+    if (spec.unit === 'px' && raw === 0) continue;
 
     // пороги профиля заданы в МБ, метрика приходит в байтах — сравниваем в единицах порога
     const actual = spec.unit === 'mb' ? MB(raw) : raw;
-    const show = spec.unit === 'mb' ? fmtMB(raw) : fmtInt(raw);
-    const fmt = (v: number) => (spec.unit === 'mb' ? `${v} ${t('unit.mb')}` : fmtInt(v));
+    const show = spec.unit === 'mb' ? fmtMB(raw)
+      : spec.unit === 'px' ? t('unit.pxValue', { v: fmtInt(raw) })
+        : fmtInt(raw);
+    const fmt = (v: number) => (
+      spec.unit === 'mb' ? `${v} ${t('unit.mb')}`
+        : spec.unit === 'px' ? t('unit.pxValue', { v: fmtInt(v) })
+          : fmtInt(v)
+    );
 
     // Поля source/by/limitText/warnText/advice появляются ниже по ветвям — объявляем
     // форму записи заранее, иначе к литералу из четырёх полей пятое не добавить.

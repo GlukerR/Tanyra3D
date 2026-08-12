@@ -425,8 +425,10 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 - **`meshopt` on characters with morph targets** can corrupt skinning. The pipeline
   detects this and flags the result with a red warning — the file is written, but don't
   trust it; use `draco` instead.
-- **Texture dimensions aren't checked.** The platform threshold is recorded and shown,
-  but the core doesn't yet expose texture width and height.
+- **Texture dimensions are measured and compared, but not fixed.** The largest side is
+  read from the image header (PNG, JPEG, WebP, KTX2) and checked against the platform
+  threshold. Downscaling an oversized texture is a separate opt-in — the tool never
+  discards pixels on its own.
 - **Two engines, one store target.** The viewer renders through three.js or model-viewer,
   and of the store targets only Shopify is switched on. The mobile and Quest profiles exist
   as data and carry real numbers (triangle and VRAM budgets, texture limits), but they are

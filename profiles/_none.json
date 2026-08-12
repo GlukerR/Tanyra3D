@@ -25,7 +25,7 @@
     "textureMaxSize": {
       "warn": 2048,
       "source": "https://github.com/KhronosGroup/3DC-Validator",
-      "note": "glTF Asset Auditor, textures.width/height.maximum. Ядро пока не отдаёт размерность текстур — не проверяется"
+      "note": "glTF Asset Auditor, textures.width/height.maximum. Проверяется с 2026-08-12: ядро отдаёт наибольшую сторону среди текстур (metrics.textureMaxSize)"
     },
     "drawCalls": {
       "warn": 100,

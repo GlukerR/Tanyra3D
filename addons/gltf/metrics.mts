@@ -27,6 +27,19 @@ export type GltfMetrics = {
   attributes: string;
   textureBytes: number;
   gpuBytes: number;
+  /**
+   * Наибольшая сторона самой крупной текстуры, в пикселях. 0 — текстур нет либо ни у
+   * одной не удалось прочитать размер.
+   *
+   * Заведено 2026-08-12. До этого размерности не было вовсе, и порог `textureMaxSize`
+   * во ВСЕХ профилях был декоративным: число человеку показывали, сверить его было не с
+   * чем (записано в `profiles/_none.json`, README и `ЧТО_УМЕЕТ.md` как известная дыра).
+   *
+   * Именно наибольшая сторона, а не площадь и не пара чисел: пороги площадок заданы
+   * стороной («textures width/height maximum 2048» у Khronos 3D Commerce), и сравнивать
+   * надо в тех же единицах, в которых написан порог.
+   */
+  textureMaxSize: number;
   meshes: number;
   materials: number;
   textures: number;
@@ -118,6 +131,35 @@ export function sceneGeometry(doc: Document): SceneGeometry {
   return { drawCalls, triangles, vertices, morphTargets, attributes: [...semantics].sort().join(',') };
 }
 
+/**
+ * Наибольшая сторона среди всех текстур документа.
+ *
+ * Размер берётся у САМОГО файла картинки — `ImageUtils.getSize()` читает заголовок
+ * (PNG, JPEG, WebP, KTX2 — у каждого свой), а не декодирует изображение. Декодировать
+ * сотню текстур по 4K значило бы минуты работы и гигабайты памяти ради двух чисел.
+ *
+ * Текстура, размер которой прочитать не удалось (экзотический формат, обрезанный файл),
+ * молча пропускается: соврать числом хуже, чем не показать его. Полное отсутствие
+ * размеров даёт 0 — и тогда сверка с порогом просто не выносится.
+ */
+function maxTextureSide(doc: Document): number {
+  let max = 0;
+  for (const tex of doc.getRoot().listTextures()) {
+    const image = tex.getImage();
+    const mime = tex.getMimeType();
+    if (!image || !mime) continue;
+    let size: number[] | null = null;
+    try {
+      size = gltfCore.ImageUtils.getSize(image, mime);
+    } catch {
+      /* формат без читателя размеров — пропускаем эту текстуру, не весь замер */
+    }
+    if (!size) continue;
+    max = Math.max(max, size[0] || 0, size[1] || 0);
+  }
+  return max;
+}
+
 export function collectMetrics(doc: Document, fileBytes: number): GltfMetrics {
   const root = doc.getRoot();
   const { drawCalls, triangles, vertices, morphTargets, attributes } = sceneGeometry(doc);
@@ -133,6 +175,7 @@ export function collectMetrics(doc: Document, fileBytes: number): GltfMetrics {
     /* inspect может не поддержать экзотику — не критично */
   }
   return {
+    textureMaxSize: maxTextureSide(doc),
     fileBytes,
     drawCalls,
     triangles,

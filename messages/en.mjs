@@ -54,6 +54,10 @@ export default {
   'budget.drawCalls': () => 'Draw calls',
   'budget.vram': () => 'Texture video memory',
   'budget.file': () => 'File size',
+  // "px" rather than "2048×2048": the platform threshold is stated as ONE side, and the
+  // other side of a non-square texture has nothing to do with it.
+  'unit.pxValue': ({ v }) => `${v} px`,
+  'budget.textureSize': () => 'Largest texture',
   'budget.recommended': ({ v }) => `recommended up to ${v}`,
   'budget.limit': ({ v }) => `platform limit ${v}`,
   'advice.overLimit': ({ name, actual, limit }) =>
@@ -66,6 +70,8 @@ export default {
     `${actual} draw calls against a recommended ${warn}. Join parts and reduce the number of materials on export.`,
   'advice.vram': ({ actual, warn }) =>
     `Textures take ${actual} of video memory against a recommended ${warn}. Lower the texture resolution or use fewer maps.`,
+  'advice.textureSize': ({ actual, warn }) =>
+    `The largest texture is ${actual} on its longer side, against ${warn} recommended. Every doubling of the side takes four times the video memory, and on a phone screen the difference is usually invisible.`,
   'advice.file': ({ actual, warn }) =>
     `The file is ${actual} against a recommended ${warn}. Not a limit — just slower to load on a weak connection.`,
 
