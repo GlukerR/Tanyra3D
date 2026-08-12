@@ -148,6 +148,21 @@ const ADVANCED_FEATURES = {
   ktx2: 'textures → KTX2 (needs browser/engine support)',
   webp: 'textures → WebP (EXT_texture_webp; smaller file, video memory unchanged)',
   'strip-colors': 'removal of painted vertex colors (lossy)',
+  // Четыре размера — четыре члена одной группы, а не четыре независимых флажка
+  // (решение Александра 2026-08-12: «изменение размера 4к, 2к, 1к, 512 на 512»).
+  // Ничего не выбрано — размер не трогается вовсе, это и есть значение по умолчанию.
+  'resize-4096': 'downscale textures to 4096 px on the longer side (lossy)',
+  'resize-2048': 'downscale textures to 2048 px on the longer side (lossy)',
+  'resize-1024': 'downscale textures to 1024 px on the longer side (lossy)',
+  'resize-512': 'downscale textures to 512 px on the longer side (lossy)',
+};
+
+/** Фича выбора размера → сам размер в пикселях. Единственное место, где это записано. */
+const RESIZE_TARGETS: Record<string, number> = {
+  'resize-4096': 4096,
+  'resize-2048': 2048,
+  'resize-1024': 1024,
+  'resize-512': 512,
 };
 
 // Взаимоисключение объявляет АДДОН, а не UI: программный вызов и HTTP API могут
@@ -188,6 +203,24 @@ const EXCLUSIVE_FEATURES: Record<string, ExclusiveGroupDef> = {
     // Причину называет правило textures/webp: оно видит image/ktx2 и уступает
     // с webp.skipped.format. Формат в строке точнее, чем общее «выбран другой».
     engineExplains: [],
+  },
+  'texture-size': {
+    ruleId: 'textures/resize',
+    members: ['resize-4096', 'resize-2048', 'resize-1024', 'resize-512'],
+    // Порядок = «кто победит, если попросили несколько». Побеждает САМЫЙ КРУПНЫЙ:
+    // из двух просьб выполняется та, что выбрасывает меньше пикселей. Интерфейс
+    // выбрать два и не даст — это про программный вызов и HTTP, где приходит что
+    // угодно, и молча выкинуть больше данных, чем просили, нельзя.
+    priority: ['resize-4096', 'resize-2048', 'resize-1024', 'resize-512'],
+    titleKeys: {
+      'resize-4096': 'feature.resize4096',
+      'resize-2048': 'feature.resize2048',
+      'resize-1024': 'feature.resize1024',
+      'resize-512': 'feature.resize512',
+    },
+    // Объясняет движок: у отвергнутого размера своего правила нет — правило одно на
+    // всю группу, и сказать «выбран 2048, а не 512» может только он.
+    engineExplains: ['resize-4096', 'resize-2048', 'resize-1024', 'resize-512'],
   },
 };
 
@@ -263,6 +296,18 @@ function normalizeOpts(opts: RawOpts = {}): GltfOpts {
     // молча отменять выбор он не вправе.
     noWebp: adv.includes('webp') ? false : (typeof opts.noWebp === 'boolean' ? opts.noWebp : true),
     stripColors: !!opts.stripColors || adv.includes('strip-colors'),
+    // Ноль — «не уменьшать», и это значение по умолчанию. Из нескольких просьб берётся
+    // самая крупная цель (см. приоритет группы texture-size): выбросить больше пикселей,
+    // чем попросили, нельзя. Число, пришедшее прямым полем opts.maxTextureSize, обязано
+    // быть одним из четырёх — произвольный размер это уже другая функция, и молча
+    // принимать его значило бы обещать то, чего в интерфейсе нет.
+    maxTextureSize: (() => {
+      const chosen = ['resize-4096', 'resize-2048', 'resize-1024', 'resize-512']
+        .find((f) => adv.includes(f));
+      if (chosen) return RESIZE_TARGETS[chosen]!;
+      const direct = Number(opts.maxTextureSize);
+      return Object.values(RESIZE_TARGETS).includes(direct) ? direct : 0;
+    })(),
     dryRun: !!opts.dryRun,
     // §4b: opts.locale можно добавлять свободно (default 'en'). Неизвестная локаль
     // всплывёт ошибкой рендера при первом сообщении (→ status:'fail'), а не пустой строкой.

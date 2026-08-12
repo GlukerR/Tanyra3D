@@ -335,6 +335,10 @@ const PHRASE_WHITELIST = {
   'textures → KTX2 (needs browser/engine support)': 'ADVANCED_FEATURES — текст ошибки API',
   'textures → WebP (EXT_texture_webp; smaller file, video memory unchanged)': 'ADVANCED_FEATURES — текст ошибки API',
   'removal of painted vertex colors (lossy)': 'ADVANCED_FEATURES — текст ошибки API',
+  'downscale textures to 4096 px on the longer side (lossy)': 'ADVANCED_FEATURES — текст ошибки API',
+  'downscale textures to 2048 px on the longer side (lossy)': 'ADVANCED_FEATURES — текст ошибки API',
+  'downscale textures to 1024 px on the longer side (lossy)': 'ADVANCED_FEATURES — текст ошибки API',
+  'downscale textures to 512 px on the longer side (lossy)': 'ADVANCED_FEATURES — текст ошибки API',
   'Unknown advancedFeatures: ': 'префикс той же ошибки API — адресат вызывающий код, не человек',
 
   // orderRules() — ошибки НАСТРОЙКИ ПРОГРАММЫ, не работы с моделью. Добавлены

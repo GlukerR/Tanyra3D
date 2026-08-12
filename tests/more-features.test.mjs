@@ -278,13 +278,30 @@ describe('listRules — detailed', () => {
     }
   });
 
-  it('advanced rules reference a feature name', () => {
+  // Требование по сути: advanced-правило обязано быть привязано к тому, что человек
+  // включает сам. Обычно это одна фича (meta.feature). Правило, обслуживающее ГРУППУ
+  // взаимоисключающих фич, называет группу (meta.featureGroup): у textures/resize четыре
+  // размера, и назвать один из них в feature значило бы соврать в отчёте — при пустом
+  // выборе человек прочитал бы «флажок resize-2048 не включён», не выбирав ни одного.
+  // Расширено 2026-08-12 вместе с появлением такого правила.
+  it('advanced rules reference a feature name or a feature group', () => {
     const rules = listRules();
     const advanced = rules.filter((r) => r.tier === 'advanced');
     for (const rule of advanced) {
-      expect(rule).toHaveProperty('feature');
-      expect(typeof rule.feature).toBe('string');
-      expect(rule.feature.length).toBeGreaterThan(0);
+      const gate = rule.feature || rule.featureGroup;
+      expect(typeof gate, `${rule.id}: ни feature, ни featureGroup`).toBe('string');
+      expect(gate.length, `${rule.id}: пустой выключатель`).toBeGreaterThan(0);
+    }
+  });
+
+  // Группа, названная правилом, обязана существовать у аддона — иначе это опечатка,
+  // которая тихо превращает правило в «ничьё».
+  it('featureGroup правила существует среди exclusiveGroups аддона', async () => {
+    const { exclusiveGroups } = await import('../optimize2.mjs');
+    const groups = new Set(exclusiveGroups().map((g) => g.id));
+    for (const rule of listRules()) {
+      if (!rule.featureGroup) continue;
+      expect(groups, `${rule.id}: группы ${rule.featureGroup} у аддона нет`).toContain(rule.featureGroup);
     }
   });
 

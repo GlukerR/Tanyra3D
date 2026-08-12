@@ -67,6 +67,14 @@ export default {
   'skinnedRoot.done': ({ n }) => `Moved ${n} skinned mesh${n === 1 ? '' : 'es'} to the scene root — the pose is unchanged, the viewer no longer warns`,
   'skinnedRoot.skipped.notProvable': ({ n }) => `${n} skinned mesh${n === 1 ? '' : 'es'} left where ${n === 1 ? 'it is' : 'they are'}: something above ${n === 1 ? 'it' : 'them'} moves or scales, and re-parenting would mean recomputing the pose`,
 
+  // --- textures/resize ---
+  'resize.safe': () => 'only textures larger than the chosen size are shrunk; proportions are kept',
+  'resize.found': ({ n, px }) => `textures larger than ${px} px: ${n}`,
+  'resize.done': ({ n, px, kb }) => `Shrunk ${n} texture${n === 1 ? '' : 's'} to ${px} px on the longer side (${kb} KB lighter). The discarded pixels are gone — keep the original elsewhere`,
+  'resize.skipped.compressed': ({ n }) => `${n} texture${n === 1 ? ' was' : 's were'} left as ${n === 1 ? 'it is' : 'they are'} — already compressed for the video card (KTX2 and the like). Shrinking those means unpacking and repacking, losing quality twice: shrink first, compress after`,
+  'resize.skipped.unreadable': ({ n }) => `${n} texture${n === 1 ? '' : 's'} skipped — the image size could not be read`,
+  'resize.skipped.failed': ({ n }) => `${n} texture${n === 1 ? '' : 's'} not shrunk — the image could not be re-encoded`,
+
   // --- geometry/weld ---
   'weld.safe': () => 'only identical vertices are welded',
   'weld.found': ({ n }) => `identical vertices: ${n}`,
@@ -209,6 +217,10 @@ export default {
   // --- geometry/compress ---
   'feature.meshopt': () => 'Meshopt',
   'feature.draco': () => 'Draco',
+  'feature.resize4096': () => '4096 px',
+  'feature.resize2048': () => '2048 px',
+  'feature.resize1024': () => '1024 px',
+  'feature.resize512': () => '512 px',
   'compress.safe': () => 'compression packs vertex data, polygon count does not change',
   'compress.done': ({ codec }) => `Geometry compressed (${codec}) — polygon count unchanged`,
 
@@ -254,6 +266,7 @@ export default {
   'rule.skinWeightsNormalize': () => 'Skin weights normalization',
   'rule.skinZeroWeightJoints': () => 'Joints referenced with zero weight',
   'rule.sceneSkinnedMeshRoot': () => 'Skinned mesh outside the scene root',
+  'rule.texturesResize': () => 'Texture downscale',
   'rule.geometryWeld': () => 'Vertex weld',
   'rule.geometryDegenerate': () => 'Degenerate triangles',
   'rule.geometryOrphan': () => 'Orphan vertices',

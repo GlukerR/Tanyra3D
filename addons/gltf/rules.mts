@@ -53,7 +53,7 @@ interface AssetJson {
   extensionsUsed?: string[];
   [key: string]: unknown;
 }
-import { collectMetrics, countTriangles, effectiveSkins, listSemantics } from './metrics.mjs';
+import { collectMetrics, countTriangles, effectiveSkins, listSemantics, textureSize } from './metrics.mjs';
 import { HAS_GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 
 // Раздел текстур на «данные» и «цвет». Нормали, occlusion и roughness — это ЧИСЛА,
@@ -1074,12 +1074,120 @@ export const RULES: GltfRule[] = [
 
   {
     meta: {
+      // Уменьшение текстур до выбранного потолка (решение Александра 2026-08-12:
+      // «нужно сделать изменение размера 4к, 2к, 1к, 512 на 512»).
+      //
+      // Молча не делается НИКОГДА: выбор из четырёх размеров — взаимоисключающая группа
+      // `texture-size` в index.mts, ничего не выбрано — правило выключено. Это `lossy`:
+      // выброшенные пиксели не возвращаются ни распаковкой, ни чем-либо ещё, поэтому
+      // canFix отдаёт `force` — то есть «применяем, потому что человек выбрал это сам»,
+      // а не потому, что потолок автофикса позволил.
+      id: 'textures/resize', category: 'textures', title: 'Texture downscale', titleKey: 'rule.texturesResize',
+      severity: 'warn', fixSafety: 'lossy', tier: 'advanced',
+      // feature НЕ указан намеренно: у группы четыре члена, и один из них в этом поле
+      // назвал бы человеку не ту галочку, которую он видел («флажок resize-2048 не
+      // включён» тому, кто не выбирал ни одного). Вместо него — featureGroup: правило
+      // объявляет свой выключатель, не называя конкретный размер. Цена — правило молчит,
+      // когда размер не выбран; это верно и есть, выбирать по умолчанию нечего.
+      featureGroup: 'texture-size',
+      runAfter: ['structure/prune-final'], touches: ['texture'],
+      reversible: false, dataLoss: 'significant',
+      enabled: (o) => o.maxTextureSize > 0,
+    },
+    analyze() { return [{ messageId: 'pipeline', data: {} }]; },
+    canFix() { return { safe: true, force: true, messageId: 'resize.safe', data: {} }; },
+    async fix(finding, ctx) {
+      const out: FixOut = { found: [], skipped: [], details: [] };
+      const target = ctx.opts.maxTextureSize;
+
+      // Что вообще можно уменьшить. KTX2/Basis/DDS — это данные, уже разложенные под
+      // видеокарту блоками; уменьшить их значит распаковать, отресайзить и сжать заново,
+      // то есть заплатить потерей качества ДВАЖДЫ за то, что человек просил один раз.
+      // Честнее отказаться и сказать: сожмите после уменьшения, а не до.
+      const RESIZABLE = new Set(['image/png', 'image/jpeg', 'image/webp']);
+
+      const big: { tex: Texture; mime: string; w: number; h: number }[] = [];
+      let compressed = 0;
+      let unreadable = 0;
+
+      for (const tex of ctx.document.getRoot().listTextures()) {
+        const image = tex.getImage();
+        const mime = tex.getMimeType();
+        if (!image || !mime) continue;
+        if (!RESIZABLE.has(mime)) { compressed++; continue; }
+        const size = textureSize(image, mime);
+        if (!size) { unreadable++; continue; }
+        if (Math.max(size[0]!, size[1]!) <= target) continue; // меньше цели — не трогаем
+        big.push({ tex, mime, w: size[0]!, h: size[1]! });
+      }
+
+      // Отказы называем всегда, даже когда уменьшать было нечего: человек выбрал размер
+      // и вправе знать, почему часть картинок осталась прежней.
+      if (compressed) out.skipped.push({ messageId: 'resize.skipped.compressed', data: { n: compressed } });
+      if (unreadable) out.skipped.push({ messageId: 'resize.skipped.unreadable', data: { n: unreadable } });
+      if (!big.length) return out;
+
+      const sharp = (await import('sharp')).default; // ленивый импорт: тот же путь, что у WebP
+      let done = 0;
+      let failed = 0;
+      let bytesBefore = 0;
+      let bytesAfter = 0;
+
+      for (const c of big) {
+        const before = c.tex.getImage()!;
+        try {
+          // fit:'inside' вписывает картинку в квадрат target×target, сохраняя пропорции:
+          // у 2048×1024 при цели 1024 выйдет 1024×512. withoutEnlargement — страховка от
+          // увеличения: дорисовывать пиксели, которых не было, нельзя ни при каких целях.
+          //
+          // ОТКРЫТЫЙ ВОПРОС (Александр, 2026-08-12; разбор — `.claude/ПЛАН_недели.md`):
+          // что делать с исходником, который НЕ степень двойки. 1500×1200 при цели 1024
+          // даёт 1024×819, а KTX2/Basis кодирует блоками 4×4. Пропорции при этом трогать
+          // нельзя ни при каком варианте: UV модели рассчитаны на исходное соотношение,
+          // и «привести обе стороны к степени двойки» растянуло бы рисунок на модели.
+          // Решение ждёт замера на toktx; до него правило сохраняет пропорцию точно.
+          const pipeline = sharp(Buffer.from(before))
+            .resize({ width: target, height: target, fit: 'inside', withoutEnlargement: true });
+          // Формат сохраняем входной: смена формата — работа соседних правил (KTX2/WebP),
+          // и делать её здесь значило бы менять две вещи под одной галочкой.
+          const encoded = c.mime === 'image/png' ? await pipeline.png().toBuffer()
+            : c.mime === 'image/jpeg' ? await pipeline.jpeg({ quality: 90 }).toBuffer()
+              : await pipeline.webp({ quality: 90 }).toBuffer();
+          c.tex.setImage(new Uint8Array(encoded));
+          bytesBefore += before.byteLength;
+          bytesAfter += encoded.byteLength;
+          done++;
+        } catch {
+          // Битая картинка не должна ронять сборку — тот же принцип, что у WebP.
+          failed++;
+        }
+      }
+
+      // Одна строка на класс (Правило 9): текстур бывают десятки, и «уменьшена
+      // baseColor_3» двадцать раз — это дефект отчёта, а не подробность.
+      if (done) {
+        out.found.push({ messageId: 'resize.found', data: { n: done, px: target } });
+        out.irreversibleSafety = 'lossy';
+        (out.irreversible ??= []).push({
+          messageId: 'resize.done',
+          data: { n: done, px: target, kb: Math.max(0, Math.round((bytesBefore - bytesAfter) / 1024)) },
+        });
+      }
+      if (failed) out.skipped.push({ messageId: 'resize.skipped.failed', data: { n: failed } });
+      return out;
+    },
+  },
+
+  {
+    meta: {
       // ADVANCED: KTX2 требует KTX2Loader (Three.js) / поддержку basisu в движке —
       // работает не «везде», поэтому только явный opt-in (advancedFeatures:['ktx2'] / --ktx2).
       // normalizeOpts переводит выбор фичи в noKtx:false — enabled смотрит на итоговую опцию.
       id: 'textures/ktx2', category: 'textures', title: 'Textures → KTX2/UASTC', titleKey: 'rule.texturesKtx2',
       severity: 'warn', fixSafety: 'perceptual', tier: 'advanced', feature: 'ktx2',
-      runAfter: ['structure/prune-final'], touches: ['texture'],
+      // После textures/resize: кодировать надо уже уменьшенное. Иначе платим кодеком за
+      // пиксели, которые сами же и выбросим, а на 4K это минуты работы toktx.
+      runAfter: ['structure/prune-final', 'textures/resize'], touches: ['texture'],
       reversible: true, dataLoss: 'minor', // §4d: KTX2 ↔ PNG/WebP, потеря от BASIS-U распаковки
       reversalNoteKey: 'reversal.ktx2',
       enabled: (opts) => !opts.noKtx,
@@ -1228,7 +1336,8 @@ export const RULES: GltfRule[] = [
       // из коробки, без отдельного декодера, — поэтому значка ⚠ у опции нет.
       id: 'textures/webp', category: 'textures', title: 'Textures → WebP', titleKey: 'rule.texturesWebp',
       severity: 'warn', fixSafety: 'perceptual', tier: 'advanced', feature: 'webp',
-      runAfter: ['structure/prune-final'], touches: ['texture'],
+      // После textures/resize по той же причине, что и KTX2: сжимаем уже уменьшенное.
+      runAfter: ['structure/prune-final', 'textures/resize'], touches: ['texture'],
       reversible: true, dataLoss: 'minor',
       reversalNoteKey: 'reversal.webp',
       enabled: (opts) => !opts.noWebp,

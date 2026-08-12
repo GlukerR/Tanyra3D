@@ -59,6 +59,7 @@ checked is the **file**, not a metric from the report.
 | `skin-rules.test.mjs` | the four skinning rules (ROADMAP §5b1) on models built in the test itself — no skinned model is redistributable, so the corpus cannot cover them; the validator codes must disappear and no new one may appear |
 | `ktx2-colorspace.test.mjs`, `large-texture.test.mjs` | narrow properties of the texture path |
 | `texture-size.test.mjs` | the largest texture side is measured (longer side, not area) and compared against the platform threshold; zero means "nothing to measure", never a green "within budget" |
+| `texture-resize.test.mjs` | downscaling to 4096/2048/1024/512: only what is larger is shrunk, proportions are kept, enlargement never happens, GPU-compressed textures are refused out loud, and the record is marked irreversible |
 | `gap-005-regression.test.mjs`, `post-gap005-corpus.test.mjs` | the baseline checkpoint and what it catches |
 | `write-policy.test.mjs` | when a file is written and when it is not |
 

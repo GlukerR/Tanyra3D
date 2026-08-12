@@ -684,6 +684,12 @@ const ORPHAN_EXCLUSIONS = {
   // через API пришли обе фичи одной группы (в матрице такой пары нет).
   'feature.meshopt': 'подпись выбранного кодека в engine.feature.exclusive',
   'feature.draco': 'подпись выбранного кодека в engine.feature.exclusive',
+  // Тот же класс, что кодеки: подписи размеров рендерятся только когда через API
+  // пришли ДВА размера сразу, а в матрице такой пары нет (флаг-сеты одиночные).
+  'feature.resize4096': 'подпись выбранного размера в engine.feature.exclusive',
+  'feature.resize2048': 'подпись выбранного размера в engine.feature.exclusive',
+  'feature.resize1024': 'подпись выбранного размера в engine.feature.exclusive',
+  'feature.resize512': 'подпись выбранного размера в engine.feature.exclusive',
 
   // --- titleKey правил без meta.feature: заголовок рендерится только в строке
   // «правило пропущено (unsafe/disabled)», а эти правила не гейтятся фичей —
