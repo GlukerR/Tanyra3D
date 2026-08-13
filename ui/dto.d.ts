@@ -128,6 +128,8 @@ interface ModelIssue {
  */
 interface UiSelection {
   geometryChoice: string;
+  /** Выбранный потолок размера текстур: 'none' | 'resize-4096' | … (2026-08-12). */
+  textureSizeChoice: string;
   ktx2Mode: string;
   checked: string[];
   [key: string]: any;

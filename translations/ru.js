@@ -215,6 +215,7 @@ window.I18N_CATALOGS.ru = {
   'budget.source': 'источник',
   'budget.ourChoice': 'наш порог, а не документация платформы',
   'budget.yourChoice': 'ваш порог, из вашего профиля',
+  'group.textureSize': 'Размер текстур',
   'col.id': '№',
   'col.code': 'КОД',
   'col.count': 'МЕСТ',

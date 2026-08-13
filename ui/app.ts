@@ -292,6 +292,10 @@
   const defaultKtx2Mode = () => platformDefaults.texMode || KTX2_MODE_FALLBACK;
   // Геометрия — взаимоисключающий выбор: 'none' | 'meshopt' | 'draco'.
   let geometryChoice = 'none';
+  // Размер текстур — такой же выбор одного из списка: 'none' | 'resize-4096' | ...
+  // По умолчанию 'none': уменьшение выбрасывает пиксели навсегда, и молча оно не
+  // включается ни при какой площадке.
+  let textureSizeChoice = 'none';
   let platforms: PlatformDto[] = [];
   // Описание прочерка приходит отдельным полем /api/platforms: это не площадка, а
   // объяснение выбора БЕЗ неё (числа Khronos — советы, красного тут не бывает).
@@ -762,6 +766,10 @@
     { titleKey: 'group.structural', kind: 'checks', ids: ['join', 'instance'] },
     { titleKey: 'group.geometry', kind: 'geometry' },
     { titleKey: 'group.textures', kind: 'checks', ids: ['ktx2', 'webp'] },
+    // Размер текстур — свой раздел, а не добавка к предыдущему: там ФОРМАТ (чем
+    // сжать), здесь РАЗМЕР (сколько пикселей оставить). Рисуется выбором одного из
+    // списка, как геометрия: два размера сразу — бессмыслица, а не сочетание.
+    { titleKey: 'group.textureSize', kind: 'textureSize', ids: ['resize-4096', 'resize-2048', 'resize-1024', 'resize-512'] },
     { titleKey: 'group.animation', kind: 'checks', ids: ['resample'] },
   ];
   // Кому нужен декодер — говорит ДВИЖОК (engines/<id>.json, поле needsDecoder), а не
@@ -893,7 +901,9 @@
     for (const group of OPT_GROUPS) {
       const section = group.kind === 'geometry'
         ? renderGeometryGroup(byId)
-        : renderCheckGroup(group, byId);
+        : group.kind === 'textureSize'
+          ? renderTextureSizeGroup(group, byId)
+          : renderCheckGroup(group, byId);
       if (section) extensionsList.appendChild(section);
     }
     // Легенда объясняет ⚠ ОДИН раз для всей панели — значок встречается в трёх разных
@@ -1169,6 +1179,54 @@
     return sec;
   }
 
+  // Размер текстур: выбор ОДНОГО из четырёх либо ничего.
+  //
+  // Отдельного пункта «не уменьшать» нет намеренно: снятый флажок и есть «не уменьшать»,
+  // как у геометрии. Повторный клик по выбранному размеру снимает выбор — иначе человек,
+  // случайно нажавший «512», не смог бы вернуться к исходному размеру, не перезагрузив
+  // страницу.
+  function renderTextureSizeGroup(
+    group: { ids?: string[]; titleKey: string; [key: string]: any },
+    byId: Record<string, ExtensionDto>,
+  ) {
+    const opts = (group.ids || []).map((id) => byId[id]).filter(Boolean) as ExtensionDto[];
+    if (!opts.length) return null;
+    const sec = optSection(t(group.titleKey), 'textureSize');
+    for (const ext of opts) {
+      const row = document.createElement('div');
+      row.className = 'opt-radio-row';
+      row.dataset.size = ext.id;
+
+      const head = document.createElement('div');
+      head.className = 'opt-radio-head';
+
+      const label = document.createElement('label');
+      label.className = 'opt-radio';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = ext.id;
+      checkbox.id = `size-${ext.id}`;
+      checkbox.checked = (ext.id === textureSizeChoice);
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) textureSizeChoice = ext.id;
+        else if (textureSizeChoice === ext.id) textureSizeChoice = 'none';
+        syncTextureSizeRadio();
+        onOptionChanged();
+      });
+      const text = document.createElement('span');
+      text.className = 'opt-radio-text';
+      text.textContent = ext.title || ext.id;
+      label.appendChild(checkbox);
+      label.appendChild(text);
+      head.appendChild(label);
+      head.appendChild(infoButton(ext));
+
+      row.appendChild(head);
+      sec.appendChild(row);
+    }
+    return sec;
+  }
+
   function renderCheckGroup(group: { ids?: string[]; [key: string]: any }, byId: Record<string, ExtensionDto>) {
     const items = group.ids!.map((id: string) => byId[id]).filter(Boolean) as ExtensionDto[];
     if (!items.length) return null;
@@ -1278,6 +1336,7 @@
     if (geometryChoice === 'meshopt') feats.push('meshopt');
     else if (geometryChoice === 'draco') feats.push('draco');
     else if (geometryChoice === 'quantize') feats.push('quantize');
+    if (textureSizeChoice !== 'none') feats.push(textureSizeChoice);
     for (const cb of extensionsList.querySelectorAll<HTMLInputElement>('.ext-checkbox:checked')) feats.push(cb.value);
     return feats;
   }
@@ -1485,6 +1544,7 @@
     // пропадал при каждой пересборке панели — переключении модели, смене языка.
     if (lastResult) renderCostBadges(lastResult.skipped);
     syncGeometryRadio();
+    syncTextureSizeRadio();
     syncKtx2ModeUI();
     toggleKtx2Mode(!!(document.getElementById('ext-ktx2') && (document.getElementById('ext-ktx2') as HTMLInputElement).checked));
     // Панель пересобрана заново (смена языка) — заморозку надо наложить снова: новые
@@ -1503,6 +1563,10 @@
     // Человек ничего не выбирал — значит показываем то, что советует площадка.
     ktx2Mode = defaultKtx2Mode();
     geometryChoice = 'none';
+    // Размер текстур в умолчания НЕ входит и входить не может: это единственная опция
+    // из тех, что включены по умолчанию быть могли бы, которая выбрасывает пиксели
+    // навсегда. Предложить её вправе только человек.
+    textureSizeChoice = 'none';
     if (lastDetection) {
       if (lastDetection.draco) geometryChoice = 'draco';
       else if (lastDetection.meshopt) geometryChoice = 'meshopt';
@@ -1526,6 +1590,10 @@
   function restoreSelection(saved: UiSelection | null | undefined) {
     geometryChoice = saved!.geometryChoice || 'none';
     if (geometryChoice !== 'none' && !document.getElementById(`geom-${geometryChoice}`)) geometryChoice = 'none';
+    // Тот же откат для размера: площадка, у которой этих опций нет, не должна унести
+    // с прошлой площадки выбор, которого здесь не существует.
+    textureSizeChoice = saved!.textureSizeChoice || 'none';
+    if (textureSizeChoice !== 'none' && !document.getElementById(`size-${textureSizeChoice}`)) textureSizeChoice = 'none';
     ktx2Mode = saved!.ktx2Mode || defaultKtx2Mode();
     for (const cb of extensionsList.querySelectorAll('.ext-checkbox')) {
       (cb as HTMLInputElement).checked = saved!.checked.includes((cb as HTMLInputElement).value);
@@ -1538,6 +1606,7 @@
   function currentSelection() {
     return {
       geometryChoice,
+      textureSizeChoice,
       ktx2Mode,
       checked: [...extensionsList.querySelectorAll<HTMLInputElement>('.ext-checkbox:checked')].map((cb) => cb.value),
     };
@@ -1623,6 +1692,14 @@
     for (const row of extensionsList.querySelectorAll('.opt-radio-row[data-geom]')) {
       const cb = row.querySelector('input[type="checkbox"]');
       if (cb) (cb as HTMLInputElement).checked = ((row as HTMLElement).dataset.geom === geometryChoice);
+    }
+  }
+
+  // То же для размера текстур: выбран ровно один либо ни одного.
+  function syncTextureSizeRadio() {
+    for (const row of extensionsList.querySelectorAll('.opt-radio-row[data-size]')) {
+      const cb = row.querySelector('input[type="checkbox"]');
+      if (cb) (cb as HTMLInputElement).checked = ((row as HTMLElement).dataset.size === textureSizeChoice);
     }
   }
 
