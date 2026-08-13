@@ -22,6 +22,7 @@ import sharp from 'sharp';
 import { Document, NodeIO } from '@gltf-transform/core';
 
 import { collectMetrics } from '../addons/gltf/metrics.mjs';
+import { exclusiveGroups } from '../optimize2.mjs';
 import { explainResult } from '../assistant.mjs';
 import { modelPath, isPresent } from './helpers/model-files.mjs';
 
@@ -133,5 +134,29 @@ describe('сверка размерности с порогом площадки
     const check = checkOf(4096);
     expect(check.warnText, 'не сказано, какое число рекомендовано').toBeTruthy();
     expect(check.source || check.by, 'число без источника — ровно то, что запрещено').toBeTruthy();
+  });
+});
+
+// Интерфейс прячет размеры, которые больше самой крупной текстуры модели (слово
+// Александра 2026-08-13: «раз мы никогда не увеличиваем, такие кнопки только путают»).
+// Чтобы решить, какой размер прятать, он читает число ИЗ ИМЕНИ опции: `resize-2048` →
+// 2048. Это производная от имени, а не вторая копия таблицы аддона, — но производная
+// сломается молча, если имена перестанут так строиться.
+describe('имя размера содержит сам размер — на это опирается панель', () => {
+  it('каждая опция группы texture-size называется resize-<число>', () => {
+    const группа = exclusiveGroups().find((g) => g.id === 'texture-size');
+    expect(группа, 'группа размеров исчезла из объявления аддона').toBeTruthy();
+    expect(группа.members.length, 'в группе размеров не осталось опций').toBeGreaterThan(0);
+    for (const id of группа.members) {
+      expect(id, `«${id}» не разбирается на число — панель не сможет его спрятать`)
+        .toMatch(/^resize-\d+$/);
+    }
+  });
+
+  it('разобранные числа — те же, что показывает панель, и они разные', () => {
+    const числа = exclusiveGroups().find((g) => g.id === 'texture-size').members
+      .map((id) => Number(/^resize-(\d+)$/.exec(id)[1]));
+    expect(числа.every((n) => n > 0), 'ноль или мусор вместо размера').toBe(true);
+    expect(new Set(числа).size, 'два размера с одним числом — панель спрячет не то').toBe(числа.length);
   });
 });

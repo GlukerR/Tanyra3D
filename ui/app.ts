@@ -132,6 +132,9 @@
   const profileSave = $('profile-save') as HTMLButtonElement;
   const profileDelete = $('profile-delete') as HTMLButtonElement;
   const profileDir = $('profile-dir');
+  const profileFile = $('profile-file') as HTMLInputElement;
+  const profileImport = $('profile-import') as HTMLButtonElement;
+  const profileExport = $('profile-export') as HTMLButtonElement;
 
   // ---------------------------------------------------------------
   // Индикатор ожидания во вьюпортах
@@ -910,6 +913,15 @@
       return;
     }
 
+    renderExtensionsPanel(keep);
+  }
+
+  // Отрисовка панели из УЖЕ полученного списка. Отделена от загрузки, потому что
+  // пересобирать панель приходится и без нового запроса: состав размеров текстур
+  // зависит от самой модели (см. sourceTextureSide), а модель приезжает позже площадки.
+  function renderExtensionsPanel(keep?: UiSelection) {
+    extensionsList.innerHTML = '';
+    infoTip.hide();
     const byId = Object.fromEntries(extensions.map((e) => [e.id, e]));
     for (const group of OPT_GROUPS) {
       const section = group.kind === 'geometry'
@@ -1206,12 +1218,48 @@
   // была, — бессмысленная»). Место под неё оставлено: пустой контейнер держит ширину,
   // и как только у размера появится текст, который стоит читать, значок вернётся сам —
   // он рисуется по наличию описания, а не по списку опций.
+  // Наибольшая сторона текстур ИСХОДНОЙ модели, из тех же метрик, что показывает шапка.
+  // null — «неизвестно»: модели ещё нет или метрики не посчитались. Ноль — законный
+  // ответ «текстур нет или их размер не читается», и это не то же самое.
+  function sourceTextureSide(): number | null {
+    const px = modelInspect && modelInspect.metrics && (modelInspect.metrics as any).textureMaxSize;
+    return typeof px === 'number' ? px : null;
+  }
+
+  // Размер из имени опции: `resize-2048` → 2048. Не вторая копия таблицы из аддона —
+  // производная от идентификатора, который интерфейс и так знает поимённо (OPT_GROUPS).
+  // Что имена устроены именно так, сторожит tests/texture-size.test.mjs.
+  function resizeTargetOf(id: string): number {
+    const m = /^resize-(\d+)$/.exec(id);
+    return m ? Number(m[1]) : 0;
+  }
+
   function renderTextureSizeGroup(
     group: { ids?: string[]; titleKey: string; [key: string]: any },
     byId: Record<string, ExtensionDto>,
   ) {
-    const opts = (group.ids || []).map((id) => byId[id]).filter(Boolean) as ExtensionDto[];
+    let opts = (group.ids || []).map((id) => byId[id]).filter(Boolean) as ExtensionDto[];
     if (!opts.length) return null;
+
+    // Размеры, которые больше самой крупной текстуры модели, не показываем.
+    //
+    // Решение Александра 2026-08-13: «раз мы никогда не увеличиваем размер, то нам и не
+    // нужны такие кнопки, они будут путать». И это правда про механику, а не про вкус:
+    // правило textures/resize пропускает картинки, которые меньше цели (rules.mts), —
+    // выбрать 4096 на модели с текстурами 1024 значит нажать кнопку, которая ничего не
+    // делает. Кнопка, не делающая ничего, обещает больше, чем есть.
+    //
+    // Пока модель не загружена, показываем всё: список опций существует и до неё, и
+    // прятать возможности, о которых мы ещё ничего не знаем, было бы враньём в другую
+    // сторону.
+    const side = sourceTextureSide();
+    if (side !== null) {
+      // Ноль означает «уменьшать нечего» (текстур нет либо размер не прочитался) —
+      // тогда исчезает вся секция, а не остаётся пустое поле выбора.
+      if (side === 0) return null;
+      opts = opts.filter((ext) => resizeTargetOf(ext.id) < side);
+      if (!opts.length) return null;
+    }
     const sec = optSection(t(group.titleKey), 'textureSize');
 
     const wrap = document.createElement('div');
@@ -1454,6 +1502,11 @@
       // Только до первой сборки: после неё в шапке стоят before/after из отчёта
       // (renderComparison), и затирать их односторонним «до» нельзя.
       if (!lastResult) renderSourceStats(file.size);
+      // Состав размеров текстур зависит от самой модели: увеличивать мы не умеем, значит
+      // цели крупнее её текстур предлагать нечестно. Панель уже собрана (она зависит от
+      // площадки, а не от файла) — пересобираем её из того же списка, без нового запроса,
+      // сохранив выбор человека.
+      if (extensions.length) renderExtensionsPanel(currentSelection());
       if (data.sourceId) currentSourceId = data.sourceId; // сборка переиспользует исходник
       btnMetadata.disabled = false;
       btnValidation.disabled = false;
@@ -2086,7 +2139,7 @@
   // ассистента на русском экране — ровно то, что запрещает Правило 8.
   const PROFILE_ERRORS = [
     'title_required', 'engine_unknown', 'builtin_id', 'bad_number',
-    'unknown_profile', 'id_taken', 'write_failed', 'no_assistant',
+    'unknown_profile', 'id_taken', 'write_failed', 'no_assistant', 'bad_file',
   ];
 
   function showProfileError(code: string | null, field = '') {
@@ -2141,8 +2194,10 @@
     profileDescription.value = form.description || '';
     renderProfileEngines(form.engine || '');
     renderProfileFields(form.budgets || {});
-    // Кнопка удаления есть только у существующей площадки: у новой удалять нечего.
+    // Кнопки удаления и выгрузки есть только у существующей площадки: у новой нечего
+    // ни удалять, ни отдавать.
     profileDelete.classList.toggle('hidden', !form.id);
+    profileExport.classList.toggle('hidden', !form.id);
     disarmDelete();
     showProfileError(null);
   }
@@ -2270,9 +2325,61 @@
     }
   }
 
+  // Выгрузка — обычная ссылка на скачивание, а не сборка файла в браузере: отдать надо
+  // ТОТ ЖЕ файл, что лежит на диске, вместе с полями, которых форма не знает.
+  function exportProfile() {
+    const id = profilePick.value;
+    if (!id) return;
+    const a = document.createElement('a');
+    a.href = `/api/profiles/${encodeURIComponent(id)}?download=1`;
+    a.download = `${id}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    logMessage('info', t('log.profile.exported', { name: `${id}.json` }));
+  }
+
+  async function importProfile(file: File) {
+    disarmDelete();
+    let text;
+    try {
+      text = await file.text();
+    } catch (e) {
+      showProfileError('bad_file');
+      return;
+    }
+    try {
+      const res = await fetch(`/api/profiles?import=1&${langParam()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: text,
+      });
+      const data = await res.json();
+      if (!res.ok) { showProfileError(data && data.error, (data && data.field) || ''); return; }
+      showProfileError(null);
+      // «Добавлена» и «обновлена» — разные события, и молчать о втором нельзя: оно
+      // означает, что прежний файл с правками человека перезаписан принесённым.
+      logMessage('info', t(data.replaced ? 'log.profile.replaced' : 'log.profile.imported', { name: data.id }));
+      await refreshPlatforms(data.id);
+      renderProfilePick(data.id);
+      await loadProfileForEdit(data.id);
+    } catch (e) {
+      showProfileError('write_failed');
+    }
+  }
+
   profilePick.addEventListener('change', () => loadProfileForEdit(profilePick.value));
   profileSave.addEventListener('click', () => saveProfile());
   profileDelete.addEventListener('click', () => deleteProfile());
+  profileExport.addEventListener('click', () => exportProfile());
+  profileImport.addEventListener('click', () => profileFile.click());
+  profileFile.addEventListener('change', () => {
+    const file = profileFile.files && profileFile.files[0];
+    // Значение поля сбрасываем всегда: иначе повторный выбор ТОГО ЖЕ файла не поднимет
+    // change, и человек решит, что кнопка сломалась.
+    if (file) importProfile(file);
+    profileFile.value = '';
+  });
   // Любое другое действие снимает взвод удаления: подтверждение относится к одному
   // нажатию, а не висит до конца сеанса.
   for (const el of [profileTitle, profileDescription, profileEngine, profilePick]) {
