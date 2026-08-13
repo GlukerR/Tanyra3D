@@ -92,6 +92,10 @@ export default defineConfig({
           // падает сразу, если число тестов < 228 или модели пропали с диска.
           // Подробный отчёт — в tests/analyse-baseline.test.mjs.
           globalSetup: ['tests/analyse-baseline.setup.mjs'],
+          // Своя папка профилей на весь прогон: набор не должен видеть площадки,
+          // которые человек завёл в установленной программе (см. файл — там разбор
+          // настоящего падения 2026-08-13).
+          setupFiles: ['tests/isolate-profiles.setup.mjs'],
           testTimeout: 120_000,
           hookTimeout: 120_000,
         },
