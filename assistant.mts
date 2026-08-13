@@ -445,6 +445,9 @@ export function listPlatforms(lang: string = DEFAULT_LANG) {
           id: p.id,
           title: pick(p.title, lang) || p.id,
           description: pick(p.description, lang),
+          // Откуда у площадки её запреты и числа. Второй вопрос, отдельный от «что это
+          // за площадка», и в книжечке он идёт отдельной строкой.
+          source: pick(p.source, lang),
           engine: engineIdOf(p),
           // Откуда взялся профиль. Интерфейсу это нужно, чтобы не выдавать свои числа
           // за выверенные по первоисточнику (ROADMAP.md §5i).
@@ -706,7 +709,9 @@ export function explainResult(runResult: RunResultLike, platformId: string, lang
   return {
     summary,
     highlights: highlights.slice(0, 6),
-    budgetChecks: buildBudgetChecks(profile.budgets || {}, after, lang, profile.custom === true),
+    budgetChecks: buildBudgetChecks(
+      profile.budgets || {}, after, lang, profile.custom === true, pick(profile.source, lang),
+    ),
     warnings: collectWarnings(rr, t),
   };
 }
@@ -757,6 +762,7 @@ function buildBudgetChecks(
   after: MetricsLike,
   lang: string = DEFAULT_LANG,
   custom = false,
+  defaultSource = '',
 ) {
   const t = messages(lang);
   const { fmtMB, fmtInt } = formatters(lang);
@@ -789,12 +795,20 @@ function buildBudgetChecks(
     // Откуда порог: ссылка на документ платформы либо наше собственное решение. Второе
     // тоже законно, но обязано выглядеть иначе — выдавать решение проекта за требование
     // платформы значит ровно то же враньё, ради борьбы с которым всё это затевалось.
-    if (entry.source) check.source = entry.source;
-    else if (entry.by) check.by = entry.by;
-    // Порог из своего профиля, у которого автор не назвал источник. Пометка ставится
-    // ЗДЕСЬ, а не берётся из файла: пометить своё число как выверенное по документу
-    // площадки не должно быть возможно (ROADMAP.md §5i).
-    else if (custom) check.by = 'user';
+    //
+    // `defaultSource` — источник, названный на весь профиль. Своя площадка называет его
+    // один раз в форме, а не копией у каждого порога: один и тот же адрес, повторённый
+    // в файле шесть раз, — ровно то «полотно», которого быть не должно.
+    if (entry.source || defaultSource) check.source = entry.source || defaultSource;
+    if (!check.source && entry.by) check.by = entry.by;
+    // Порог из СВОЕГО профиля. Пометка ставится ЗДЕСЬ, а не берётся из файла: объявить
+    // своё число выверенным по документу площадки не должно быть возможно (§5i).
+    //
+    // Ставится ВМЕСТЕ со ссылкой, а не вместо неё. Ссылка отвечает на вопрос «откуда
+    // число», пометка — на вопрос «чьё оно»; это разные вопросы, и подменять второй
+    // первым значило бы, что придуманный порог со ссылкой на чей-то сайт выглядит как
+    // выверенный по документу площадки.
+    if (custom) check.by = 'user';
 
     if (entry.limit != null) check.limitText = t('budget.limit', { v: fmt(entry.limit) });
     if (entry.warn != null) check.warnText = t('budget.recommended', { v: fmt(entry.warn) });
@@ -846,12 +860,29 @@ export class ProfileError extends Error {
   }
 }
 
+/**
+ * Сколько букв даётся на описание и на источник.
+ *
+ * Предел назвал Александр 2026-08-13: «для написания своего описания продукта нужно
+ * использовать минимальное количество разрешённых символов, например 150». Это не
+ * экономия места в файле — это Правило 10: подсказку читает новичок, и абзац на экране
+ * он не читает вовсе. Два коротких поля вместо одного длинного отвечают на два разных
+ * вопроса: ЧТО это за площадка и ОТКУДА взялись её запреты и числа.
+ */
+const MAX_TEXT = 150;
+
 /** Что спрашивает форма. Обязательно только название. */
 export interface CustomProfileInput {
   id?: string;
   title?: string;
   engine?: string;
   description?: string;
+  /**
+   * Откуда взяты запреты и числа этой площадки: ссылка на документ или пояснение
+   * словами. Лежит ОДИН раз на весь профиль, а не копией у каждого порога — иначе
+   * один и тот же адрес повторялся бы в файле шесть раз.
+   */
+  source?: string;
   budgets?: Record<string, unknown>;
   /**
    * Что эта площадка НЕ читает — список id опций движка.
@@ -968,13 +999,21 @@ export function saveCustomProfile(input: CustomProfileInput) {
     ? [...new Set(raw.map((x) => String(x).trim()).filter(Boolean))]
     : [];
 
+  // Длинный текст не режем молча: обрезанная посреди слова фраза выглядит как поломка
+  // программы, а не как наше решение. Отказ называет поле, чтобы человек знал, какое
+  // из двух сокращать.
   const description = String((input && input.description) || '').trim();
+  if (description.length > MAX_TEXT) throw new ProfileError('too_long', 'description');
+  const source = String((input && input.source) || '').trim();
+  if (source.length > MAX_TEXT) throw new ProfileError('too_long', 'source');
+
   const profile: ProfileJson = {
     id,
     engine,
     enabled: true,
     title,
     ...(description ? { description } : {}),
+    ...(source ? { source } : {}),
     budgets,
     ...(exclude.length ? { excludeExtensions: exclude } : {}),
     // Пометки «свой» в файле НЕТ намеренно: её ставит загрузчик по тому, откуда взят
@@ -1014,6 +1053,7 @@ export function readCustomProfile(id: string, lang: string = DEFAULT_LANG): Cust
     title: pick(p.title, lang) || p.id,
     engine: engineIdOf(p),
     description: pick(p.description, lang),
+    source: pick(p.source, lang),
     budgets,
     excludeExtensions: Array.isArray(p.excludeExtensions) ? p.excludeExtensions : [],
   };

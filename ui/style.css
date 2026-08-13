@@ -1207,6 +1207,16 @@ body.resizing { cursor: col-resize; user-select: none; }
   color: var(--outline);
 }
 
+/* Счётчик букв у короткого поля: объясняет, почему поле перестало принимать ввод. */
+.profile-count {
+  flex: 0 0 auto;
+  width: 44px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--outline);
+}
+
 .profile-hint {
   margin: 14px 0 10px;
   font-size: 11px;

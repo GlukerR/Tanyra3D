@@ -127,6 +127,7 @@
   const profileTitle = $('profile-title') as HTMLInputElement;
   const profileEngine = $('profile-engine') as HTMLSelectElement;
   const profileDescription = $('profile-description') as HTMLInputElement;
+  const profileSource = $('profile-source') as HTMLInputElement;
   const profileBudgets = $('profile-budgets');
   const profileError = $('profile-error');
   const profileSave = $('profile-save') as HTMLButtonElement;
@@ -1071,6 +1072,15 @@
         const p = document.createElement('p');
         p.className = 'ext-impact';
         p.textContent = t('ext.impact', { text: ext.impact });
+        tip.appendChild(p);
+      }
+      // Откуда у площадки её запреты и числа. Второй вопрос, отдельный от «что это за
+      // площадка», поэтому и строка отдельная (слово Александра 2026-08-13). У опций
+      // этого поля нет — там объяснять нечего, они принадлежат движку.
+      if (ext.source) {
+        const p = document.createElement('p');
+        p.className = 'ext-impact';
+        p.textContent = t('ext.origin', { text: ext.source });
         tip.appendChild(p);
       }
       return tip.childNodes.length > 0;
@@ -2188,7 +2198,7 @@
   // ассистента на русском экране — ровно то, что запрещает Правило 8.
   const PROFILE_ERRORS = [
     'title_required', 'engine_unknown', 'builtin_id', 'bad_number',
-    'unknown_profile', 'id_taken', 'write_failed', 'no_assistant', 'bad_file',
+    'unknown_profile', 'id_taken', 'write_failed', 'no_assistant', 'bad_file', 'too_long',
   ];
 
   function showProfileError(code: string | null, field = '') {
@@ -2238,9 +2248,12 @@
     if (selected && [...profileEngine.options].some((o) => o.value === selected)) profileEngine.value = selected;
   }
 
+  // Счётчик букв у короткого поля. Предел держит сама разметка (maxlength), счётчик
+  // объясняет ПОЧЕМУ поле перестало принимать буквы: без него это выглядит поломкой.
   function fillProfileForm(form: Record<string, any>) {
     profileTitle.value = form.title || '';
     profileDescription.value = form.description || '';
+    profileSource.value = form.source || '';
     renderProfileEngines(form.engine || '');
     renderProfileFields(form.budgets || {});
     // Список опций у каждого движка свой — рисуем его под тот, что стоит в поле.
@@ -2249,8 +2262,20 @@
     // ни удалять, ни отдавать.
     profileDelete.classList.toggle('hidden', !form.id);
     profileExport.classList.toggle('hidden', !form.id);
+    // Счётчики пересчитываем на КАЖДОЕ заполнение: поля только что получили чужой
+    // текст, и число под ними обязано относиться к нему, а не к прежнему.
+    updateProfileCounters();
     disarmDelete();
     showProfileError(null);
+  }
+
+  function updateProfileCounters() {
+    for (const [input, host] of [
+      [profileDescription, document.getElementById('profile-description-count')],
+      [profileSource, document.getElementById('profile-source-count')],
+    ] as const) {
+      if (host) setText(host, 'profile.count', { n: input.value.length, max: input.maxLength });
+    }
   }
 
   // Выбранную в списке свою площадку открываем на правку; прочерк — чистая форма.
@@ -2341,6 +2366,7 @@
       title: profileTitle.value,
       engine: profileEngine.value,
       description: profileDescription.value,
+      source: profileSource.value,
       budgets: currentBudgetValues(),
       excludeExtensions: currentExcluded(),
     };
@@ -2446,8 +2472,11 @@
   });
   // Любое другое действие снимает взвод удаления: подтверждение относится к одному
   // нажатию, а не висит до конца сеанса.
-  for (const el of [profileTitle, profileDescription, profileEngine, profilePick]) {
+  for (const el of [profileTitle, profileDescription, profileSource, profileEngine, profilePick]) {
     el.addEventListener('input', disarmDelete);
+  }
+  for (const el of [profileDescription, profileSource]) {
+    el.addEventListener('input', updateProfileCounters);
   }
   // Сменили движок — сменился и список опций: у другого читателя файла свои
   // возможности. Снятые галочки при этом не переносим: они относились к прежнему
@@ -3170,30 +3199,34 @@
         row.appendChild(advice);
       }
 
-      // Ссылка на документ, из которого взят порог. Число без проверяемого источника
-      // пользователь принимает на веру — пусть у него будет способ не принимать.
+      // Откуда взят порог. Ссылка — если источник назван и это адрес; пометка «наш» или
+      // «ваш» — если названо, ЧЬЁ это решение. Показываем ОБА, когда есть оба: ссылка
+      // отвечает на вопрос «откуда число», пометка — «чьё оно». Пока пометку вытесняла
+      // ссылка, придуманный порог с адресом чьего-то сайта выглядел точно так же, как
+      // выверенный по документу площадки (ROADMAP.md §5i).
       if (b.source) {
-        const src = document.createElement('a');
+        // Источник своей площадки человек пишет словами, и это может быть не адрес
+        // («из письма менеджера»). Ссылку делаем только из настоящего адреса —
+        // href="из письма менеджера" ведёт в никуда и выглядит поломкой.
+        const url = /^https?:\/\//i.test(b.source) ? b.source : '';
+        const src = document.createElement(url ? 'a' : 'span');
         src.className = 'budget-source';
-        src.href = b.source;
-        src.target = '_blank';
-        src.rel = 'noopener noreferrer';
-        src.textContent = t('budget.source');
+        if (url) {
+          (src as HTMLAnchorElement).href = url;
+          (src as HTMLAnchorElement).target = '_blank';
+          (src as HTMLAnchorElement).rel = 'noopener noreferrer';
+          src.textContent = t('budget.source');
+        } else {
+          src.textContent = b.source;
+        }
         row.appendChild(src);
-      } else if (b.by === 'project') {
-        // Наш собственный порог. Показываем как есть, без ссылки: ссылаться не на что,
-        // и делать вид, что это требование платформы, нельзя.
+      }
+      if (b.by === 'project' || b.by === 'user') {
+        // Наш собственный порог или порог из СВОЕГО профиля — ссылаться не на что, и
+        // делать вид, что это требование площадки, нельзя.
         const own = document.createElement('span');
         own.className = 'budget-source budget-source--own';
-        own.textContent = t('budget.ourChoice');
-        row.appendChild(own);
-      } else if (b.by === 'user') {
-        // Порог из СВОЕГО профиля. Отличать его обязательно: иначе через полгода никто,
-        // включая нас, не отличит выверенное по первоисточнику число от придуманного
-        // (ROADMAP.md §5i).
-        const own = document.createElement('span');
-        own.className = 'budget-source budget-source--own';
-        own.textContent = t('budget.yourChoice');
+        own.textContent = t(b.by === 'user' ? 'budget.yourChoice' : 'budget.ourChoice');
         row.appendChild(own);
       }
 

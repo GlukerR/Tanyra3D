@@ -327,9 +327,20 @@
           <span class="profile-label" data-i18n="profile.engine">Engine</span>
           <select id="profile-engine"></select>
         </label>
+        <!-- Два коротких поля вместо одного длинного: они отвечают на РАЗНЫЕ вопросы —
+             что это за площадка и откуда взялись её запреты и числа. Предел в 150
+             символов назвал Александр 2026-08-13; это не экономия места в файле, а
+             Правило 10: подсказку читает новичок, и абзац он не читает вовсе.
+             Счётчик рисует app.js — он же не даёт превысить предел. -->
         <label class="profile-field">
           <span class="profile-label" data-i18n="profile.description">Description</span>
-          <input type="text" id="profile-description" class="export-name" autocomplete="off">
+          <input type="text" id="profile-description" class="export-name" autocomplete="off" maxlength="150">
+          <span class="profile-count" id="profile-description-count"></span>
+        </label>
+        <label class="profile-field">
+          <span class="profile-label" data-i18n="profile.source">Where from</span>
+          <input type="text" id="profile-source" class="export-name" autocomplete="off" maxlength="150">
+          <span class="profile-count" id="profile-source-count"></span>
         </label>
         <!-- Что эта площадка читает. Единственная форма, в которой площадке позволено
              говорить о возможностях, — ВЫЧИТАТЬ из палитры движка: объявлять их она не

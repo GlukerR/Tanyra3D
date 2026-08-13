@@ -193,6 +193,70 @@ describe('пустое поле — это «порога нет»', () => {
   });
 });
 
+// Предел назвал Александр 2026-08-13: «для написания своего описания нужно
+// использовать минимальное количество разрешённых символов, например 150. Можно
+// разделить на 2 части: что за площадка и откуда берутся данные по запретам».
+describe('описание короткое, и вопросов у него два', () => {
+  const длинный = 'я'.repeat(151);
+
+  it('описание длиннее предела не принимается — и отказ называет поле', () => {
+    try {
+      saveCustomProfile({ title: 'Shop', description: длинный });
+      expect.unreachable('длинное описание принято');
+    } catch (e) {
+      expect(e.code).toBe('too_long');
+      expect(e.field).toBe('description');
+    }
+  });
+
+  it('источник длиннее предела не принимается', () => {
+    try {
+      saveCustomProfile({ title: 'Shop', source: длинный });
+      expect.unreachable('длинный источник принят');
+    } catch (e) {
+      expect(e.code).toBe('too_long');
+      expect(e.field).toBe('source');
+    }
+  });
+
+  it('ровно предел — принимается: граница включительная', () => {
+    const { id } = saveCustomProfile({ title: 'Shop', description: 'я'.repeat(150) });
+    expect(readCustomProfile(id, 'ru').description.length).toBe(150);
+  });
+
+  it('источник лежит в файле ОДИН раз, а не копией у каждого порога', () => {
+    const { id } = saveCustomProfile({
+      title: 'Shop',
+      source: 'https://example.com/limits',
+      budgets: { triangles: 100, fileMB: 5, vramMB: 40 },
+    });
+    const raw = JSON.parse(fs.readFileSync(path.join(dir, `${id}.json`), 'utf8'));
+    expect(raw.source).toBe('https://example.com/limits');
+    // Три порога — и ни одного повторения адреса внутри них.
+    for (const [key, entry] of Object.entries(raw.budgets)) {
+      expect(entry.source, `адрес продублирован в пороге ${key}`).toBeUndefined();
+    }
+  });
+
+  it('источник доезжает до строк бюджета — и НЕ отменяет пометку «ваш порог»', () => {
+    const { id } = saveCustomProfile({
+      title: 'Shop', source: 'https://example.com/limits', budgets: { triangles: 50000 },
+    });
+    const tri = explainResult(runResult, id, 'ru').budgetChecks.find((c) => c.id === 'triangles');
+    expect(tri.source, 'источник профиля до порога не доехал').toBe('https://example.com/limits');
+    // Ссылка отвечает «откуда число», пометка — «чьё оно». Разные вопросы: пока пометку
+    // вытесняла ссылка, придуманный порог с чьим-то адресом выглядел выверенным.
+    expect(tri.by, 'ссылка вытеснила пометку — своё число снова неотличимо').toBe('user');
+  });
+
+  it('у встроенной площадки ссылка есть, а пометки «ваш» нет', () => {
+    const shopify = explainResult(runResult, 'shopify', 'ru').budgetChecks
+      .find((c) => c.source);
+    if (!shopify) return; // у площадки может не быть порогов с источником
+    expect(shopify.by, 'встроенный порог помечен как пользовательский').not.toBe('user');
+  });
+});
+
 describe('чего форма не даст сделать', () => {
   it('площадка без названия не создаётся', () => {
     expect(codeOf(() => saveCustomProfile({ title: '   ' }))).toBe('title_required');

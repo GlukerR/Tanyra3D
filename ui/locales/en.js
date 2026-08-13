@@ -90,6 +90,8 @@ window.I18N_CATALOGS.en = {
   'profile.title': 'Name',
   'profile.engine': 'Engine',
   'profile.description': 'Description',
+  'profile.source': 'Where from',
+  'profile.count': ({ n, max }) => `${n}/${max}`,
   // Площадка умеет ВЫЧИТАТЬ из палитры движка, а не объявлять возможности: поэтому
   // все галочки стоят, а снятая означает «здесь это не работает».
   'profile.features.hint': 'Everything the engine can do is on. Switch off what this platform does not read — those options simply will not appear.',
@@ -109,6 +111,7 @@ window.I18N_CATALOGS.en = {
   'profile.err.unknown_profile': 'This platform no longer exists.',
   'profile.err.id_taken': 'Too many platforms with this name — pick another one.',
   'profile.err.bad_file': 'This file is not a platform: it could not be read as JSON.',
+  'profile.err.too_long': 'The text is too long — shorten it.',
   'profile.err.write_failed': 'The file could not be written.',
   'profile.err.no_assistant': 'This copy of the program cannot create platforms.',
   'profile.err.unknown': 'The platform was not saved.',
@@ -241,6 +244,10 @@ window.I18N_CATALOGS.en = {
   // --- значки у опций ---
   'ext.details': 'Details: {name}',
   'ext.impact': 'Impact: {text}',
+  // Откуда у площадки её запреты и числа — второй вопрос, отдельный от «что это за
+  // площадка», поэтому и строка отдельная. Не `ext.source`: тот занят значком «эта
+  // технология уже есть в загруженной модели», и смысл у него противоположный.
+  'ext.origin': 'Where from: {text}',
   'ext.source': 'Source',
   'ext.source.title': 'This technology was already used in the imported model',
   // «Советуем» — противоположное утверждение: в модели этого НЕТ, но содержимое просит.
