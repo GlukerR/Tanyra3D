@@ -1229,6 +1229,11 @@ body.resizing { cursor: col-resize; user-select: none; }
 .profile-actions { display: flex; gap: 8px; align-items: center; }
 .profile-actions #profile-save { flex: 1 1 auto; }
 
+/* Обмен файлом — второй строкой и без выделения: это не то, ради чего окно открывают,
+   но и не спрятанная возможность. */
+.profile-actions--file { margin-top: 8px; }
+.profile-actions--file .window-action { flex: 1 1 0; text-align: center; }
+
 /* Взведённое удаление красное: второе нажатие сотрёт файл, и это должно быть видно
    до нажатия, а не после. */
 #profile-delete.is-armed { color: var(--alert); border-color: var(--alert); }

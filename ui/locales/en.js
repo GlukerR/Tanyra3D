@@ -95,6 +95,9 @@ window.I18N_CATALOGS.en = {
   'profile.save': 'Save',
   'profile.delete': 'Delete',
   'profile.delete.confirm': 'Delete for good?',
+  // Обмен площадками: профиль — один .json, «поделиться» это «отправить файл».
+  'profile.import': 'Open a file…',
+  'profile.export': 'Save to a file',
   'profile.dir': ({ path }) => `Files live in ${path}`,
   'profile.err.title_required': 'Give the platform a name.',
   'profile.err.engine_unknown': 'No such engine.',
@@ -102,6 +105,7 @@ window.I18N_CATALOGS.en = {
   'profile.err.bad_number': ({ field }) => `"${field}" needs a number greater than zero, or nothing at all.`,
   'profile.err.unknown_profile': 'This platform no longer exists.',
   'profile.err.id_taken': 'Too many platforms with this name — pick another one.',
+  'profile.err.bad_file': 'This file is not a platform: it could not be read as JSON.',
   'profile.err.write_failed': 'The file could not be written.',
   'profile.err.no_assistant': 'This copy of the program cannot create platforms.',
   'profile.err.unknown': 'The platform was not saved.',
@@ -186,6 +190,11 @@ window.I18N_CATALOGS.en = {
   'log.adviceMode.manual': 'Checkboxes now keep your own choice',
   'log.profile.saved': ({ name }) => `Your platform saved: ${name}`,
   'log.profile.deleted': ({ name }) => `Your platform removed: ${name}`,
+  'log.profile.exported': ({ name }) => `Platform saved to a file: ${name}`,
+  'log.profile.imported': ({ name }) => `Platform added from a file: ${name}`,
+  // Отдельное сообщение, а не то же самое: «обновлена» значит, что прежний файл
+  // перезаписан принесённым, и об этом человек должен узнать.
+  'log.profile.replaced': ({ name }) => `Platform updated from a file: ${name}`,
 
   // --- список моделей ---
   'models.remove': 'Remove from list',

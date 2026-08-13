@@ -338,6 +338,16 @@
           <button type="button" id="profile-save" class="btn-primary" data-i18n="profile.save">Save</button>
           <button type="button" id="profile-delete" class="window-action hidden" data-i18n="profile.delete">Delete</button>
         </div>
+        <!-- Обмен площадками (ROADMAP.md §5i, шаг 3). Профиль — один .json, поэтому
+             «поделиться» это «отправить файл»; архива для одного файла не заводим.
+             Ходит сырой файл, а не поля формы: написанный руками профиль несёт то,
+             чего форма не спрашивает — жёсткий предел, ссылку на документ площадки,
+             список вычитаемых опций. -->
+        <div class="profile-actions profile-actions--file">
+          <input type="file" id="profile-file" accept=".json,application/json" hidden>
+          <button type="button" id="profile-import" class="window-action" data-i18n="profile.import">Open a file…</button>
+          <button type="button" id="profile-export" class="window-action hidden" data-i18n="profile.export">Save to a file</button>
+        </div>
         <p id="profile-dir" class="profile-dir"></p>
       </div>
     </div>

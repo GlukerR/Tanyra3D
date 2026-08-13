@@ -1000,6 +1000,83 @@ export function readCustomProfile(id: string, lang: string = DEFAULT_LANG): Cust
   };
 }
 
+// ----------------------------------------------------------------------------
+// Обмен площадками: файлом, а не архивом (ROADMAP.md §5i, шаг 3)
+//
+// Профиль — один .json, поэтому «поделиться» это «отправить файл». ZIP осмыслен
+// только когда в пакете действительно несколько профилей плюс значок; заводить его
+// раньше — упаковка ради упаковки.
+//
+// Ходит СЫРОЙ файл, а не поля формы. Профиль, написанный руками, может нести то, чего
+// форма не спрашивает: жёсткий предел `limit`, ссылку на документ площадки `source`,
+// список вычитаемых опций `excludeExtensions`, свой базовый план. Пропусти файл через
+// форму — всё это молча пропадёт, и получатель увидит не ту площадку, которую ему
+// отправили.
+// ----------------------------------------------------------------------------
+
+/**
+ * Своя площадка файлом — ровно тем, что лежит на диске.
+ *
+ * Встроенную не отдаём, и это не мелочь: её пороги несут ссылки на документы настоящей
+ * площадки. Отданная как образец, поправленная и внесённая обратно, она стала бы своим
+ * профилем с чужими ссылками — тем самым враньём, ради борьбы с которым §5i и написан.
+ */
+export function exportCustomProfile(id: string) {
+  const found = profilePath(safeId(String(id || '')));
+  if (!found) throw new ProfileError('unknown_profile');
+  if (!found.custom) throw new ProfileError('builtin_id');
+  return { id: safeId(String(id)), json: fs.readFileSync(found.file, 'utf8') };
+}
+
+/**
+ * Принять чужую площадку файлом.
+ *
+ * Возвращает `{ id, replaced }`: интерфейсу нужно сказать человеку, добавилась площадка
+ * или обновилась существующая. Молчать об этом нельзя — «обновилась» означает, что
+ * прежний файл с его правками перезаписан.
+ */
+export function importCustomProfile(text: string) {
+  let raw: ProfileJson;
+  try {
+    raw = JSON.parse(String(text));
+  } catch {
+    throw new ProfileError('bad_file');
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new ProfileError('bad_file');
+  // Название читаем на любом языке, который есть в файле: профиль от стороннего автора
+  // вправе быть написан только по-русски или только по-английски (см. pick). Пусто на
+  // всех — отказ: безымянная строка в списке хуже, чем отказ с причиной.
+  const title = pick(raw.title, DEFAULT_LANG)
+    || (raw.title && typeof raw.title === 'object' ? Object.values(raw.title as Record<string, string>).find(Boolean) || '' : '');
+  if (!title) throw new ProfileError('title_required');
+
+  const wanted = safeId(String(raw.id || '')) || slugFrom(title);
+  const found = wanted ? profilePath(wanted) : null;
+  // Встроенный id занят навсегда: свой файл его всё равно не подменит (profilePath
+  // отдаёт встроенный первым), поэтому берём свободное имя, а не отказываем. Отказ
+  // здесь означал бы «вашу площадку нельзя назвать Shopify», хотя можно — просто
+  // файл будет называться иначе.
+  const id = found && !found.custom ? freeProfileId(wanted) : (wanted || freeProfileId(''));
+  const replaced = Boolean(found && found.custom);
+
+  const profile: ProfileJson = {
+    ...raw,
+    id,
+    // Импорт — это и есть акт включения. `enabled: false` придуман для черновиков,
+    // которые лежат в поставке и до поры не показываются; файл, который человек принёс
+    // руками, обязан появиться в списке, иначе успешный импорт выглядит поломкой.
+    enabled: true,
+  };
+  // Пометку «свой» ставит загрузчик по тому, откуда взят файл. В файле её быть не
+  // должно даже как мусора: чужой профиль не вправе объявлять себя встроенным.
+  delete profile.custom;
+
+  const dir = userProfilesDir();
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${id}.json`), `${JSON.stringify(profile, null, 2)}\n`, 'utf8');
+  return { id, replaced };
+}
+
 /** Убрать свою площадку. Встроенную не трогаем: её файл не наш. */
 export function deleteCustomProfile(id: string) {
   const found = profilePath(safeId(String(id || '')));

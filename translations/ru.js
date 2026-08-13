@@ -91,6 +91,9 @@ window.I18N_CATALOGS.ru = {
   'profile.save': 'Сохранить',
   'profile.delete': 'Удалить',
   'profile.delete.confirm': 'Точно удалить?',
+  // Обмен площадками: профиль — один .json, «поделиться» это «отправить файл».
+  'profile.import': 'Открыть файл…',
+  'profile.export': 'Сохранить в файл',
   'profile.dir': ({ path }) => `Файлы лежат в ${path}`,
   'profile.err.title_required': 'Назовите площадку.',
   'profile.err.engine_unknown': 'Такого движка нет.',
@@ -98,6 +101,7 @@ window.I18N_CATALOGS.ru = {
   'profile.err.bad_number': ({ field }) => `В поле «${field}» нужно число больше нуля — или пусто.`,
   'profile.err.unknown_profile': 'Такой площадки больше нет.',
   'profile.err.id_taken': 'Слишком много площадок с таким названием — возьмите другое.',
+  'profile.err.bad_file': 'Это не площадка: файл не читается как JSON.',
   'profile.err.write_failed': 'Файл записать не удалось.',
   'profile.err.no_assistant': 'Эта сборка программы не умеет заводить площадки.',
   'profile.err.unknown': 'Площадка не сохранена.',
@@ -166,6 +170,11 @@ window.I18N_CATALOGS.ru = {
   'log.adviceMode.manual': 'Флажки теперь сохраняют ваш выбор',
   'log.profile.saved': ({ name }) => `Своя площадка сохранена: ${name}`,
   'log.profile.deleted': ({ name }) => `Своя площадка убрана: ${name}`,
+  'log.profile.exported': ({ name }) => `Площадка сохранена в файл: ${name}`,
+  'log.profile.imported': ({ name }) => `Площадка добавлена из файла: ${name}`,
+  // Отдельное сообщение, а не то же самое: «обновлена» значит, что прежний файл
+  // перезаписан принесённым, и об этом человек должен узнать.
+  'log.profile.replaced': ({ name }) => `Площадка обновлена из файла: ${name}`,
 
   // --- список моделей ---
   'models.remove': 'Убрать из списка',

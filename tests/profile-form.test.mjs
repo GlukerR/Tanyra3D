@@ -19,6 +19,7 @@ import path from 'node:path';
 
 import {
   saveCustomProfile, readCustomProfile, deleteCustomProfile, profileTemplate,
+  exportCustomProfile, importCustomProfile,
   listPlatforms, explainResult, planFor, ProfileError,
 } from '../assistant.mjs';
 
@@ -204,6 +205,106 @@ describe('правка и удаление своей площадки', () => {
     deleteCustomProfile(id);
     expect(fs.existsSync(file), 'файл остался на диске').toBe(false);
     expect(listPlatforms('ru').some((p) => p.id === id), 'стёртая площадка осталась в списке').toBe(false);
+  });
+});
+
+// Шаг 3 §5i: профилем делятся файлом. Главное обещание — файл доезжает ЦЕЛИКОМ, а не
+// теми полями, которые умеет спросить форма.
+describe('обмен площадками файлом', () => {
+  /** Профиль, написанный руками: в нём есть всё, чего форма не спрашивает. */
+  const РУЧНОЙ = {
+    id: 'partner',
+    engine: 'threejs',
+    enabled: true,
+    title: { en: 'Partner store', ru: 'Витрина партнёра' },
+    budgets: {
+      fileMB: { warn: 4, limit: 15, source: 'https://example.com/limits' },
+      triangles: { warn: 60000 },
+    },
+    excludeExtensions: ['draco'],
+    baselineOpts: { codec: 'meshopt', texMode: 'mixed', noKtx: true },
+    notes: ['числа из письма менеджера, проверены 2026-08-13'],
+  };
+
+  it('выгрузка отдаёт файл дословно, а не поля формы', () => {
+    const { id } = saveCustomProfile({ title: 'Shop', budgets: { triangles: 100 } });
+    // Дописываем руками то, чего форма не умеет, — как сделал бы человек.
+    const file = path.join(dir, `${id}.json`);
+    const body = JSON.parse(fs.readFileSync(file, 'utf8'));
+    body.budgets.fileMB = { warn: 4, limit: 15, source: 'https://example.com' };
+    body.excludeExtensions = ['draco'];
+    fs.writeFileSync(file, JSON.stringify(body, null, 2), 'utf8');
+
+    const out = exportCustomProfile(id);
+    const sent = JSON.parse(out.json);
+    expect(out.id).toBe(id);
+    expect(sent.budgets.fileMB.limit, 'жёсткий предел не доехал до получателя').toBe(15);
+    expect(sent.excludeExtensions, 'список вычитаемых опций потерян').toEqual(['draco']);
+  });
+
+  it('встроенную площадку не выгрузить', () => {
+    // Отданная как образец, поправленная и внесённая обратно, она стала бы своим
+    // профилем с ссылками на документы настоящей площадки.
+    expect(codeOf(() => exportCustomProfile('shopify'))).toBe('builtin_id');
+  });
+
+  it('принятый файл сохраняет всё, чего форма не спрашивает', () => {
+    const { id, replaced } = importCustomProfile(JSON.stringify(РУЧНОЙ));
+    expect(id).toBe('partner');
+    expect(replaced, 'новая площадка помечена как обновление существующей').toBe(false);
+
+    const saved = JSON.parse(fs.readFileSync(path.join(dir, 'partner.json'), 'utf8'));
+    expect(saved.budgets.fileMB).toEqual(РУЧНОЙ.budgets.fileMB);
+    expect(saved.excludeExtensions).toEqual(['draco']);
+    expect(saved.baselineOpts.texMode).toBe('mixed');
+    expect(saved.notes).toEqual(РУЧНОЙ.notes);
+
+    const found = listPlatforms('ru').find((p) => p.id === 'partner');
+    expect(found.title, 'название взято не на языке интерфейса').toBe('Витрина партнёра');
+    expect(found.custom).toBe(true);
+  });
+
+  it('повторный ввоз того же файла обновляет площадку и говорит об этом', () => {
+    importCustomProfile(JSON.stringify(РУЧНОЙ));
+    const again = importCustomProfile(JSON.stringify({ ...РУЧНОЙ, title: 'Partner v2' }));
+    expect(again.id).toBe('partner');
+    expect(again.replaced, 'перезапись чужим файлом прошла молча').toBe(true);
+    expect(fs.readdirSync(dir).filter((f) => f.endsWith('.json')).length, 'завёлся второй файл').toBe(1);
+    expect(listPlatforms('ru').find((p) => p.id === 'partner').title).toBe('Partner v2');
+  });
+
+  it('файл с именем встроенной площадки получает своё имя, а не отказ', () => {
+    const { id, replaced } = importCustomProfile(JSON.stringify({ ...РУЧНОЙ, id: 'shopify' }));
+    expect(id, 'встроенный id занят — файл обязан лечь под другим именем').not.toBe('shopify');
+    expect(replaced).toBe(false);
+    const shopify = listPlatforms('ru').filter((p) => p.id === 'shopify');
+    expect(shopify.length, 'в списке две площадки с одним id').toBe(1);
+    expect(shopify[0].custom, 'встроенная площадка подменена принесённым файлом').toBe(false);
+  });
+
+  it('выключенный в файле профиль после ввоза виден', () => {
+    // Импорт — и есть акт включения. Иначе успешный ввоз выглядит как поломка:
+    // «сохранено», а в списке пусто.
+    const { id } = importCustomProfile(JSON.stringify({ ...РУЧНОЙ, enabled: false }));
+    expect(listPlatforms('ru').some((p) => p.id === id), 'принесённая площадка не появилась').toBe(true);
+  });
+
+  it('пометку «встроенный» файл себе не выпишет', () => {
+    const { id } = importCustomProfile(JSON.stringify({ ...РУЧНОЙ, custom: false }));
+    expect(listPlatforms('ru').find((p) => p.id === id).custom).toBe(true);
+    const saved = JSON.parse(fs.readFileSync(path.join(dir, `${id}.json`), 'utf8'));
+    expect(saved.custom, 'поле осталось в файле и путает следующего читателя').toBeUndefined();
+  });
+
+  it('не-JSON и файл без названия — отказ с причиной', () => {
+    expect(codeOf(() => importCustomProfile('это не json'))).toBe('bad_file');
+    expect(codeOf(() => importCustomProfile('[1,2,3]'))).toBe('bad_file');
+    expect(codeOf(() => importCustomProfile('{"id":"x"}'))).toBe('title_required');
+  });
+
+  it('файл без id получает имя из названия', () => {
+    const { id } = importCustomProfile(JSON.stringify({ title: 'Витрина заказчика', budgets: {} }));
+    expect(id).toBe('vitrina-zakazchika');
   });
 });
 
