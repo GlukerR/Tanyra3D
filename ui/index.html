@@ -331,6 +331,13 @@
           <span class="profile-label" data-i18n="profile.description">Description</span>
           <input type="text" id="profile-description" class="export-name" autocomplete="off">
         </label>
+        <!-- Что эта площадка читает. Единственная форма, в которой площадке позволено
+             говорить о возможностях, — ВЫЧИТАТЬ из палитры движка: объявлять их она не
+             вправе (Правило 10б). Поэтому все галочки стоят, а снятая означает «здесь
+             это не работает» — и опция просто исчезнет из панели, без серых кнопок и
+             объяснений. Список рисует app.js по ответу движка. -->
+        <p class="profile-hint" data-i18n="profile.features.hint">Everything the engine can do is on. Switch off what this platform does not read — those options simply will not appear.</p>
+        <div id="profile-features" class="profile-features"></div>
         <p class="profile-hint" data-i18n="profile.budgets.hint">Fill in only the numbers you know. An empty field means the metric is shown without any verdict.</p>
         <div id="profile-budgets" class="profile-budgets"></div>
         <p id="profile-error" class="profile-error hidden"></p>

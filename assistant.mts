@@ -853,6 +853,15 @@ export interface CustomProfileInput {
   engine?: string;
   description?: string;
   budgets?: Record<string, unknown>;
+  /**
+   * Что эта площадка НЕ читает — список id опций движка.
+   *
+   * Единственная форма, в которой площадке позволено говорить о возможностях:
+   * ВЫЧИТАТЬ из палитры движка. Объявлять их она не вправе — иначе вернётся дефект,
+   * ради которого движок и площадку разводили: четыре профиля держали четыре
+   * побайтно одинаковые копии десяти опций (Правило 10б).
+   */
+  excludeExtensions?: unknown;
 }
 
 /**
@@ -951,6 +960,14 @@ export function saveCustomProfile(input: CustomProfileInput) {
     budgets[key] = { warn: n };
   }
 
+  // Что площадка не читает. Пустой список не пишем вовсе: `excludeExtensions: []` и
+  // отсутствие поля значат одно и то же, а лишнее поле в файле следующий читатель
+  // примет за осмысленное решение автора.
+  const raw = input && input.excludeExtensions;
+  const exclude = Array.isArray(raw)
+    ? [...new Set(raw.map((x) => String(x).trim()).filter(Boolean))]
+    : [];
+
   const description = String((input && input.description) || '').trim();
   const profile: ProfileJson = {
     id,
@@ -959,6 +976,7 @@ export function saveCustomProfile(input: CustomProfileInput) {
     title,
     ...(description ? { description } : {}),
     budgets,
+    ...(exclude.length ? { excludeExtensions: exclude } : {}),
     // Пометки «свой» в файле НЕТ намеренно: её ставит загрузчик по тому, откуда взят
     // файл. Иначе профиль объявил бы себя встроенным, и придуманное число встало бы
     // рядом с выверенным по документу площадки (ROADMAP.md §5i).
@@ -997,6 +1015,7 @@ export function readCustomProfile(id: string, lang: string = DEFAULT_LANG): Cust
     engine: engineIdOf(p),
     description: pick(p.description, lang),
     budgets,
+    excludeExtensions: Array.isArray(p.excludeExtensions) ? p.excludeExtensions : [],
   };
 }
 

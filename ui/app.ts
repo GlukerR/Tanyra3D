@@ -132,6 +132,7 @@
   const profileSave = $('profile-save') as HTMLButtonElement;
   const profileDelete = $('profile-delete') as HTMLButtonElement;
   const profileDir = $('profile-dir');
+  const profileFeatures = $('profile-features');
   const profileFile = $('profile-file') as HTMLInputElement;
   const profileImport = $('profile-import') as HTMLButtonElement;
   const profileExport = $('profile-export') as HTMLButtonElement;
@@ -2135,6 +2136,54 @@
     return out;
   }
 
+  // Что площадка НЕ читает — снятые галочки. Именно вычитание, а не объявление:
+  // площадка вправе убрать из палитры движка, но не заявить возможность (Правило 10б).
+  function currentExcluded(): string[] {
+    const out: string[] = [];
+    for (const el of profileFeatures.querySelectorAll('input[data-feature]')) {
+      const cb = el as HTMLInputElement;
+      if (!cb.checked) out.push(cb.dataset.feature!);
+    }
+    return out;
+  }
+
+  // Список опций рисуется по ответу ДВИЖКА (площадка пустая — значит полная палитра).
+  // Слова опций приходят оттуда же, откуда их берёт основная панель: второго перевода
+  // слова «Draco» в проекте нет.
+  async function renderProfileFeatures(engineId: string, excluded: string[]) {
+    profileFeatures.innerHTML = '';
+    let list: ExtensionDto[] = [];
+    try {
+      const res = await fetch(`/api/extensions?platform=&engine=${encodeURIComponent(engineId)}&${langParam()}`);
+      const data = await res.json();
+      list = (data && data.extensions) || [];
+    } catch (e) {
+      // Списка нет — молча пустое место было бы хуже: человек решит, что площадка
+      // ничего не умеет. Строка отказа объясняет, что не приехало.
+      const note = document.createElement('p');
+      note.className = 'profile-hint';
+      note.textContent = t('opts.noServer', { error: String(((e as Error) && (e as Error).message) || e) });
+      profileFeatures.appendChild(note);
+      return;
+    }
+    const off = new Set(excluded);
+    for (const ext of list) {
+      const row = document.createElement('label');
+      row.className = 'profile-feature';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.feature = ext.id;
+      // Галочка стоит = площадка это читает. Умолчание — «читает всё, что умеет
+      // движок»: автор площадки снимает лишнее, а не собирает список с нуля.
+      cb.checked = !off.has(ext.id);
+      cb.addEventListener('change', disarmDelete);
+      const name = document.createElement('span');
+      name.textContent = ext.title || ext.id;
+      row.append(cb, name);
+      profileFeatures.appendChild(row);
+    }
+  }
+
   // Код отказа приходит с сервера, фразу подбирает интерфейс: английская строка из
   // ассистента на русском экране — ровно то, что запрещает Правило 8.
   const PROFILE_ERRORS = [
@@ -2194,6 +2243,8 @@
     profileDescription.value = form.description || '';
     renderProfileEngines(form.engine || '');
     renderProfileFields(form.budgets || {});
+    // Список опций у каждого движка свой — рисуем его под тот, что стоит в поле.
+    renderProfileFeatures(profileEngine.value, form.excludeExtensions || []);
     // Кнопки удаления и выгрузки есть только у существующей площадки: у новой нечего
     // ни удалять, ни отдавать.
     profileDelete.classList.toggle('hidden', !form.id);
@@ -2230,10 +2281,18 @@
       setText(profileDir, 'profile.dir', { path: '—' });
       failed = true;
     }
-    renderProfilePick('');
-    fillProfileForm({});
-    // Строго ПОСЛЕ fillProfileForm: та чистит форму вместе с прежним отказом, и
-    // сказанное раньше стёрлось бы, не успев показаться.
+    // Если справа уже выбрана СВОЯ площадка — открываем её, а не пустую форму.
+    //
+    // Александр 2026-08-13: «нужна возможность удалять свои платформы». Возможность
+    // была с самого начала, но чтобы до неё добраться, надо было догадаться выбрать
+    // площадку в верхнем поле окна — то есть повторить выбор, который уже сделан на
+    // экране. Кнопка, до которой не дошли, ничем не отличается от отсутствующей.
+    const выбрана = platforms.find((p) => p.id === platformSelect.value && p.custom);
+    renderProfilePick(выбрана ? выбрана.id : '');
+    if (выбрана) await loadProfileForEdit(выбрана.id);
+    else fillProfileForm({});
+    // Строго ПОСЛЕ заполнения формы: оно чистит прежний отказ, и сказанное раньше
+    // стёрлось бы, не успев показаться.
     if (failed) showProfileError('no_assistant');
     showWindow(profileWindow);
     profileTitle.focus();
@@ -2244,6 +2303,7 @@
   async function relabelProfileForm() {
     const typed = currentBudgetValues();
     const fail = profileFail;
+    const excluded = currentExcluded();
     try {
       const tpl = await fetchProfileTemplate();
       profileFields = Array.isArray(tpl.fields) ? tpl.fields : [];
@@ -2252,6 +2312,9 @@
       return;
     }
     renderProfileFields(typed);
+    // Названия опций тоже приходят с сервера — перезапрашиваем их на новом языке,
+    // сохранив снятые галочки.
+    await renderProfileFeatures(profileEngine.value, excluded);
     renderProfilePick(profilePick.value);
     if (fail) showProfileError(fail.code, fail.field);
   }
@@ -2279,6 +2342,7 @@
       engine: profileEngine.value,
       description: profileDescription.value,
       budgets: currentBudgetValues(),
+      excludeExtensions: currentExcluded(),
     };
     profileSave.disabled = true;
     try {
@@ -2385,6 +2449,10 @@
   for (const el of [profileTitle, profileDescription, profileEngine, profilePick]) {
     el.addEventListener('input', disarmDelete);
   }
+  // Сменили движок — сменился и список опций: у другого читателя файла свои
+  // возможности. Снятые галочки при этом не переносим: они относились к прежнему
+  // списку, и молча приписать их новому движку значило бы выключить не то.
+  profileEngine.addEventListener('change', () => renderProfileFeatures(profileEngine.value, []));
 
   // -----------------------------------------------------------------------
   // Строка меню

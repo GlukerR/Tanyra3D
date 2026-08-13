@@ -90,6 +90,9 @@ window.I18N_CATALOGS.en = {
   'profile.title': 'Name',
   'profile.engine': 'Engine',
   'profile.description': 'Description',
+  // Площадка умеет ВЫЧИТАТЬ из палитры движка, а не объявлять возможности: поэтому
+  // все галочки стоят, а снятая означает «здесь это не работает».
+  'profile.features.hint': 'Everything the engine can do is on. Switch off what this platform does not read — those options simply will not appear.',
   // Единственное, что стоит объяснить: пустое поле — это не ноль.
   'profile.budgets.hint': 'Fill in only the numbers you know. An empty field means the metric is shown without any verdict.',
   'profile.save': 'Save',

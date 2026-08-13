@@ -19,7 +19,7 @@ import path from 'node:path';
 
 import {
   saveCustomProfile, readCustomProfile, deleteCustomProfile, profileTemplate,
-  exportCustomProfile, importCustomProfile,
+  exportCustomProfile, importCustomProfile, getAvailableExtensions,
   listPlatforms, explainResult, planFor, ProfileError,
 } from '../assistant.mjs';
 
@@ -118,6 +118,49 @@ describe('форма создаёт рабочую площадку', () => {
     const second = saveCustomProfile({ title: 'Shop', budgets: { triangles: 200 } });
     expect(second.id, 'вторая площадка получила тот же id и стёрла первую').not.toBe(first.id);
     expect(listPlatforms('ru').filter((p) => p.title === 'Shop').length).toBe(2);
+  });
+});
+
+// Слово Александра 2026-08-13: «моя площадка не поддерживает драко — самое важное ведь,
+// чтобы отключались функции, которые не нужно использовать». Площадке позволено ровно
+// одно: ВЫЧИТАТЬ из палитры движка. Объявлять возможности она не вправе (Правило 10б).
+describe('площадка вычитает опции, которых у неё нет', () => {
+  it('снятая опция исчезает из списка этой площадки', () => {
+    const { id } = saveCustomProfile({ title: 'Shop', engine: 'threejs', excludeExtensions: ['draco'] });
+    const ids = getAvailableExtensions(id, 'ru').map((e) => e.id);
+    expect(ids, 'вычитаемая опция осталась в списке площадки').not.toContain('draco');
+    expect(ids.length, 'вычли всё, а не одну опцию').toBeGreaterThan(0);
+  });
+
+  it('у площадки без вычитания список полный — как у движка', () => {
+    const { id } = saveCustomProfile({ title: 'Shop', engine: 'threejs' });
+    const свои = getAvailableExtensions(id, 'ru').map((e) => e.id);
+    const движок = getAvailableExtensions('', 'ru', 'threejs').map((e) => e.id);
+    expect(свои).toEqual(движок);
+  });
+
+  it('пустой список в файл не пишется — поле без смысла путает читателя', () => {
+    const { id } = saveCustomProfile({ title: 'Shop', excludeExtensions: [] });
+    const raw = JSON.parse(fs.readFileSync(path.join(dir, `${id}.json`), 'utf8'));
+    expect(raw.excludeExtensions).toBeUndefined();
+  });
+
+  it('повторы и пустые строки в списке отсеиваются', () => {
+    const { id } = saveCustomProfile({
+      title: 'Shop', excludeExtensions: ['draco', 'draco', '  ', 'ktx2'],
+    });
+    const raw = JSON.parse(fs.readFileSync(path.join(dir, `${id}.json`), 'utf8'));
+    expect(raw.excludeExtensions).toEqual(['draco', 'ktx2']);
+  });
+
+  it('вычитание возвращается в форму при правке', () => {
+    const { id } = saveCustomProfile({ title: 'Shop', excludeExtensions: ['draco'] });
+    expect(readCustomProfile(id, 'ru').excludeExtensions).toEqual(['draco']);
+  });
+
+  it('у площадки без вычитания форма получает пустой список, а не undefined', () => {
+    const { id } = saveCustomProfile({ title: 'Shop' });
+    expect(readCustomProfile(id, 'ru').excludeExtensions).toEqual([]);
   });
 });
 
