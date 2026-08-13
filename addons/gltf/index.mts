@@ -594,6 +594,9 @@ function writeReport({ name, result, before, after, assetWritten, opts }: GltfRe
     diffLine(t('report.metric.drawCalls'), before.drawCalls, after.drawCalls),
     diffLine(t('report.metric.triangles'), before.triangles, after.triangles),
     diffLine(t('report.metric.vertices'), before.vertices, after.vertices),
+    // Хранимые вершины стоят рядом с рисуемыми намеренно: расхождение между ними и
+    // есть ответ на вопрос «почему файл потяжелел, а рисуется столько же» (§5b).
+    diffLine(t('report.metric.verticesStored'), before.verticesStored, after.verticesStored),
     diffLine(t('report.metric.meshes'), before.meshes, after.meshes),
     diffLine(t('report.metric.materials'), before.materials, after.materials),
     diffLine(t('report.metric.textures'), before.textures, after.textures),

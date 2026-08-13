@@ -666,6 +666,7 @@ const ORPHAN_EXCLUSIONS = {
   'report.metric.drawCalls': 'рамка .md-отчёта — writeReport, вне RunResult',
   'report.metric.triangles': 'рамка .md-отчёта — writeReport, вне RunResult',
   'report.metric.vertices': 'рамка .md-отчёта — writeReport, вне RunResult',
+  'report.metric.verticesStored': 'рамка .md-отчёта — writeReport, вне RunResult',
   'report.metric.meshes': 'рамка .md-отчёта — writeReport, вне RunResult',
   'report.metric.materials': 'рамка .md-отчёта — writeReport, вне RunResult',
   'report.metric.textures': 'рамка .md-отчёта — writeReport, вне RunResult',

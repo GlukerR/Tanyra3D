@@ -21,7 +21,23 @@ export type GltfMetrics = {
   fileBytes: number;
   drawCalls: number;
   triangles: number;
+  /**
+   * Вершины, которые РИСУЮТСЯ: счёт по узлам сцены, с учётом переиспользования одного
+   * меша многими узлами и с умножением на экземпляры инстансинга.
+   */
   vertices: number;
+  /**
+   * Вершины, которые ХРАНЯТСЯ: сумма по уникальным буферам позиций, без повторов.
+   *
+   * Две величины вместо одной — `ROADMAP.md` §5b, дописано 2026-07-31. Пока число было
+   * одно, оно молча прятало ровно тот случай, ради которого на него смотрят: когда
+   * `join` разворачивает общую геометрию в копии, рисуемых остаётся столько же, а
+   * хранимых становится втрое больше. Файл и видеопамять растут, а метрика неподвижна.
+   *
+   * В baseline-снимок эта величина НЕ входит намеренно: там сверяется то, что меняться
+   * не должно, а хранимым как раз положено меняться — в этом смысл объединения мешей.
+   */
+  verticesStored: number;
   morphTargets: number;
   /** Набор семантик строкой: «POSITION,NORMAL,TEXCOORD_0». Почему строкой — см. sceneGeometry. */
   attributes: string;
@@ -145,19 +161,49 @@ export function sceneGeometry(doc: Document): SceneGeometry {
 function maxTextureSide(doc: Document): number {
   let max = 0;
   for (const tex of doc.getRoot().listTextures()) {
-    const image = tex.getImage();
-    const mime = tex.getMimeType();
-    if (!image || !mime) continue;
-    let size: number[] | null = null;
-    try {
-      size = gltfCore.ImageUtils.getSize(image, mime);
-    } catch {
-      /* формат без читателя размеров — пропускаем эту текстуру, не весь замер */
-    }
+    const size = textureSize(tex.getImage(), tex.getMimeType());
     if (!size) continue;
     max = Math.max(max, size[0] || 0, size[1] || 0);
   }
   return max;
+}
+
+/**
+ * Вершины, которые лежат в файле, — по УНИКАЛЬНЫМ буферам позиций.
+ *
+ * Ключ дедупликации — сам аксессор: меш, на который ссылаются десять узлов, хранится
+ * один раз, и десять раз его считать нельзя. Обход идёт по мешам документа, а не по
+ * сцене: вершины занимают место в файле независимо от того, попал ли меш в сцену.
+ */
+function storedVertices(doc: Document): number {
+  const seen = new Set<object>();
+  let total = 0;
+  for (const mesh of doc.getRoot().listMeshes()) {
+    for (const prim of mesh.listPrimitives()) {
+      const pos = prim.getAttribute('POSITION');
+      if (!pos || seen.has(pos)) continue;
+      seen.add(pos);
+      total += pos.getCount();
+    }
+  }
+  return total;
+}
+
+/**
+ * Ширина и высота картинки, либо null — прочитать не удалось (формат без читателя
+ * размеров, обрезанный файл, заглушка вместо картинки).
+ *
+ * ЕДИНСТВЕННОЕ место в проекте, где читается размер текстуры: отсюда его берут и
+ * метрики, и правило `textures/resize`. Разойдись эти два чтения — правило уменьшало бы
+ * одно, а отчёт показывал бы другое.
+ */
+export function textureSize(image: Uint8Array | null, mime: string | null): number[] | null {
+  if (!image || !mime) return null;
+  try {
+    return gltfCore.ImageUtils.getSize(image, mime);
+  } catch {
+    return null;
+  }
 }
 
 export function collectMetrics(doc: Document, fileBytes: number): GltfMetrics {
@@ -176,6 +222,7 @@ export function collectMetrics(doc: Document, fileBytes: number): GltfMetrics {
   }
   return {
     textureMaxSize: maxTextureSide(doc),
+    verticesStored: storedVertices(doc),
     fileBytes,
     drawCalls,
     triangles,
