@@ -10,6 +10,7 @@ window.I18N_CATALOGS.en = {
   // разделитель разрядов у языков разный (500,000 против 500 000).
   'unit.kb': 'KB',
   'unit.mb': 'MB',
+  'unit.gb': 'GB',
   'unit.locale': 'en-US',
 
   // --- левая панель ---
@@ -190,6 +191,14 @@ window.I18N_CATALOGS.en = {
   'menu.settings.manual.hint': 'Your checkboxes stay as you left them; suggestions are only marked with a badge',
   'menu.settings.platforms': 'Your own platforms',
   'menu.settings.newPlatform': 'Create your own platform…',
+
+  'menu.settings.workdir': 'Work folder',
+  'menu.settings.workdir.counting': 'Counting…',
+  'menu.settings.workdir.note': ({ size, limit }) =>
+    `${size} of ${limit} used. It will not grow further: the excess is cleared on its own, and everything goes when you quit.`,
+  'menu.settings.workdir.open': 'Show the folder',
+  'menu.settings.workdir.clear': 'Clear it now',
+  'menu.settings.workdir.cleared': 'The folder is empty. The model has to be loaded again.',
   'menu.help': 'Help',
   'menu.help.local': 'Everything runs on this machine. Models are never uploaded anywhere.',
   'log.adviceMode.advise': 'Checkboxes now follow per-model suggestions',

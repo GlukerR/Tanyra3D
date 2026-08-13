@@ -56,6 +56,14 @@
              откроет настройки сам. -->
         <p class="menu-group-title" data-i18n="menu.settings.platforms">Your own platforms</p>
         <button class="menu-item" type="button" id="menu-profile" data-window-trigger data-i18n="menu.settings.newPlatform">Create your own platform…</button>
+        <!-- Рабочая папка (Александр, 2026-08-13: «пк клиента не должен замусориваться
+             рабочими файлами в огромном количестве»). Уборка была и раньше — чистка на
+             старте, потолки по счёту и объёму, — но нигде не показывалась, а невидимая
+             уборка ничем не отличается от её отсутствия. -->
+        <p class="menu-group-title" data-i18n="menu.settings.workdir">Work folder</p>
+        <p class="menu-note" id="workdir-note" data-i18n="menu.settings.workdir.counting">Counting…</p>
+        <button class="menu-item" type="button" id="workdir-open" data-i18n="menu.settings.workdir.open">Show the folder</button>
+        <button class="menu-item" type="button" id="workdir-clear" data-i18n="menu.settings.workdir.clear">Clear it now</button>
       </div>
     </div>
     <div class="menu">
@@ -366,7 +374,9 @@
           <button type="button" id="profile-import" class="window-action" data-i18n="profile.import">Open a file…</button>
           <button type="button" id="profile-export" class="window-action hidden" data-i18n="profile.export">Save to a file</button>
         </div>
-        <p id="profile-dir" class="profile-dir"></p>
+        <!-- Путь — кнопка, а не строка: скопировать его и вставить в проводник это три
+             действия там, где хватает одного (Александр, 2026-08-13). -->
+        <button type="button" id="profile-dir" class="profile-dir"></button>
       </div>
     </div>
 
