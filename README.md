@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Node](https://img.shields.io/badge/Node-20.9%2B-brightgreen)](https://nodejs.org/)
-[![Version](https://img.shields.io/badge/version-0.2.0-orange)](#status)
+[![Version](https://img.shields.io/badge/version-0.2.1-orange)](#status)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#install)
 
 Drop in a `.glb`, tick the boxes you want, get a smaller model back — along with a
@@ -439,6 +439,13 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 ---
 
 ## Status
+
+**0.2.1 — skinning fixes, texture resizing, your own target.** Four validator findings
+about skinning are now repaired rather than reported; textures can be brought down to
+4096/2048/1024/512 on the longer side; the core measures texture dimensions, so a target's
+texture threshold finally has something to compare against; and a target of your own is
+created from the settings window — a name, an engine and a few numbers. The middle digit
+stays at 2: it is reserved for the second engine (Babylon.js).
 
 **0.2.0 — the sources are TypeScript.** Core, interface and viewer are compiled from
 `.mts`/`.ts`; what the program does is what 0.1.1 did — the number records a change of
