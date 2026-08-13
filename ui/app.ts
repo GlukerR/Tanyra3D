@@ -2645,6 +2645,14 @@
         own.className = 'budget-source budget-source--own';
         own.textContent = t('budget.ourChoice');
         row.appendChild(own);
+      } else if (b.by === 'user') {
+        // Порог из СВОЕГО профиля. Отличать его обязательно: иначе через полгода никто,
+        // включая нас, не отличит выверенное по первоисточнику число от придуманного
+        // (ROADMAP.md §5i).
+        const own = document.createElement('span');
+        own.className = 'budget-source budget-source--own';
+        own.textContent = t('budget.yourChoice');
+        row.appendChild(own);
       }
 
       budgetsList.appendChild(row);

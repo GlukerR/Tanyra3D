@@ -24,6 +24,7 @@
 // переводит их в опции; поле opts у расширения — эквивалент для legacy-пути.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -135,10 +136,61 @@ function pick(value: unknown, lang: string): string {
 // Загрузка профилей (данные, не код)
 // ----------------------------------------------------------------------------
 
-function profilePath(id: string): string {
+// ----------------------------------------------------------------------------
+// Свои профили: вторая папка рядом с настройками приложения (ROADMAP.md §5i, шаг 1)
+//
+// Механика «положил файл — площадка появилась» работала и раньше, но класть файл было
+// некуда, кроме папки установки: там его затирает обновление, а на macOS её ещё и не
+// даёт править система. Второй каталог решает ровно это.
+//
+// Путь считается по системе, а не спрашивается у Electron: ассистент работает и без
+// оболочки (CLI, сервер, программный вызов), и зависеть от неё не вправе. Переменная
+// TANYRA3D_PROFILES_DIR перекрывает всё — ею пользуются тесты и тот, кто держит профили
+// в своей папке (общий диск команды, репозиторий заказчика).
+// ----------------------------------------------------------------------------
+
+function userProfilesDir(): string {
+  const override = process.env.TANYRA3D_PROFILES_DIR;
+  if (override) return override;
+  const home = os.homedir();
+  if (process.platform === 'win32') {
+    return path.join(process.env.APPDATA || path.join(home, 'AppData', 'Roaming'), 'Tanyra3D', 'profiles');
+  }
+  if (process.platform === 'darwin') {
+    return path.join(home, 'Library', 'Application Support', 'Tanyra3D', 'profiles');
+  }
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'Tanyra3D', 'profiles');
+}
+
+/** Имена файлов профилей в каталоге. Нет каталога — пустой список, это не ошибка. */
+function profileFiles(dir: string): string[] {
+  try {
+    return fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
+  } catch {
+    return [];
+  }
+}
+
+function safeId(id: string): string {
   // защита от выхода за пределы папки профилей (id приходит из UI)
-  const safe = String(id).replace(/[^a-z0-9_-]/gi, '');
-  return path.join(PROFILES_DIR, `${safe}.json`);
+  return String(id).replace(/[^a-z0-9_-]/gi, '');
+}
+
+/**
+ * Файл профиля: сначала встроенный, потом пользовательский.
+ *
+ * Порядок именно такой, и это решение, а не случайность. Свой файл с чужим id НЕ
+ * подменяет встроенный молча: у встроенных порогов есть ссылка на документ площадки, и
+ * подмена значила бы, что человек читает чужое число со ссылкой, которая ему не
+ * принадлежит. Свою площадку заводят своим id.
+ */
+function profilePath(id: string): { file: string; custom: boolean } | null {
+  const name = `${safeId(id)}.json`;
+  const builtin = path.join(PROFILES_DIR, name);
+  if (fs.existsSync(builtin)) return { file: builtin, custom: false };
+  const user = path.join(userProfilesDir(), name);
+  if (fs.existsSync(user)) return { file: user, custom: true };
+  return null;
 }
 
 // «Площадка не выбрана» — такой же законный выбор, как любая площадка (решение
@@ -162,8 +214,8 @@ const NONE_DEFAULTS = '_none';
 
 function noneDefaults() {
   try {
-    const file = profilePath(NONE_DEFAULTS);
-    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'));
+    const found = profilePath(NONE_DEFAULTS);
+    if (found) return JSON.parse(fs.readFileSync(found.file, 'utf8'));
   } catch {
     /* файла нет или он битый — прочерк просто останется без рекомендаций */
   }
@@ -192,13 +244,18 @@ function syntheticProfile(engineId: string, lang: string = DEFAULT_LANG): Profil
 
 function loadProfile(platformId: string, engineId?: string, lang: string = DEFAULT_LANG): ProfileJson {
   if (!platformId) return syntheticProfile(engineId!, lang);
-  const file = profilePath(platformId);
-  if (!fs.existsSync(file)) {
+  const found = profilePath(platformId);
+  if (!found) {
     const known = listPlatforms().map((p) => p.id).join(', ');
     throw new Error(`Unknown platform "${platformId}". Available: ${known || '—'}.`);
   }
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    const profile = JSON.parse(fs.readFileSync(found.file, 'utf8'));
+    // Пометку ставит ЗАГРУЗЧИК по тому, откуда взят файл, а не сам файл. Иначе свой
+    // профиль объявил бы себя встроенным, и его придуманные числа показывались бы
+    // наравне с выверенными по первоисточнику.
+    profile.custom = found.custom;
+    return profile;
   } catch (e) {
     // cause сохраняем: без него из сообщения не видно, в каком месте JSON сломан,
     // а именно это и нужно тому, кто правит профиль.
@@ -369,18 +426,19 @@ function timesLess(before: number, after: number) {
 // ----------------------------------------------------------------------------
 
 export function listPlatforms(lang: string = DEFAULT_LANG) {
-  let files;
-  try {
-    files = fs.readdirSync(PROFILES_DIR).filter((f) => f.endsWith('.json'));
-  } catch {
-    return [];
-  }
   const out = [];
-  for (const f of files.sort()) {
-    try {
-      const p = JSON.parse(fs.readFileSync(path.join(PROFILES_DIR, f), 'utf8'));
-      // v0.1.0: показываем только включённые платформы (enabled: true или не указано = true)
-      if (p && p.id && p.enabled !== false) {
+  const seen = new Set<string>();
+  // Встроенные первыми — они же выигрывают спор об одинаковом id (см. profilePath).
+  for (const [dir, custom] of [[PROFILES_DIR, false], [userProfilesDir(), true]] as const) {
+    for (const f of profileFiles(dir)) {
+      try {
+        const p = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
+        // v0.1.0: показываем только включённые платформы (enabled: true или не указано = true)
+        if (!p || !p.id || p.enabled === false) continue;
+        // Свой профиль с чужим id в список не попадает и встроенный не подменяет:
+        // подмена значила бы чужое число под ссылкой на документ настоящей площадки.
+        if (seen.has(p.id)) continue;
+        seen.add(p.id);
         // engine — аддитивное поле (§4c): интерфейс держит два поля согласованными,
         // не делая запрос на каждую площадку по отдельности.
         out.push({
@@ -388,13 +446,21 @@ export function listPlatforms(lang: string = DEFAULT_LANG) {
           title: pick(p.title, lang) || p.id,
           description: pick(p.description, lang),
           engine: engineIdOf(p),
+          // Откуда взялся профиль. Интерфейсу это нужно, чтобы не выдавать свои числа
+          // за выверенные по первоисточнику (ROADMAP.md §5i).
+          custom,
         });
+      } catch {
+        /* повреждённый профиль просто не показываем в списке */
       }
-    } catch {
-      /* повреждённый профиль просто не показываем в списке */
     }
   }
   return out;
+}
+
+/** Папка, куда человек кладёт свои профили. Интерфейсу — чтобы показать путь. */
+export function customProfilesDir(): string {
+  return userProfilesDir();
 }
 
 // ----------------------------------------------------------------------------
@@ -632,7 +698,7 @@ export function explainResult(runResult: RunResultLike, platformId: string, lang
   return {
     summary,
     highlights: highlights.slice(0, 6),
-    budgetChecks: buildBudgetChecks(profile.budgets || {}, after, lang),
+    budgetChecks: buildBudgetChecks(profile.budgets || {}, after, lang, profile.custom === true),
     warnings: collectWarnings(rr, t),
   };
 }
@@ -678,7 +744,12 @@ function budgetEntry(raw: unknown): BudgetEntry | null {
   return null;
 }
 
-function buildBudgetChecks(budgets: Record<string, unknown>, after: MetricsLike, lang: string = DEFAULT_LANG) {
+function buildBudgetChecks(
+  budgets: Record<string, unknown>,
+  after: MetricsLike,
+  lang: string = DEFAULT_LANG,
+  custom = false,
+) {
   const t = messages(lang);
   const { fmtMB, fmtInt } = formatters(lang);
   const checks = [];
@@ -712,6 +783,10 @@ function buildBudgetChecks(budgets: Record<string, unknown>, after: MetricsLike,
     // платформы значит ровно то же враньё, ради борьбы с которым всё это затевалось.
     if (entry.source) check.source = entry.source;
     else if (entry.by) check.by = entry.by;
+    // Порог из своего профиля, у которого автор не назвал источник. Пометка ставится
+    // ЗДЕСЬ, а не берётся из файла: пометить своё число как выверенное по документу
+    // площадки не должно быть возможно (ROADMAP.md §5i).
+    else if (custom) check.by = 'user';
 
     if (entry.limit != null) check.limitText = t('budget.limit', { v: fmt(entry.limit) });
     if (entry.warn != null) check.warnText = t('budget.recommended', { v: fmt(entry.warn) });

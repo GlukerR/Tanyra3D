@@ -214,6 +214,7 @@ window.I18N_CATALOGS.ru = {
   'inspect.clean': 'Замечаний нет — файл чистый.',
   'budget.source': 'источник',
   'budget.ourChoice': 'наш порог, а не документация платформы',
+  'budget.yourChoice': 'ваш порог, из вашего профиля',
   'col.id': '№',
   'col.code': 'КОД',
   'col.count': 'МЕСТ',

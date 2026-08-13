@@ -242,6 +242,7 @@ window.I18N_CATALOGS.en = {
   'inspect.clean': 'No validation issues — the file is clean.',
   'budget.source': 'source',
   'budget.ourChoice': 'our own threshold, not platform documentation',
+  'budget.yourChoice': 'your threshold, from your own profile',
   'col.id': 'ID',
   'col.code': 'CODE',
   'col.count': 'PLACES',
