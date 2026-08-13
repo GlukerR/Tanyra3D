@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { Document, NodeIO } from '@gltf-transform/core';
+import { Document } from '@gltf-transform/core';
 
 import { collectMetrics } from '../addons/gltf/metrics.mjs';
 import { optimizeFile } from '../optimize2.mjs';
