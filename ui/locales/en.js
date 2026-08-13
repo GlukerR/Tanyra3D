@@ -244,6 +244,7 @@ window.I18N_CATALOGS.en = {
   'budget.ourChoice': 'our own threshold, not platform documentation',
   'budget.yourChoice': 'your threshold, from your own profile',
   'group.textureSize': 'Texture size',
+  'textureSize.none': 'Do not shrink',
   'col.id': 'ID',
   'col.code': 'CODE',
   'col.count': 'PLACES',

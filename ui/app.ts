@@ -1179,12 +1179,18 @@
     return sec;
   }
 
-  // Размер текстур: выбор ОДНОГО из четырёх либо ничего.
+  // Размер текстур — ОДНО поле выбора, а не четыре строки.
   //
-  // Отдельного пункта «не уменьшать» нет намеренно: снятый флажок и есть «не уменьшать»,
-  // как у геометрии. Повторный клик по выбранному размеру снимает выбор — иначе человек,
-  // случайно нажавший «512», не смог бы вернуться к исходному размеру, не перезагрузив
-  // страницу.
+  // Решение Александра 2026-08-12: «размер текстур нужно показать выпадающим окном, а не
+  // списком. Кто-то их вообще не будет менять, это не нужно никому видеть — все
+  // возможности». Прямо про Правило 10: панель читает новичок, и четыре взаимоисключающих
+  // строки там, где выбирают одно значение, — это четыре повода задуматься вместо одного.
+  //
+  // Первый пункт списка — «не уменьшать», и он же значение по умолчанию: у поля выбора
+  // нет состояния «ничего не выбрано», его надо назвать словами.
+  //
+  // Книжечка показывает то, что ВЫБРАНО: у каждого размера свой текст (чем платишь за
+  // 512 — не то же, чем за 4096). При «не уменьшать» её нет — объяснять нечего.
   function renderTextureSizeGroup(
     group: { ids?: string[]; titleKey: string; [key: string]: any },
     byId: Record<string, ExtensionDto>,
@@ -1192,38 +1198,42 @@
     const opts = (group.ids || []).map((id) => byId[id]).filter(Boolean) as ExtensionDto[];
     if (!opts.length) return null;
     const sec = optSection(t(group.titleKey), 'textureSize');
+
+    const wrap = document.createElement('div');
+    wrap.className = 'select-wrap';
+
+    const select = document.createElement('select');
+    select.id = 'texture-size-select';
+    const none = document.createElement('option');
+    none.value = 'none';
+    none.textContent = t('textureSize.none');
+    select.appendChild(none);
     for (const ext of opts) {
-      const row = document.createElement('div');
-      row.className = 'opt-radio-row';
-      row.dataset.size = ext.id;
-
-      const head = document.createElement('div');
-      head.className = 'opt-radio-head';
-
-      const label = document.createElement('label');
-      label.className = 'opt-radio';
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.value = ext.id;
-      checkbox.id = `size-${ext.id}`;
-      checkbox.checked = (ext.id === textureSizeChoice);
-      checkbox.addEventListener('change', () => {
-        if (checkbox.checked) textureSizeChoice = ext.id;
-        else if (textureSizeChoice === ext.id) textureSizeChoice = 'none';
-        syncTextureSizeRadio();
-        onOptionChanged();
-      });
-      const text = document.createElement('span');
-      text.className = 'opt-radio-text';
-      text.textContent = ext.title || ext.id;
-      label.appendChild(checkbox);
-      label.appendChild(text);
-      head.appendChild(label);
-      head.appendChild(infoButton(ext));
-
-      row.appendChild(head);
-      sec.appendChild(row);
+      const option = document.createElement('option');
+      option.value = ext.id;
+      option.textContent = ext.title || ext.id;
+      select.appendChild(option);
     }
+    select.value = textureSizeChoice;
+
+    const info = document.createElement('span');
+    info.className = 'section-info';
+    const refreshInfo = () => {
+      info.textContent = '';
+      const ext = opts.find((o) => o.id === select.value);
+      if (ext) info.appendChild(infoButton(ext));
+    };
+    refreshInfo();
+
+    select.addEventListener('change', () => {
+      textureSizeChoice = select.value;
+      refreshInfo();
+      onOptionChanged();
+    });
+
+    wrap.appendChild(select);
+    wrap.appendChild(info);
+    sec.appendChild(wrap);
     return sec;
   }
 
@@ -1593,7 +1603,7 @@
     // Тот же откат для размера: площадка, у которой этих опций нет, не должна унести
     // с прошлой площадки выбор, которого здесь не существует.
     textureSizeChoice = saved!.textureSizeChoice || 'none';
-    if (textureSizeChoice !== 'none' && !document.getElementById(`size-${textureSizeChoice}`)) textureSizeChoice = 'none';
+    syncTextureSizeRadio(); // он же откатит выбор, которого на этой площадке нет
     ktx2Mode = saved!.ktx2Mode || defaultKtx2Mode();
     for (const cb of extensionsList.querySelectorAll('.ext-checkbox')) {
       (cb as HTMLInputElement).checked = saved!.checked.includes((cb as HTMLInputElement).value);
@@ -1695,12 +1705,14 @@
     }
   }
 
-  // То же для размера текстур: выбран ровно один либо ни одного.
+  // Размер текстур — поле выбора: синхронизировать надо его значение, а не флажки.
   function syncTextureSizeRadio() {
-    for (const row of extensionsList.querySelectorAll('.opt-radio-row[data-size]')) {
-      const cb = row.querySelector('input[type="checkbox"]');
-      if (cb) (cb as HTMLInputElement).checked = ((row as HTMLElement).dataset.size === textureSizeChoice);
-    }
+    const select = document.getElementById('texture-size-select') as HTMLSelectElement | null;
+    if (!select) return;
+    // Значения, которого в списке нет (площадка сменилась), поле не примет — вернём
+    // его к «не уменьшать», иначе состояние переменной разойдётся с тем, что видно.
+    if (![...select.options].some((o) => o.value === textureSizeChoice)) textureSizeChoice = 'none';
+    select.value = textureSizeChoice;
   }
 
   // Синхронизировать UI режима KTX2 (radio + подпись) с переменной ktx2Mode при восстановлении.
