@@ -618,6 +618,71 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // --- своя площадка: форма вместо JSON руками (ROADMAP.md §5i, шаг 2) ---
+    //
+    // Пишет и стирает ТОЛЬКО пользовательскую папку профилей — встроенные площадки
+    // отсюда недосягаемы, это проверяет сам ассистент (ProfileError 'builtin_id').
+    // Сервер здесь ничего не решает: он передаёт поля формы и возвращает код отказа,
+    // а фразу к коду подбирает интерфейс на своём языке (Правило 8).
+    if (pathname === '/api/profiles' || pathname.startsWith('/api/profiles/')) {
+      if (!assistant || typeof assistant.saveCustomProfile !== 'function') {
+        sendJSON(res, 501, { error: 'no_assistant' });
+        return;
+      }
+      const lang = langOf(url);
+      // Битую %-последовательность decodeURIComponent роняет исключением, и оно ушло бы
+      // мимо разбора ниже — запрос повис бы без ответа. Неразобранное имя не годится
+      // ни под один вход, поэтому берём его как есть: дальше его всё равно чистит safeId.
+      let id = '';
+      if (pathname.startsWith('/api/profiles/')) {
+        const raw = pathname.slice('/api/profiles/'.length);
+        try { id = decodeURIComponent(raw); } catch { id = raw; }
+      }
+      // Отказ формы — не поломка сервера: 400 с кодом. Всё остальное (нет прав на
+      // папку, диск полон) — настоящая ошибка, её отдаём как есть и пишем в журнал.
+      const fail = (e: any) => {
+        if (e && e.name === 'ProfileError') {
+          sendJSON(res, 400, { error: e.code, field: e.field || null });
+        } else {
+          console.error('[profiles]', e && e.message);
+          sendJSON(res, 500, { error: 'write_failed', detail: e && e.message });
+        }
+      };
+      try {
+        // Описание формы отдаёт САМ /api/profiles, без вложенного имени. Имя вроде
+        // `/api/profiles/template` перекрыла бы площадка, названную «Template»: её id
+        // вышел бы ровно таким, и правка открывала бы описание формы вместо профиля.
+        if (req.method === 'GET' && !id) {
+          sendJSON(res, 200, assistant.profileTemplate(lang));
+          return;
+        }
+        if (req.method === 'GET' && id) {
+          sendJSON(res, 200, assistant.readCustomProfile(id, lang));
+          return;
+        }
+        if (req.method === 'POST' && !id) {
+          let payload;
+          try {
+            payload = JSON.parse((await readBody(req)).toString('utf8'));
+          } catch {
+            sendJSON(res, 400, { error: 'Malformed JSON body' });
+            return;
+          }
+          sendJSON(res, 200, assistant.saveCustomProfile(payload));
+          return;
+        }
+        if (req.method === 'DELETE' && id) {
+          sendJSON(res, 200, assistant.deleteCustomProfile(id));
+          return;
+        }
+      } catch (e) {
+        fail(e);
+        return;
+      }
+      sendJSON(res, 404, { error: 'not_found' });
+      return;
+    }
+
     if (req.method === 'GET' && pathname === '/api/platforms') {
       // noPlatform — описание прочерка («без площадки»). Не элемент списка: это не
       // площадка, а объяснение выбора БЕЗ неё. Отдельным полем, чтобы список площадок

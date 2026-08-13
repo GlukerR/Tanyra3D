@@ -476,8 +476,16 @@ export function planFor(platformId: string, lang: string = DEFAULT_LANG, engineI
   const { fmtInt } = formatters(lang);
   const profile = loadProfile(platformId, engineId, lang);
   // v0.0.8: базовый план строится из baselineOpts (KTX2/Draco выключены);
-  // engineOpts — legacy-поле старых профилей, оставлено как фолбэк
-  const opts = profile.baselineOpts || profile.engineOpts || {};
+  // engineOpts — legacy-поле старых профилей, оставлено как фолбэк.
+  //
+  // Третий фолбэк — движок. Базовый план принадлежит ему: площадка вправе его сузить,
+  // но обязанности переписывать целиком у неё нет. Без этой строки профиль, не
+  // назвавший baselineOpts, получал пустой план — и объяснение начиналось со слов про
+  // meshopt, потому что `opts.codec` не был равен 'draco'. Своя площадка из формы
+  // baselineOpts не пишет вовсе: спрашивать про кодек того, кто заводит площадку по
+  // письму менеджера, — ровно то, чего Правило 10 не велит.
+  const opts = profile.baselineOpts || profile.engineOpts
+    || (loadEngine(engineIdOf(profile)) || {}).baselineOpts || {};
   const b = profile.budgets || {};
 
   const explanation = [];
@@ -805,6 +813,200 @@ function buildBudgetChecks(
   }
 
   return checks;
+}
+
+// ----------------------------------------------------------------------------
+// Своя площадка: собрать формой, а не писать JSON руками (ROADMAP.md §5i, шаг 2)
+//
+// Форма спрашивает ровно то, чего вывести неоткуда: как площадка называется, каким
+// движком её читают и какие у неё пороги. Всё остальное — состав списка опций, слова
+// опций, базовый план обработки — принадлежит движку и подставляется само
+// (Правило 10б). Поэтому автору своей площадки достаётся имя, движок и несколько
+// чисел, а не двадцать галочек, в половине которых он ошибётся.
+//
+// Список полей НЕ дублируется: он и есть BUDGET_SPEC. Новая метрика бюджета появится
+// в форме сама, вместе с уже написанной подписью. Вторая копия такого списка уже
+// расходилась с первой — см. EXCLUSIVE_FEATURES в аддоне.
+// ----------------------------------------------------------------------------
+
+/**
+ * Отказ формы. Несёт КОД, а не фразу: текст отказа принадлежит интерфейсу и его
+ * каталогу строк (Правило 8), иначе английская фраза из этого модуля попала бы на
+ * русский экран.
+ */
+export class ProfileError extends Error {
+  code: string;
+  /** Какое поле формы виновато. Пустая строка — отказ не про поле, а про форму целиком. */
+  field: string;
+  constructor(code: string, field = '') {
+    super(code);
+    this.name = 'ProfileError';
+    this.code = code;
+    this.field = field;
+  }
+}
+
+/** Что спрашивает форма. Обязательно только название. */
+export interface CustomProfileInput {
+  id?: string;
+  title?: string;
+  engine?: string;
+  description?: string;
+  budgets?: Record<string, unknown>;
+}
+
+/**
+ * Описание формы для интерфейса: куда кладутся файлы и какие поля порогов бывают.
+ * Подписи берутся из того же каталога, что и панель бюджета, — второго перевода
+ * слова «Треугольники» в проекте не заводим.
+ */
+export function profileTemplate(lang: string = DEFAULT_LANG) {
+  const t = messages(lang);
+  const fields = Object.entries(BUDGET_SPEC).map(([id, spec]) => ({
+    id,
+    name: t(spec.nameKey),
+    // Подпись единицы рядом с полем ввода. У счётных метрик её нет: приписать
+    // «штук» к числу треугольников значит сказать то, чего человек и так не спрашивал.
+    unit: spec.unit === 'mb' ? t('unit.mb') : spec.unit === 'px' ? t('unit.px') : '',
+  }));
+  return { dir: userProfilesDir(), fields };
+}
+
+// Кириллица → латиница для имени файла. Не «перевод» и не для показа человеку: это
+// таблица подстановки, чтобы файл назывался «vitrina-zakazchika.json», а не
+// «platform-3.json». Имя файла видно — папку форма показывает прямо под полями, и
+// профилем делятся файлом (ROADMAP.md §5i, шаг 3). Языки, которых в таблице нет
+// (китайский, арабский), дают пустой корень и служебное имя — это честный исход, а не
+// поломка: площадка от имени файла не зависит, в списке стоит её название.
+const TRANSLIT: Record<string, string> = {
+  а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i',
+  й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't',
+  у: 'u', ф: 'f', х: 'h', ц: 'c', ч: 'ch', ш: 'sh', щ: 'sch', ъ: '', ы: 'y', ь: '',
+  э: 'e', ю: 'yu', я: 'ya',
+};
+
+/**
+ * Имя файла из названия площадки. Только латиница: id ездит в адресе запроса
+ * (`?platform=<id>`) и служит именем файла.
+ */
+function slugFrom(title: string): string {
+  const latin = [...String(title).toLowerCase()]
+    .map((ch) => (TRANSLIT[ch] !== undefined ? TRANSLIT[ch] : ch))
+    .join('');
+  return safeId(latin.replace(/\s+/g, '-'))
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+const FALLBACK_PROFILE_ID = 'platform';
+
+/** Свободный id: занятое имя получает номер, чужой файл не затирается. */
+function freeProfileId(base: string): string {
+  const root = base || FALLBACK_PROFILE_ID;
+  if (!profilePath(root)) return root;
+  for (let n = 2; n < 1000; n++) {
+    const candidate = `${root}-${n}`;
+    if (!profilePath(candidate)) return candidate;
+  }
+  throw new ProfileError('id_taken');
+}
+
+/**
+ * Записать свою площадку файлом в пользовательскую папку.
+ *
+ * Возвращает id — интерфейсу он нужен, чтобы сразу выбрать созданную площадку в
+ * списке. Правка существующей своей площадки — тот же вызов с её id.
+ */
+export function saveCustomProfile(input: CustomProfileInput) {
+  const title = String((input && input.title) || '').trim();
+  if (!title) throw new ProfileError('title_required');
+
+  const engine = String((input && input.engine) || DEFAULT_ENGINE);
+  // Движок обязан существовать: без него площадке нечем предложить ни одной опции,
+  // и человек получил бы пустую панель вместо объяснения.
+  if (!loadEngine(engine)) throw new ProfileError('engine_unknown', 'engine');
+
+  let id = safeId(String((input && input.id) || ''));
+  if (id) {
+    // Встроенную площадку формой не перезаписать. Файл лёг бы в другую папку и всё
+    // равно проиграл спор об id (profilePath), то есть человек нажал бы «Сохранить»,
+    // получил «готово» и не увидел никаких изменений. Честнее отказать.
+    const found = profilePath(id);
+    if (found && !found.custom) throw new ProfileError('builtin_id', 'title');
+  } else {
+    id = freeProfileId(slugFrom(title));
+  }
+
+  const budgets: Record<string, { warn: number }> = {};
+  for (const key of Object.keys(BUDGET_SPEC)) {
+    const raw = input && input.budgets ? input.budgets[key] : undefined;
+    // Пустое поле — законный ответ «порога нет»: метрика будет показана числом без
+    // оценки, ровно как у встроенных площадок, которым источник ничего не назвал.
+    if (raw == null || raw === '') continue;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) throw new ProfileError('bad_number', key);
+    // Объектом, а не голым числом: рядом с warn человек дописывает limit руками, когда
+    // у его площадки есть настоящий отказ. Формат тот же, что у встроенных профилей, —
+    // файл остаётся пригодным для правки текстовым редактором.
+    budgets[key] = { warn: n };
+  }
+
+  const description = String((input && input.description) || '').trim();
+  const profile: ProfileJson = {
+    id,
+    engine,
+    enabled: true,
+    title,
+    ...(description ? { description } : {}),
+    budgets,
+    // Пометки «свой» в файле НЕТ намеренно: её ставит загрузчик по тому, откуда взят
+    // файл. Иначе профиль объявил бы себя встроенным, и придуманное число встало бы
+    // рядом с выверенным по документу площадки (ROADMAP.md §5i).
+    // baselineOpts тоже нет: базовый план принадлежит движку (см. planFor).
+    createdAt: new Date().toISOString(),
+  };
+
+  const dir = userProfilesDir();
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${id}.json`);
+  fs.writeFileSync(file, `${JSON.stringify(profile, null, 2)}\n`, 'utf8');
+  return { id, file };
+}
+
+/**
+ * Своя площадка обратно в поля формы. Встроенную так не открыть — её и не правят.
+ *
+ * Название и описание отдаются ОДНОЙ строкой на текущем языке: поле ввода одно, и
+ * многоязычный профиль, написанный руками ({ en, ru }), после сохранения формой
+ * останется на том языке, на котором его открыли. Это честнее, чем показать один
+ * язык, а сохранить все: человек видит ровно то, что уйдёт в файл.
+ */
+export function readCustomProfile(id: string, lang: string = DEFAULT_LANG): CustomProfileInput {
+  const found = profilePath(safeId(String(id || '')));
+  if (!found) throw new ProfileError('unknown_profile');
+  if (!found.custom) throw new ProfileError('builtin_id');
+  const p = JSON.parse(fs.readFileSync(found.file, 'utf8'));
+  const budgets: Record<string, number> = {};
+  for (const key of Object.keys(BUDGET_SPEC)) {
+    const entry = budgetEntry((p.budgets || {})[key]);
+    if (entry && entry.warn != null) budgets[key] = entry.warn;
+  }
+  return {
+    id: p.id,
+    title: pick(p.title, lang) || p.id,
+    engine: engineIdOf(p),
+    description: pick(p.description, lang),
+    budgets,
+  };
+}
+
+/** Убрать свою площадку. Встроенную не трогаем: её файл не наш. */
+export function deleteCustomProfile(id: string) {
+  const found = profilePath(safeId(String(id || '')));
+  if (!found) throw new ProfileError('unknown_profile');
+  if (!found.custom) throw new ProfileError('builtin_id');
+  fs.unlinkSync(found.file);
+  return { id: safeId(String(id)) };
 }
 
 // ----------------------------------------------------------------------------

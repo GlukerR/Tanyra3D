@@ -57,6 +57,9 @@ export default {
   // "px" rather than "2048×2048": the platform threshold is stated as ONE side, and the
   // other side of a non-square texture has nothing to do with it.
   'unit.pxValue': ({ v }) => `${v} px`,
+  // The same unit without a number: the caption next to an input field in the
+  // "your own platform" form, where the number is typed by the person.
+  'unit.px': () => 'px',
   'budget.textureSize': () => 'Largest texture',
   'budget.recommended': ({ v }) => `recommended up to ${v}`,
   'budget.limit': ({ v }) => `platform limit ${v}`,

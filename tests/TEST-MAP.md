@@ -61,6 +61,7 @@ checked is the **file**, not a metric from the report.
 | `texture-size.test.mjs` | the largest texture side is measured (longer side, not area) and compared against the platform threshold; zero means "nothing to measure", never a green "within budget" |
 | `texture-resize.test.mjs` | downscaling to 4096/2048/1024/512: only what is larger is shrunk, proportions are kept, enlargement never happens, GPU-compressed textures are refused out loud, and the record is marked irreversible |
 | `user-profiles.test.mjs` | a profile dropped into the user folder shows up and works; its thresholds are marked as the user's own; a file with a built-in id never shadows the built-in profile |
+| `profile-form.test.mjs` | the form writes a working platform from a name, an engine and a few numbers; an empty field means "no threshold" and not zero; a built-in platform cannot be overwritten or removed; the field list is the budget metrics themselves, so it cannot drift apart from what is actually checked |
 | `vertices-stored.test.mjs` | "drawn" and "stored" vertices count different things — shared geometry, a mesh outside the scene, and `join` unfolding copies; the stored count stays out of the baseline snapshot, where only what must not change is compared |
 | `gap-005-regression.test.mjs`, `post-gap005-corpus.test.mjs` | the baseline checkpoint and what it catches |
 | `write-policy.test.mjs` | when a file is written and when it is not |
