@@ -245,8 +245,27 @@ function stopServer() {
   }
 }
 
+// Рабочие файлы не переживают выход из программы.
+//
+// Сервер и так чистит uploads/ и results/ на старте, но между сеансами всё лежало на
+// диске: закрыл программу в пятницу — и до понедельника гигабайты чужих уже никому не
+// нужных сборок занимают место, о котором человек не знает (Александр, 2026-08-13).
+// Чистим здесь, а не в сервере: он к этому моменту уже убит, и папка свободна.
+//
+// Стираем СОДЕРЖИМОЕ work/, а не саму папку: имя каталога сервер ждёт готовым.
+// Не удалось (файл занят антивирусом, диск отвалился) — не беда: следующий запуск
+// чистит то же самое. Ронять выход из-за уборки нельзя.
+function clearWorkDir() {
+  const work = path.join(app.getPath('userData'), 'work');
+  let entries;
+  try { entries = fs.readdirSync(work); } catch { return; }
+  for (const entry of entries) {
+    try { fs.rmSync(path.join(work, entry), { recursive: true, force: true }); } catch { /* занято */ }
+  }
+}
+
 app.on('before-quit', () => { app.isQuitting = true; stopServer(); });
-app.on('will-quit', stopServer);
+app.on('will-quit', () => { stopServer(); clearWorkDir(); });
 app.on('window-all-closed', () => {
   // macOS держит приложение живым без окон — там это норма, а не утечка.
   if (process.platform !== 'darwin') app.quit();

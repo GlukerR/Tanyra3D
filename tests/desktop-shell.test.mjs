@@ -127,6 +127,37 @@ describe('повторное открытие окна не поднимает �
   });
 });
 
+// Рабочие файлы не должны переживать выход из программы (Александр, 2026-08-13:
+// «пк клиента не должен замусориваться рабочими файлами в огромном количестве»).
+// Сервер чистит папку на СТАРТЕ, и без уборки на выходе гигабайты лежали бы на диске
+// всё время, пока программа закрыта, — то есть почти всегда.
+describe('рабочая папка не переживает выход из программы', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'desktop', 'main.cjs'), 'utf8');
+
+  it('уборка привязана к выходу', () => {
+    expect(src, 'clearWorkDir не зовётся при выходе — папка остаётся на диске')
+      .toMatch(/app\.on\('will-quit',[^\n]*clearWorkDir\(\)/);
+  });
+
+  it('убирается именно рабочая папка, а не папка данных целиком', () => {
+    // В userData лежат ещё и свои площадки. Снести её целиком значило бы стереть
+    // работу человека вместо мусора.
+    const at = src.indexOf('function clearWorkDir()');
+    expect(at, 'функции уборки нет').toBeGreaterThan(-1);
+    const body = src.slice(at, src.indexOf('\n}', at));
+    expect(body).toMatch(/getPath\('userData'\),\s*'work'/);
+    expect(body, 'уборка не должна знать про площадки').not.toMatch(/profiles/);
+  });
+
+  it('уборка не роняет выход', () => {
+    // Файл занят антивирусом — это не повод не закрыться. Следующий запуск всё равно
+    // чистит то же самое.
+    const at = src.indexOf('function clearWorkDir()');
+    const body = src.slice(at, src.indexOf('\n}\n', at));
+    expect(body).toMatch(/catch/);
+  });
+});
+
 describe('модуль политики адресов доедет до собранного пакета', () => {
   it('desktop/ входит в состав сборки', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));

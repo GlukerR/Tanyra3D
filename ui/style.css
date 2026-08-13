@@ -1273,12 +1273,27 @@ body.resizing { cursor: col-resize; user-select: none; }
    до нажатия, а не после. */
 #profile-delete.is-armed { color: var(--alert); border-color: var(--alert); }
 
+/* Кнопка, но не выглядит кнопкой: это по-прежнему подпись мелким шрифтом, просто по
+   ней можно нажать. Оформи её как кнопку — она перетянет внимание с «Сохранить». */
 .profile-dir {
+  display: block;
+  width: 100%;
   margin: 12px 0 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
   font-size: 10px;
   line-height: 1.4;
   color: var(--outline);
+  text-align: left;
   word-break: break-all;
+  cursor: pointer;
+}
+
+.profile-dir:hover {
+  color: var(--on-surface-variant);
+  text-decoration: underline;
 }
 
 .fail-text {

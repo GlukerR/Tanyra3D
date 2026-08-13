@@ -254,6 +254,25 @@ const MAX_KEPT_SOURCES = 12;
 // про которые человек не узнает.
 const MAX_KEPT_RUNS = 3;
 
+// Потолок по ОБЪЁМУ, а не только по счёту (Александр, 2026-08-13: «я не хочу что бы
+// через месяц работы пользователь удивлялся, когда у него 200+ГБ разных версий
+// оптимизированных моделей лежали где-то в одной груде»).
+//
+// Счёт про объём не знает: двенадцать исходников — это двенадцать НЕИЗВЕСТНО каких
+// моделей. Дюжина сцен по 600 МБ, у каждой по три прогона, — под тридцать гигабайт
+// за один сеанс, и человек об этом нигде не прочитает.
+//
+// Восемь гигабайт — это либо одна очень тяжёлая сцена со всеми прогонами, либо
+// десяток обычных. Число показывается человеку в настройках, поэтому оно не тайна.
+//
+// Переменной оно задаётся по той же причине, что и PORT: код, который стирает файлы
+// с чужого диска, обязан проверяться, а восемь гигабайт в тесте не наберёшь. Заодно
+// это ответ тому, у кого диск маленький.
+const MAX_WORK_BYTES = (() => {
+  const n = Number(process.env.TANYRA_WORK_LIMIT_BYTES);
+  return Number.isFinite(n) && n > 0 ? n : 8 * 1024 ** 3;
+})();
+
 // sourceId → список runId в порядке появления. Порядок ведём сами, а не по времени
 // файлов: у двух прогонов, начатых в одну миллисекунду, время совпадёт.
 const sourceRuns = new Map();
@@ -291,6 +310,11 @@ async function rememberRun(sourceId: string, runId: string) {
     if (!ok) break;
     runs.splice(runs.indexOf(victim), 1);
   }
+
+  // Объём вырос именно сейчас: прогон дописал на диск ещё одну целую модель. Проверка
+  // только при загрузке нового исходника пропустила бы это — человек может гонять
+  // варианты одной тяжёлой сцены, ничего больше не загружая.
+  await purgeBeyondLimit();
 }
 
 async function dropSource(id: string) {
@@ -300,12 +324,51 @@ async function dropSource(id: string) {
   await fsp.rm(path.join(RESULTS_DIR, id), { recursive: true, force: true }).catch(() => {});
 }
 
+/** Сколько занимает каталог со всем содержимым. Нет каталога — ноль, а не отказ. */
+async function dirBytes(dir: string): Promise<number> {
+  let entries;
+  try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch { return 0; }
+  let total = 0;
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) total += await dirBytes(full);
+    else total += await fsp.stat(full).then((s) => s.size).catch(() => 0);
+  }
+  return total;
+}
+
+/** Сколько рабочая папка занимает прямо сейчас — загрузки плюс результаты. */
+const workBytes = async () => (await dirBytes(UPLOADS_DIR)) + (await dirBytes(RESULTS_DIR));
+
+const sourceBytes = async (id: string) =>
+  (await dirBytes(path.join(UPLOADS_DIR, id))) + (await dirBytes(path.join(RESULTS_DIR, id)));
+
+/** Идёт ли по этому исходнику прогон прямо сейчас. Такой трогать нельзя — см. activeRuns. */
+const sourceBusy = (id: string) => [...activeRuns].some((key) => (key as string).startsWith(`${id}/`));
+
 // Оставить N самых свежих исходников, остальные стереть. Сравнение по seq, а не по
 // времени файла: две одновременные загрузки видели друг друга «старыми» и стирали
 // чужие каталоги, так что обе вкладки теряли исходник.
 async function purgeBeyondLimit() {
   const entries = [...sourceUploads.entries()].sort((a, b) => b[1].seq - a[1].seq);
-  for (const [id] of entries.slice(MAX_KEPT_SOURCES)) await dropSource(id);
+  const kept: string[] = [];
+  for (const [id] of entries) {
+    if (kept.length < MAX_KEPT_SOURCES || sourceBusy(id)) kept.push(id);
+    else await dropSource(id);
+  }
+
+  // Объём. Убираем самые старые, пока не уложимся в потолок.
+  //
+  // Самый свежий не трогаем НИКОГДА, даже если он один перевешивает потолок: это
+  // модель, с которой человек работает прямо сейчас, и стереть её значило бы оборвать
+  // работу вместо уборки. Занятые прогоном пропускаем по той же причине, что и выше.
+  let total = await workBytes();
+  for (let i = kept.length - 1; i > 0 && total > MAX_WORK_BYTES; i--) {
+    const victim = kept[i];
+    if (!victim || sourceBusy(victim)) continue;
+    total -= await sourceBytes(victim);
+    await dropSource(victim);
+  }
 }
 
 function sendSSE(jobId: string, payload: unknown) {
@@ -614,6 +677,61 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       await dropSource(id);
+      sendJSON(res, 200, { ok: true });
+      return;
+    }
+
+    // --- рабочая папка: сколько занято и как убрать ---
+    //
+    // Человек должен видеть число, а не догадываться о нём. Уборка сама по себе есть
+    // (чистка на старте, потолки по счёту и объёму), но пока её нигде не видно, она
+    // ничем не отличается от её отсутствия.
+    if (pathname === '/api/workdir') {
+      if (req.method === 'GET') {
+        sendJSON(res, 200, { path: DATA_DIR, bytes: await workBytes(), limit: MAX_WORK_BYTES });
+        return;
+      }
+      if (req.method === 'DELETE') {
+        // Стираем ВСЁ, включая текущую модель: «очистить» значит очистить. Ссылка на
+        // исходник после этого отвечает 410 source_expired, и клиент перезаливает файл
+        // сам — этот путь давно работает, отдельного согласования тут не нужно.
+        sourceUploads.clear();
+        sourceRuns.clear();
+        await ensureEmptyDir(UPLOADS_DIR);
+        await ensureEmptyDir(RESULTS_DIR);
+        sendJSON(res, 200, { bytes: await workBytes() });
+        return;
+      }
+      sendJSON(res, 405, { error: 'method_not_allowed' });
+      return;
+    }
+
+    // --- показать папку в проводнике ---
+    //
+    // Путь строкой человек не откроет: скопировать и вставить в проводник — три
+    // лишних действия там, где нужно одно. Адрес НЕ приходит от клиента: он выбирает
+    // из двух известных серверу папок по имени. Иначе это был бы вход, открывающий
+    // на машине человека что угодно по просьбе любой страницы в браузере.
+    if (req.method === 'POST' && pathname === '/api/open') {
+      const dirs: Record<string, string> = { work: DATA_DIR };
+      if (assistant && typeof assistant.profileTemplate === 'function') {
+        dirs.profiles = assistant.profileTemplate('en').dir;
+      }
+      const dir = dirs[url.searchParams.get('what') || ''];
+      if (!dir) {
+        sendJSON(res, 400, { error: 'unknown_dir' });
+        return;
+      }
+      await fsp.mkdir(dir, { recursive: true }).catch(() => {});
+      // Своя команда на каждую систему; shell не зовём — путь уходит отдельным
+      // аргументом, а не куском командной строки.
+      const opener = process.platform === 'win32' ? 'explorer.exe'
+        : process.platform === 'darwin' ? 'open'
+        : 'xdg-open';
+      // explorer.exe возвращает 1 и при успехе — код выхода тут не показатель, ждать
+      // его нечего. Ошибку самого запуска гасим: не открылось окно проводника — это
+      // не причина отвечать отказом на работу, которая уже сделана.
+      try { spawn(opener, [dir], { detached: true, stdio: 'ignore' }).unref(); } catch { /* нет проводника */ }
       sendJSON(res, 200, { ok: true });
       return;
     }

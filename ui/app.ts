@@ -443,7 +443,10 @@
   function fmtBytes(bytes: number) {
     if (bytes == null) return '—';
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} ${t('unit.kb')}`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} ${t('unit.mb')}`;
+    // Гигабайты — не про одну модель, а про рабочую папку целиком: «8192.0 МБ» человек
+    // читает дольше, чем «8.0 ГБ», и хуже соотносит с местом на диске.
+    if (bytes < 1024 ** 3) return `${(bytes / (1024 * 1024)).toFixed(1)} ${t('unit.mb')}`;
+    return `${(bytes / 1024 ** 3).toFixed(1)} ${t('unit.gb')}`;
   }
 
   function fmtInt(n: number) {
@@ -2103,6 +2106,17 @@
   let profileFail: { code: string; field: string } | null = null;
   let deleteArmed = false;
 
+  /**
+   * Показать папку в проводнике.
+   *
+   * Какую именно — решает сервер по имени; пути отсюда не уходят. Отказ проглатываем:
+   * не открылось окно проводника — сказать об этом человеку нечего, путь он всё равно
+   * видит на экране и может открыть руками.
+   */
+  function revealDir(what: string) {
+    fetch(`/api/open?what=${what}`, { method: 'POST' }).catch(() => {});
+  }
+
   async function fetchProfileTemplate() {
     const res = await fetch(`/api/profiles?${langParam()}`);
     if (!res.ok) throw new Error(String(res.status));
@@ -2461,6 +2475,7 @@
   profilePick.addEventListener('change', () => loadProfileForEdit(profilePick.value));
   profileSave.addEventListener('click', () => saveProfile());
   profileDelete.addEventListener('click', () => deleteProfile());
+  profileDir.addEventListener('click', () => revealDir('profiles'));
   profileExport.addEventListener('click', () => exportProfile());
   profileImport.addEventListener('click', () => profileFile.click());
   profileFile.addEventListener('change', () => {
@@ -2529,6 +2544,41 @@
 
     const profileItem = document.getElementById('menu-profile');
     if (profileItem) profileItem.addEventListener('click', () => { closeAll(); openProfileWindow(); });
+
+    // Рабочая папка. Число пересчитываем при каждом открытии настроек, а не один раз
+    // при запуске: за сеанс оно меняется после каждой сборки, а показанное однажды
+    // «12 МБ» рядом с восемью гигабайтами на диске — хуже, чем никакого числа.
+    const workdirNote = document.getElementById('workdir-note');
+    const workdirOpen = document.getElementById('workdir-open');
+    const workdirClear = document.getElementById('workdir-clear');
+    if (workdirNote) {
+      const syncWorkdir = async () => {
+        try {
+          const info = await fetch('/api/workdir').then((r) => r.json());
+          setText(workdirNote, 'menu.settings.workdir.note', {
+            size: fmtBytes(info.bytes),
+            limit: fmtBytes(info.limit),
+          });
+        } catch (e) {
+          // Сервер старее интерфейса и про рабочую папку не знает. Оставляем «Считаем…»
+          // вместо выдуманного числа: неизвестно — это не ноль.
+        }
+      };
+      for (const btn of titles) {
+        if ((btn as HTMLElement).dataset.menu === 'settings') btn.addEventListener('click', syncWorkdir);
+      }
+      if (workdirClear) {
+        workdirClear.addEventListener('click', async () => {
+          try {
+            await fetch('/api/workdir', { method: 'DELETE' });
+            setText(workdirNote, 'menu.settings.workdir.cleared');
+          } catch (e) {
+            await syncWorkdir();
+          }
+        });
+      }
+    }
+    if (workdirOpen) workdirOpen.addEventListener('click', () => revealDir('work'));
 
     for (const radio of menubar.querySelectorAll('input[name="advice-mode"]')) {
       (radio as HTMLInputElement).checked = (radio as HTMLInputElement).value === adviceMode;

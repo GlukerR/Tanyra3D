@@ -11,6 +11,7 @@ window.I18N_CATALOGS.ru = {
 
   'unit.kb': 'КБ',
   'unit.mb': 'МБ',
+  'unit.gb': 'ГБ',
   'unit.locale': 'ru-RU',
 
   // --- левая панель ---
@@ -170,6 +171,14 @@ window.I18N_CATALOGS.ru = {
   'menu.settings.manual.hint': 'Флажки остаются как вы их поставили; подсказка только помечается значком',
   'menu.settings.platforms': 'Свои площадки',
   'menu.settings.newPlatform': 'Создать свою площадку…',
+
+  'menu.settings.workdir': 'Рабочая папка',
+  'menu.settings.workdir.counting': 'Считаем…',
+  'menu.settings.workdir.note': ({ size, limit }) =>
+    `Занято ${size} из ${limit}. Больше не накопится: лишнее стирается само, а при выходе из программы — всё.`,
+  'menu.settings.workdir.open': 'Показать папку',
+  'menu.settings.workdir.clear': 'Очистить сейчас',
+  'menu.settings.workdir.cleared': 'Папка пуста. Модель придётся загрузить заново.',
   'menu.help': 'Справка',
   'menu.help.local': 'Всё считается на этом компьютере. Модели никуда не отправляются.',
   'log.adviceMode.advise': 'Флажки теперь расставляются по подсказкам под каждую модель',
