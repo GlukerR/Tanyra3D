@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Node](https://img.shields.io/badge/Node-20.9%2B-brightgreen)](https://nodejs.org/)
-[![Version](https://img.shields.io/badge/version-0.2.1-orange)](#status)
+[![Version](https://img.shields.io/badge/version-0.2.2-orange)](#status)
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#install)
 
 Drop in a `.glb`, tick the boxes you want, get a smaller model back — along with a
@@ -439,6 +439,14 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 ---
 
 ## Status
+
+**0.2.2 — a target of your own, and order on disk.** A target now subtracts options: an
+unchecked box means "this target does not read that", and the option disappears from the
+panel entirely. Targets are shared as a file — "Open a file…" and "Save to a file".
+Texture sizes larger than the model's largest texture are no longer offered: the program
+never enlarges, and a button that does nothing only confuses. And the work folder stopped
+growing unnoticed — a ceiling by size, cleanup on quit, and the space used is shown in
+the settings.
 
 **0.2.1 — skinning fixes, texture resizing, your own target.** Four validator findings
 about skinning are now repaired rather than reported; textures can be brought down to
