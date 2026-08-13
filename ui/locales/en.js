@@ -81,6 +81,31 @@ window.I18N_CATALOGS.en = {
   'export.budget.title': 'Over the platform limit',
   'export.budget.note': 'The file will be saved as is: the limit belongs to the platform, not to this program.',
 
+  // --- своя площадка (окно настроек) ---
+  // Форма спрашивает имя, движок и несколько чисел. Всё остальное подставляется само:
+  // список опций и их слова принадлежат движку (ROADMAP.md §5i, Правило 10б).
+  'win.profile': 'Your own platform',
+  'profile.pick': 'Platform',
+  'profile.new': 'New platform',
+  'profile.title': 'Name',
+  'profile.engine': 'Engine',
+  'profile.description': 'Description',
+  // Единственное, что стоит объяснить: пустое поле — это не ноль.
+  'profile.budgets.hint': 'Fill in only the numbers you know. An empty field means the metric is shown without any verdict.',
+  'profile.save': 'Save',
+  'profile.delete': 'Delete',
+  'profile.delete.confirm': 'Delete for good?',
+  'profile.dir': ({ path }) => `Files live in ${path}`,
+  'profile.err.title_required': 'Give the platform a name.',
+  'profile.err.engine_unknown': 'No such engine.',
+  'profile.err.builtin_id': 'A built-in platform cannot be changed or removed.',
+  'profile.err.bad_number': ({ field }) => `"${field}" needs a number greater than zero, or nothing at all.`,
+  'profile.err.unknown_profile': 'This platform no longer exists.',
+  'profile.err.id_taken': 'Too many platforms with this name — pick another one.',
+  'profile.err.write_failed': 'The file could not be written.',
+  'profile.err.no_assistant': 'This copy of the program cannot create platforms.',
+  'profile.err.unknown': 'The platform was not saved.',
+
   'fail.notWritten': 'File not written',
   'fail.text': 'The model failed the integrity check — the source file is untouched.',
   'fail.generic': 'Could not process the file',
@@ -153,10 +178,14 @@ window.I18N_CATALOGS.en = {
   'menu.settings.advise.hint': 'Each model resets the checkboxes to what it already uses and what it needs',
   'menu.settings.manual': 'Keep my choice',
   'menu.settings.manual.hint': 'Your checkboxes stay as you left them; suggestions are only marked with a badge',
+  'menu.settings.platforms': 'Your own platforms',
+  'menu.settings.newPlatform': 'Create your own platform…',
   'menu.help': 'Help',
   'menu.help.local': 'Everything runs on this machine. Models are never uploaded anywhere.',
   'log.adviceMode.advise': 'Checkboxes now follow per-model suggestions',
   'log.adviceMode.manual': 'Checkboxes now keep your own choice',
+  'log.profile.saved': ({ name }) => `Your platform saved: ${name}`,
+  'log.profile.deleted': ({ name }) => `Your platform removed: ${name}`,
 
   // --- список моделей ---
   'models.remove': 'Remove from list',

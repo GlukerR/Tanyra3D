@@ -1148,6 +1148,99 @@ body.resizing { cursor: col-resize; user-select: none; }
 
 #export-save { width: 100%; }
 
+/* Окно «Своя площадка» (настройки → свои площадки).
+   Поля порогов рисует app.js по ответу сервера — разметка их не перечисляет. */
+#profile-window { width: min(460px, 92vw); max-height: min(78vh, 640px); }
+
+.profile-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+/* Подпись фиксированной ширины: поля ввода выстраиваются в столбец, и глаз читает
+   их как таблицу «что — сколько», а не как набор разъехавшихся строк. */
+.profile-label {
+  flex: 0 0 46%;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--outline);
+}
+
+.profile-field .export-name,
+.profile-field select { flex: 1 1 auto; min-width: 0; }
+
+.profile-field select {
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--on-surface);
+  background: var(--surface-container-highest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-sm);
+}
+
+.profile-number {
+  flex: 1 1 auto;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  color: var(--on-surface);
+  background: var(--surface-container-highest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-sm);
+}
+
+.profile-number:focus { outline: none; border-color: var(--primary-container); }
+
+/* Единица стоит справа от поля и не занимает места в сетке: у счётных метрик её нет,
+   и колонка под неё пустовала бы. */
+.profile-unit {
+  flex: 0 0 auto;
+  width: 34px;
+  font-size: 11px;
+  color: var(--outline);
+}
+
+.profile-hint {
+  margin: 14px 0 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--outline);
+}
+
+.profile-budgets { margin-bottom: 12px; }
+
+.profile-error {
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--alert);
+  border-left: 2px solid var(--alert);
+  background: rgba(255, 59, 48, 0.08);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.profile-actions { display: flex; gap: 8px; align-items: center; }
+.profile-actions #profile-save { flex: 1 1 auto; }
+
+/* Взведённое удаление красное: второе нажатие сотрёт файл, и это должно быть видно
+   до нажатия, а не после. */
+#profile-delete.is-armed { color: var(--alert); border-color: var(--alert); }
+
+.profile-dir {
+  margin: 12px 0 0;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--outline);
+  word-break: break-all;
+}
+
 .fail-text {
   margin: 0;
   color: var(--on-surface-variant);

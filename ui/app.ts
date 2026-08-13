@@ -122,6 +122,17 @@
   const phaseStatus = $('phase-status');
   const versionLabel = $('version-label');
 
+  const profileWindow = $('profile-window');
+  const profilePick = $('profile-pick') as HTMLSelectElement;
+  const profileTitle = $('profile-title') as HTMLInputElement;
+  const profileEngine = $('profile-engine') as HTMLSelectElement;
+  const profileDescription = $('profile-description') as HTMLInputElement;
+  const profileBudgets = $('profile-budgets');
+  const profileError = $('profile-error');
+  const profileSave = $('profile-save') as HTMLButtonElement;
+  const profileDelete = $('profile-delete') as HTMLButtonElement;
+  const profileDir = $('profile-dir');
+
   // ---------------------------------------------------------------
   // Индикатор ожидания во вьюпортах
   // ---------------------------------------------------------------
@@ -2011,6 +2022,264 @@
   }
 
   // -----------------------------------------------------------------------
+  // Своя площадка: форма вместо JSON руками (ROADMAP.md §5i, шаг 2)
+  //
+  // Спрашиваем ровно три вещи: как площадка называется, каким движком её читают и
+  // какие у неё пороги. Список опций, их слова и базовый план обработки принадлежат
+  // движку и подставляются сами — иначе автор своей площадки заполнял бы двадцать
+  // галочек и в половине соврал (Правило 10б).
+  //
+  // Поля порогов НЕ перечислены в разметке: их состав приходит с /api/profiles и равен
+  // метрикам бюджета. Вторая копия такого списка неизбежно разошлась бы с первой —
+  // так уже было со взаимоисключениями опций.
+  // -----------------------------------------------------------------------
+
+  let profileFields: BudgetFieldDto[] = [];
+  // Последний отказ формы: код нужен, чтобы переставить фразу при смене языка.
+  let profileFail: { code: string; field: string } | null = null;
+  let deleteArmed = false;
+
+  async function fetchProfileTemplate() {
+    const res = await fetch(`/api/profiles?${langParam()}`);
+    if (!res.ok) throw new Error(String(res.status));
+    return (await res.json()) as { dir: string; fields: BudgetFieldDto[] };
+  }
+
+  function renderProfileFields(values: Record<string, unknown>) {
+    profileBudgets.innerHTML = '';
+    for (const f of profileFields) {
+      const row = document.createElement('label');
+      row.className = 'profile-field';
+      const name = document.createElement('span');
+      name.className = 'profile-label';
+      // Подпись приходит с сервера из того же каталога, что и панель бюджета: второго
+      // перевода слова «Треугольники» в проекте нет.
+      name.textContent = f.name;
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.min = '1';
+      input.className = 'profile-number';
+      input.dataset.budget = f.id;
+      const v = values[f.id];
+      input.value = v == null ? '' : String(v);
+      row.append(name, input);
+      if (f.unit) {
+        const unit = document.createElement('span');
+        unit.className = 'profile-unit';
+        unit.textContent = f.unit;
+        row.appendChild(unit);
+      }
+      profileBudgets.appendChild(row);
+    }
+  }
+
+  function currentBudgetValues(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const el of profileBudgets.querySelectorAll('input[data-budget]')) {
+      const input = el as HTMLInputElement;
+      out[input.dataset.budget!] = input.value.trim();
+    }
+    return out;
+  }
+
+  // Код отказа приходит с сервера, фразу подбирает интерфейс: английская строка из
+  // ассистента на русском экране — ровно то, что запрещает Правило 8.
+  const PROFILE_ERRORS = [
+    'title_required', 'engine_unknown', 'builtin_id', 'bad_number',
+    'unknown_profile', 'id_taken', 'write_failed', 'no_assistant',
+  ];
+
+  function showProfileError(code: string | null, field = '') {
+    profileFail = code ? { code, field } : null;
+    if (!code) {
+      profileError.classList.add('hidden');
+      profileError.textContent = '';
+      return;
+    }
+    const key = PROFILE_ERRORS.includes(code) ? `profile.err.${code}` : 'profile.err.unknown';
+    const named = profileFields.find((f) => f.id === field);
+    setText(profileError, key, { field: named ? named.name : field });
+    profileError.classList.remove('hidden');
+  }
+
+  // Удаление — в два нажатия. Не окно подтверждения: своих площадок бывает несколько,
+  // и модальный вопрос поверх модального окна человек закрывает не читая.
+  function disarmDelete() {
+    deleteArmed = false;
+    profileDelete.classList.remove('is-armed');
+    setText(profileDelete, 'profile.delete');
+  }
+
+  function renderProfilePick(selected: string) {
+    profilePick.innerHTML = '';
+    const fresh = document.createElement('option');
+    fresh.value = '';
+    setText(fresh, 'profile.new');
+    profilePick.appendChild(fresh);
+    for (const p of platforms.filter((x) => x.custom)) {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.title || p.id;
+      profilePick.appendChild(opt);
+    }
+    profilePick.value = [...profilePick.options].some((o) => o.value === selected) ? selected : '';
+  }
+
+  function renderProfileEngines(selected: string) {
+    profileEngine.innerHTML = '';
+    for (const e of engines) {
+      const opt = document.createElement('option');
+      opt.value = e.id;
+      opt.textContent = e.title || e.id;
+      profileEngine.appendChild(opt);
+    }
+    if (selected && [...profileEngine.options].some((o) => o.value === selected)) profileEngine.value = selected;
+  }
+
+  function fillProfileForm(form: Record<string, any>) {
+    profileTitle.value = form.title || '';
+    profileDescription.value = form.description || '';
+    renderProfileEngines(form.engine || '');
+    renderProfileFields(form.budgets || {});
+    // Кнопка удаления есть только у существующей площадки: у новой удалять нечего.
+    profileDelete.classList.toggle('hidden', !form.id);
+    disarmDelete();
+    showProfileError(null);
+  }
+
+  // Выбранную в списке свою площадку открываем на правку; прочерк — чистая форма.
+  async function loadProfileForEdit(id: string) {
+    if (!id) { fillProfileForm({}); return; }
+    try {
+      const res = await fetch(`/api/profiles/${encodeURIComponent(id)}?${langParam()}`);
+      const data = await res.json();
+      if (!res.ok) { showProfileError(data && data.error); return; }
+      fillProfileForm(data);
+    } catch (e) {
+      showProfileError('write_failed');
+    }
+  }
+
+  async function openProfileWindow() {
+    let failed = false;
+    try {
+      const tpl = await fetchProfileTemplate();
+      profileFields = Array.isArray(tpl.fields) ? tpl.fields : [];
+      // Путь к папке — не украшение: положить туда чужой профиль файлом по-прежнему
+      // можно, и человек должен знать куда.
+      setText(profileDir, 'profile.dir', { path: tpl.dir });
+    } catch (e) {
+      // Сервер старее интерфейса и про свои площадки не знает. Молчать нельзя: окно
+      // открылось бы пустым, и это выглядело бы поломкой.
+      profileFields = [];
+      setText(profileDir, 'profile.dir', { path: '—' });
+      failed = true;
+    }
+    renderProfilePick('');
+    fillProfileForm({});
+    // Строго ПОСЛЕ fillProfileForm: та чистит форму вместе с прежним отказом, и
+    // сказанное раньше стёрлось бы, не успев показаться.
+    if (failed) showProfileError('no_assistant');
+    showWindow(profileWindow);
+    profileTitle.focus();
+  }
+
+  // Смена языка — перерисовка: подписи полей приходят с сервера на новом языке, а
+  // введённые числа остаются на месте (Правило 8).
+  async function relabelProfileForm() {
+    const typed = currentBudgetValues();
+    const fail = profileFail;
+    try {
+      const tpl = await fetchProfileTemplate();
+      profileFields = Array.isArray(tpl.fields) ? tpl.fields : [];
+      setText(profileDir, 'profile.dir', { path: tpl.dir });
+    } catch (e) {
+      return;
+    }
+    renderProfileFields(typed);
+    renderProfilePick(profilePick.value);
+    if (fail) showProfileError(fail.code, fail.field);
+  }
+
+  // Список площадок перечитывается: своя только что появилась, переименовалась или
+  // исчезла. Выбор человека при этом сохраняется — кроме случая, когда площадку
+  // только что создали: за ней и приходили.
+  async function refreshPlatforms(preferId: string) {
+    const keep = platformSelect.value;
+    await loadPlatforms();
+    const has = (id: string) => Boolean(id) && [...platformSelect.options].some((o) => o.value === id);
+    const wanted = has(preferId) ? preferId : (has(keep) ? keep : '');
+    if (platformSelect.value !== wanted) {
+      platformSelect.value = wanted;
+      platformSelect.dispatchEvent(new Event('change'));
+    }
+  }
+
+  async function saveProfile() {
+    const payload = {
+      // Пустой id = новая площадка. Непустой — правка своей: сервер откажет, если id
+      // окажется встроенным.
+      id: profilePick.value,
+      title: profileTitle.value,
+      engine: profileEngine.value,
+      description: profileDescription.value,
+      budgets: currentBudgetValues(),
+    };
+    profileSave.disabled = true;
+    try {
+      const res = await fetch(`/api/profiles?${langParam()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) { showProfileError(data && data.error, (data && data.field) || ''); return; }
+      showProfileError(null);
+      logMessage('info', t('log.profile.saved', { name: payload.title.trim() }));
+      await refreshPlatforms(data.id);
+      renderProfilePick(data.id);
+      profileDelete.classList.remove('hidden');
+    } catch (e) {
+      showProfileError('write_failed');
+    } finally {
+      profileSave.disabled = false;
+    }
+  }
+
+  async function deleteProfile() {
+    const id = profilePick.value;
+    if (!id) return;
+    if (!deleteArmed) {
+      deleteArmed = true;
+      profileDelete.classList.add('is-armed');
+      setText(profileDelete, 'profile.delete.confirm');
+      return;
+    }
+    const name = profilePick.options[profilePick.selectedIndex]!.textContent || id;
+    try {
+      const res = await fetch(`/api/profiles/${encodeURIComponent(id)}?${langParam()}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) { showProfileError(data && data.error); disarmDelete(); return; }
+      logMessage('info', t('log.profile.deleted', { name }));
+      await refreshPlatforms('');
+      renderProfilePick('');
+      fillProfileForm({});
+    } catch (e) {
+      showProfileError('write_failed');
+      disarmDelete();
+    }
+  }
+
+  profilePick.addEventListener('change', () => loadProfileForEdit(profilePick.value));
+  profileSave.addEventListener('click', () => saveProfile());
+  profileDelete.addEventListener('click', () => deleteProfile());
+  // Любое другое действие снимает взвод удаления: подтверждение относится к одному
+  // нажатию, а не висит до конца сеанса.
+  for (const el of [profileTitle, profileDescription, profileEngine, profilePick]) {
+    el.addEventListener('input', disarmDelete);
+  }
+
+  // -----------------------------------------------------------------------
   // Строка меню
   // -----------------------------------------------------------------------
 
@@ -2053,6 +2322,9 @@
       for (const btn of titles) btn.addEventListener('click', syncDownload);
       syncDownload();
     }
+
+    const profileItem = document.getElementById('menu-profile');
+    if (profileItem) profileItem.addEventListener('click', () => { closeAll(); openProfileWindow(); });
 
     for (const radio of menubar.querySelectorAll('input[name="advice-mode"]')) {
       (radio as HTMLInputElement).checked = (radio as HTMLInputElement).value === adviceMode;
@@ -3093,6 +3365,7 @@
   setupWindow(validationWindow);
   setupWindow(logsWindow);
   setupWindow(exportWindow);
+  setupWindow(profileWindow);
 
   btnMetadata.addEventListener('click', () => {
     renderMetadataWindow();
@@ -3577,6 +3850,10 @@
     await reexplainLastResult();
     if (!validationWindow.classList.contains('hidden')) renderValidationWindow();
     if (!metadataWindow.classList.contains('hidden')) renderMetadataWindow();
+    // Форма своей площадки открыта — подписи полей приходят с сервера, значит их надо
+    // перезапросить. Введённые числа при этом остаются: смена языка — перерисовка,
+    // а не сброс (Правило 8).
+    if (!profileWindow.classList.contains('hidden')) await relabelProfileForm();
     updateInspectButtons();
     logMessage('debug', t('log.langChanged', { name: t('lang.name') }));
   });

@@ -90,6 +90,18 @@ interface EngineDto {
   [key: string]: any;
 }
 
+/**
+ * Одно поле порога в форме своей площадки (/api/profiles/template). Состав полей —
+ * это метрики бюджета: интерфейс их не перечисляет, чтобы список не разошёлся с тем,
+ * что сверяется на самом деле (ROADMAP.md §5i).
+ */
+interface BudgetFieldDto {
+  id: string;
+  name: string;
+  /** Подпись единицы у поля ввода. Пустая — у счётных метрик, там единицы нет. */
+  unit: string;
+}
+
 /** Одна опция панели возможностей (/api/extensions). Слова — из messages/. */
 interface ExtensionDto {
   id: string;

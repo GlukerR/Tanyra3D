@@ -50,6 +50,12 @@
             <span class="menu-radio-hint" data-i18n="menu.settings.manual.hint">Your checkboxes stay as you left them; suggestions are only marked with a badge</span>
           </span>
         </label>
+        <!-- Своя площадка — здесь, а не на главном экране (решение Александра
+             2026-08-12). Новичок, открывший программу впервые, не должен видеть форму
+             с порогами: она нужна тому, кто пришёл заводить свою площадку, а он
+             откроет настройки сам. -->
+        <p class="menu-group-title" data-i18n="menu.settings.platforms">Your own platforms</p>
+        <button class="menu-item" type="button" id="menu-profile" data-window-trigger data-i18n="menu.settings.newPlatform">Create your own platform…</button>
       </div>
     </div>
     <div class="menu">
@@ -292,6 +298,47 @@
           <p class="export-alert-note" data-i18n="export.budget.note">The file will be saved as is: the limit belongs to the platform, not to this program.</p>
         </div>
         <button type="button" id="export-save" class="btn-primary" data-i18n="export.save">Save</button>
+      </div>
+    </div>
+
+    <!-- Своя площадка (ROADMAP.md §5i, шаг 2). Форма спрашивает ровно то, чего вывести
+         неоткуда: как площадка называется, каким движком её читают и какие у неё
+         пороги. Список опций, их слова и базовый план обработки принадлежат движку и
+         подставляются сами — заполнять двадцать галочек человека не заставляем
+         (Правило 10б).
+
+         Поля порогов рисует app.js по ответу /api/profiles: их состав — это метрики
+         бюджета, и второй копии этого списка в разметке быть не должно. -->
+    <div id="profile-window" class="window window--glass hidden" role="dialog" aria-label="Your own platform">
+      <div class="window-titlebar">
+        <span class="window-title" data-i18n="win.profile">Your own platform</span>
+        <button type="button" class="window-close" data-i18n-aria="win.close" aria-label="Close">×</button>
+      </div>
+      <div class="window-body window-scroll">
+        <label class="profile-field">
+          <span class="profile-label" data-i18n="profile.pick">Platform</span>
+          <select id="profile-pick"></select>
+        </label>
+        <label class="profile-field">
+          <span class="profile-label" data-i18n="profile.title">Name</span>
+          <input type="text" id="profile-title" class="export-name" autocomplete="off" spellcheck="false">
+        </label>
+        <label class="profile-field">
+          <span class="profile-label" data-i18n="profile.engine">Engine</span>
+          <select id="profile-engine"></select>
+        </label>
+        <label class="profile-field">
+          <span class="profile-label" data-i18n="profile.description">Description</span>
+          <input type="text" id="profile-description" class="export-name" autocomplete="off">
+        </label>
+        <p class="profile-hint" data-i18n="profile.budgets.hint">Fill in only the numbers you know. An empty field means the metric is shown without any verdict.</p>
+        <div id="profile-budgets" class="profile-budgets"></div>
+        <p id="profile-error" class="profile-error hidden"></p>
+        <div class="profile-actions">
+          <button type="button" id="profile-save" class="btn-primary" data-i18n="profile.save">Save</button>
+          <button type="button" id="profile-delete" class="window-action hidden" data-i18n="profile.delete">Delete</button>
+        </div>
+        <p id="profile-dir" class="profile-dir"></p>
       </div>
     </div>
 
