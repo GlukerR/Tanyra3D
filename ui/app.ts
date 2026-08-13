@@ -127,11 +127,16 @@
   const profileTitle = $('profile-title') as HTMLInputElement;
   const profileEngine = $('profile-engine') as HTMLSelectElement;
   const profileDescription = $('profile-description') as HTMLInputElement;
+  const profileSource = $('profile-source') as HTMLInputElement;
   const profileBudgets = $('profile-budgets');
   const profileError = $('profile-error');
   const profileSave = $('profile-save') as HTMLButtonElement;
   const profileDelete = $('profile-delete') as HTMLButtonElement;
   const profileDir = $('profile-dir');
+  const profileFeatures = $('profile-features');
+  const profileFile = $('profile-file') as HTMLInputElement;
+  const profileImport = $('profile-import') as HTMLButtonElement;
+  const profileExport = $('profile-export') as HTMLButtonElement;
 
   // ---------------------------------------------------------------
   // Индикатор ожидания во вьюпортах
@@ -910,6 +915,15 @@
       return;
     }
 
+    renderExtensionsPanel(keep);
+  }
+
+  // Отрисовка панели из УЖЕ полученного списка. Отделена от загрузки, потому что
+  // пересобирать панель приходится и без нового запроса: состав размеров текстур
+  // зависит от самой модели (см. sourceTextureSide), а модель приезжает позже площадки.
+  function renderExtensionsPanel(keep?: UiSelection) {
+    extensionsList.innerHTML = '';
+    infoTip.hide();
     const byId = Object.fromEntries(extensions.map((e) => [e.id, e]));
     for (const group of OPT_GROUPS) {
       const section = group.kind === 'geometry'
@@ -1060,6 +1074,15 @@
         p.textContent = t('ext.impact', { text: ext.impact });
         tip.appendChild(p);
       }
+      // Откуда у площадки её запреты и числа. Второй вопрос, отдельный от «что это за
+      // площадка», поэтому и строка отдельная (слово Александра 2026-08-13). У опций
+      // этого поля нет — там объяснять нечего, они принадлежат движку.
+      if (ext.source) {
+        const p = document.createElement('p');
+        p.className = 'ext-impact';
+        p.textContent = t('ext.origin', { text: ext.source });
+        tip.appendChild(p);
+      }
       return tip.childNodes.length > 0;
     }
 
@@ -1206,12 +1229,48 @@
   // была, — бессмысленная»). Место под неё оставлено: пустой контейнер держит ширину,
   // и как только у размера появится текст, который стоит читать, значок вернётся сам —
   // он рисуется по наличию описания, а не по списку опций.
+  // Наибольшая сторона текстур ИСХОДНОЙ модели, из тех же метрик, что показывает шапка.
+  // null — «неизвестно»: модели ещё нет или метрики не посчитались. Ноль — законный
+  // ответ «текстур нет или их размер не читается», и это не то же самое.
+  function sourceTextureSide(): number | null {
+    const px = modelInspect && modelInspect.metrics && (modelInspect.metrics as any).textureMaxSize;
+    return typeof px === 'number' ? px : null;
+  }
+
+  // Размер из имени опции: `resize-2048` → 2048. Не вторая копия таблицы из аддона —
+  // производная от идентификатора, который интерфейс и так знает поимённо (OPT_GROUPS).
+  // Что имена устроены именно так, сторожит tests/texture-size.test.mjs.
+  function resizeTargetOf(id: string): number {
+    const m = /^resize-(\d+)$/.exec(id);
+    return m ? Number(m[1]) : 0;
+  }
+
   function renderTextureSizeGroup(
     group: { ids?: string[]; titleKey: string; [key: string]: any },
     byId: Record<string, ExtensionDto>,
   ) {
-    const opts = (group.ids || []).map((id) => byId[id]).filter(Boolean) as ExtensionDto[];
+    let opts = (group.ids || []).map((id) => byId[id]).filter(Boolean) as ExtensionDto[];
     if (!opts.length) return null;
+
+    // Размеры, которые больше самой крупной текстуры модели, не показываем.
+    //
+    // Решение Александра 2026-08-13: «раз мы никогда не увеличиваем размер, то нам и не
+    // нужны такие кнопки, они будут путать». И это правда про механику, а не про вкус:
+    // правило textures/resize пропускает картинки, которые меньше цели (rules.mts), —
+    // выбрать 4096 на модели с текстурами 1024 значит нажать кнопку, которая ничего не
+    // делает. Кнопка, не делающая ничего, обещает больше, чем есть.
+    //
+    // Пока модель не загружена, показываем всё: список опций существует и до неё, и
+    // прятать возможности, о которых мы ещё ничего не знаем, было бы враньём в другую
+    // сторону.
+    const side = sourceTextureSide();
+    if (side !== null) {
+      // Ноль означает «уменьшать нечего» (текстур нет либо размер не прочитался) —
+      // тогда исчезает вся секция, а не остаётся пустое поле выбора.
+      if (side === 0) return null;
+      opts = opts.filter((ext) => resizeTargetOf(ext.id) < side);
+      if (!opts.length) return null;
+    }
     const sec = optSection(t(group.titleKey), 'textureSize');
 
     const wrap = document.createElement('div');
@@ -1454,6 +1513,11 @@
       // Только до первой сборки: после неё в шапке стоят before/after из отчёта
       // (renderComparison), и затирать их односторонним «до» нельзя.
       if (!lastResult) renderSourceStats(file.size);
+      // Состав размеров текстур зависит от самой модели: увеличивать мы не умеем, значит
+      // цели крупнее её текстур предлагать нечестно. Панель уже собрана (она зависит от
+      // площадки, а не от файла) — пересобираем её из того же списка, без нового запроса,
+      // сохранив выбор человека.
+      if (extensions.length) renderExtensionsPanel(currentSelection());
       if (data.sourceId) currentSourceId = data.sourceId; // сборка переиспользует исходник
       btnMetadata.disabled = false;
       btnValidation.disabled = false;
@@ -2082,11 +2146,59 @@
     return out;
   }
 
+  // Что площадка НЕ читает — снятые галочки. Именно вычитание, а не объявление:
+  // площадка вправе убрать из палитры движка, но не заявить возможность (Правило 10б).
+  function currentExcluded(): string[] {
+    const out: string[] = [];
+    for (const el of profileFeatures.querySelectorAll('input[data-feature]')) {
+      const cb = el as HTMLInputElement;
+      if (!cb.checked) out.push(cb.dataset.feature!);
+    }
+    return out;
+  }
+
+  // Список опций рисуется по ответу ДВИЖКА (площадка пустая — значит полная палитра).
+  // Слова опций приходят оттуда же, откуда их берёт основная панель: второго перевода
+  // слова «Draco» в проекте нет.
+  async function renderProfileFeatures(engineId: string, excluded: string[]) {
+    profileFeatures.innerHTML = '';
+    let list: ExtensionDto[] = [];
+    try {
+      const res = await fetch(`/api/extensions?platform=&engine=${encodeURIComponent(engineId)}&${langParam()}`);
+      const data = await res.json();
+      list = (data && data.extensions) || [];
+    } catch (e) {
+      // Списка нет — молча пустое место было бы хуже: человек решит, что площадка
+      // ничего не умеет. Строка отказа объясняет, что не приехало.
+      const note = document.createElement('p');
+      note.className = 'profile-hint';
+      note.textContent = t('opts.noServer', { error: String(((e as Error) && (e as Error).message) || e) });
+      profileFeatures.appendChild(note);
+      return;
+    }
+    const off = new Set(excluded);
+    for (const ext of list) {
+      const row = document.createElement('label');
+      row.className = 'profile-feature';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.dataset.feature = ext.id;
+      // Галочка стоит = площадка это читает. Умолчание — «читает всё, что умеет
+      // движок»: автор площадки снимает лишнее, а не собирает список с нуля.
+      cb.checked = !off.has(ext.id);
+      cb.addEventListener('change', disarmDelete);
+      const name = document.createElement('span');
+      name.textContent = ext.title || ext.id;
+      row.append(cb, name);
+      profileFeatures.appendChild(row);
+    }
+  }
+
   // Код отказа приходит с сервера, фразу подбирает интерфейс: английская строка из
   // ассистента на русском экране — ровно то, что запрещает Правило 8.
   const PROFILE_ERRORS = [
     'title_required', 'engine_unknown', 'builtin_id', 'bad_number',
-    'unknown_profile', 'id_taken', 'write_failed', 'no_assistant',
+    'unknown_profile', 'id_taken', 'write_failed', 'no_assistant', 'bad_file', 'too_long',
   ];
 
   function showProfileError(code: string | null, field = '') {
@@ -2136,15 +2248,34 @@
     if (selected && [...profileEngine.options].some((o) => o.value === selected)) profileEngine.value = selected;
   }
 
+  // Счётчик букв у короткого поля. Предел держит сама разметка (maxlength), счётчик
+  // объясняет ПОЧЕМУ поле перестало принимать буквы: без него это выглядит поломкой.
   function fillProfileForm(form: Record<string, any>) {
     profileTitle.value = form.title || '';
     profileDescription.value = form.description || '';
+    profileSource.value = form.source || '';
     renderProfileEngines(form.engine || '');
     renderProfileFields(form.budgets || {});
-    // Кнопка удаления есть только у существующей площадки: у новой удалять нечего.
+    // Список опций у каждого движка свой — рисуем его под тот, что стоит в поле.
+    renderProfileFeatures(profileEngine.value, form.excludeExtensions || []);
+    // Кнопки удаления и выгрузки есть только у существующей площадки: у новой нечего
+    // ни удалять, ни отдавать.
     profileDelete.classList.toggle('hidden', !form.id);
+    profileExport.classList.toggle('hidden', !form.id);
+    // Счётчики пересчитываем на КАЖДОЕ заполнение: поля только что получили чужой
+    // текст, и число под ними обязано относиться к нему, а не к прежнему.
+    updateProfileCounters();
     disarmDelete();
     showProfileError(null);
+  }
+
+  function updateProfileCounters() {
+    for (const [input, host] of [
+      [profileDescription, document.getElementById('profile-description-count')],
+      [profileSource, document.getElementById('profile-source-count')],
+    ] as const) {
+      if (host) setText(host, 'profile.count', { n: input.value.length, max: input.maxLength });
+    }
   }
 
   // Выбранную в списке свою площадку открываем на правку; прочерк — чистая форма.
@@ -2175,10 +2306,18 @@
       setText(profileDir, 'profile.dir', { path: '—' });
       failed = true;
     }
-    renderProfilePick('');
-    fillProfileForm({});
-    // Строго ПОСЛЕ fillProfileForm: та чистит форму вместе с прежним отказом, и
-    // сказанное раньше стёрлось бы, не успев показаться.
+    // Если справа уже выбрана СВОЯ площадка — открываем её, а не пустую форму.
+    //
+    // Александр 2026-08-13: «нужна возможность удалять свои платформы». Возможность
+    // была с самого начала, но чтобы до неё добраться, надо было догадаться выбрать
+    // площадку в верхнем поле окна — то есть повторить выбор, который уже сделан на
+    // экране. Кнопка, до которой не дошли, ничем не отличается от отсутствующей.
+    const выбрана = platforms.find((p) => p.id === platformSelect.value && p.custom);
+    renderProfilePick(выбрана ? выбрана.id : '');
+    if (выбрана) await loadProfileForEdit(выбрана.id);
+    else fillProfileForm({});
+    // Строго ПОСЛЕ заполнения формы: оно чистит прежний отказ, и сказанное раньше
+    // стёрлось бы, не успев показаться.
     if (failed) showProfileError('no_assistant');
     showWindow(profileWindow);
     profileTitle.focus();
@@ -2189,6 +2328,7 @@
   async function relabelProfileForm() {
     const typed = currentBudgetValues();
     const fail = profileFail;
+    const excluded = currentExcluded();
     try {
       const tpl = await fetchProfileTemplate();
       profileFields = Array.isArray(tpl.fields) ? tpl.fields : [];
@@ -2197,6 +2337,9 @@
       return;
     }
     renderProfileFields(typed);
+    // Названия опций тоже приходят с сервера — перезапрашиваем их на новом языке,
+    // сохранив снятые галочки.
+    await renderProfileFeatures(profileEngine.value, excluded);
     renderProfilePick(profilePick.value);
     if (fail) showProfileError(fail.code, fail.field);
   }
@@ -2223,7 +2366,9 @@
       title: profileTitle.value,
       engine: profileEngine.value,
       description: profileDescription.value,
+      source: profileSource.value,
       budgets: currentBudgetValues(),
+      excludeExtensions: currentExcluded(),
     };
     profileSave.disabled = true;
     try {
@@ -2270,14 +2415,73 @@
     }
   }
 
+  // Выгрузка — обычная ссылка на скачивание, а не сборка файла в браузере: отдать надо
+  // ТОТ ЖЕ файл, что лежит на диске, вместе с полями, которых форма не знает.
+  function exportProfile() {
+    const id = profilePick.value;
+    if (!id) return;
+    const a = document.createElement('a');
+    a.href = `/api/profiles/${encodeURIComponent(id)}?download=1`;
+    a.download = `${id}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    logMessage('info', t('log.profile.exported', { name: `${id}.json` }));
+  }
+
+  async function importProfile(file: File) {
+    disarmDelete();
+    let text;
+    try {
+      text = await file.text();
+    } catch (e) {
+      showProfileError('bad_file');
+      return;
+    }
+    try {
+      const res = await fetch(`/api/profiles?import=1&${langParam()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: text,
+      });
+      const data = await res.json();
+      if (!res.ok) { showProfileError(data && data.error, (data && data.field) || ''); return; }
+      showProfileError(null);
+      // «Добавлена» и «обновлена» — разные события, и молчать о втором нельзя: оно
+      // означает, что прежний файл с правками человека перезаписан принесённым.
+      logMessage('info', t(data.replaced ? 'log.profile.replaced' : 'log.profile.imported', { name: data.id }));
+      await refreshPlatforms(data.id);
+      renderProfilePick(data.id);
+      await loadProfileForEdit(data.id);
+    } catch (e) {
+      showProfileError('write_failed');
+    }
+  }
+
   profilePick.addEventListener('change', () => loadProfileForEdit(profilePick.value));
   profileSave.addEventListener('click', () => saveProfile());
   profileDelete.addEventListener('click', () => deleteProfile());
+  profileExport.addEventListener('click', () => exportProfile());
+  profileImport.addEventListener('click', () => profileFile.click());
+  profileFile.addEventListener('change', () => {
+    const file = profileFile.files && profileFile.files[0];
+    // Значение поля сбрасываем всегда: иначе повторный выбор ТОГО ЖЕ файла не поднимет
+    // change, и человек решит, что кнопка сломалась.
+    if (file) importProfile(file);
+    profileFile.value = '';
+  });
   // Любое другое действие снимает взвод удаления: подтверждение относится к одному
   // нажатию, а не висит до конца сеанса.
-  for (const el of [profileTitle, profileDescription, profileEngine, profilePick]) {
+  for (const el of [profileTitle, profileDescription, profileSource, profileEngine, profilePick]) {
     el.addEventListener('input', disarmDelete);
   }
+  for (const el of [profileDescription, profileSource]) {
+    el.addEventListener('input', updateProfileCounters);
+  }
+  // Сменили движок — сменился и список опций: у другого читателя файла свои
+  // возможности. Снятые галочки при этом не переносим: они относились к прежнему
+  // списку, и молча приписать их новому движку значило бы выключить не то.
+  profileEngine.addEventListener('change', () => renderProfileFeatures(profileEngine.value, []));
 
   // -----------------------------------------------------------------------
   // Строка меню
@@ -2995,30 +3199,34 @@
         row.appendChild(advice);
       }
 
-      // Ссылка на документ, из которого взят порог. Число без проверяемого источника
-      // пользователь принимает на веру — пусть у него будет способ не принимать.
+      // Откуда взят порог. Ссылка — если источник назван и это адрес; пометка «наш» или
+      // «ваш» — если названо, ЧЬЁ это решение. Показываем ОБА, когда есть оба: ссылка
+      // отвечает на вопрос «откуда число», пометка — «чьё оно». Пока пометку вытесняла
+      // ссылка, придуманный порог с адресом чьего-то сайта выглядел точно так же, как
+      // выверенный по документу площадки (ROADMAP.md §5i).
       if (b.source) {
-        const src = document.createElement('a');
+        // Источник своей площадки человек пишет словами, и это может быть не адрес
+        // («из письма менеджера»). Ссылку делаем только из настоящего адреса —
+        // href="из письма менеджера" ведёт в никуда и выглядит поломкой.
+        const url = /^https?:\/\//i.test(b.source) ? b.source : '';
+        const src = document.createElement(url ? 'a' : 'span');
         src.className = 'budget-source';
-        src.href = b.source;
-        src.target = '_blank';
-        src.rel = 'noopener noreferrer';
-        src.textContent = t('budget.source');
+        if (url) {
+          (src as HTMLAnchorElement).href = url;
+          (src as HTMLAnchorElement).target = '_blank';
+          (src as HTMLAnchorElement).rel = 'noopener noreferrer';
+          src.textContent = t('budget.source');
+        } else {
+          src.textContent = b.source;
+        }
         row.appendChild(src);
-      } else if (b.by === 'project') {
-        // Наш собственный порог. Показываем как есть, без ссылки: ссылаться не на что,
-        // и делать вид, что это требование платформы, нельзя.
+      }
+      if (b.by === 'project' || b.by === 'user') {
+        // Наш собственный порог или порог из СВОЕГО профиля — ссылаться не на что, и
+        // делать вид, что это требование площадки, нельзя.
         const own = document.createElement('span');
         own.className = 'budget-source budget-source--own';
-        own.textContent = t('budget.ourChoice');
-        row.appendChild(own);
-      } else if (b.by === 'user') {
-        // Порог из СВОЕГО профиля. Отличать его обязательно: иначе через полгода никто,
-        // включая нас, не отличит выверенное по первоисточнику число от придуманного
-        // (ROADMAP.md §5i).
-        const own = document.createElement('span');
-        own.className = 'budget-source budget-source--own';
-        own.textContent = t('budget.yourChoice');
+        own.textContent = t(b.by === 'user' ? 'budget.yourChoice' : 'budget.ourChoice');
         row.appendChild(own);
       }
 

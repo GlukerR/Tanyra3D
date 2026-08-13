@@ -445,6 +445,9 @@ export function listPlatforms(lang: string = DEFAULT_LANG) {
           id: p.id,
           title: pick(p.title, lang) || p.id,
           description: pick(p.description, lang),
+          // Откуда у площадки её запреты и числа. Второй вопрос, отдельный от «что это
+          // за площадка», и в книжечке он идёт отдельной строкой.
+          source: pick(p.source, lang),
           engine: engineIdOf(p),
           // Откуда взялся профиль. Интерфейсу это нужно, чтобы не выдавать свои числа
           // за выверенные по первоисточнику (ROADMAP.md §5i).
@@ -706,7 +709,9 @@ export function explainResult(runResult: RunResultLike, platformId: string, lang
   return {
     summary,
     highlights: highlights.slice(0, 6),
-    budgetChecks: buildBudgetChecks(profile.budgets || {}, after, lang, profile.custom === true),
+    budgetChecks: buildBudgetChecks(
+      profile.budgets || {}, after, lang, profile.custom === true, pick(profile.source, lang),
+    ),
     warnings: collectWarnings(rr, t),
   };
 }
@@ -757,6 +762,7 @@ function buildBudgetChecks(
   after: MetricsLike,
   lang: string = DEFAULT_LANG,
   custom = false,
+  defaultSource = '',
 ) {
   const t = messages(lang);
   const { fmtMB, fmtInt } = formatters(lang);
@@ -789,12 +795,20 @@ function buildBudgetChecks(
     // Откуда порог: ссылка на документ платформы либо наше собственное решение. Второе
     // тоже законно, но обязано выглядеть иначе — выдавать решение проекта за требование
     // платформы значит ровно то же враньё, ради борьбы с которым всё это затевалось.
-    if (entry.source) check.source = entry.source;
-    else if (entry.by) check.by = entry.by;
-    // Порог из своего профиля, у которого автор не назвал источник. Пометка ставится
-    // ЗДЕСЬ, а не берётся из файла: пометить своё число как выверенное по документу
-    // площадки не должно быть возможно (ROADMAP.md §5i).
-    else if (custom) check.by = 'user';
+    //
+    // `defaultSource` — источник, названный на весь профиль. Своя площадка называет его
+    // один раз в форме, а не копией у каждого порога: один и тот же адрес, повторённый
+    // в файле шесть раз, — ровно то «полотно», которого быть не должно.
+    if (entry.source || defaultSource) check.source = entry.source || defaultSource;
+    if (!check.source && entry.by) check.by = entry.by;
+    // Порог из СВОЕГО профиля. Пометка ставится ЗДЕСЬ, а не берётся из файла: объявить
+    // своё число выверенным по документу площадки не должно быть возможно (§5i).
+    //
+    // Ставится ВМЕСТЕ со ссылкой, а не вместо неё. Ссылка отвечает на вопрос «откуда
+    // число», пометка — на вопрос «чьё оно»; это разные вопросы, и подменять второй
+    // первым значило бы, что придуманный порог со ссылкой на чей-то сайт выглядит как
+    // выверенный по документу площадки.
+    if (custom) check.by = 'user';
 
     if (entry.limit != null) check.limitText = t('budget.limit', { v: fmt(entry.limit) });
     if (entry.warn != null) check.warnText = t('budget.recommended', { v: fmt(entry.warn) });
@@ -846,13 +860,39 @@ export class ProfileError extends Error {
   }
 }
 
+/**
+ * Сколько букв даётся на описание и на источник.
+ *
+ * Предел назвал Александр 2026-08-13: «для написания своего описания продукта нужно
+ * использовать минимальное количество разрешённых символов, например 150». Это не
+ * экономия места в файле — это Правило 10: подсказку читает новичок, и абзац на экране
+ * он не читает вовсе. Два коротких поля вместо одного длинного отвечают на два разных
+ * вопроса: ЧТО это за площадка и ОТКУДА взялись её запреты и числа.
+ */
+const MAX_TEXT = 150;
+
 /** Что спрашивает форма. Обязательно только название. */
 export interface CustomProfileInput {
   id?: string;
   title?: string;
   engine?: string;
   description?: string;
+  /**
+   * Откуда взяты запреты и числа этой площадки: ссылка на документ или пояснение
+   * словами. Лежит ОДИН раз на весь профиль, а не копией у каждого порога — иначе
+   * один и тот же адрес повторялся бы в файле шесть раз.
+   */
+  source?: string;
   budgets?: Record<string, unknown>;
+  /**
+   * Что эта площадка НЕ читает — список id опций движка.
+   *
+   * Единственная форма, в которой площадке позволено говорить о возможностях:
+   * ВЫЧИТАТЬ из палитры движка. Объявлять их она не вправе — иначе вернётся дефект,
+   * ради которого движок и площадку разводили: четыре профиля держали четыре
+   * побайтно одинаковые копии десяти опций (Правило 10б).
+   */
+  excludeExtensions?: unknown;
 }
 
 /**
@@ -951,14 +991,31 @@ export function saveCustomProfile(input: CustomProfileInput) {
     budgets[key] = { warn: n };
   }
 
+  // Что площадка не читает. Пустой список не пишем вовсе: `excludeExtensions: []` и
+  // отсутствие поля значат одно и то же, а лишнее поле в файле следующий читатель
+  // примет за осмысленное решение автора.
+  const raw = input && input.excludeExtensions;
+  const exclude = Array.isArray(raw)
+    ? [...new Set(raw.map((x) => String(x).trim()).filter(Boolean))]
+    : [];
+
+  // Длинный текст не режем молча: обрезанная посреди слова фраза выглядит как поломка
+  // программы, а не как наше решение. Отказ называет поле, чтобы человек знал, какое
+  // из двух сокращать.
   const description = String((input && input.description) || '').trim();
+  if (description.length > MAX_TEXT) throw new ProfileError('too_long', 'description');
+  const source = String((input && input.source) || '').trim();
+  if (source.length > MAX_TEXT) throw new ProfileError('too_long', 'source');
+
   const profile: ProfileJson = {
     id,
     engine,
     enabled: true,
     title,
     ...(description ? { description } : {}),
+    ...(source ? { source } : {}),
     budgets,
+    ...(exclude.length ? { excludeExtensions: exclude } : {}),
     // Пометки «свой» в файле НЕТ намеренно: её ставит загрузчик по тому, откуда взят
     // файл. Иначе профиль объявил бы себя встроенным, и придуманное число встало бы
     // рядом с выверенным по документу площадки (ROADMAP.md §5i).
@@ -996,8 +1053,87 @@ export function readCustomProfile(id: string, lang: string = DEFAULT_LANG): Cust
     title: pick(p.title, lang) || p.id,
     engine: engineIdOf(p),
     description: pick(p.description, lang),
+    source: pick(p.source, lang),
     budgets,
+    excludeExtensions: Array.isArray(p.excludeExtensions) ? p.excludeExtensions : [],
   };
+}
+
+// ----------------------------------------------------------------------------
+// Обмен площадками: файлом, а не архивом (ROADMAP.md §5i, шаг 3)
+//
+// Профиль — один .json, поэтому «поделиться» это «отправить файл». ZIP осмыслен
+// только когда в пакете действительно несколько профилей плюс значок; заводить его
+// раньше — упаковка ради упаковки.
+//
+// Ходит СЫРОЙ файл, а не поля формы. Профиль, написанный руками, может нести то, чего
+// форма не спрашивает: жёсткий предел `limit`, ссылку на документ площадки `source`,
+// список вычитаемых опций `excludeExtensions`, свой базовый план. Пропусти файл через
+// форму — всё это молча пропадёт, и получатель увидит не ту площадку, которую ему
+// отправили.
+// ----------------------------------------------------------------------------
+
+/**
+ * Своя площадка файлом — ровно тем, что лежит на диске.
+ *
+ * Встроенную не отдаём, и это не мелочь: её пороги несут ссылки на документы настоящей
+ * площадки. Отданная как образец, поправленная и внесённая обратно, она стала бы своим
+ * профилем с чужими ссылками — тем самым враньём, ради борьбы с которым §5i и написан.
+ */
+export function exportCustomProfile(id: string) {
+  const found = profilePath(safeId(String(id || '')));
+  if (!found) throw new ProfileError('unknown_profile');
+  if (!found.custom) throw new ProfileError('builtin_id');
+  return { id: safeId(String(id)), json: fs.readFileSync(found.file, 'utf8') };
+}
+
+/**
+ * Принять чужую площадку файлом.
+ *
+ * Возвращает `{ id, replaced }`: интерфейсу нужно сказать человеку, добавилась площадка
+ * или обновилась существующая. Молчать об этом нельзя — «обновилась» означает, что
+ * прежний файл с его правками перезаписан.
+ */
+export function importCustomProfile(text: string) {
+  let raw: ProfileJson;
+  try {
+    raw = JSON.parse(String(text));
+  } catch {
+    throw new ProfileError('bad_file');
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new ProfileError('bad_file');
+  // Название читаем на любом языке, который есть в файле: профиль от стороннего автора
+  // вправе быть написан только по-русски или только по-английски (см. pick). Пусто на
+  // всех — отказ: безымянная строка в списке хуже, чем отказ с причиной.
+  const title = pick(raw.title, DEFAULT_LANG)
+    || (raw.title && typeof raw.title === 'object' ? Object.values(raw.title as Record<string, string>).find(Boolean) || '' : '');
+  if (!title) throw new ProfileError('title_required');
+
+  const wanted = safeId(String(raw.id || '')) || slugFrom(title);
+  const found = wanted ? profilePath(wanted) : null;
+  // Встроенный id занят навсегда: свой файл его всё равно не подменит (profilePath
+  // отдаёт встроенный первым), поэтому берём свободное имя, а не отказываем. Отказ
+  // здесь означал бы «вашу площадку нельзя назвать Shopify», хотя можно — просто
+  // файл будет называться иначе.
+  const id = found && !found.custom ? freeProfileId(wanted) : (wanted || freeProfileId(''));
+  const replaced = Boolean(found && found.custom);
+
+  const profile: ProfileJson = {
+    ...raw,
+    id,
+    // Импорт — это и есть акт включения. `enabled: false` придуман для черновиков,
+    // которые лежат в поставке и до поры не показываются; файл, который человек принёс
+    // руками, обязан появиться в списке, иначе успешный импорт выглядит поломкой.
+    enabled: true,
+  };
+  // Пометку «свой» ставит загрузчик по тому, откуда взят файл. В файле её быть не
+  // должно даже как мусора: чужой профиль не вправе объявлять себя встроенным.
+  delete profile.custom;
+
+  const dir = userProfilesDir();
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${id}.json`), `${JSON.stringify(profile, null, 2)}\n`, 'utf8');
+  return { id, replaced };
 }
 
 /** Убрать свою площадку. Встроенную не трогаем: её файл не наш. */

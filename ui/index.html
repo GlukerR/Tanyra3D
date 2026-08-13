@@ -327,16 +327,44 @@
           <span class="profile-label" data-i18n="profile.engine">Engine</span>
           <select id="profile-engine"></select>
         </label>
+        <!-- Два коротких поля вместо одного длинного: они отвечают на РАЗНЫЕ вопросы —
+             что это за площадка и откуда взялись её запреты и числа. Предел в 150
+             символов назвал Александр 2026-08-13; это не экономия места в файле, а
+             Правило 10: подсказку читает новичок, и абзац он не читает вовсе.
+             Счётчик рисует app.js — он же не даёт превысить предел. -->
         <label class="profile-field">
           <span class="profile-label" data-i18n="profile.description">Description</span>
-          <input type="text" id="profile-description" class="export-name" autocomplete="off">
+          <input type="text" id="profile-description" class="export-name" autocomplete="off" maxlength="150">
+          <span class="profile-count" id="profile-description-count"></span>
         </label>
+        <label class="profile-field">
+          <span class="profile-label" data-i18n="profile.source">Where from</span>
+          <input type="text" id="profile-source" class="export-name" autocomplete="off" maxlength="150">
+          <span class="profile-count" id="profile-source-count"></span>
+        </label>
+        <!-- Что эта площадка читает. Единственная форма, в которой площадке позволено
+             говорить о возможностях, — ВЫЧИТАТЬ из палитры движка: объявлять их она не
+             вправе (Правило 10б). Поэтому все галочки стоят, а снятая означает «здесь
+             это не работает» — и опция просто исчезнет из панели, без серых кнопок и
+             объяснений. Список рисует app.js по ответу движка. -->
+        <p class="profile-hint" data-i18n="profile.features.hint">Everything the engine can do is on. Switch off what this platform does not read — those options simply will not appear.</p>
+        <div id="profile-features" class="profile-features"></div>
         <p class="profile-hint" data-i18n="profile.budgets.hint">Fill in only the numbers you know. An empty field means the metric is shown without any verdict.</p>
         <div id="profile-budgets" class="profile-budgets"></div>
         <p id="profile-error" class="profile-error hidden"></p>
         <div class="profile-actions">
           <button type="button" id="profile-save" class="btn-primary" data-i18n="profile.save">Save</button>
           <button type="button" id="profile-delete" class="window-action hidden" data-i18n="profile.delete">Delete</button>
+        </div>
+        <!-- Обмен площадками (ROADMAP.md §5i, шаг 3). Профиль — один .json, поэтому
+             «поделиться» это «отправить файл»; архива для одного файла не заводим.
+             Ходит сырой файл, а не поля формы: написанный руками профиль несёт то,
+             чего форма не спрашивает — жёсткий предел, ссылку на документ площадки,
+             список вычитаемых опций. -->
+        <div class="profile-actions profile-actions--file">
+          <input type="file" id="profile-file" accept=".json,application/json" hidden>
+          <button type="button" id="profile-import" class="window-action" data-i18n="profile.import">Open a file…</button>
+          <button type="button" id="profile-export" class="window-action hidden" data-i18n="profile.export">Save to a file</button>
         </div>
         <p id="profile-dir" class="profile-dir"></p>
       </div>

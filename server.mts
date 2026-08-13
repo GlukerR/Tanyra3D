@@ -656,6 +656,29 @@ const server = http.createServer(async (req, res) => {
           sendJSON(res, 200, assistant.profileTemplate(lang));
           return;
         }
+        // Обмен площадками — файлом (ROADMAP.md §5i, шаг 3). Признаком служит параметр
+        // запроса, а не вложенное имя: имя пути занял бы возможный id площадки, как
+        // едва не случилось с `template`.
+        //
+        // Отдаётся СЫРОЙ файл, а не поля формы: профиль, написанный руками, несёт то,
+        // чего форма не спрашивает (жёсткий предел, ссылку на документ, список
+        // вычитаемых опций). Пропусти его через форму — получатель увидит не ту
+        // площадку, которую ему отправили.
+        if (req.method === 'GET' && id && url.searchParams.get('download') === '1') {
+          const out = assistant.exportCustomProfile(id);
+          res.writeHead(200, {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${out.id}.json"`,
+          });
+          res.end(out.json);
+          return;
+        }
+        if (req.method === 'POST' && !id && url.searchParams.get('import') === '1') {
+          // Тело — сам файл, как его прочитал браузер. Разбирает и проверяет ассистент:
+          // решение «годится ли это как площадка» принадлежит ему, а не транспорту.
+          sendJSON(res, 200, assistant.importCustomProfile((await readBody(req)).toString('utf8')));
+          return;
+        }
         if (req.method === 'GET' && id) {
           sendJSON(res, 200, assistant.readCustomProfile(id, lang));
           return;

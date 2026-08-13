@@ -1207,6 +1207,16 @@ body.resizing { cursor: col-resize; user-select: none; }
   color: var(--outline);
 }
 
+/* Счётчик букв у короткого поля: объясняет, почему поле перестало принимать ввод. */
+.profile-count {
+  flex: 0 0 auto;
+  width: 44px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--outline);
+}
+
 .profile-hint {
   margin: 14px 0 10px;
   font-size: 11px;
@@ -1215,6 +1225,31 @@ body.resizing { cursor: col-resize; user-select: none; }
 }
 
 .profile-budgets { margin-bottom: 12px; }
+
+/* Что площадка читает: галочка стоит — читает. В две колонки, потому что опций
+   десяток, а окно узкое: одним столбцом форма превращалась бы в свиток. */
+.profile-features {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 10px;
+  margin-bottom: 12px;
+}
+
+.profile-feature {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.profile-feature span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .profile-error {
   margin: 0 0 12px;
@@ -1228,6 +1263,11 @@ body.resizing { cursor: col-resize; user-select: none; }
 
 .profile-actions { display: flex; gap: 8px; align-items: center; }
 .profile-actions #profile-save { flex: 1 1 auto; }
+
+/* Обмен файлом — второй строкой и без выделения: это не то, ради чего окно открывают,
+   но и не спрятанная возможность. */
+.profile-actions--file { margin-top: 8px; }
+.profile-actions--file .window-action { flex: 1 1 0; text-align: center; }
 
 /* Взведённое удаление красное: второе нажатие сотрёт файл, и это должно быть видно
    до нажатия, а не после. */
