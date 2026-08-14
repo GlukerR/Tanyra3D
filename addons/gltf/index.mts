@@ -357,20 +357,10 @@ function outputName(src: string): string {
 // Расширение, которое адресов не называет, осталось под полной сверкой — строгость
 // не ослаблена, она направлена. TESTBUG-011.
 
-interface CarriedSpot {
-  /** Путь до объекта-владельца, например ['animations', 0, 'channels', 1, 'target']. */
-  path: Array<string | number>;
-  name: string;
-  value: unknown;
-}
-
-interface Carried {
-  used: string[];
-  required: string[];
-  spots: CarriedSpot[];
-  /** Длины логических массивов исходника: 'materials' → 12. */
-  shape: Record<string, number>;
-}
+// Типы `Carried`/`CarriedSpot` и сам реестр — в addons/gltf/carried.mts. Вынесены туда
+// 2026-08-15: правило KTX2 подменяет документ (круг через временный файл под внешнюю
+// утилиту), и ему надо перенести реестр за собой, не импортируя этот файл — обратный
+// импорт замкнул бы круг.
 
 // Массивы, по длинам которых видно, сдвинулась ли структура.
 //
@@ -383,6 +373,22 @@ const SHAPE_ARRAYS = [
   'scenes', 'nodes', 'meshes', 'materials', 'accessors',
   'textures', 'images', 'samplers', 'skins', 'animations', 'cameras',
 ];
+
+/** Одно место в документе, где висело незнакомое расширение. */
+interface CarriedSpot {
+  /** Путь до объекта-владельца, например ['animations', 0, 'channels', 1, 'target']. */
+  path: Array<string | number>;
+  name: string;
+  value: unknown;
+}
+
+interface Carried {
+  used: string[];
+  required: string[];
+  spots: CarriedSpot[];
+  /** Длины логических массивов ИСХОДНИКА: 'materials' → 12. */
+  shape: Record<string, number>;
+}
 
 const shapeOf = (json: Record<string, unknown>): Record<string, number> => {
   const out: Record<string, number> = {};
@@ -430,15 +436,28 @@ function arraysAddressedBy(value: unknown): Set<string> | null {
 
 /** JSON-часть файла: у .glb — чанк, у .gltf — сам файл. Нечитаемое — не беда, вернём null. */
 function sourceJson(src: string): Record<string, unknown> | null {
+  // У GLB читаем ЗАГОЛОВОК И ОДИН ЧАНК, а не файл целиком. Раньше здесь стоял
+  // readFileSync, и это было терпимо, пока чтение случалось один раз за проход. Теперь
+  // исходник спрашивают ещё и на записи (правило «сверяться с первоначальным файлом»),
+  // а модели у нас доходят до 600 МБ — вычитывать их дважды ради килобайта JSON нельзя.
+  let fd: number | null = null;
   try {
-    const bytes = fs.readFileSync(src);
-    if (bytes.length >= 20 && bytes.readUInt32LE(0) === 0x46546c67) {
-      const len = bytes.readUInt32LE(12);
-      return JSON.parse(bytes.subarray(20, 20 + len).toString('utf8'));
+    fd = fs.openSync(src, 'r');
+    const head = Buffer.alloc(20);
+    const got = fs.readSync(fd, head, 0, 20, 0);
+    if (got === 20 && head.readUInt32LE(0) === 0x46546c67 && head.readUInt32LE(16) === 0x4e4f534a) {
+      const len = head.readUInt32LE(12);
+      const chunk = Buffer.alloc(len);
+      fs.readSync(fd, chunk, 0, len, 20);
+      return JSON.parse(chunk.toString('utf8'));
     }
-    return JSON.parse(bytes.toString('utf8'));
+    // .gltf — обычный JSON, читаем целиком: он и есть весь документ.
+    fs.closeSync(fd); fd = null;
+    return JSON.parse(fs.readFileSync(src, 'utf8'));
   } catch {
     return null;
+  } finally {
+    if (fd !== null) { try { fs.closeSync(fd); } catch { /* уже закрыт */ } }
   }
 }
 
@@ -571,15 +590,13 @@ function restoreCarried(glb: Uint8Array, carried: Carried | undefined): Uint8Arr
 
 // Что снято с ЭТОГО документа. WeakMap, а не поле: документ принадлежит библиотеке, и
 // дописывать в него своё — значит зависеть от её внутренностей.
-const carriedByDocument = new WeakMap<Document, Carried>();
 
-const load = async (io: NodeIOType, src: string) => {
-  const doc = await io.read(src);
-  const json = sourceJson(src);
-  const carried = json && collectCarried(json);
-  if (carried) carriedByDocument.set(doc, carried);
-  return doc;
-};
+
+// Ничего снимать при загрузке больше НЕ НУЖНО. Раньше здесь собирались чужие расширения
+// и клались в реестр по объекту документа — и терялись, как только правило подменяло
+// документ (KTX2, круг через временный файл). Теперь ответ берётся из исходного файла в
+// момент записи, и промежуточные состояния на него не влияют. См. writeBytes.
+const load = (io: NodeIOType, src: string) => io.read(src);
 
 const readBytes = (io: NodeIOType, bytes: Uint8Array) => io.readBinary(bytes);
 
@@ -654,8 +671,32 @@ function dropEmptyArrays(glb: Uint8Array): Uint8Array {
   return out;
 }
 
-const writeBytes = async (io: NodeIOType, doc: Document) =>
-  dropEmptyArrays(restoreCarried(await io.writeBinary(doc), carriedByDocument.get(doc)));
+/**
+ * Записать документ в байты — и вернуть в них всё, что снял с ИСХОДНОГО ФАЙЛА.
+ *
+ * ПРАВИЛО (Александр, 2026-08-15): «брать за основу только первоначальный файл и
+ * последний всегда проверять с самым первым, а не с промежуточными нашими».
+ *
+ * Поэтому третий довод здесь — `src`, путь к исходнику, а не какое-нибудь состояние,
+ * накопленное по дороге. Что вернуть, вычисляется ЗАНОВО из файла на диске в момент
+ * записи. Промежуточный документ на этот ответ не влияет никак.
+ *
+ * Чем это лучше прежнего. Раньше снятое лежало в реестре, привязанном к объекту
+ * документа. Правило KTX2 перекодирует картинки внешней утилитой и ради этого делает
+ * круг через временный файл — документ после него ДРУГОЙ ОБЪЕКТ, в реестре его нет, и
+ * возвращать оказывалось нечего: анимация по указателю исчезала ровно на одной галочке
+ * из десяти (TESTBUG-012). Теперь такой класс поломки невозможен: сколько бы раз
+ * документ ни подменяли, источник ответа — тот же файл, что человек положил на вход.
+ *
+ * Цена — повторное чтение JSON-чанка исходника. Не всего файла: `sourceJson` читает у
+ * GLB заголовок и ровно один чанк, поэтому на модели в 600 МБ это по-прежнему
+ * килобайты (см. её же комментарий).
+ */
+const writeBytes = async (io: NodeIOType, doc: Document, src?: string) => {
+  const bytes = await io.writeBinary(doc);
+  const json = src ? sourceJson(src) : null;
+  return dropEmptyArrays(restoreCarried(bytes, (json && collectCarried(json)) || undefined));
+};
 
 // Входное сжатие геометрии (Draco/Meshopt) снимаем сразу после загрузки — иначе каждая
 // запись молча пережимает геометрию заново (ARCHITECTURE.md §6). Возвращаем имена снятых

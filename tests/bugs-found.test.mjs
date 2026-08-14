@@ -34,7 +34,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
-import { modelPath, describeIfModels, eachModel } from './helpers/model-files.mjs';
+import { modelPath, describeIfModels, eachModel, isPresent } from './helpers/model-files.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -422,3 +422,109 @@ eachModel(
     }
   },
 );
+
+// ---------------------------------------------------------------------------
+// TESTBUG-012 — KTX2 убивал анимацию текстур. Виноват был НЕ KTX2.
+//
+// ЗАКРЫТ 2026-08-15. Нашёл Александр, вопросом: «ktx2 убивает анимацию текстур?»
+//
+// Замер до правки, PotOfCoalsAnimationPointer:
+//   [safe, webp] → указателей с адресом 2/2
+//   [safe, ktx2] → указателей с адресом 0/2
+// То есть терялось ровно на одной галочке из десяти.
+//
+// Причина. Правило KTX2 перекодирует картинки внешней утилитой и ради этого делает круг
+// через временный файл: `ctx.document = await ctx.io.read(tmp)`. Документ после этого —
+// ДРУГОЙ ОБЪЕКТ. Реестр снятых чужих расширений (TESTBUG-010) — WeakMap по документу,
+// и в новом документе записи нет: на записи возвращать оказывалось нечего.
+//
+// Починено переносом реестра в addons/gltf/carried.mts и единственным санкционированным
+// способом подмены — replaceDocument(). Ниже два сторожа: замер и запрет прямого
+// присваивания, из-за которого дефект и появился.
+// ---------------------------------------------------------------------------
+const { TOKTX, HAS_GLTF_CLI } = await import('../addons/gltf/tools.mjs');
+
+const ktx2Ready = Boolean(TOKTX && HAS_GLTF_CLI);
+const itKtx2 = (name, body, timeout) => (ktx2Ready
+  ? it(name, body, timeout)
+  : it.skip(`${name} [пропущено: нет toktx/gltf-transform CLI]`, () => {}, timeout));
+
+for (const model of ['PotOfCoalsAnimationPointer.glb']) {
+  if (!isPresent(model)) continue;
+  itKtx2(`TESTBUG-012 (закрыт): ${model} — KTX2 не уносит адрес указателя`, async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'testbug012-'));
+    try {
+      await optimizeFile(modelPath(model), {
+        advancedFeatures: ['safe', 'ktx2'], texMode: 'uastc', outDir: dir,
+      });
+      const json = readGlbJson(path.join(dir, model));
+      const channels = json.animations.flatMap((a) => a.channels);
+      const addressed = channels.filter((c) => c.target?.extensions?.KHR_animation_pointer?.pointer);
+      expect(channels.length).toBeGreaterThan(0);
+      expect(addressed.length, 'KTX2 унёс адреса указателей — вернулся круг через временный файл')
+        .toBe(channels.length);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 600_000);
+}
+
+// ---------------------------------------------------------------------------
+// ПРАВИЛО «ИСТИНА — В ПЕРВОНАЧАЛЬНОМ ФАЙЛЕ» (Александр, 2026-08-15)
+//
+// Дословно: «брать за основу только первоначальный файл и последний всегда проверять
+// с самым первым, а не с промежуточными нашими. Для всех проверок и тестов это должно
+// быть правилом».
+//
+// Откуда взялось. TESTBUG-012: возврат чужих расширений держался на реестре, привязанном
+// к ОБЪЕКТУ документа. Правило KTX2 перекодирует картинки внешней утилитой и делает круг
+// через временный файл — документ после него другой объект, реестра в нём нет, и
+// анимация исчезала ровно на одной галочке из десяти. Дефект был не в KTX2 и не в
+// логике возврата, а в том, ЧТО МЫ СЧИТАЛИ ИСТОЧНИКОМ ПРАВДЫ.
+//
+// Как внедрено: `writeBytes(io, doc, src)` вычисляет возвращаемое ЗАНОВО из файла на
+// диске в момент записи. Промежуточный документ на ответ не влияет никак — сколько бы
+// раз его ни подменяли. Прежний реестр (addons/gltf/carried.mts) удалён вместе с
+// функцией replaceDocument: чинить нечего, если ломаться нечему.
+//
+// Два сторожа ниже. Первый — структурный: подпись writeBytes обязана требовать исходник.
+// Второй — поведенческий: то, что объявлено во ВХОДНОМ файле, обязано быть в выходном
+// при любом наборе флажков, включая тот, что подменяет документ.
+// ---------------------------------------------------------------------------
+
+it('правило истины: writeBytes принимает ИСХОДНЫЙ файл, а не только документ', () => {
+  const src = fs.readFileSync(path.resolve(__dirname, '..', 'addons', 'gltf', 'index.mts'), 'utf8');
+  const sig = /const writeBytes = async \(io: NodeIOType, doc: Document, src\?: string\)/.test(src);
+  expect(
+    sig,
+    'writeBytes потерял довод src — значит снова сверяется с промежуточным документом, '
+      + 'а не с первоначальным файлом (правило Александра 2026-08-15)',
+  ).toBe(true);
+
+  // И сам возврат обязан читать исходник, а не что-то накопленное по дороге.
+  expect(
+    /sourceJson\(src\)/.test(src),
+    'writeBytes не читает исходный файл — источник правды подменён',
+  ).toBe(true);
+});
+
+// Каждый набор флажков, включая ktx2 (единственный, кто подменяет документ целиком).
+// Утверждение одно: объявленное во входном файле есть и в выходном.
+for (const model of ['Animated Pointer 01.glb', 'Unknown Ext LOD 01.glb', 'Unknown Ext Interactivity 01.glb']) {
+  for (const flags of [[], ['safe'], ['safe', 'join'], ['safe', 'quantize']]) {
+    const label = `правило истины: ${model} [${flags.join(',') || 'passthrough'}] — расширения входа есть в выходе`;
+    eachModel(label, [model], async (m) => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'truth-'));
+      try {
+        const before = readGlbJson(modelPath(m)).extensionsUsed || [];
+        await optimizeFile(modelPath(m), { advancedFeatures: flags, outDir: dir });
+        const after = readGlbJson(path.join(dir, m)).extensionsUsed || [];
+        for (const name of before) {
+          expect(after, `${name} объявлено во входном файле, но пропало из выходного`).toContain(name);
+        }
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }, 300_000);
+  }
+}

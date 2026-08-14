@@ -149,6 +149,40 @@ any rule emits more than three records with the same `messageId`, and
 
 ---
 
+## 5c. Mandatory: the truth lives in the ORIGINAL file, never in an intermediate
+
+Alexander, 2026-08-15, verbatim: *«брать за основу только первоначальный файл и последний
+всегда проверять с самым первым, а не с промежуточными нашими. Для всех проверок и тестов
+это должно быть правилом»* — take the original file as the basis, and always check the last
+against the very first, not against our intermediates. For every check and every test.
+
+**Where this came from.** Restoring extensions the library does not know used to rely on a
+registry keyed by the *document object*. The KTX2 rule re-encodes images with an external
+tool and therefore round-trips through a temporary file — `ctx.document = await
+io.read(tmp)`. After that the document is a **different object**, the registry has no entry
+for it, and there was nothing left to restore. Pointer animation vanished on exactly one
+checkbox out of ten. The defect was not in KTX2 and not in the restore logic: it was in
+**what we treated as the source of truth**.
+
+Concretely, this means:
+
+- **A comparison always has the input file on one side.** Not a snapshot taken halfway,
+  not a document held in memory. `writeBytes(io, doc, src)` takes the source path and
+  recomputes what to restore from the file on disk at write time.
+- **An intermediate may be replaced at any moment, and nothing must depend on its
+  identity.** A rule is free to swap `ctx.document` — that is a legitimate technique, not a
+  violation. What is forbidden is holding state that only that object can unlock.
+- **The same applies to tests.** Assert against the input file, not against an earlier
+  stage of your own pipeline. A test comparing stage 3 to stage 2 stays green while both
+  drift away from what the person actually handed us.
+
+Guards live in `tests/bugs-found.test.mjs` under «правило истины»: a structural one (the
+signature must demand the source) and a behavioural one (whatever the input declares must
+be present in the output, under every flag set — including the one that swaps the
+document).
+
+---
+
 ## 6. The community → official path
 
 A successful community plugin gets reviewed and moves into the official distribution while

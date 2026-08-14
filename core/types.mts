@@ -272,7 +272,7 @@ export interface Addon {
   /** Прочитать модель в память (рабочая копия). */
   load: (io: AddonIO, src: string) => Promise<AddonDocument>;
   /** Сериализовать в байты (без записи на диск). */
-  writeBytes: (io: AddonIO, doc: AddonDocument) => Promise<Uint8Array>;
+  writeBytes: (io: AddonIO, doc: AddonDocument, src?: string) => Promise<Uint8Array>;
   /** Прочитать модель из байтов (для after-метрик). */
   readBytes: (io: AddonIO, bytes: Uint8Array) => Promise<AddonDocument>;
   collectMetrics: (doc: AddonDocument, fileBytes: number) => Metrics;
