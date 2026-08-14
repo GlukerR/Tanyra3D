@@ -213,10 +213,14 @@ export function situationCoverage() {
 // фактическим, когда модели на диске есть.
 export const LOCAL_ONLY = {
   skinned: ['RiggedSimple.glb', 'parkergirl.glb', 'Lilith Character 01.glb', 'chibi_zenitsu.glb', 'Cthulhu Stone 01.glb'],
-  animated: [
-    'RiggedSimple.glb', 'parkergirl.glb', 'Lilith Character 01.glb', 'chibi_zenitsu.glb', 'Cthulhu Stone 01.glb',
-    'AnimationPointerUVs.glb', 'PotOfCoalsAnimationPointer.glb', 'ChronographWatch.glb', 'CommercialRefrigerator.glb',
-    'DiffuseTransmissionPlant.glb', 'IridescentDishWithOlives.glb',
-  ],
-  'unknown-extension': ['AnimationPointerUVs.glb', 'PotOfCoalsAnimationPointer.glb'],
+  // `animated` УБРАН 2026-08-14 вслед за `unknown-extension`. Класс держался на чужих
+  // моделях — персонажи и образцы Khronos, ни одна в git не едет. Значит любое
+  // утверждение про анимацию проверялось только на машине Александра, а на чистом клоне
+  // и на CI пропускалось молча. Теперь у класса есть свой представитель — Animated
+  // Pointer 01, полтора килобайта, Apache-2.0.
+  // `unknown-extension` отсюда УБРАН 2026-08-14. Класс был покрыт только образцами
+  // Khronos, а они в git не едут — значит на чистом клоне и на CI обещание «мы не
+  // ломаем такие модели» не проверял никто. Теперь у класса три своих представителя
+  // (Unknown Ext LOD / Interactivity / Pointer 01), они коммитятся и работают везде.
+  // Первый же прогон по ним нашёл дефект — TESTBUG-010 в tests/bugs-found.test.mjs.
 };

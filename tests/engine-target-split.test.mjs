@@ -405,3 +405,53 @@ describe('Движки — отдельная таблица (ARCHITECTURE.md §
     expect([...ids].sort()).toEqual(engineData.filter((e) => e.data.enabled !== false).map((e) => e.data.id).sort());
   });
 });
+
+// Пометка «нужен декодер» — свойство ДВИЖКА, а не расширения. Одинаковый список у двух
+// движков выглядит опрятно и врёт: у model-viewer Draco и KTX2 работают из коробки, а
+// Meshopt — нет.
+//
+// Разбор с ссылками на исходники — в engines/model-viewer.json (_comment_decoders).
+// Коротко: DRACOLoader и KTX2Loader model-viewer заводит сам, адреса по умолчанию ведут
+// на www.gstatic.com; у Meshopt адреса по умолчанию НЕТ — декодер создаётся только
+// внутри setMeshoptDecoderLocation(), и без вызова со стороны сайта до загрузчика не
+// доходит вовсе.
+//
+// Сторож стоит потому, что ошибиться здесь легко и хочется: «привести движки к одному
+// виду» ломает ровно это. Один раз уже сломали в одну сторону (пугали декодером там, где
+// он не нужен), при починке 2026-08-14 чуть не сломали в другую — сняли пометку и у
+// Meshopt заодно, хотя рядом в файле лежала записанная 2026-08-10 оговорка про него.
+describe('Пометка декодера различает движки, а не копирует список', () => {
+  const engineById = Object.fromEntries(engineData.map(({ data }) => [data.id, data]));
+  const optsById = (id) =>
+    Object.fromEntries((engineById[id]?.availableExtensions || []).map((e) => [e.id, e]));
+
+  it('оба движка на месте — иначе проверки ниже ничего не значат', () => {
+    expect(Object.keys(engineById)).toEqual(expect.arrayContaining(['threejs', 'model-viewer']));
+  });
+
+  it('model-viewer: Draco и KTX2 без пометки — он везёт их с собой', () => {
+    const mv = optsById('model-viewer');
+    for (const id of ['draco', 'ktx2']) {
+      expect(
+        !!mv[id]?.needsDecoder,
+        `${id}: model-viewer подключает декодер сам (адрес по умолчанию на gstatic) — ` +
+        'пометка пугает препятствием, которого нет',
+      ).toBe(false);
+    }
+  });
+
+  it('model-viewer: Meshopt С пометкой — его подключает сайт, а не движок', () => {
+    expect(
+      !!optsById('model-viewer').meshopt?.needsDecoder,
+      'meshopt: адреса по умолчанию у model-viewer нет, декодер до загрузчика не доходит ' +
+      'без setMeshoptDecoderLocation() на стороне сайта',
+    ).toBe(true);
+  });
+
+  it('three.js: все три с пометкой — там декодер подключает программист', () => {
+    const three = optsById('threejs');
+    for (const id of ['draco', 'ktx2', 'meshopt']) {
+      expect(!!three[id]?.needsDecoder, `${id}: на голом сайте three.js декодера нет`).toBe(true);
+    }
+  });
+});

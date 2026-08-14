@@ -44,6 +44,14 @@ const FLAG_SETS = [
   ['safe', 'join', 'instance'],
 ];
 
+// Список исключений намеренно ПУСТ. Он заводился 2026-08-14 на одну модель
+// (Animated Pointer 01 под флажками отдавала VALUE_NOT_IN_LIST) и прожил один день:
+// дефект закрыт, см. TESTBUG-011 в tests/bugs-found.test.mjs. Оставлен как место,
+// а не как содержимое — исключение из этой сети допустимо только именное и с адресом
+// задокументированного дефекта, иначе оно прячет поломку вместо того, чтобы о ней
+// отчитаться.
+const KNOWN_BROKEN = new Map([]);
+
 const MODELS = [...REPO_MODELS];
 
 /** Коды замечаний валидатора, разложенные по строгости. */
@@ -107,7 +115,9 @@ describe('сеть по валидатору — наша обработка н�
           fs.rmSync(outDir, { recursive: true, force: true });
         }
       };
-      if (isPresent(model)) it(label, body, 120_000);
+      const known = flags.length ? KNOWN_BROKEN.get(model) : null;
+      if (known) it.skip(`${label} [известный дефект ${known}, закреплён в bugs-found]`, () => {}, 120_000);
+      else if (isPresent(model)) it(label, body, 120_000);
       else it.skip(`${label} [skipped: ${model} missing locally]`, () => {}, 120_000);
     }
   }

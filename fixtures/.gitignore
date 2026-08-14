@@ -40,3 +40,16 @@
 !models/Texture Only 01.glb
 !models/Two Scenes 01.glb
 !models/Pre KTX2 01.glb
+
+# Расширения, которых библиотека не знает (_work/make-unknown-ext-fixtures.mjs,
+# 2026-08-14). Образцы Khronos с такими расширениями в репозиторий не идут — чужая
+# лицензия, — и на чистом клоне защита от их порчи не проверялась вовсе. Эти три
+# сделаны нами, весят по полкилобайта и едут в git.
+!models/Unknown Ext LOD 01.glb
+!models/Unknown Ext Interactivity 01.glb
+!models/Unknown Ext Pointer 01.glb
+
+# Анимация по указателю, которая ДЕЙСТВИТЕЛЬНО проигрывается
+# (_work/make-animation-pointer-fixture.mjs, 2026-08-15). Три модели выше только
+# объявляют расширение — на них нельзя проверить показ. Полтора килобайта, Apache-2.0.
+!models/Animated Pointer 01.glb

@@ -59,6 +59,11 @@ const RESULTS_DIR = path.join(DATA_DIR, 'results');
 // см. package.json). Никакого бандлера/CDN — браузер грузит нативные ESM через importmap
 // (см. ui/index.html), а декодеры Draco/KTX2 — по путям /vendor/three/examples/jsm/libs/...
 const THREE_DIR = path.join(__dirname, 'node_modules', 'three');
+// Плагин KHR_animation_pointer к загрузчику three.js (@needle-tools, MIT, ~60 КБ).
+// Отдаётся тем же способом, что и сам three: сырые ESM из node_modules, importmap в
+// ui/index.html. Отдельная константа, а не подпапка three, — пакет чужой и обновляется
+// своим циклом; см. docs/ЗАВИСИМОСТИ.md.
+const ANIM_POINTER_DIR = path.join(__dirname, 'node_modules', '@needle-tools', 'three-animation-pointer');
 
 // Никаких накоплений: на старте чистим прежние загрузки/результаты (только текущая
 // оптимизация хранится на диске — см. purgeBeyondLimit).
@@ -618,6 +623,12 @@ const server = http.createServer(async (req, res) => {
     // --- three.js для просмотрщика (из node_modules/three) ---
     if (req.method === 'GET' && pathname.startsWith('/vendor/three/')) {
       await serveStatic(req, res, pathname, THREE_DIR, '/vendor/three');
+      return;
+    }
+
+    // --- плагин KHR_animation_pointer (из node_modules/@needle-tools/…) ---
+    if (req.method === 'GET' && pathname.startsWith('/vendor/animation-pointer/')) {
+      await serveStatic(req, res, pathname, ANIM_POINTER_DIR, '/vendor/animation-pointer');
       return;
     }
 

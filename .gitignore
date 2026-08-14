@@ -130,3 +130,5 @@ ui/i18n.js
 # Просмотрщик — тот же проект сборки, но настоящие ES-модули (<script type="module">).
 ui/viewer/index.js
 ui/viewer/viewer.js
+ui/viewer/contract.js
+ui/viewer/pointer-uv.js
