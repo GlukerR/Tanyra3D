@@ -14,10 +14,12 @@ import { GLTFLoader, type GLTF } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
+import { GLTFAnimationPointerExtension } from "@needle-tools/three-animation-pointer";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 // Контракт движка просмотра. Импорт типов, а не кода: в собранный файл он не попадает.
 import type { CameraState, LoadOptions, ViewerLike } from "./contract.js";
+import { buildUvPointerDriver, stripUvTransformTracks, type UvPointerDriver } from "./pointer-uv.js";
 
 // Пути к декодерам — тоже из node_modules/three через /vendor-роут сервера (server.mjs).
 const DRACO_DECODER_PATH = "/vendor/three/examples/jsm/libs/draco/gltf/";
@@ -163,6 +165,54 @@ function detectOpportunity(json: GltfJson) {
 }
 
 /**
+ * Сторож ОСИРОТЕВШИХ каналов анимации — плагин к загрузчику, свой, восемь строк.
+ *
+ * Осиротевший канал — это `"path": "pointer"` БЕЗ блока `KHR_animation_pointer` рядом.
+ * Такой канал не адресует ничего: ни узла сцены (у указателей его не бывает), ни места
+ * в документе (адрес лежал как раз в снятом расширении). Валидатор Khronos отвечает на
+ * него `VALUE_NOT_IN_LIST` — файл невалиден.
+ *
+ * Откуда он берётся. Это наш собственный след: под оптимизациями библиотека снимает
+ * незнакомое ей расширение, а слово `pointer` в поле `path` остаётся. Дефект известен и
+ * пока не закрыт — решение по нему за Александром.
+ *
+ * Почему без сторожа модель НЕ ОТКРЫВАЕТСЯ ВООБЩЕ. Обычный загрузчик three.js такой
+ * канал пропускает (`if (target.node === undefined) continue`). Плагин указателя —
+ * форк того же метода, и он поступает иначе: не узнав своего расширения, отдаёт канал
+ * обычной ветке, а та просит узел с номером `undefined`. Запрос отклоняется, и вместе с
+ * ним рушится загрузка всей модели. То есть плагин превращал «анимации не видно» в
+ * «модель не показывается» — на файлах, которые испортили мы сами.
+ *
+ * Что делает сторож: снимает такие каналы до разбора. Ничего не скрывает — правый
+ * вьюпорт всё равно останется без анимации, и рядом с живым левым это видно сразу.
+ * Разница в том, что смотреть будет на что.
+ */
+function orphanPointerGuard(parser: { json: { animations?: Array<{ channels?: Array<{ target?: { path?: string; extensions?: Record<string, unknown> } }> }> } }) {
+  return {
+    name: 'TANYRA_orphan_pointer_guard',
+    beforeRoot() {
+      let dropped = 0;
+      for (const anim of parser.json.animations || []) {
+        if (!anim.channels) continue;
+        const kept = anim.channels.filter((ch) => {
+          const t = ch.target;
+          const orphan = t && t.path === 'pointer' && !(t.extensions && t.extensions['KHR_animation_pointer']);
+          if (orphan) dropped++;
+          return !orphan;
+        });
+        anim.channels = kept;
+      }
+      if (dropped) {
+        console.warn(`Анимация: снято осиротевших каналов по указателю — ${dropped}. `
+          + 'В файле осталось слово "pointer" без адреса: расширение KHR_animation_pointer снято, а канал нет. '
+          + 'Модель показана без этой анимации.');
+      }
+      return null;
+    },
+  };
+}
+
+/**
  * Самодостаточный просмотрщик одной модели: рендерер, сцена, студийный IBL-свет,
  * орбитальные контролы, авто-кадрирование под размер модели.
  */
@@ -187,6 +237,8 @@ export class Viewer implements ViewerLike {
   declare clipIndex?: number;
   declare _mixer?: THREE.AnimationMixer | null;
   declare _action?: THREE.AnimationAction | null;
+  /** Привод развёрток текстур по указателю — вне AnimationMixer, см. pointer-uv.ts. */
+  declare _uv?: UvPointerDriver | null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -256,6 +308,38 @@ export class Viewer implements ViewerLike {
     this._loader.setDRACOLoader(this._draco);
     this._loader.setKTX2Loader(this._ktx2);
     this._loader.setMeshoptDecoder(MeshoptDecoder);
+
+    // KHR_animation_pointer — анимация по УКАЗАТЕЛЮ в JSON, а не по узлу сцены:
+    // «яркость материала 2», «поворот развёртки текстуры». Загрузчик three.js такие
+    // каналы выбрасывает молча (GLTFLoader.js: `if (target.node === undefined) continue`),
+    // и модель приезжает с пустым клипом — снаружи неотличимо от модели без анимации.
+    //
+    // Для нас это была слепая зона: дефект, при котором указатели съезжают после
+    // схлопывания одинаковых текстур, глазами не проверялся вообще — только чтением JSON.
+    //
+    // Три факта про плагин, проверенных по его исходнику 2026-08-14, чтобы будущему
+    // читателю не пришлось лезть в node_modules:
+    //   1. Он ФОРК метода GLTFLoader.loadAnimation («MOSTLY DUPLICATE» в его же
+    //      комментарии). Значит при обновлении three.js копия может разойтись с
+    //      оригиналом — сверять при смене версии three, см. docs/ЗАВИСИМОСТИ.md.
+    //   2. Он патчит THREE.PropertyBinding.findNode ГЛОБАЛЬНО. Патч ленивый: ставится
+    //      только когда в модели реально встретился канал по указателю. Обычные модели
+    //      его не касаются вовсе.
+    //   3. Патч перехватывает только пути `.materials.`, `.nodes.`, `.lights.`,
+    //      `.cameras.`; всё остальное уходит в исходную функцию. Обычные дорожки
+    //      («Cube.position») под эти префиксы не подпадают — столкновения нет.
+    //
+    // Предохранитель: регистрация в try/catch. Плагин — вспомогательный, и модель
+    // обязана открыться даже если он не завёлся: без анимации хуже, чем с ней, но
+    // несравнимо лучше пустого вьюпорта.
+    try {
+      // Порядок важен только по смыслу, не по механике: сторож работает в beforeRoot,
+      // то есть до того, как кто-либо возьмётся за анимации.
+      this._loader.register((parser) => orphanPointerGuard(parser));
+      this._loader.register((parser) => new GLTFAnimationPointerExtension(parser));
+    } catch (err) {
+      console.warn('KHR_animation_pointer: плагин не зарегистрирован, анимация по указателю показана не будет', err);
+    }
   }
 
   /**
@@ -282,6 +366,12 @@ export class Viewer implements ViewerLike {
     }
     this.model = gltf.scene;
     this.scene.add(this.model);
+    // Развёртки текстур ведём сами (ui/viewer/pointer-uv.ts): плагин их дорожки создаёт,
+    // но привязать не может — в glTF слот зовётся normalTexture, в three.js normalMap.
+    // Свои дорожки он ставит ПОСЛЕ, поэтому забираем их из клипа, иначе они каждый кадр
+    // жалуются в консоль и всё равно ничего не двигают.
+    this._uv = await buildUvPointerDriver(gltf);
+    if (this._uv) stripUvTransformTracks(gltf.animations || []);
     this._setupAnimations(gltf.animations);
     // camera передан (сборка/ребилд той же модели) → СОХРАНИТЬ ракурс: приближённая
     // пользователем деталь остаётся на месте. Иначе (новая модель) — авто-кадрирование.
@@ -350,6 +440,10 @@ export class Viewer implements ViewerLike {
     if (!this.clips.length || !this.model) return;
     this._mixer = new THREE.AnimationMixer(this.model);
     this.playClip(0);
+    // Первый кадр развёрток. Миксер свои дорожки ставит сам через setTime(0) в playClip,
+    // а наш привод к нему не подключён — без этой строки текстуры до первого движения
+    // ползунка стояли бы в том виде, в каком их записал экспортёр.
+    if (this._uv) this._uv.apply(0);
   }
 
   /** Включить клип по индексу. Прежнее действие останавливается. */
@@ -372,6 +466,12 @@ export class Viewer implements ViewerLike {
    * показывают один и тот же момент, сколько бы кадров ни пропустил любой из них.
    */
   setAnimationTime(seconds: number) {
+    // Развёртки текстур живут ВНЕ миксера (см. pointer-uv.ts) и должны идти по тому же
+    // времени. Ставим их даже когда миксера нет вовсе: у модели может не остаться ни
+    // одной обычной дорожки — у PotOfCoals вся анимация как раз в развёртках.
+    const uvDur = this._uv ? this._uv.duration : 0;
+    if (this._uv) this._uv.apply(uvDur > 0 ? seconds % uvDur : seconds);
+
     if (!this._mixer || !this._action) return;
     const dur = this._action.getClip().duration || 0;
     this._mixer.setTime(dur > 0 ? seconds % dur : seconds);
@@ -468,6 +568,9 @@ export class Viewer implements ViewerLike {
     // Микшер держит ссылки на кости и треки этой модели — снимать до dispose,
     // иначе освобождённая геометрия остаётся живой через кэш AnimationMixer.
     this._disposeMixer();
+    // Привод развёрток держит ССЫЛКИ НА ТЕКСТУРЫ этой модели. Не снять — и следующий
+    // сдвиг ползунка будет писать в текстуры, которые уже освобождены.
+    this._uv = null;
     this.scene.remove(this.model);
     disposeSubtree(this.model);
     this.model = null;

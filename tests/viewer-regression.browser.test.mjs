@@ -346,6 +346,163 @@ describe('Viewer — animation (browser)', () => {
     expect(true).toBe(true)
   })
 
+  // --- KHR_animation_pointer -------------------------------------------------
+  //
+  // Канал по указателю адресует место в JSON (`/materials/0/…/baseColorFactor`), а не
+  // узел сцены. Загрузчик three.js такие каналы выбрасывает молча — до плагина
+  // @needle-tools модель приезжала с клипом БЕЗ ЕДИНОЙ ДОРОЖКИ, и снаружи это было
+  // неотличимо от модели без анимации.
+  //
+  // Сторожим именно дорожки, а не число клипов: клип создавался и раньше, пустой.
+  // Утверждение «клипов ≥1» дефект пропускало.
+  it('Animated Pointer 01 — канал по указателю доезжает дорожкой, а не пустым клипом', async () => {
+    await viewer.load('/Animated%20Pointer%2001.glb')
+    const info = viewer.getAnimationInfo()
+    expect(info.count).toBe(1)
+    expect(info.duration).toBeGreaterThan(0)
+
+    // Собственно проверка: дорожка есть и она про цвет материала.
+    const clip = viewer.clips[0]
+    expect(clip.tracks.length).toBeGreaterThan(0)
+    expect(clip.tracks.some((t) => /color/i.test(t.name))).toBe(true)
+  })
+
+  it('Animated Pointer 01 — цвет материала действительно меняется во времени', async () => {
+    await viewer.load('/Animated%20Pointer%2001.glb')
+
+    // Модель едет от красного к синему за секунду. Читаем цвет в двух моментах:
+    // если плагин не работает, оба будут одинаковы, и тест это увидит.
+    const colorAt = (t) => {
+      viewer.setAnimationTime(t)
+      let found = null
+      viewer.model.traverse((o) => {
+        if (found === null && o.material && o.material.color) found = o.material.color.clone()
+      })
+      return found
+    }
+
+    const start = colorAt(0)
+    const later = colorAt(0.9)
+    expect(start).not.toBeNull()
+    expect(later).not.toBeNull()
+    // Красный убывает, синий растёт — направление, а не просто «что-то изменилось».
+    expect(later.r).toBeLessThan(start.r)
+    expect(later.b).toBeGreaterThan(start.b)
+  })
+
+  // Осиротевший канал: `path: "pointer"` без адреса. Это НАШ след — под оптимизациями
+  // библиотека снимает незнакомое расширение, а слово в поле `path` остаётся.
+  //
+  // Файл собирается здесь, а не лежит в fixtures: он заведомо невалиден
+  // (VALUE_NOT_IN_LIST), и класть такой в золотой корпус — значит объяснять его каждому
+  // набору, который корпус обходит. Правим байты копии в памяти.
+  //
+  // Сторожим ровно то, что Александр увидел глазами 2026-08-14: без предохранителя
+  // плагин просил узел с номером `undefined`, запрос отклонялся, и МОДЕЛЬ НЕ
+  // ОТКРЫВАЛАСЬ ВОВСЕ — вместо «анимации не видно» приложение писало «не удаётся
+  // показать модель».
+  it('Animated Pointer 01 — осиротевший канал не рушит загрузку модели', async () => {
+    const buf = new Uint8Array(await (await fetch('/Animated%20Pointer%2001.glb')).arrayBuffer())
+    const view = new DataView(buf.buffer)
+    const jsonLen = view.getUint32(12, true)
+    const json = JSON.parse(new TextDecoder().decode(buf.subarray(20, 20 + jsonLen)))
+
+    delete json.extensionsUsed
+    delete json.animations[0].channels[0].target.extensions
+
+    let text = JSON.stringify(json)
+    while (text.length % 4) text += ' '
+    const jsonBytes = new TextEncoder().encode(text)
+    const bin = buf.subarray(20 + jsonLen)
+
+    const out = new Uint8Array(20 + jsonBytes.length + bin.length)
+    const ov = new DataView(out.buffer)
+    out.set(buf.subarray(0, 20))
+    ov.setUint32(8, out.length, true)
+    ov.setUint32(12, jsonBytes.length, true)
+    out.set(jsonBytes, 20)
+    out.set(bin, 20 + jsonBytes.length)
+
+    const url = URL.createObjectURL(new Blob([out], { type: 'model/gltf-binary' }))
+    try {
+      // Главное утверждение: загрузка ДОХОДИТ до конца.
+      const stats = await viewer.load(url)
+      expect(stats).toBeTruthy()
+      expect(viewer.model).toBeTruthy()
+      // Анимации при этом нет — канал снят, и это честно: адреса у него не осталось.
+      const info = viewer.getAnimationInfo()
+      expect(info.count === 0 || viewer.clips[0].tracks.length === 0).toBe(true)
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+  })
+
+  // --- развёртки текстур по указателю (ui/viewer/pointer-uv.ts) --------------
+  //
+  // До 2026-08-15 здесь не двигалось НИЧЕГО, и виноват был не движок: three.js r185
+  // умеет собственное преобразование развёртки у 23 слотов. Плагин @needle-tools
+  // создавал дорожки, но переводил имена слотов только для `map` и `emissiveMap` —
+  // `normalTexture` так и не становился `normalMap`, привязка не находила свойство.
+  //
+  // Сторожим ДВИЖЕНИЕ, а не наличие дорожек: дорожки были и раньше.
+  itWithModels(['PotOfCoalsAnimationPointer.glb'], 'PotOfCoals — марево над углями действительно вращается', async () => {
+    await viewer.load('/PotOfCoalsAnimationPointer.glb')
+
+    // Модель крутит нормали и толщину объёма НАВСТРЕЧУ друг другу — от их наложения
+    // и получается дрожание воздуха. Значит смотрим на обе и на РАЗНЫЕ знаки.
+    // Именно HeatDome, а не «первый попавшийся материал с картой нормалей»: карты
+    // нормалей есть и у котелка, и у углей, а анимирован из них только купол.
+    const read = (t) => {
+      viewer.setAnimationTime(t)
+      let normal = null; let thickness = null
+      viewer.model.traverse((o) => {
+        const m = o.material
+        if (!m || m.name !== 'HeatDome') return
+        if (m.normalMap) normal = m.normalMap.rotation
+        if (m.thicknessMap) thickness = m.thicknessMap.rotation
+      })
+      return { normal, thickness }
+    }
+
+    const a = read(0)
+    const b = read(1.5)
+    expect(a.normal, 'у материала нет карты нормалей — модель не та').not.toBeNull()
+    expect(a.thickness, 'у материала нет карты толщины — модель не та').not.toBeNull()
+    expect(b.normal, 'поворот нормалей стоит на месте').not.toBe(a.normal)
+    expect(b.thickness, 'поворот толщины стоит на месте').not.toBe(a.thickness)
+    // Навстречу: один растёт, другой убывает.
+    expect(Math.sign(b.normal - a.normal)).not.toBe(Math.sign(b.thickness - a.thickness))
+  })
+
+  itWithModels(['AnimationPointerUVs.glb'], 'AnimationPointerUVs — развёртки едут больше чем у пары слотов', async () => {
+    await viewer.load('/AnimationPointerUVs.glb')
+
+    // Снимок поворота/сдвига КАЖДОЙ текстуры сцены в два разных момента.
+    const snapshot = (t) => {
+      viewer.setAnimationTime(t)
+      const out = []
+      viewer.model.traverse((o) => {
+        const m = o.material
+        if (!m) return
+        for (const [key, v] of Object.entries(m)) {
+          if (v && v.isTexture) out.push(`${key}:${v.rotation}:${v.offset.x},${v.offset.y}:${v.repeat.x},${v.repeat.y}`)
+        }
+      })
+      return out
+    }
+
+    const a = snapshot(0)
+    const b = snapshot(2)
+    expect(a.length).toBeGreaterThan(10)
+    const moved = a.filter((s, i) => s !== b[i]).length
+    // Раньше двигалось ноль. Порог намеренно скромный: модель — таблица на 21 слот,
+    // и часть из них three.js не поддерживает вовсе (diffuse transmission).
+    // Замер 2026-08-15: с приводом едут 93 текстуры из 174, без него — 4 (те, что
+    // плагин переводил сам). Порог 50 — с большим запасом ниже замера и втрое выше
+    // прежнего состояния: он ловит поломку привода, а не колеблется от версии three.
+    expect(moved, 'развёртки текстур стоят на месте').toBeGreaterThan(50)
+  })
+
   itWithModels(['Cthulhu Stone 01.glb'], 'loads Cthulhu Stone (morph targets) — getAnimationInfo shows 1 clip named Scene', async () => {
     await viewer.load(CTHULHU_URL)
     const info = viewer.getAnimationInfo()

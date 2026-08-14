@@ -131,3 +131,4 @@ ui/i18n.js
 ui/viewer/index.js
 ui/viewer/viewer.js
 ui/viewer/contract.js
+ui/viewer/pointer-uv.js
