@@ -33,6 +33,7 @@ import { optimizeFile, VERSION } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { modelPath, describeIfModels, eachModel } from './helpers/model-files.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -260,3 +261,94 @@ describeIfModels(['Dirty Cube 01.glb'], 'TESTBUG-009 (ЗАКРЫТ 2026-08-01) �
     expect(expanded).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// TESTBUG-010 — расширение, которого не знает библиотека, пропадало из результата.
+//
+// ЧАСТИЧНО ЗАКРЫТ 2026-08-14 (решение Александра: «чини на passthrough, а с
+// оптимизациями потом решим»).
+//
+// Что было. gltf-transform при загрузке выбрасывает незнакомое расширение и пишет
+// документ уже без него. Наши правила ни при чём: структурные правила на таких моделях
+// честно отказываются работать, а потеря происходила в самом цикле чтение→запись —
+// на passthrough, при нуле применённых правил.
+//
+// Чем это было плохо, на образце Khronos PotOfCoalsAnimationPointer:
+//   до     target = { extensions: { KHR_animation_pointer: { pointer: "/materials/2/…" } },
+//                     path: "pointer" }
+//   после  target = { path: "pointer" }
+// Канал говорил «анимирую указатель» и больше не говорил ЧТО. Валидатор Khronos менял
+// вердикт с INCOMPLETE_EXTENSION_SUPPORT на VALUE_NOT_IN_LIST.
+//
+// Почему не поймал никто. Сторож целостности сверяет треугольники, вершины, отрисовки,
+// скины, анимации и морфы — расширений в списке нет, а число анимаций не менялось
+// (1 → 1). Сеть валидатора сторожит ПОЯВЛЕНИЕ новых кодов, а тут возможность исчезала
+// беззвучно. Слепое пятно у обоих.
+//
+// Как починено: addons/gltf/index.mts, restoreCarried(). При загрузке с исходника
+// снимаются незнакомые расширения вместе с путями, при записи возвращаются на место —
+// но ТОЛЬКО если отпечаток структуры совпал (длины логических массивов документа).
+// Расширения держатся на номерах объектов; сдвинулась нумерация — не возвращаем ничего.
+//
+// ЧТО ОСТАЛОСЬ. Сериализатор сам схлопывает одинаковые текстуры и сэмплеры даже на
+// passthrough: на AnimationPointerUVs это textures 61 → 13, samplers 61 → 1. Отпечаток
+// не совпадает, восстановление отказывает — осознанно. Указатели той модели адресуют
+// только материалы, и вернуть их было бы безопасно, но узнать это в общем виде нельзя:
+// чужое расширение вправе ссылаться на что угодно.
+// ---------------------------------------------------------------------------
+
+const readGlbJson = (file) => {
+  const buf = fs.readFileSync(file);
+  return JSON.parse(buf.slice(20, 20 + buf.readUInt32LE(12)).toString('utf8'));
+};
+
+eachModel(
+  'TESTBUG-010: незнакомое расширение переживает passthrough',
+  ['Unknown Ext LOD 01.glb', 'Unknown Ext Interactivity 01.glb', 'Unknown Ext Pointer 01.glb'],
+  async (modelName) => {
+    const src = modelPath(modelName);
+    const declared = readGlbJson(src).extensionsUsed || [];
+    expect(declared.length, 'модель-образец обязана нести расширение').toBe(1);
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'testbug010-'));
+    try {
+      const result = await optimizeFile(src, { advancedFeatures: [], outDir: dir });
+      expect(result.status).toBe('ok');
+      expect(result.applied.length, 'passthrough не применяет правил').toBe(0);
+
+      const after = readGlbJson(path.join(dir, modelName)).extensionsUsed || [];
+      expect(
+        after,
+        `${declared[0]} обязано пережить passthrough — иначе модель молча теряет ` +
+        'возможность, о которой человеку никто не скажет',
+      ).toContain(declared[0]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+// Настоящий образец Khronos: там расширение не просто объявлено, а несёт указатель на
+// анимируемое свойство. Модель локальная (чужая лицензия), на чистом клоне пропускается.
+eachModel(
+  'TESTBUG-010: указатель анимации возвращается на место целиком',
+  ['PotOfCoalsAnimationPointer.glb'],
+  async (modelName) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'testbug010b-'));
+    try {
+      await optimizeFile(modelPath(modelName), { advancedFeatures: [], outDir: dir });
+      const json = readGlbJson(path.join(dir, modelName));
+      expect(json.extensionsUsed).toContain('KHR_animation_pointer');
+
+      const target = json.animations[0].channels[0].target;
+      expect(target.path).toBe('pointer');
+      expect(
+        target.extensions?.KHR_animation_pointer?.pointer,
+        'канал говорит «анимирую указатель», но не говорит что именно',
+      ).toMatch(/^\//);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);

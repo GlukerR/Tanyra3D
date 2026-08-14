@@ -218,5 +218,9 @@ export const LOCAL_ONLY = {
     'AnimationPointerUVs.glb', 'PotOfCoalsAnimationPointer.glb', 'ChronographWatch.glb', 'CommercialRefrigerator.glb',
     'DiffuseTransmissionPlant.glb', 'IridescentDishWithOlives.glb',
   ],
-  'unknown-extension': ['AnimationPointerUVs.glb', 'PotOfCoalsAnimationPointer.glb'],
+  // `unknown-extension` отсюда УБРАН 2026-08-14. Класс был покрыт только образцами
+  // Khronos, а они в git не едут — значит на чистом клоне и на CI обещание «мы не
+  // ломаем такие модели» не проверял никто. Теперь у класса три своих представителя
+  // (Unknown Ext LOD / Interactivity / Pointer 01), они коммитятся и работают везде.
+  // Первый же прогон по ним нашёл дефект — TESTBUG-010 в tests/bugs-found.test.mjs.
 };

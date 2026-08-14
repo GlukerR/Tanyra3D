@@ -325,7 +325,196 @@ function outputName(src: string): string {
   return path.basename(src).replace(/\.gltf$/i, '.glb');
 }
 
-const load = (io: NodeIOType, src: string) => io.read(src);
+// ---------------------------------------------------------------------------
+// Расширения, которых библиотека не знает, обязаны пережить проход через нас
+// ---------------------------------------------------------------------------
+//
+// Дефект (TESTBUG-010, найден 2026-08-14). gltf-transform при загрузке выбрасывает
+// расширение, которого не знает, и записывает документ уже без него. Наши правила тут
+// ни при чём: структурные правила на таких моделях честно отказываются работать, а
+// потеря происходит в самом цикле чтение→запись. Проверено на passthrough: ноль
+// применённых правил — расширение всё равно исчезает.
+//
+// Чем это плохо на деле, на образце Khronos PotOfCoalsAnimationPointer:
+//   до     target = { extensions: { KHR_animation_pointer: { pointer: "/materials/2/…" } },
+//                     path: "pointer" }
+//   после  target = { path: "pointer" }
+// Канал по-прежнему говорит «анимирую указатель», но больше не говорит ЧТО. Валидатор
+// Khronos меняет вердикт с INCOMPLETE_EXTENSION_SUPPORT на VALUE_NOT_IN_LIST.
+//
+// Чиним ТОЛЬКО там, где это безусловно безопасно (решение Александра 2026-08-14: «чини
+// на passthrough, а с оптимизациями потом решим»). Безопасно — когда структура файла не
+// сдвинулась: расширения держатся на НОМЕРАХ объектов, и приклеить такое расширение к
+// чужому объекту хуже, чем потерять его. Поэтому вместо доверия к слову «passthrough»
+// сверяется отпечаток структуры: длины всех массивов документа до и после. Разошлись —
+// не возвращаем ничего и молчим, это по-прежнему известный дефект.
+
+interface CarriedSpot {
+  /** Путь до объекта-владельца, например ['animations', 0, 'channels', 1, 'target']. */
+  path: Array<string | number>;
+  name: string;
+  value: unknown;
+}
+
+interface Carried {
+  used: string[];
+  required: string[];
+  spots: CarriedSpot[];
+  fingerprint: string;
+}
+
+// Массивы, по длинам которых видно, сдвинулась ли структура.
+//
+// `bufferViews` и `buffers` в список НЕ входят намеренно: их перепаковывает сам
+// сериализатор, и на passthrough они меняются законно (26 → 15 на образце
+// PotOfCoalsAnimationPointer). Расширения адресуют логические объекты — материалы,
+// узлы, анимации, — а не куски буфера, поэтому их перенумерация ссылки не рвёт.
+// Первая версия отпечатка включала их и отказывалась чинить ровно там, где надо.
+const SHAPE_ARRAYS = [
+  'scenes', 'nodes', 'meshes', 'materials', 'accessors',
+  'textures', 'images', 'samplers', 'skins', 'animations', 'cameras',
+];
+
+const shapeOf = (json: Record<string, unknown>) =>
+  SHAPE_ARRAYS.map((k) => `${k}:${Array.isArray(json[k]) ? (json[k] as unknown[]).length : -1}`).join('|');
+
+/** JSON-часть файла: у .glb — чанк, у .gltf — сам файл. Нечитаемое — не беда, вернём null. */
+function sourceJson(src: string): Record<string, unknown> | null {
+  try {
+    const bytes = fs.readFileSync(src);
+    if (bytes.length >= 20 && bytes.readUInt32LE(0) === 0x46546c67) {
+      const len = bytes.readUInt32LE(12);
+      return JSON.parse(bytes.subarray(20, 20 + len).toString('utf8'));
+    }
+    return JSON.parse(bytes.toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/** Обойти документ и собрать всё, что относится к незнакомым расширениям. */
+function collectCarried(json: Record<string, unknown>): Carried | null {
+  const known = new Set(ALL_EXTENSIONS.map((e) => e.EXTENSION_NAME));
+  const used = ((json.extensionsUsed as string[]) || []).filter((n) => !known.has(n));
+  if (!used.length) return null;
+  const unknown = new Set(used);
+  const required = ((json.extensionsRequired as string[]) || []).filter((n) => unknown.has(n));
+
+  const spots: CarriedSpot[] = [];
+  const walk = (value: unknown, at: Array<string | number>) => {
+    if (Array.isArray(value)) {
+      value.forEach((v, i) => walk(v, [...at, i]));
+      return;
+    }
+    if (!value || typeof value !== 'object') return;
+    const obj = value as Record<string, unknown>;
+    const ext = obj.extensions;
+    if (ext && typeof ext === 'object') {
+      for (const [name, payload] of Object.entries(ext as Record<string, unknown>)) {
+        if (unknown.has(name)) spots.push({ path: at, name, value: payload });
+      }
+    }
+    for (const [k, v] of Object.entries(obj)) {
+      if (k !== 'extensions') walk(v, [...at, k]);
+    }
+  };
+  // Корень обходим сам, но его собственные `extensions` тоже учитываем — расширение
+  // уровня документа (KHR_interactivity, KHR_lights_punctual) живёт именно там.
+  walk(json, []);
+
+  return { used, required, spots, fingerprint: shapeOf(json) };
+}
+
+/** Вернуть собранное в записанный файл, если структура не сдвинулась. */
+function restoreCarried(glb: Uint8Array, carried: Carried | undefined): Uint8Array {
+  if (!carried) return glb;
+  const view = new DataView(glb.buffer, glb.byteOffset, glb.byteLength);
+  if (glb.byteLength < 20 || view.getUint32(0, true) !== 0x46546c67) return glb;
+  const jsonLen = view.getUint32(12, true);
+  if (view.getUint32(16, true) !== 0x4e4f534a) return glb;
+  let json: Record<string, unknown>;
+  try {
+    json = JSON.parse(new TextDecoder().decode(glb.subarray(20, 20 + jsonLen)));
+  } catch {
+    return glb;
+  }
+
+  // Структура сдвинулась — молчим. Приклеить расширение к чужому объекту хуже, чем
+  // потерять его: получится файл, который выглядит целым и врёт.
+  //
+  // Так бывает и на passthrough: сериализатор сам схлопывает одинаковые текстуры и
+  // сэмплеры. На образце Khronos AnimationPointerUVs — textures 61 → 13, samplers
+  // 61 → 1. Указатели ТОЙ модели адресуют только материалы, и восстановить её было бы
+  // безопасно, но узнать это в общем виде нельзя: чужое расширение вправе ссылаться на
+  // что угодно и как угодно, а разбирать смысл каждого мы не беремся. Осознанный отказ
+  // — остаток дефекта TESTBUG-010, и он записан как остаток, а не выдан за починку.
+  if (shapeOf(json) !== carried.fingerprint) return glb;
+
+  const resolve = (at: Array<string | number>): Record<string, unknown> | null => {
+    let cur: unknown = json;
+    for (const step of at) {
+      if (cur == null || typeof cur !== 'object') return null;
+      cur = (cur as Record<string | number, unknown>)[step];
+    }
+    return cur && typeof cur === 'object' && !Array.isArray(cur)
+      ? cur as Record<string, unknown>
+      : null;
+  };
+
+  let touched = false;
+  for (const spot of carried.spots) {
+    const owner = resolve(spot.path);
+    if (!owner) continue;
+    const bag = (owner.extensions ||= {}) as Record<string, unknown>;
+    if (!(spot.name in bag)) { bag[spot.name] = spot.value; touched = true; }
+  }
+
+  // Объявление без содержимого — тоже потеря. Файл мог объявить расширение и не
+  // воспользоваться им ни разу; passthrough обещает вернуть файл как был, а не «как
+  // было бы разумно». Поэтому смотрим и на сам список, а не только на находки выше.
+  const declared = Array.isArray(json.extensionsUsed) ? json.extensionsUsed as string[] : [];
+  if (carried.used.some((n) => !declared.includes(n))) touched = true;
+
+  if (!touched) return glb;
+
+  const addNames = (key: 'extensionsUsed' | 'extensionsRequired', names: string[]) => {
+    if (!names.length) return;
+    const list = Array.isArray(json[key]) ? json[key] as string[] : (json[key] = [] as string[]);
+    for (const n of names) if (!list.includes(n)) list.push(n);
+    (list as string[]).sort();
+  };
+  addNames('extensionsUsed', carried.used);
+  addNames('extensionsRequired', carried.required);
+
+  const encoded = new TextEncoder().encode(JSON.stringify(json));
+  const padded = new Uint8Array(Math.ceil(encoded.length / 4) * 4).fill(0x20);
+  padded.set(encoded);
+  const rest = glb.subarray(20 + jsonLen);
+
+  const out = new Uint8Array(12 + 8 + padded.length + rest.length);
+  const ov = new DataView(out.buffer);
+  ov.setUint32(0, 0x46546c67, true);
+  ov.setUint32(4, 2, true);
+  ov.setUint32(8, out.length, true);
+  ov.setUint32(12, padded.length, true);
+  ov.setUint32(16, 0x4e4f534a, true);
+  out.set(padded, 20);
+  out.set(rest, 20 + padded.length);
+  return out;
+}
+
+// Что снято с ЭТОГО документа. WeakMap, а не поле: документ принадлежит библиотеке, и
+// дописывать в него своё — значит зависеть от её внутренностей.
+const carriedByDocument = new WeakMap<Document, Carried>();
+
+const load = async (io: NodeIOType, src: string) => {
+  const doc = await io.read(src);
+  const json = sourceJson(src);
+  const carried = json && collectCarried(json);
+  if (carried) carriedByDocument.set(doc, carried);
+  return doc;
+};
+
 const readBytes = (io: NodeIOType, bytes: Uint8Array) => io.readBinary(bytes);
 
 // Вырожденные записи, которые пишет сериализатор: пустые массивы и пустой буфер.
@@ -399,7 +588,8 @@ function dropEmptyArrays(glb: Uint8Array): Uint8Array {
   return out;
 }
 
-const writeBytes = async (io: NodeIOType, doc: Document) => dropEmptyArrays(await io.writeBinary(doc));
+const writeBytes = async (io: NodeIOType, doc: Document) =>
+  dropEmptyArrays(restoreCarried(await io.writeBinary(doc), carriedByDocument.get(doc)));
 
 // Входное сжатие геометрии (Draco/Meshopt) снимаем сразу после загрузки — иначе каждая
 // запись молча пережимает геометрию заново (ARCHITECTURE.md §6). Возвращаем имена снятых

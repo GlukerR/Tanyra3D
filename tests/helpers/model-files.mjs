@@ -49,6 +49,12 @@ export const REPO_MODELS = new Set([
   'Texture Only 01.glb',
   'Two Scenes 01.glb',
   'Pre KTX2 01.glb',
+  // Расширения, которых библиотека не знает (2026-08-14, _work/make-unknown-ext-fixtures.mjs).
+  // Такие модели были представлены в корпусе только образцами Khronos, а они в git не
+  // едут — на чистом клоне и на CI защита от их порчи не проверялась ВООБЩЕ.
+  'Unknown Ext LOD 01.glb',
+  'Unknown Ext Interactivity 01.glb',
+  'Unknown Ext Pointer 01.glb',
 ]);
 
 export function modelPath(name) {
