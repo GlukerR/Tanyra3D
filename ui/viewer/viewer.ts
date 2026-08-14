@@ -16,6 +16,8 @@ import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+// Контракт движка просмотра. Импорт типов, а не кода: в собранный файл он не попадает.
+import type { CameraState, LoadOptions, ViewerLike } from "./contract.js";
 
 // Пути к декодерам — тоже из node_modules/three через /vendor-роут сервера (server.mjs).
 const DRACO_DECODER_PATH = "/vendor/three/examples/jsm/libs/draco/gltf/";
@@ -47,24 +49,10 @@ interface GltfJson {
   nodes?: Array<{ mesh?: number }>;
 }
 
-/**
- * Состояние камеры, которым обмениваются два вьюпорта. Поля — не только позиция:
- * почему в снимок входят near/far и пределы приближения, объяснено у getCameraState().
- */
-export interface CameraState {
-  position: THREE.Vector3;
-  target: THREE.Vector3;
-  near: number;
-  far: number;
-  minDistance: number;
-  maxDistance: number;
-}
-
-/** Что просмотрщику нужно знать о загрузке: ход дела и ракурс, который надо сохранить. */
-export interface LoadOptions {
-  onProgress?: ((event: ProgressEvent) => void) | undefined;
-  camera?: CameraState | null;
-}
+// CameraState и LoadOptions переехали в contract.ts и берутся оттуда: это ДАННЫЕ обмена
+// между вьюпортами, а не устройство три.js. Здесь они реэкспортируются, чтобы уже
+// написанные импорты из viewer.js продолжали работать.
+export type { CameraState, LoadOptions } from "./contract.js";
 
 /**
  * Освободить память под поддеревом: геометрии, материалы и все их текстуры.
@@ -178,7 +166,7 @@ function detectOpportunity(json: GltfJson) {
  * Самодостаточный просмотрщик одной модели: рендерер, сцена, студийный IBL-свет,
  * орбитальные контролы, авто-кадрирование под размер модели.
  */
-export class Viewer {
+export class Viewer implements ViewerLike {
   // Только объявления: `declare` проверяется компилятором и не попадает в собранный
   // файл — значения по-прежнему присваивают конструктор и методы _init*().
   declare canvas: HTMLCanvasElement;
@@ -445,10 +433,14 @@ export class Viewer {
    * Пределы приближения тоже здесь: иначе колесо мыши упирается в разных точках
    * и связанные камеры расходятся на краях диапазона.
    */
-  getCameraState() {
+  getCameraState(): CameraState {
+    // Простые тройки чисел, а не THREE.Vector3: снимок уезжает в соседний вьюпорт, и
+    // форма движка в этих данных сделала бы второй движок невозможным (contract.ts).
+    const p = this.camera.position;
+    const t = this.controls.target;
     return {
-      position: this.camera.position.clone(),
-      target: this.controls.target.clone(),
+      position: { x: p.x, y: p.y, z: p.z },
+      target: { x: t.x, y: t.y, z: t.z },
       near: this.camera.near,
       far: this.camera.far,
       minDistance: this.controls.minDistance,
@@ -459,8 +451,8 @@ export class Viewer {
   /** Применить состояние камеры от другого вьюпорта (без анимации damping-скачка). */
   applyCameraState(state: CameraState | null) {
     if (!state) return;
-    this.camera.position.copy(state.position);
-    this.controls.target.copy(state.target);
+    this.camera.position.set(state.position.x, state.position.y, state.position.z);
+    this.controls.target.set(state.target.x, state.target.y, state.target.z);
     if (Number.isFinite(state.near) && Number.isFinite(state.far)) {
       this.camera.near = state.near;
       this.camera.far = state.far;

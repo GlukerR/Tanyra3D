@@ -13,39 +13,23 @@
 // файл запросит БРАУЗЕР, а собранное кладётся под тем же именем. Компилятор такую
 // запись понимает и не переписывает — см. tsconfig.ui.json.
 
-import { Viewer, type CameraState } from "./viewer.js";
+import { Viewer } from "./viewer.js";
+import type { CameraState, ViewerLike } from "./contract.js";
 
 /**
- * Фабрика движка просмотра (шов под будущие движки/режимы: Unreal, Unity и т.д.).
+ * Реализации движка просмотра, которые приложение действительно везёт с собой.
  *
- * КОНТРАКТ движка просмотра — что обязана дать любая реализация:
- *   new Viewer(canvas)                  — рисует в переданное полотно
- *   load(url, { onProgress })           — загрузить модель, отдать управление после готовности
- *   getStats() → { … }                  — метрики модели для HUD
- *   getDetection() → { draco, meshopt, ktx2 } | null — что уже сжато в исходнике
- *   renderFrame()                       — отрисовать один кадр (цикл гонит DualViewport)
- *   frame()                             — навести камеру на модель
- *   getCameraState() / applyCameraState(state) — для связанных камер
- *   controls                            — источник события 'change' (камера двигалась)
- *   setAnimationTime(sec)               — поставить анимацию в абсолютное время
- *   playClip(index)                     — переключить клип
- *   getAnimationInfo() → { count, names, index, duration }
- *   dispose()                           — освободить СВОИ ресурсы
+ * Ключ — то самое имя, которое движок называет полем `viewer` в `engines/<id>.json`
+ * (ARCHITECTURE.md §4g): «другой движок — другой вьюпорт» становится добавлением строки
+ * сюда и файла движка, а не правкой обвязки и app.js.
  *
- * Время анимации задаётся СНАРУЖИ и абсолютным значением, а не приращением. Это
- * обязательное требование к любой реализации: два вьюпорта показывают одну модель
- * до и после, и разъехавшаяся на полкадра поза делает сравнение бессмысленным.
- *
- * Движок отвечает только за свои ресурсы. Пустое состояние слота (очистка полотна при
- * сбросе) — забота обвязки, одинаковая для всех движков: см. ViewportSlot.reset().
- * Так смена движка при смене платформы не меняет поведение действий вокруг него —
- * загрузка, сброс, связанные камеры работают одинаково.
+ * Тип значения — `ViewerLike`, а НЕ класс `Viewer`. Разница видна только со вторым
+ * движком, и она решающая: класс три.js несёт `renderer: THREE.WebGLRenderer`,
+ * `scene: THREE.Scene`, `_draco: DRACOLoader`, и структурная совместимость потребовала
+ * бы всего этого от чужой реализации. Сам контракт — в `contract.ts`, там же разобрано,
+ * обо что спотыкался второй движок (`ROADMAP.md` §5g).
  */
-// Реализации, которые приложение действительно везёт с собой. Ключ — то самое имя,
-// которое движок называет полем `viewer` в engines/<id>.json (ARCHITECTURE.md §4g):
-// «другой движок — другой вьюпорт» становится добавлением строки сюда и файла движка,
-// а не правкой обвязки и app.js.
-const VIEWERS: Record<string, (canvas: HTMLCanvasElement) => Viewer> = {
+const VIEWERS: Record<string, (canvas: HTMLCanvasElement) => ViewerLike> = {
   threejs: (canvas) => new Viewer(canvas),
 };
 
@@ -96,7 +80,7 @@ class ViewportSlot {
   declare container: HTMLElement;
   declare canvas: HTMLCanvasElement | null;
   declare statusEl: HTMLElement | null;
-  declare viewer: Viewer | null;
+  declare viewer: ViewerLike | null;
   declare _blobUrl: string | null;
 
   constructor(container: HTMLElement) {
@@ -284,7 +268,7 @@ class DualViewport {
     this._unlinkCameras();
     if (!this.left!.viewer || !this.right!.viewer) return;
 
-    const sync = (from: Viewer, to: Viewer) => {
+    const sync = (from: ViewerLike, to: ViewerLike) => {
       if (this._syncing || !this.linked) return;
       this._syncing = true;
       to.applyCameraState(from.getCameraState());

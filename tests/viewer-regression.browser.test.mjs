@@ -164,7 +164,7 @@ describe('Viewer — camera state (browser)', () => {
     expect(state).toHaveProperty('far')
     expect(state).toHaveProperty('minDistance')
     expect(state).toHaveProperty('maxDistance')
-    // Позиция/цель — Vector3
+    // Позиция/цель — три числа
     expect(Number.isFinite(state.position.x)).toBe(true)
     expect(Number.isFinite(state.target.x)).toBe(true)
     // near/far — конечные числа из конструктора (0.01 / 1000)
@@ -181,8 +181,8 @@ describe('Viewer — camera state (browser)', () => {
     // в конструкторе: 0.01, 1000). Применяем новые значения.
     const original = viewer.getCameraState()
     const newState = {
-      position: original.position.clone(),
-      target: original.target.clone(),
+      position: { ...original.position },
+      target: { ...original.target },
       near: 0.05,
       far: 500,
       minDistance: 0.1,
@@ -198,6 +198,24 @@ describe('Viewer — camera state (browser)', () => {
 
     // Возвращаем как было (чтобы не ломать следующие тесты)
     viewer.applyCameraState(original)
+  })
+
+  // Снимок камеры уезжает в СОСЕДНИЙ вьюпорт. Пока движок один, форма этих данных ни
+  // на что не влияет; со вторым движком она решает всё: `THREE.Vector3` в снимке
+  // заставил бы реализацию на другом движке тянуть три.js ради трёх чисел, а
+  // структурная подмена (передать {x,y,z} туда, где ждут Vector3) сломалась бы на
+  // первом же вызове метода — ровно так этот тест и падал до правки контракта.
+  // Разбор — ui/viewer/contract.ts, ROADMAP.md §5g.
+  it('снимок камеры — простые числа, а не объекты движка', () => {
+    const state = viewer.getCameraState()
+    for (const key of ['position', 'target']) {
+      const v = state[key]
+      expect(Object.getPrototypeOf(v), `${key} несёт объект движка, а не данные`)
+        .toBe(Object.prototype)
+      expect(Object.keys(v).sort()).toEqual(['x', 'y', 'z'])
+      // Снимок обязан пережить перенос через границу, где живых объектов не бывает.
+      expect(() => structuredClone(v)).not.toThrow()
+    }
   })
 
   it('setExposure() validates input, falls back to 1 for non-finite values', () => {
