@@ -55,6 +55,11 @@ export const REPO_MODELS = new Set([
   'Unknown Ext LOD 01.glb',
   'Unknown Ext Interactivity 01.glb',
   'Unknown Ext Pointer 01.glb',
+  // Анимация по указателю, которая действительно проигрывается (2026-08-14,
+  // _work/make-animation-pointer-fixture.mjs). Три модели выше только ОБЪЯВЛЯЮТ
+  // расширение — на них нельзя проверить показ. Класс `animated` до этой модели
+  // держался на чужих файлах и на CI не проверялся вообще.
+  'Animated Pointer 01.glb',
 ]);
 
 export function modelPath(name) {

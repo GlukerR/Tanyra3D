@@ -352,3 +352,73 @@ eachModel(
     }
   },
 );
+
+
+// ---------------------------------------------------------------------------
+// TESTBUG-011 — под ОПТИМИЗАЦИЯМИ незнакомое расширение теряло адрес.
+//
+// ЗАКРЫТ 2026-08-15. Слово Александра: «анимация текстур не должна пропадать и должна
+// показываться в обоих вьюпортах».
+//
+// Что было. Возврат чужих расширений (TESTBUG-010) сверял отпечаток структуры ЦЕЛИКОМ:
+// длины всех логических массивов документа. Один сдвинувшийся массив отменял возврат
+// всего — включая то, что этого массива не касалось. Два замера:
+//   - сварка вершин добавляет треугольнику индексы, accessors 3 → 4, и указатель на
+//     МАТЕРИАЛ пропадал, хотя материалы не шелохнулись;
+//   - сериализатор схлопывает одинаковые текстуры и сэмплеры (AnimationPointerUVs:
+//     61 → 13 и 61 → 1), и 103 указателя, все адресующие материалы, терялись из-за
+//     чужой перенумерации — причём даже на passthrough.
+//
+// Как починено: addons/gltf/index.mts, arraysAddressedBy(). Расширение само называет
+// свои цели — `/materials/0/pbrMetallicRoughness/baseColorFactor`. Первый сегмент такого
+// адреса и есть имя массива, и достаточно убедиться, что не сдвинулся ОН. Решение
+// принимается пообъектно, а не одно на весь файл.
+//
+// Строгость не ослаблена, а направлена: расширение без адресов-строк (MSFT_lod
+// перечисляет узлы числами, KHR_interactivity хранит граф) осталось под полной сверкой.
+// ---------------------------------------------------------------------------
+eachModel(
+  'TESTBUG-011 (закрыт): указатель переживает safe и join',
+  ['Animated Pointer 01.glb'],
+  async (modelName) => {
+    for (const flags of [['safe'], ['safe', 'join'], ['safe', 'quantize']]) {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'testbug011-'));
+      try {
+        await optimizeFile(modelPath(modelName), { advancedFeatures: flags, outDir: dir });
+        const json = readGlbJson(path.join(dir, modelName));
+        const label = flags.join(',');
+
+        expect(json.extensionsUsed, `[${label}] расширение обязано остаться`).toContain('KHR_animation_pointer');
+        const target = json.animations[0].channels[0].target;
+        expect(target.path).toBe('pointer');
+        expect(
+          target.extensions?.KHR_animation_pointer?.pointer,
+          `[${label}] канал говорит «анимирую указатель», но не говорит что именно`,
+        ).toBe('/materials/0/pbrMetallicRoughness/baseColorFactor');
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  },
+);
+
+// Образец Khronos с настоящей анимацией текстур: 103 канала, все адресуют материалы.
+// До 2026-08-15 не выживал НИ ОДИН — сериализатор схлопывал текстуры, и общая сверка
+// отказывала целиком. Модель локальная (чужая лицензия), на чистом клоне пропускается.
+eachModel(
+  'TESTBUG-011 (закрыт): все 103 указателя AnimationPointerUVs остаются с адресами',
+  ['AnimationPointerUVs.glb'],
+  async (modelName) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'testbug011b-'));
+    try {
+      await optimizeFile(modelPath(modelName), { advancedFeatures: [], outDir: dir });
+      const json = readGlbJson(path.join(dir, modelName));
+      const channels = json.animations.flatMap((a) => a.channels);
+      const addressed = channels.filter((c) => c.target?.extensions?.KHR_animation_pointer?.pointer);
+      expect(channels.length).toBeGreaterThan(100);
+      expect(addressed.length, 'указатели без адреса — это осиротевшие каналы').toBe(channels.length);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  },
+);

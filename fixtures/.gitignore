@@ -48,3 +48,8 @@
 !models/Unknown Ext LOD 01.glb
 !models/Unknown Ext Interactivity 01.glb
 !models/Unknown Ext Pointer 01.glb
+
+# Анимация по указателю, которая ДЕЙСТВИТЕЛЬНО проигрывается
+# (_work/make-animation-pointer-fixture.mjs, 2026-08-15). Три модели выше только
+# объявляют расширение — на них нельзя проверить показ. Полтора килобайта, Apache-2.0.
+!models/Animated Pointer 01.glb

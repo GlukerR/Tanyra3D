@@ -342,12 +342,20 @@ function outputName(src: string): string {
 // Канал по-прежнему говорит «анимирую указатель», но больше не говорит ЧТО. Валидатор
 // Khronos меняет вердикт с INCOMPLETE_EXTENSION_SUPPORT на VALUE_NOT_IN_LIST.
 //
-// Чиним ТОЛЬКО там, где это безусловно безопасно (решение Александра 2026-08-14: «чини
-// на passthrough, а с оптимизациями потом решим»). Безопасно — когда структура файла не
-// сдвинулась: расширения держатся на НОМЕРАХ объектов, и приклеить такое расширение к
-// чужому объекту хуже, чем потерять его. Поэтому вместо доверия к слову «passthrough»
-// сверяется отпечаток структуры: длины всех массивов документа до и после. Разошлись —
-// не возвращаем ничего и молчим, это по-прежнему известный дефект.
+// Расширения держатся на НОМЕРАХ объектов, и приклеить такое расширение к ЧУЖОМУ
+// объекту хуже, чем потерять его: получится файл, который выглядит целым и врёт. Поэтому
+// возврат не безусловный — сверяется, не сдвинулась ли нумерация.
+//
+// Первая версия (2026-08-14) сверяла ВЕСЬ документ сразу и чинила только passthrough.
+// Этого оказалось мало: слово Александра 2026-08-15 — «анимация текстур не должна
+// пропадать и должна показываться в обоих вьюпортах». Общая сверка отказывала ровно
+// там, где отказывать было не за что: сварка вершин добавляла треугольнику индексы, и
+// указатель на МАТЕРИАЛ пропадал, хотя материалы не шелохнулись.
+//
+// Теперь сверка не общая, а по предмету: расширение само называет свои цели, и
+// проверяется только тот массив, на который оно смотрит (см. arraysAddressedBy).
+// Расширение, которое адресов не называет, осталось под полной сверкой — строгость
+// не ослаблена, она направлена. TESTBUG-011.
 
 interface CarriedSpot {
   /** Путь до объекта-владельца, например ['animations', 0, 'channels', 1, 'target']. */
@@ -360,7 +368,8 @@ interface Carried {
   used: string[];
   required: string[];
   spots: CarriedSpot[];
-  fingerprint: string;
+  /** Длины логических массивов исходника: 'materials' → 12. */
+  shape: Record<string, number>;
 }
 
 // Массивы, по длинам которых видно, сдвинулась ли структура.
@@ -375,8 +384,49 @@ const SHAPE_ARRAYS = [
   'textures', 'images', 'samplers', 'skins', 'animations', 'cameras',
 ];
 
-const shapeOf = (json: Record<string, unknown>) =>
-  SHAPE_ARRAYS.map((k) => `${k}:${Array.isArray(json[k]) ? (json[k] as unknown[]).length : -1}`).join('|');
+const shapeOf = (json: Record<string, unknown>): Record<string, number> => {
+  const out: Record<string, number> = {};
+  for (const k of SHAPE_ARRAYS) out[k] = Array.isArray(json[k]) ? (json[k] as unknown[]).length : -1;
+  return out;
+};
+
+// Куда именно смотрит расширение — по его собственному тексту.
+//
+// Зачем. Сверять СРАЗУ ВСЕ массивы — грубо: сварка вершин добавляет один аксессор, и
+// проверка отказывалась возвращать указатель на материал, которому эта сварка ничем не
+// мешала. Расширение теряло адрес и анимация пропадала на ровном месте.
+//
+// `KHR_animation_pointer` называет цель прямо: `/materials/0/pbrMetallicRoughness/
+// baseColorFactor`. Первый сегмент такого адреса — имя массива, и достаточно убедиться,
+// что НЕ СДВИНУЛСЯ ОН. Проверено по трём моделям: `Animated Pointer 01` — 1 адрес,
+// `PotOfCoalsAnimationPointer` — 2, `AnimationPointerUVs` — 103, и все до единого
+// указывают в `materials`.
+//
+// Расширение без адресов-строк (`MSFT_lod` перечисляет узлы числами, `KHR_interactivity`
+// хранит граф) остаётся под ПОЛНОЙ проверкой: мы не знаем, на что оно смотрит, и гадать
+// не будем. То есть строгость не ослаблена — она направлена.
+const POINTER_RE = /^\/([A-Za-z_][A-Za-z_0-9]*)\/\d/;
+
+function arraysAddressedBy(value: unknown): Set<string> | null {
+  const names = new Set<string>();
+  let sawString = false;
+  const walk = (v: unknown) => {
+    if (typeof v === 'string') {
+      if (v.startsWith('/')) {
+        sawString = true;
+        const m = POINTER_RE.exec(v);
+        if (m && m[1]) names.add(m[1]);
+      }
+      return;
+    }
+    if (Array.isArray(v)) { v.forEach(walk); return; }
+    if (v && typeof v === 'object') for (const x of Object.values(v)) walk(x);
+  };
+  walk(value);
+  // Адресов не нашли — значит расширение адресует как-то иначе, и сузить проверку не на
+  // чем. `null` читается вызывающим как «сверяй всё».
+  return sawString && names.size ? names : null;
+}
 
 /** JSON-часть файла: у .glb — чанк, у .gltf — сам файл. Нечитаемое — не беда, вернём null. */
 function sourceJson(src: string): Record<string, unknown> | null {
@@ -422,7 +472,7 @@ function collectCarried(json: Record<string, unknown>): Carried | null {
   // уровня документа (KHR_interactivity, KHR_lights_punctual) живёт именно там.
   walk(json, []);
 
-  return { used, required, spots, fingerprint: shapeOf(json) };
+  return { used, required, spots, shape: shapeOf(json) };
 }
 
 /** Вернуть собранное в записанный файл, если структура не сдвинулась. */
@@ -439,16 +489,22 @@ function restoreCarried(glb: Uint8Array, carried: Carried | undefined): Uint8Arr
     return glb;
   }
 
-  // Структура сдвинулась — молчим. Приклеить расширение к чужому объекту хуже, чем
-  // потерять его: получится файл, который выглядит целым и врёт.
+  // Сдвинулась ли структура — теперь вопрос НЕ ко всему документу сразу, а к тем
+  // массивам, на которые смотрит конкретное расширение (см. arraysAddressedBy).
   //
-  // Так бывает и на passthrough: сериализатор сам схлопывает одинаковые текстуры и
-  // сэмплеры. На образце Khronos AnimationPointerUVs — textures 61 → 13, samplers
-  // 61 → 1. Указатели ТОЙ модели адресуют только материалы, и восстановить её было бы
-  // безопасно, но узнать это в общем виде нельзя: чужое расширение вправе ссылаться на
-  // что угодно и как угодно, а разбирать смысл каждого мы не беремся. Осознанный отказ
-  // — остаток дефекта TESTBUG-010, и он записан как остаток, а не выдан за починку.
-  if (shapeOf(json) !== carried.fingerprint) return glb;
+  // Прежняя, общая сверка отказывалась чинить ровно там, где чинить было безопасно.
+  // Два замера: сварка вершин добавляет один аксессор — и указатель на материал
+  // пропадал, хотя материалы не шелохнулись; сериализатор схлопывает одинаковые
+  // текстуры и сэмплеры (на AnimationPointerUVs — 61 → 13 и 61 → 1) — и 103 указателя,
+  // все до одного адресующие материалы, терялись из-за чужой перенумерации.
+  //
+  // Приклеить расширение к ЧУЖОМУ объекту по-прежнему хуже, чем потерять его: файл
+  // выглядел бы целым и врал. Поэтому сверка не отменена, а сужена до предмета.
+  const after = shapeOf(json);
+  const intact = (names: Set<string> | null) => {
+    const keys = names ? [...names] : SHAPE_ARRAYS;
+    return keys.every((k) => !(k in carried.shape) || carried.shape[k] === after[k]);
+  };
 
   const resolve = (at: Array<string | number>): Record<string, unknown> | null => {
     let cur: unknown = json;
@@ -461,12 +517,22 @@ function restoreCarried(glb: Uint8Array, carried: Carried | undefined): Uint8Arr
       : null;
   };
 
+  // Решение принимается ПООБЪЕКТНО, а не одно на весь файл. Раньше один сдвинувшийся
+  // массив отменял возврат всего — включая то, что этого массива не касалось.
   let touched = false;
+  let refused = 0;
   for (const spot of carried.spots) {
+    if (!intact(arraysAddressedBy(spot.value))) { refused++; continue; }
     const owner = resolve(spot.path);
     if (!owner) continue;
     const bag = (owner.extensions ||= {}) as Record<string, unknown>;
     if (!(spot.name in bag)) { bag[spot.name] = spot.value; touched = true; }
+  }
+  if (refused) {
+    // Поток событий для разбора, а не итог для человека (правило 9). По-английски —
+    // правило 8 запрещает кириллицу в коде движка, и статический гейт это сторожит:
+    // русская фраза здесь падала как «готовая пользовательская строка».
+    console.warn(`[gltf] carried extensions not restored: ${refused} (addressed arrays shifted)`);
   }
 
   // Объявление без содержимого — тоже потеря. Файл мог объявить расширение и не
