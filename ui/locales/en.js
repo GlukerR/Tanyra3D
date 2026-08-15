@@ -46,6 +46,9 @@ window.I18N_CATALOGS.en = {
   'vp.pause': 'Pause animation',
   'vp.clip': 'Animation clip',
   'vp.time': 'Animation time',
+  // Подпись у списка вариантов материала. «Look», а не «Variant»: художник называет
+  // это внешним видом модели, а слово из спецификации ему ничего не говорит (Правило 10).
+  'vp.variant': 'Look',
   'stage.hint': 'Load a .glb from the left panel to preview it here',
 
   // Подписи посреди панелей просмотра (ui/viewer/index.js). Ставятся из кода через
@@ -59,6 +62,9 @@ window.I18N_CATALOGS.en = {
   'viewer.hint.noOutput': 'No output file to preview',
   // Клип без имени в файле. Номер — часть сообщения, а не приставка к слову.
   'viewer.clip.unnamed': ({ n }) => `Clip ${n}`,
+  // Первый пункт списка вариантов: вид, записанный в файле основным. Не «не выбрано» —
+  // экспортёр выбирает его сознательно, и вернуться к нему человек вправе.
+  'viewer.variant.original': 'As in the file',
 
   // --- окна ---
   'win.close': 'Close',

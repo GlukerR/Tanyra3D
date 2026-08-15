@@ -84,6 +84,20 @@ export interface AnimationInfo {
 }
 
 /**
+ * Варианты материала — запасные цвета и отделки, между которыми модель умеет
+ * переключаться (три окраски машины, четыре ремешка часов).
+ *
+ * Имена приходят ИЗ ФАЙЛА, их писал художник в своём редакторе, и переводу они не
+ * подлежат — это данные, а не интерфейс (Правило 8). `current: null` означает вид,
+ * записанный в файле как основной; подменять его первым именем из списка нельзя.
+ */
+export interface VariantInfo {
+  count: number;
+  names: string[];
+  current: string | null;
+}
+
+/**
  * Источник события «камера двигалась». У три.js это OrbitControls, у другого движка —
  * что угодно своё; обвязке нужны ровно две операции, и требовать больше незачем.
  */
@@ -118,6 +132,10 @@ export interface ViewerLike {
   setAnimationTime(seconds: number): void;
   playClip(index: number): void;
   getAnimationInfo(): AnimationInfo;
+  /** Какие варианты материала есть у модели; count === 0 — их нет вовсе. */
+  getVariantInfo(): VariantInfo;
+  /** Переключить вариант; null — вернуть основной вид из файла. false = не вышло. */
+  setVariant(name: string | null): Promise<boolean>;
   /** Общая экспозиция обоих окон. В прежнем списке контракта её не было — см. шапку. */
   setExposure(value: number): void;
   dispose(): void;

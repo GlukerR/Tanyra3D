@@ -47,5 +47,5 @@
     // Node-типы здесь НЕ подключаются намеренно: это браузер.
     "types": []
   },
-  "include": ["ui/*.ts", "ui/*.d.ts", "ui/viewer/*.ts"]
+  "include": ["ui/*.ts", "ui/*.d.ts", "ui/viewer/*.ts", "ui/viewer/*.d.ts"]
 }

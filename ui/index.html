@@ -12,7 +12,8 @@
   "imports": {
     "three": "/vendor/three/build/three.module.js",
     "three/addons/": "/vendor/three/examples/jsm/",
-    "@needle-tools/three-animation-pointer": "/vendor/animation-pointer/src/index.js"
+    "@needle-tools/three-animation-pointer": "/vendor/animation-pointer/src/index.js",
+    "three-gltf-extensions/": "/vendor/gltf-extensions/"
   }
 }
 </script>
@@ -210,6 +211,14 @@
       <!-- Анимация. Скрыта целиком, пока в модели нет клипов: пустой проигрыватель
            под статичной моделью только сбивает с толку. Оба вьюпорта идут по одному
            времени, поэтому ползунок и выбор клипа общие, а не по одному на панель. -->
+      <!-- Варианты материала: показывается ТОЛЬКО когда они есть в файле.
+           Имена в списке — из модели, их писал художник; переводу не подлежат. -->
+      <div id="variant-controls" class="vp-anim hidden">
+        <span class="vp-sep" aria-hidden="true"></span>
+        <span class="vp-ctl-label" data-i18n="vp.variant">Look</span>
+        <select id="variant-select" class="vp-anim-clip" data-i18n-aria="vp.variant" aria-label="Material variant"></select>
+      </div>
+
       <div id="anim-controls" class="vp-anim hidden">
         <span class="vp-sep" aria-hidden="true"></span>
         <button id="anim-play-btn" class="vp-tool is-on" title="Pause animation" aria-label="Pause animation" aria-pressed="true">⏸</button>

@@ -1280,3 +1280,106 @@ describe('Viewer — compressed models via DualViewport (browser)', () => {
     }
   })
 })
+
+// ---------------------------------------------------------------------------
+// Viewer — варианты материала (запасные цвета и отделки)
+//
+// KHR_materials_variants загрузчик three.js не читает сам: расширение вынесено в
+// отдельный плагин (three-gltf-extensions, ссылка на него стоит в документации самого
+// GLTFLoader). Без плагина художник видел ОДИН вид из трёх и про остальные не знал.
+//
+// Сторож смотрит на материалы В СЦЕНЕ, а не на состояние панели: «выбран Carmine Candy»
+// — это переменная, которая может обновиться, пока картинка стоит на месте. Дефект такого
+// рода уже был с развёртками текстур (дорожки создавались, но ничего не двигали).
+// ---------------------------------------------------------------------------
+
+describe('Viewer — material variants (browser)', () => {
+  /** @type {HTMLCanvasElement} */
+  let canvas
+  /** @type {import('../ui/viewer/viewer.js').Viewer} */
+  let viewer
+
+  beforeAll(async () => {
+    const result = await createViewer()
+    canvas = result.canvas
+    viewer = result.viewer
+  })
+
+  afterAll(() => {
+    disposeViewer(viewer, canvas)
+  })
+
+  /** Отпечаток раскраски сцены: какой материал стоит на каждом меше. */
+  const materialFingerprint = () => {
+    const out = []
+    viewer.model.traverse((o) => {
+      if (o.material) out.push(o.material.uuid)
+    })
+    return out
+  }
+
+  itWithModels(['CarConcept.glb'], 'CarConcept — три окраски видны в getVariantInfo', async () => {
+    await viewer.load('/CarConcept.glb')
+    const info = viewer.getVariantInfo()
+    expect(info.count).toBe(3)
+    expect(info.names).toEqual(['Carmine Candy', 'Pearly Swirly', 'Torched Graphite'])
+    // Начальный вид — записанный в файле основным, а не первый из списка: экспортёр
+    // выбирает его сознательно, и подменять этот выбор нельзя.
+    expect(info.current).toBeNull()
+  })
+
+  itWithModels(['CarConcept.glb'], 'CarConcept — три окраски дают три РАЗНЫЕ раскраски сцены', async () => {
+    await viewer.load('/CarConcept.glb')
+    const base = materialFingerprint()
+    expect(base.length, 'в сцене нет мешей с материалами').toBeGreaterThan(0)
+
+    // Утверждение именно такое, а не «любой вариант отличается от исходного вида».
+    // Проверено по файлу: основной вид CarConcept СОВПАДАЕТ с «Carmine Candy»
+    // (примитивы стоят на материале 6, и Carmine Candy подменяет его на тот же 6).
+    // Требовать от этой пары различий значило бы требовать от движка выдумать его.
+    const looks = {}
+    for (const name of viewer.getVariantInfo().names) {
+      expect(await viewer.setVariant(name)).toBe(true)
+      looks[name] = materialFingerprint().join(' ')
+    }
+    const distinct = new Set(Object.values(looks))
+    expect(distinct.size, `три варианта дали одинаковую раскраску: ${JSON.stringify(Object.keys(looks))}`).toBe(3)
+
+    // И основной вид — одна из этих трёх раскрасок, а не четвёртая выдуманная.
+    expect(distinct.has(base.join(' ')), 'исходный вид не совпал ни с одним вариантом').toBe(true)
+  })
+
+  itWithModels(['CarConcept.glb'], 'CarConcept — null возвращает вид, записанный в файле', async () => {
+    await viewer.load('/CarConcept.glb')
+    const base = materialFingerprint()
+    await viewer.setVariant('Pearly Swirly')
+    expect(materialFingerprint()).not.toEqual(base)
+    expect(await viewer.setVariant(null)).toBe(true)
+    expect(viewer.getVariantInfo().current).toBeNull()
+    expect(materialFingerprint(), 'возврат «как в файле» не восстановил исходную раскраску').toEqual(base)
+  })
+
+  itWithModels(['CarConcept.glb'], 'неизвестное имя — отказ, а не исключение и не смена вида', async () => {
+    await viewer.load('/CarConcept.glb')
+    const base = materialFingerprint()
+    // Список вариантов приходит из файла, и вьювер не обязан гадать, что в нём окажется.
+    expect(await viewer.setVariant('Такого варианта нет')).toBe(false)
+    expect(materialFingerprint()).toEqual(base)
+  })
+
+  itWithModels(['ChronographWatch.glb'], 'ChronographWatch — четыре отделки', async () => {
+    await viewer.load('/ChronographWatch.glb')
+    const info = viewer.getVariantInfo()
+    expect(info.count).toBe(4)
+    expect(info.names).toEqual(['Surgical White', 'Midnight Gold', 'Commerce Green', 'Khronos Red'])
+  })
+
+  itWithModels(['Dirty Cube 01.glb'], 'модель без вариантов — пустой список, а не выдуманный', async () => {
+    await viewer.load('/Dirty%20Cube%2001.glb')
+    const info = viewer.getVariantInfo()
+    expect(info.count).toBe(0)
+    expect(info.names).toEqual([])
+    // Панели в интерфейсе при этом быть не должно — она рисуется по count.
+    expect(await viewer.setVariant('что угодно')).toBe(false)
+  })
+})

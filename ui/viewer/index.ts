@@ -215,6 +215,8 @@ class DualViewport {
   declare _animPlaying: boolean;
   declare _animTime: number;
   declare _animClipIndex: number;
+  /** Выбранный вариант материала; null — основной вид из файла. Переживает загрузку. */
+  declare _variantName: string | null;
   declare _exposure: number;
   declare _perf: { left: Float64Array; right: Float64Array; frame: Float64Array; i: number };
   // Эти два появляются позже конструктора и до тех пор отсутствуют — отсюда `?`:
@@ -234,6 +236,7 @@ class DualViewport {
     this._animPlaying = true;
     this._animTime = 0;
     this._animClipIndex = 0; // выбранный клип переживает загрузку новой модели
+    this._variantName = null; // выбранный вариант материала — тоже (см. _applyVariantSelection)
     this._exposure = 1;      // 1.0 — как отдаёт three.js без поправки
     // Кольцевые буферы замера отрисовки; заполняются в _pushPerf каждый кадр.
     this._perf = {
@@ -397,6 +400,34 @@ class DualViewport {
     };
   }
 
+  /**
+   * Варианты материала загруженной модели — для панели управления.
+   *
+   * Спрашиваем ЛЕВЫЙ вьюпорт: он показывает исходник, и список вариантов в нём полный
+   * по определению. Если справа их окажется меньше — это дефект оптимизации, и увидеть
+   * его должен отчёт, а не молчаливо укоротившийся список.
+   */
+  getVariants() {
+    const info = this.left?.viewer?.getVariantInfo?.() || { count: 0, names: [], current: null };
+    return { ...info, selected: this._variantName ?? null };
+  }
+
+  /**
+   * Переключить вариант В ОБОИХ окнах. Смысл сравнения в том, что слева и справа одна
+   * и та же модель в одном и том же виде; разъехавшийся выбор цвета превратил бы
+   * сравнение оптимизации в сравнение окрасок.
+   *
+   * Выбор запоминается: следующая загруженная модель придёт на тот же вариант — та же
+   * причина, что у клипа анимации (см. _applyAnimSelection).
+   */
+  async selectVariant(name: string | null) {
+    this._variantName = name;
+    await Promise.all([
+      this.left?.viewer?.setVariant?.(name),
+      this.right?.viewer?.setVariant?.(name),
+    ]);
+  }
+
   setAnimationPlaying(playing: boolean) {
     this._animPlaying = !!playing;
   }
@@ -482,6 +513,7 @@ class DualViewport {
     this._resetPerf(); // сцена сменилась — прежние кадры мерили другую модель
     if (this.left!.viewer && this.right!.viewer) this._linkCameras();
     this._applyAnimSelection();
+    this._applyVariantSelection();
     this._applyExposure();
     this._startLoop();
     // Состав модели изменился — панели управления надо перестроить СЕЙЧАС, а не
@@ -516,6 +548,22 @@ class DualViewport {
    * результат справа дёргается не в такт, и «чинится» только переключением клипа
    * (оно единственное задавало индекс обоим сразу).
    */
+  /**
+   * Привести только что загруженную модель к выбранному варианту материала.
+   *
+   * Та же причина, что у клипа анимации: без этого свежий вьюпорт показывал бы
+   * основной вид, пока второй стоит на выбранном цвете, и сравнение сравнивало бы
+   * окраски вместо оптимизации. `null` пропускаем — это и есть состояние по умолчанию.
+   */
+  _applyVariantSelection() {
+    const name = this._variantName;
+    if (name === null) return;
+    void Promise.all([
+      this.left?.viewer?.setVariant?.(name),
+      this.right?.viewer?.setVariant?.(name),
+    ]);
+  }
+
   _applyAnimSelection() {
     const idx = this._animClipIndex || 0;
     if (idx > 0) {
@@ -586,6 +634,10 @@ window.OptiViewer = {
   setAnimationPlaying: (on) => dual.setAnimationPlaying(on),
   seekAnimation: (sec) => dual.seekAnimation(sec),
   selectAnimationClip: (i) => dual.selectAnimationClip(i),
+  // Варианты материала — запасные цвета и отделки. Один выбор на оба вьюпорта:
+  // разъехавшийся цвет превратил бы сравнение оптимизации в сравнение окрасок.
+  getVariants: () => dual.getVariants(),
+  selectVariant: (name) => dual.selectVariant(name),
   // Экспозиция — одна на оба вьюпорта, см. _applyExposure.
   setExposure: (v) => dual.setExposure(v),
   getExposure: () => dual.getExposure(),
