@@ -53,6 +53,9 @@ const MODEL_FILES = [
   'Dirty Cube 01.glb',
   'Instance Grid 01.glb',
   'Morph Cube 01.glb',
+  // Две камеры автора, ортографическая первой. До неё этот тип камеры в корпусе не
+  // встречался вовсе, и путь «файл → GLTFLoader → наш список» не проверялся ничем.
+  'Ortho Camera 01.glb',
   'Vertex Colors 01.glb',
   'Draco Compressed Input 01.glb',
   'Meshopt Compressed Input 01.glb',
@@ -1805,10 +1808,12 @@ describeWithModels(['ToyCar.glb'], 'DualViewport — ракурс и свет п
 // ---------------------------------------------------------------------------
 // Ортографическая камера автора
 //
-// В корпусе таких моделей нет, поэтому камеру собираем здесь и кладём в тот же список,
-// куда её положил бы загрузчик. Проверяем не «читается ли файл» (это работа
-// GLTFLoader), а НАШУ развилку: у перспективной ширина кадра задаётся полем aspect,
-// у ортографической — границами left/right, и общего кода тут нет.
+// Проверяется с двух сторон. Настоящий файл `Ortho Camera 01.glb` (собран
+// _work/make-viewer-gap-fixtures.mjs, меньше килобайта, едет в git) проходит весь путь
+// «файл → GLTFLoader → наш список»; до него ортографических камер в корпусе не было
+// вообще, и этот путь не проверялся ничем. Камера, собранная руками, осталась рядом:
+// она проверяет НАШУ математику в отрыве от чтения файла — у перспективной ширина кадра
+// задаётся полем aspect, у ортографической границами left/right, общего кода тут нет.
 //
 // Почему не подменяем ортографическую своей перспективной, хотя так проще: это разная
 // КАРТИНКА, а не разная настройка. У ортографической нет схождения линий — ради этого
@@ -1832,10 +1837,48 @@ describe('Viewer — ортографическая камера (browser)', () 
     disposeViewer(viewer, canvas)
   })
 
+  itWithModels(['Ortho Camera 01.glb'], 'ортографическая камера доезжает из ФАЙЛА в список', async () => {
+    await viewer.load('/Ortho%20Camera%2001.glb')
+    const info = viewer.getCameraInfo()
+    // В файле две камеры, ортографическая первой. Пока такого файла не было, этот путь
+    // не проверялся вовсе: камеру собирали руками и клали в список, минуя загрузчик.
+    expect(info.count, 'камеры из файла не доехали').toBe(2)
+    // Имена — УЗЛОВ, а не камер: GLTFLoader для узла с камерой возвращает саму камеру
+    // и переписывает ей имя именем узла. В файле камеры зовутся Blueprint_Side и
+    // Hero_View. Так и правильно: в редакторе художник видит имя объекта.
+    expect(info.names).toEqual(['OrthoCameraNode', 'PerspCameraNode'])
+
+    expect(viewer.setCamera(0)).toBe(true)
+    const cam = viewer._activeCamera()
+    expect(cam.isOrthographicCamera, 'первая камера должна быть ортографической').toBe(true)
+    expect(viewer.controls.enabled, 'орбита должна быть выключена и здесь').toBe(false)
+
+    const parent = viewer.canvas.parentElement
+    const ratio = parent.clientWidth / parent.clientHeight
+    // Вертикаль автора не тронута: ymag 1.5 из файла.
+    expect(cam.top).toBeCloseTo(1.5, 5)
+    expect(cam.bottom).toBeCloseTo(-1.5, 5)
+    // Ширина пересчитана под окно, а не оставлена файловой (xmag был 2).
+    expect(cam.right).toBeCloseTo(1.5 * ratio, 5)
+    expect(cam.left).toBeCloseTo(-1.5 * ratio, 5)
+    viewer.renderFrame()
+
+    // Вторая камера того же файла — перспективная, и развилка обязана вести к aspect.
+    expect(viewer.setCamera(1)).toBe(true)
+    const persp = viewer._activeCamera()
+    expect(persp.isPerspectiveCamera).toBe(true)
+    expect(persp.aspect).toBeCloseTo(ratio, 5)
+    viewer.renderFrame()
+
+    viewer.setCamera(null)
+    expect(viewer._activeCamera()).toBe(viewer.camera)
+    expect(viewer.controls.enabled).toBe(true)
+  })
+
   itWithModels(['Dirty Cube 01.glb'], 'вертикаль остаётся авторской, ширина берётся от окна', async () => {
     await viewer.load(CUBE_URL)
 
-    // Так её отдал бы загрузчик: камера стоит в сцене узлом-родителем.
+    // Камера, собранная руками: проверяет НАШУ математику в отрыве от чтения файла.
     const ortho = new THREE.OrthographicCamera(-2, 2, 1.5, -1.5, 0.1, 100)
     ortho.name = 'Blueprint_Side'
     viewer.model.add(ortho)

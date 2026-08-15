@@ -536,6 +536,59 @@ export const RULES: GltfRule[] = [
   },
 
   {
+    // Морф-цели, которые никто не двигает: правило БЕЗ починки, только наблюдение.
+    //
+    // Морф-цель — запасная форма меша: улыбка, прищур, вмятина. Двигают их дорожки
+    // анимации по каналу `weights`. Бывает, что цели в файле есть, а дорожек нет вовсе:
+    // тогда в любом просмотрщике видна нейтральная поза, и со стороны это неотличимо от
+    // модели без морфов. Замер по корпусу 2026-08-15: Morph Cube 01 — две названные цели,
+    // ни одной дорожки; у parkergirl целей 456 и все анимированы.
+    //
+    // Почему только строка, без ползунков в интерфейсе (решение Александра, 2026-08-15):
+    // у настоящих файлов имён у целей нет (проверено — у parkergirl и chibi_zenitsu ноль
+    // имён), и панель выдала бы «Морф 1 … Морф 456» — ровно ту толпу одинаковых строк,
+    // которую запрещает Правило 9.
+    //
+    // Чинить нечего и не надо: морф-цель — замысел автора (Правило 11). Мы её считаем и
+    // охраняем метрикой morphTargets, а тут просто называем вслух.
+    meta: {
+      id: 'scene/morph-targets', category: 'scene', title: 'Morph targets', titleKey: 'rule.sceneMorphTargets',
+      severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: [], touches: [],
+      reversible: true, dataLoss: 'none',
+      enabled: () => true, // наблюдение, а не оптимизация: не зависит ни от одной галочки
+    },
+    analyze(ctx) {
+      const root = ctx.document.getRoot();
+
+      // Считаем МЕШИ с целями и максимум целей на примитив, а не сумму по файлу:
+      // «в файле 456 целей» ничего не значит, а «у 8 частей до 57 форм» — значит.
+      let meshes = 0;
+      let deepest = 0;
+      for (const mesh of root.listMeshes()) {
+        let most = 0;
+        for (const prim of mesh.listPrimitives()) most = Math.max(most, prim.listTargets().length);
+        if (!most) continue;
+        meshes++;
+        deepest = Math.max(deepest, most);
+      }
+      if (!meshes) return [];
+
+      // Двигает ли их хоть одна дорожка. В gltf-transform канал веса — это путь
+      // 'weights' у Channel; сам канал знает и цель, и путь.
+      let animated = false;
+      for (const anim of root.listAnimations()) {
+        if (anim.listChannels().some((ch) => ch.getTargetPath() === 'weights')) { animated = true; break; }
+      }
+
+      // Одна запись на класс (Правило 9): мешей бывают десятки, строка одна.
+      return [{
+        messageId: animated ? 'morph.found.animated' : 'morph.found.still',
+        data: { meshes, forms: deepest },
+      }];
+    },
+  },
+
+  {
     meta: {
       id: 'structure/dedup', category: 'materials', title: 'Duplicate resources (dedup)', titleKey: 'rule.structureDedup',
       severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: [], touches: ['texture', 'material', 'accessor'],
