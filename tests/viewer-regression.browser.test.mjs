@@ -1557,3 +1557,83 @@ describe('Viewer — levels of detail (browser)', () => {
     expect(viewer.setLod(0)).toBe(false)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Свет: наш студийный или тот, что принесла сама модель
+//
+// До 2026-08-15 наш направленный источник светил ПОВЕРХ авторского: загрузчик создаёт
+// источники из KHR_lights_punctual сам, а мы ничего не гасили. Оценить, как модель
+// задумана автором, было нельзя — светили оба.
+//
+// Сторожим три вещи, и каждая уже была бы дефектом по отдельности:
+//   1. Свой свет модели ВИДЕН как число, а не как догадка;
+//   2. У модели без своих источников переключать нечего — setLightMode('file') отвечает
+//      false, а не гасит сцену в темноту;
+//   3. Режим не «прилипает» к следующей модели: она может быть без своих источников и
+//      открылась бы почти чёрной.
+// ---------------------------------------------------------------------------
+
+describe('Viewer — свет модели (browser)', () => {
+  /** @type {HTMLCanvasElement} */
+  let canvas
+  /** @type {import('../ui/viewer/viewer.js').Viewer} */
+  let viewer
+
+  beforeAll(async () => {
+    const result = await createViewer()
+    canvas = result.canvas
+    viewer = result.viewer
+  })
+
+  afterAll(() => {
+    disposeViewer(viewer, canvas)
+  })
+
+  itWithModels(['Dirty Cube 01.glb'], 'Dirty Cube несёт свои источники — они посчитаны', async () => {
+    await viewer.load(CUBE_URL)
+    const info = viewer.getLightInfo()
+    // В файле объявлено два источника (KHR_lights_punctual). Сравниваем «не меньше»:
+    // точное число — дело файла, а не наше, а вот потерять их нельзя.
+    expect(info.count, 'свой свет модели не найден').toBeGreaterThanOrEqual(1)
+    // Новая модель всегда открывается на студийном: иначе тёмная модель выглядела бы
+    // сломанной ещё до того, как человек что-то нажал.
+    expect(info.mode).toBe('studio')
+  })
+
+  itWithModels(['Dirty Cube 01.glb'], 'переключение гасит НАШ источник, но не окружение', async () => {
+    await viewer.load(CUBE_URL)
+    expect(viewer._key.visible, 'студийный источник погашен в исходном состоянии').toBe(true)
+
+    expect(viewer.setLightMode('file')).toBe(true)
+    expect(viewer._key.visible, 'наш источник продолжает светить поверх авторского').toBe(false)
+    // Окружение приглушается, но НЕ до нуля: это не свет, а то, что отражается, и
+    // обнуление красит металл и стекло в чёрный вместо замысла автора.
+    expect(viewer.scene.environmentIntensity).toBeGreaterThan(0)
+    expect(viewer.scene.environmentIntensity).toBeLessThan(1)
+    expect(viewer.getLightInfo().mode).toBe('file')
+
+    expect(viewer.setLightMode('studio')).toBe(true)
+    expect(viewer._key.visible).toBe(true)
+    expect(viewer.scene.environmentIntensity).toBe(1)
+  })
+
+  itWithModels(['Morph Cube 01.glb'], 'у модели без своих источников переключать нечего', async () => {
+    await viewer.load('/Morph%20Cube%2001.glb')
+    const info = viewer.getLightInfo()
+    expect(info.count, 'у этой модели не должно быть своих источников').toBe(0)
+    // Главное: не молча погасить сцену, а честно отказать.
+    expect(viewer.setLightMode('file'), 'сцену увели в темноту вместо отказа').toBe(false)
+    expect(viewer._key.visible, 'студийный источник всё-таки погас').toBe(true)
+    expect(viewer.scene.environmentIntensity).toBe(1)
+  })
+
+  itWithModels(['Dirty Cube 01.glb', 'Morph Cube 01.glb'], 'режим не переезжает на следующую модель', async () => {
+    await viewer.load(CUBE_URL)
+    expect(viewer.setLightMode('file')).toBe(true)
+    // Следующая модель без своих источников: останься режим — она пришла бы почти чёрной.
+    await viewer.load('/Morph%20Cube%2001.glb')
+    expect(viewer.getLightInfo().mode).toBe('studio')
+    expect(viewer._key.visible).toBe(true)
+    expect(viewer.scene.environmentIntensity).toBe(1)
+  })
+})

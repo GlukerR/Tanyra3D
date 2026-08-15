@@ -50,6 +50,9 @@ window.I18N_CATALOGS.ru = {
   'vp.lod': 'Детализация',
   'vp.lod.guess': 'Похоже на уровни',
   'vp.rail': 'Что есть у этой модели',
+  'vp.light': 'Свет',
+  'viewer.light.studio': 'Студийный',
+  'viewer.light.file': 'Из файла',
   'stage.hint': 'Загрузите .glb на левой панели — модель появится здесь',
 
   // Подписи посреди панелей просмотра (ui/viewer/index.js). Ставятся из кода через

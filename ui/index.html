@@ -240,6 +240,17 @@
         </div>
       </div>
 
+      <!-- Свет: наш студийный или тот, что принесла сама модель (KHR_lights_punctual).
+           Значка нет у моделей без своих источников — там «свет из файла» означал бы
+           темноту, а не замысел автора. -->
+      <div id="light-controls" class="vp-group hidden">
+        <button class="vp-tool vp-group-btn" type="button" aria-expanded="false" data-i18n-title="vp.light" data-i18n-aria="vp.light" title="Lighting" aria-label="Lighting">☼</button>
+        <div class="vp-pop">
+          <span class="vp-ctl-label" data-i18n="vp.light">Lighting</span>
+          <select id="light-select" class="vp-anim-clip" data-i18n-aria="vp.light" aria-label="Lighting"></select>
+        </div>
+      </div>
+
       <!-- Анимация. Оба вьюпорта идут по одному времени, поэтому ползунок и выбор
            клипа общие, а не по одному на панель. -->
       <div id="anim-controls" class="vp-group hidden">

@@ -215,6 +215,13 @@ function orphanPointerGuard(parser: { json: { animations?: Array<{ channels?: Ar
 }
 
 /**
+ * Сколько остаётся от окружения в режиме «свет из файла». Не ноль намеренно — почему,
+ * подробно у setLightMode(): окружение это не свет, а то, что отражается, и его
+ * обнуление красит металл и стекло в чёрный, а не показывает замысел автора.
+ */
+const FILE_MODE_ENV = 0.15;
+
+/**
  * Самодостаточный просмотрщик одной модели: рендерер, сцена, студийный IBL-свет,
  * орбитальные контролы, авто-кадрирование под размер модели.
  */
@@ -251,6 +258,12 @@ export class Viewer implements ViewerLike {
   declare _variant?: string | null;
   /** Переключатель из плагина: (объект, имя|null) → Promise. Живёт вместе с моделью. */
   declare _selectVariant?: ((o: THREE.Object3D, name: string | null) => Promise<unknown>) | null;
+  /** Наш студийный источник. Гасится, когда человек просит показать свет из файла. */
+  declare _key: THREE.DirectionalLight;
+  /** Сколько источников света принесла сама модель (KHR_lights_punctual). */
+  declare _fileLights?: number;
+  /** Чей свет показываем: 'studio' — наш, 'file' — авторский. */
+  declare _lightMode?: 'studio' | 'file';
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -306,6 +319,8 @@ export class Viewer implements ViewerLike {
     const key = new THREE.DirectionalLight(0xffffff, 1.1);
     key.position.set(8, 12, 6);
     this.scene.add(key);
+    this._key = key;
+    this._lightMode = 'studio';
   }
 
   _initLoaders() {
@@ -394,6 +409,11 @@ export class Viewer implements ViewerLike {
     // габаритам, а они считаются по мировым матрицам.
     this._lods = await detectLods(gltf as never);
     this._lod = null;
+    // Свой свет модели считаем после добавления в сцену: загрузчик кладёт источники
+    // внутрь модели, и до этого момента обходить нечего. Режим при новой модели всегда
+    // студийный — иначе модель без своих источников открылась бы почти чёрной.
+    this._fileLights = this._countFileLights();
+    this.setLightMode('studio');
     this._setupAnimations(gltf.animations);
     // camera передан (сборка/ребилд той же модели) → СОХРАНИТЬ ракурс: приближённая
     // пользователем деталь остаётся на месте. Иначе (новая модель) — авто-кадрирование.
@@ -563,6 +583,57 @@ export class Viewer implements ViewerLike {
     if (index !== null && (index < 0 || index >= this._lods.levels.length)) return false;
     showLod(this._lods, this.model, index);
     this._lod = index;
+    return true;
+  }
+
+  // ---------------------------------------------------------------------
+  // Свет: наш студийный или авторский
+  //
+  // Модель может принести собственные источники (KHR_lights_punctual) — загрузчик
+  // создаёт их сам и кладёт внутрь модели. До 2026-08-15 мы просто добавляли свой
+  // направленный источник ПОВЕРХ: авторский свет никуда не девался, но оценить, как
+  // модель задумана, было нельзя — светили оба.
+  //
+  // Гасить целиком нечего: у нас ДВА источника разной природы, и только один спорит
+  // с авторским.
+  //
+  //   • направленный ключевой — наш, конкурент авторскому, гасится начисто;
+  //   • окружение (RoomEnvironment) — это не «свет», а ТО, ЧТО ОТРАЖАЕТСЯ. Металл,
+  //     стекло, лак, радужка и просвет берут картинку отсюда. Обнулив его, мы покажем
+  //     не замысел автора, а чёрные пятна.
+  //
+  // И формат тут ни при чём: glTF окружение не описывает ВООБЩЕ. Его подставляет
+  // каждый просмотрщик от себя, авторского варианта не существует — значит и «выключить
+  // до авторского» нечего. Поэтому в режиме файла окружение приглушается до слабого
+  // остатка (FILE_MODE_ENV наверху файла), а не до нуля: ноль был бы такой же
+  // неправдой, только с другой стороны.
+
+  /** Сколько источников принесла сама модель; 0 — своих у неё нет. */
+  _countFileLights() {
+    let n = 0;
+    if (this.model) this.model.traverse((o) => { if ((o as THREE.Light).isLight) n++; });
+    return n;
+  }
+
+  /** Есть ли у модели свой свет и чей показываем — для полки значков. */
+  getLightInfo() {
+    return {
+      count: this._fileLights ?? 0,
+      mode: this._lightMode ?? 'studio',
+    };
+  }
+
+  /**
+   * Показать свет автора или вернуть студийный.
+   *
+   * false = переключать нечего: своих источников модель не принесла, и «свет из файла»
+   * означал бы полную темноту.
+   */
+  setLightMode(mode: 'studio' | 'file') {
+    if (mode === 'file' && !(this._fileLights ?? 0)) return false;
+    this._key.visible = mode === 'studio';
+    this.scene.environmentIntensity = mode === 'studio' ? 1 : FILE_MODE_ENV;
+    this._lightMode = mode;
     return true;
   }
 

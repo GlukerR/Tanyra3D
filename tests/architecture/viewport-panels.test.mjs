@@ -51,7 +51,7 @@ function stripComments(src) {
 }
 
 /** Группы свойств модели: появляются только у той модели, где это есть. */
-const GROUP_IDS = ['lod-controls', 'variant-controls', 'anim-controls'];
+const GROUP_IDS = ['lod-controls', 'variant-controls', 'light-controls', 'anim-controls'];
 
 describe('панели вьюпорта — устройство', () => {
   it('верхняя панель держит только общее: групп свойств модели в ней нет', () => {

@@ -66,6 +66,8 @@
   const lodSel = $('lod-select') as HTMLSelectElement;
   const variantControls = $('variant-controls');
   const variantSel = $('variant-select') as HTMLSelectElement;
+  const lightControls = $('light-controls');
+  const lightSel = $('light-select') as HTMLSelectElement;
   const animPlayBtn = $('anim-play-btn');
   const animClipSel = $('anim-clip') as HTMLSelectElement;
   const animSeek = $('anim-seek') as HTMLInputElement;
@@ -4086,6 +4088,41 @@
     });
   }
 
+  // ---------------------------------------------------------------
+  // Свет — наш студийный или авторский
+  //
+  // Значок появляется только у моделей, которые принесли СВОИ источники
+  // (KHR_lights_punctual). У остальных «свет из файла» означал бы темноту, поэтому
+  // выбирать там не из чего и предлагать нечего.
+  //
+  // Почему это вообще нужно: до 2026-08-15 наш направленный источник светил ПОВЕРХ
+  // авторского, и увидеть модель так, как её ставил автор, было нельзя.
+  function refreshLightUI() {
+    if (!lightControls || !window.OptiViewer || !window.OptiViewer.getLight) return;
+    const info = window.OptiViewer.getLight();
+    const has = info.count > 0;
+    lightControls.classList.toggle('hidden', !has);
+    if (!has || !lightSel) return;
+
+    if (!lightSel.dataset.filled) {
+      lightSel.dataset.filled = '1';
+      for (const mode of ['studio', 'file']) {
+        const opt = document.createElement('option');
+        opt.value = mode;
+        setText(opt, mode === 'studio' ? 'viewer.light.studio' : 'viewer.light.file');
+        lightSel.appendChild(opt);
+      }
+    }
+    if (lightSel.value !== info.mode) lightSel.value = info.mode;
+  }
+
+  if (lightSel) {
+    lightSel.addEventListener('change', () => {
+      if (!window.OptiViewer) return;
+      window.OptiViewer.selectLightMode(lightSel.value === 'file' ? 'file' : 'studio');
+    });
+  }
+
   /** Раз в кадр подтягивать положение ползунка и время под играющую анимацию. */
   function syncAnimProgress() {
     if (!window.OptiViewer || !window.OptiViewer.getAnimation) return;
@@ -4206,11 +4243,12 @@
   // Обе панели состава модели перестраиваются по одному уведомлению: список клипов
   // и список вариантов появляются и исчезают вместе с моделью, которая их несёт.
   window.onOptiViewerModelLoaded = () => {
-    refreshAnimUI(); refreshVariantUI(); refreshLodUI(); closeHiddenGroups();
+    refreshAnimUI(); refreshVariantUI(); refreshLodUI(); refreshLightUI(); closeHiddenGroups();
   };
   refreshAnimUI();    // стартовое состояние: моделей нет — панелей нет
   refreshVariantUI();
   refreshLodUI();
+  refreshLightUI();
   startAnimPolling();
 
   // ---------------------------------------------------------------

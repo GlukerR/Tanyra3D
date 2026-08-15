@@ -454,6 +454,29 @@ class DualViewport {
     this.right?.viewer?.setLod?.(index);
   }
 
+  /**
+   * Свет загруженной модели — для полки значков.
+   *
+   * Спрашиваем ЛЕВЫЙ вьюпорт по той же причине, что варианты и уровни: он показывает
+   * исходник. Пропавший справа источник — находка про оптимизацию, и говорить о ней
+   * должен отчёт, а не молча погасшая кнопка.
+   */
+  getLight() {
+    return this.left?.viewer?.getLightInfo?.() || { count: 0, mode: 'studio' as const };
+  }
+
+  /**
+   * Переключить свет В ОБОИХ окнах: разное освещение слева и справа читалось бы как
+   * последствие оптимизации — та же причина, по которой экспозиция одна на двоих.
+   *
+   * Выбор НЕ запоминается между моделями, в отличие от клипа и варианта: у следующей
+   * модели своего света может не быть вовсе, и она открылась бы почти чёрной.
+   */
+  selectLightMode(mode: 'studio' | 'file') {
+    this.left?.viewer?.setLightMode?.(mode);
+    this.right?.viewer?.setLightMode?.(mode);
+  }
+
   setAnimationPlaying(playing: boolean) {
     this._animPlaying = !!playing;
   }
@@ -682,6 +705,9 @@ window.OptiViewer = {
   selectLod: (index) => dual.selectLod(index),
   getVariants: () => dual.getVariants(),
   selectVariant: (name) => dual.selectVariant(name),
+  // Свет: наш студийный или тот, что принесла сама модель. Один на оба вьюпорта.
+  getLight: () => dual.getLight(),
+  selectLightMode: (mode) => dual.selectLightMode(mode),
   // Экспозиция — одна на оба вьюпорта, см. _applyExposure.
   setExposure: (v) => dual.setExposure(v),
   getExposure: () => dual.getExposure(),
