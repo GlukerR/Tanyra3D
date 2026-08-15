@@ -33,10 +33,15 @@ describe('правило «переживи сбой одного элемент
   });
 
   it('per-element вызовы sharp/compressTexture идут через attempt, а не голыми', () => {
-    // resize и webp — две одинаковые точки входа через attempt.
-    expect((rulesSrc.match(/const res = await attempt\(async \(\) => \{/g) || []).length).toBe(2);
-    // ktx2: перекодирование WebP/JPEG → PNG перед toktx — тоже через шов.
-    expect(rulesSrc).toContain('const conv = await attempt(async () => {');
+    // Три точки, где обрабатывается ОДИН элемент из списка: textures/resize (sharp),
+    // textures/webp (compressTexture), textures/ktx2 (перекодирование в PNG перед toktx).
+    //
+    // Граница снизу, а не точное число: четвёртая такая точка в новом правиле — это
+    // соблюдение дисциплины, а не её нарушение, и краснеть на ней тест не должен.
+    // Обратную сторону — «шов обошли» — стережёт проверка ниже: она считает catch-блоки,
+    // и голый try/catch в правиле покраснеет независимо от того, как названа переменная.
+    const seams = (rulesSrc.match(/await attempt\(/g) || []).length;
+    expect(seams, 'вызовов attempt меньше трёх — точку обработки элемента увели мимо шва').toBeGreaterThanOrEqual(3);
   });
 
   it('в fix() правил нет ручного try/catch — только шов и два санкционированных места', () => {

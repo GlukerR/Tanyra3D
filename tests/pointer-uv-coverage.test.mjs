@@ -200,6 +200,11 @@ describe('SLOT_TO_THREE — покрытие корпуса', () => {
     for (const entry of inventory) {
       console.log(`  ${entry.model} → ${entry.slots.join(', ')}`)
     }
-    expect(true).toBe(true)
+    // Утверждение о самом сканере, а не о корпусе: имя слота обязано быть именем слота.
+    // Разъедется POINTER_RE или разбор последнего сегмента — инвентаризация начнёт
+    // приносить мусор, и покрытие выше станет проверять не то. Заглушки `expect(true)`
+    // здесь не годится: тест, который не может упасть, только раздувает набор.
+    const notSlots = distinctSlots.filter((s) => !s.endsWith('Texture'))
+    expect(notSlots, 'сканер принёс не слоты: ' + notSlots.join(', ')).toEqual([])
   })
 })
