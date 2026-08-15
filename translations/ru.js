@@ -66,7 +66,7 @@ window.I18N_CATALOGS.ru = {
   'viewer.variant.original': 'Как в файле',
   'viewer.lod.asFile': 'Как в файле',
   'viewer.lod.all': 'Показать все сразу',
-  'viewer.lod.item': ({ name, tri }) => `${name} — ${Number(tri).toLocaleString('ru-RU')} тр.`,
+  'viewer.lod.item': ({ n, tri }) => `Уровень ${n} — ${Number(tri).toLocaleString('ru-RU')} тр.`,
 
   // --- окна ---
   'win.close': 'Закрыть',
