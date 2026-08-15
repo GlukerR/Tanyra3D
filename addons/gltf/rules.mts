@@ -231,6 +231,28 @@ function sharedMeshes(document: Document): Set<Mesh> {
   return shared;
 }
 
+// Меши, чьи примитивы участвуют в переключении вариантов материала.
+//
+// KHR_materials_variants хранит подмену НА ПРИМИТИВЕ: «этот кусок при варианте
+// „Carmine Candy“ берёт материал 7, при „Torched Graphite“ — материал 12». Объединение
+// сливает примитивы, и вместе с ними исчезает место, где подмена записана.
+//
+// Замер 2026-08-15 на CarConcept (3 окраски машины, 25 примитивов, 75 привязок): после
+// flatten+join примитивов остаётся 23, привязок — НОЛЬ. При этом сам список вариантов
+// живёт в корне документа и никуда не девается — то есть файл продолжает заявлять три
+// окраски, не содержа ни одной. Это хуже честной потери: программа на сайте покажет
+// человеку выбор из трёх цветов, который ничего не переключает.
+//
+// Проверяется по факту наличия расширения на примитиве, а не по объявлению в корне:
+// объявление переживает объединение и потому ни о чём не говорит.
+function variantMeshes(document: Document): Set<Mesh> {
+  const kept = new Set<Mesh>();
+  for (const mesh of document.getRoot().listMeshes()) {
+    if (mesh.listPrimitives().some((p) => p.getExtension('KHR_materials_variants'))) kept.add(mesh);
+  }
+  return kept;
+}
+
 // ============================================================================
 // СКИННИНГ: общая механика трёх правил, которые чинят замечания валидатора Khronos
 // (docs/ROADMAP.md §5b1). Здесь только чтение и запись влияний костей; что именно
@@ -1008,9 +1030,15 @@ export const RULES: GltfRule[] = [
       // Теперь общая геометрия исключается из объединения по факту, на месте: узел с
       // мешем, у которого больше одного пользователя, join не получает вовсе. Своей
       // логики объединения мы не пишем — это штатная опция filter самой библиотеки.
+      // Второе исключение из объединения — варианты материала (см. variantMeshes).
+      // Причина у него другая, чем у общей геометрии: там объединение РАЗМНОЖАЕТ
+      // данные, здесь — СТИРАЕТ их. Оба случая решаются одним и тем же штатным
+      // фильтром библиотеки, поэтому собираются в один набор.
       await ctx.document.transform(fns.flatten());
       const shared = sharedMeshes(ctx.document);
-      await ctx.document.transform(fns.join({ filter: (node) => !shared.has(node.getMesh()!) }));
+      const variants = variantMeshes(ctx.document);
+      const spared = new Set([...shared, ...variants]);
+      await ctx.document.transform(fns.join({ filter: (node) => !spared.has(node.getMesh()!) }));
 
       const a = m();
 
@@ -1018,6 +1046,12 @@ export const RULES: GltfRule[] = [
       // сэкономленных отрисовок, чем ожидал, и должен знать, почему и что включить.
       const keptShared = shared.size
         ? [{ messageId: 'join.keptShared', data: { meshes: shared.size } }]
+        : [];
+      // То же и про варианты: цена сохранённого выбора цветов — несколько лишних
+      // отрисовок, и назвать её человек имеет право. Одна строка на класс (Правило 9),
+      // а не строка на каждый уцелевший меш.
+      const keptVariants = variants.size
+        ? [{ messageId: 'join.keptVariants', data: { meshes: variants.size } }]
         : [];
 
       if (b.drawCalls > a.drawCalls || b.nodes > a.nodes || b.meshes > a.meshes) {
@@ -1036,9 +1070,9 @@ export const RULES: GltfRule[] = [
         //
         // Настоящую цену человек видит в общем итоге сборки (было → стало), а
         // почему сэкономлено меньше отрисовок, чем он ждал, объясняет join.keptShared.
-        return { found: [{ messageId: 'join.found', data: { drawCalls: b.drawCalls, nodes: b.nodes } }], details, skipped: keptShared };
+        return { found: [{ messageId: 'join.found', data: { drawCalls: b.drawCalls, nodes: b.nodes } }], details, skipped: [...keptShared, ...keptVariants] };
       }
-      return { skipped: keptShared };
+      return { skipped: [...keptShared, ...keptVariants] };
     },
   },
 
