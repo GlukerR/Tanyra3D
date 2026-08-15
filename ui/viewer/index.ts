@@ -219,6 +219,10 @@ class DualViewport {
   declare _variantName: string | null;
   /** Показанный уровень детализации; null — как в файле. Тоже переживает загрузку. */
   declare _lodIndex: number | 'all' | null;
+  /** Выбранный ракурс автора; null — своя орбита. Переживает сборку, но не смену модели. */
+  declare _cameraIndex: number | null;
+  /** Чей свет показываем. Тоже переживает сборку, но не смену модели. */
+  declare _lightMode: 'studio' | 'file';
   declare _exposure: number;
   declare _perf: { left: Float64Array; right: Float64Array; frame: Float64Array; i: number };
   // Эти два появляются позже конструктора и до тех пор отсутствуют — отсюда `?`:
@@ -240,6 +244,8 @@ class DualViewport {
     this._animClipIndex = 0; // выбранный клип переживает загрузку новой модели
     this._variantName = null; // выбранный вариант материала — тоже (см. _applyVariantSelection)
     this._lodIndex = null;    // и показанный уровень детализации
+    this._cameraIndex = null; // и выбранный ракурс автора (см. _applyCameraSelection)
+    this._lightMode = 'studio'; // и чей свет показываем
     this._exposure = 1;      // 1.0 — как отдаёт three.js без поправки
     // Кольцевые буферы замера отрисовки; заполняются в _pushPerf каждый кадр.
     this._perf = {
@@ -454,6 +460,66 @@ class DualViewport {
     this.right?.viewer?.setLod?.(index);
   }
 
+  /**
+   * Свет загруженной модели — для полки значков.
+   *
+   * Спрашиваем ЛЕВЫЙ вьюпорт по той же причине, что варианты и уровни: он показывает
+   * исходник. Пропавший справа источник — находка про оптимизацию, и говорить о ней
+   * должен отчёт, а не молча погасшая кнопка.
+   */
+  getLight() {
+    const info = this.left?.viewer?.getLightInfo?.() || { count: 0, mode: 'studio' as const };
+    return {
+      ...info,
+      // По сторонам — по той же причине, что у камер: разный свет слева и справа
+      // читается как последствие оптимизации, а на деле это рассинхрон настроек показа.
+      leftMode: this.left?.viewer?.getLightInfo?.().mode ?? null,
+      rightMode: this.right?.viewer?.getLightInfo?.().mode ?? null,
+    };
+  }
+
+  /**
+   * Переключить свет В ОБОИХ окнах: разное освещение слева и справа читалось бы как
+   * последствие оптимизации — та же причина, по которой экспозиция одна на двоих.
+   *
+   * Выбор НЕ запоминается между моделями, в отличие от клипа и варианта: у следующей
+   * модели своего света может не быть вовсе, и она открылась бы почти чёрной.
+   */
+  selectLightMode(mode: 'studio' | 'file') {
+    this._lightMode = mode;
+    this.left?.viewer?.setLightMode?.(mode);
+    this.right?.viewer?.setLightMode?.(mode);
+  }
+
+  /**
+   * Камеры автора — для полки значков. Спрашиваем ЛЕВЫЙ вьюпорт: он показывает
+   * исходник, и набор ракурсов в нём полный по определению.
+   */
+  getCameras() {
+    const info = this.left?.viewer?.getCameraInfo?.() || { count: 0, names: [], current: null };
+    return {
+      ...info,
+      // По сторонам — чтобы рассинхрон был ВИДИМОЙ величиной, а не ощущением «что-то не
+      // то после сборки». Ровно та же причина, что у leftIndex/rightIndex в
+      // getAnimation(), и ровно тот же дефект: 2026-08-15 после сборки левое окно
+      // продолжало смотреть камерой автора, а правое возвращалось к своей орбите.
+      leftCurrent: this.left?.viewer?.getCameraInfo?.().current ?? null,
+      rightCurrent: this.right?.viewer?.getCameraInfo?.().current ?? null,
+    };
+  }
+
+  /**
+   * Смотреть через камеру автора В ОБОИХ окнах. Разные ракурсы слева и справа сделали
+   * бы сравнение бессмысленным — та же причина, по которой связаны орбиты.
+   *
+   * Выбор НЕ запоминается между моделями: у следующей этого ракурса может не быть.
+   */
+  selectCamera(index: number | null) {
+    this._cameraIndex = index;
+    this.left?.viewer?.setCamera?.(index);
+    this.right?.viewer?.setCamera?.(index);
+  }
+
   setAnimationPlaying(playing: boolean) {
     this._animPlaying = !!playing;
   }
@@ -511,6 +577,15 @@ class DualViewport {
    *  оптимизированный результат больше не соответствует новой исходной модели. */
   async loadOriginal(originalFile: File | null) {
     if (!this._init()) return null;
+    // ДРУГАЯ модель — ракурс автора и свет из файла забываем. Клип и вариант так не
+    // делают намеренно (человек сравнивает модели в одном виде), а здесь наоборот:
+    // «камера 5» у новой модели — совсем другая точка зрения, если она вообще есть,
+    // и подсовывать её вместо своей орбиты значит решать за человека.
+    //
+    // Пересборка той же модели идёт через loadOptimized и сюда не попадает — там выбор
+    // как раз обязан пережить сборку (см. _applyCameraSelection).
+    this._cameraIndex = null;
+    this._lightMode = 'studio';
     this._unlinkCameras();
     this.right!.reset();
     this.right!.showHint("viewer.hint.compare");
@@ -541,6 +616,8 @@ class DualViewport {
     this._applyAnimSelection();
     this._applyVariantSelection();
     this._applyLodSelection();
+    this._applyCameraSelection();
+    this._applyLightSelection();
     this._applyExposure();
     this._startLoop();
     // Состав модели изменился — панели управления надо перестроить СЕЙЧАС, а не
@@ -594,6 +671,39 @@ class DualViewport {
     if (index === null) return;
     this.left?.viewer?.setLod?.(index);
     this.right?.viewer?.setLod?.(index);
+  }
+
+  /**
+   * Вернуть свежезагруженной модели выбранный ракурс автора.
+   *
+   * Дефект 2026-08-15: этого не было, а load() ракурс сбрасывает. После сборки левое
+   * окно продолжало смотреть камерой автора, правое возвращалось к своей орбите — два
+   * окна показывали РАЗНОЕ, и разница читалась как последствие оптимизации.
+   *
+   * Отказ обрабатываем честно: если камеры с таким номером в модели нет, возвращаем
+   * СВОЮ орбиту в обоих окнах и забываем выбор. Молча оставить окна в разных
+   * состояниях — это тот же дефект, только тише.
+   */
+  _applyCameraSelection() {
+    const index = this._cameraIndex;
+    if (index === null) return;
+    const okLeft = this.left?.viewer ? this.left.viewer.setCamera(index) : true;
+    const okRight = this.right?.viewer ? this.right.viewer.setCamera(index) : true;
+    if (okLeft && okRight) return;
+    this._cameraIndex = null;
+    this.left?.viewer?.setCamera?.(null);
+    this.right?.viewer?.setCamera?.(null);
+  }
+
+  /** То же для света: своего света у пересобранной модели может не оказаться. */
+  _applyLightSelection() {
+    if (this._lightMode !== 'file') return;
+    const okLeft = this.left?.viewer ? this.left.viewer.setLightMode('file') : true;
+    const okRight = this.right?.viewer ? this.right.viewer.setLightMode('file') : true;
+    if (okLeft && okRight) return;
+    this._lightMode = 'studio';
+    this.left?.viewer?.setLightMode?.('studio');
+    this.right?.viewer?.setLightMode?.('studio');
   }
 
   _applyVariantSelection() {
@@ -682,6 +792,12 @@ window.OptiViewer = {
   selectLod: (index) => dual.selectLod(index),
   getVariants: () => dual.getVariants(),
   selectVariant: (name) => dual.selectVariant(name),
+  // Свет: наш студийный или тот, что принесла сама модель. Один на оба вьюпорта.
+  getLight: () => dual.getLight(),
+  selectLightMode: (mode) => dual.selectLightMode(mode),
+  // Камеры автора: его ракурсы вместо нашей орбиты. Тоже один выбор на оба вьюпорта.
+  getCameras: () => dual.getCameras(),
+  selectCamera: (index) => dual.selectCamera(index),
   // Экспозиция — одна на оба вьюпорта, см. _applyExposure.
   setExposure: (v) => dual.setExposure(v),
   getExposure: () => dual.getExposure(),

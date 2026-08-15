@@ -49,6 +49,13 @@ window.I18N_CATALOGS.ru = {
   'vp.variant': 'Вид',
   'vp.lod': 'Детализация',
   'vp.lod.guess': 'Похоже на уровни',
+  'vp.rail': 'Что есть у этой модели',
+  'vp.light': 'Свет',
+  'viewer.light.studio': 'Студийный',
+  'viewer.light.file': 'Из файла',
+  'vp.camera': 'Камера',
+  'viewer.camera.free': 'Свободная',
+  'viewer.camera.unnamed': ({ n }) => `Камера ${n}`,
   'stage.hint': 'Загрузите .glb на левой панели — модель появится здесь',
 
   // Подписи посреди панелей просмотра (ui/viewer/index.js). Ставятся из кода через
@@ -65,7 +72,7 @@ window.I18N_CATALOGS.ru = {
   'viewer.variant.original': 'Как в файле',
   'viewer.lod.asFile': 'Как в файле',
   'viewer.lod.all': 'Показать все сразу',
-  'viewer.lod.item': ({ name, tri }) => `${name} — ${Number(tri).toLocaleString('ru-RU')} тр.`,
+  'viewer.lod.item': ({ n, tri }) => `Уровень ${n} — ${Number(tri).toLocaleString('ru-RU')} тр.`,
 
   // --- окна ---
   'win.close': 'Закрыть',

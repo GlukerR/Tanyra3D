@@ -195,7 +195,9 @@
 
     </div>
 
-    <!-- Viewport controls (bottom center) -->
+    <!-- ВЕРХ ПО ЦЕНТРУ: то, что относится к ЛЮБОЙ модели — камера и свет.
+         Наверху, а не внизу: человек замечает это раньше, до того как начнёт искать
+         (Александр, 2026-08-15). Здесь всегда ровно три вещи, панель не растёт. -->
     <div class="vp-toolbar">
       <button id="reset-view-btn" class="vp-tool" data-i18n-title="vp.reset" data-i18n-aria="vp.reset" title="Reset view" aria-label="Reset view">⤢</button>
       <button id="link-toggle-btn" class="vp-tool is-on" data-i18n-title="vp.link" data-i18n-aria="vp.link" title="Link cameras" aria-pressed="true" aria-label="Link cameras">⇄</button>
@@ -207,32 +209,69 @@
       <span class="vp-ctl-label" data-i18n-title="vp.exposure" title="Exposure">☀</span>
       <input id="exposure-slider" class="vp-slider" type="range" min="10" max="300" value="100" step="5" data-i18n-aria="vp.exposure" aria-label="Exposure">
       <span id="exposure-value" class="vp-ctl-value">1.0</span>
+    </div>
 
-      <!-- Анимация. Скрыта целиком, пока в модели нет клипов: пустой проигрыватель
-           под статичной моделью только сбивает с толку. Оба вьюпорта идут по одному
-           времени, поэтому ползунок и выбор клипа общие, а не по одному на панель. -->
-      <!-- Уровни детализации: показывается ТОЛЬКО когда они есть в модели.
-           Переключение прячет остальные уровни, но ничего не удаляет (Правило 11). -->
-      <div id="lod-controls" class="vp-anim hidden">
-        <span class="vp-sep" aria-hidden="true"></span>
-        <span id="lod-label" class="vp-ctl-label" data-i18n="vp.lod">Detail</span>
-        <select id="lod-select" class="vp-anim-clip" data-i18n-aria="vp.lod" aria-label="Level of detail"></select>
+    <!-- НИЗ СПРАВА: свойства ЭТОЙ модели — значками, каждый со своей полочкой.
+         Прежде всё это стояло одной строкой внизу, и строка росла с каждой новой
+         возможностью: при трёх группах она уже не помещалась во вьюпорт, а впереди
+         камеры автора, свет из файла и что придёт дальше (Александр, 2026-08-15).
+         Значок появляется ТОЛЬКО у модели, где это есть, — то же правило, что раньше
+         работало для целых строк. Полочка — состояние показа: закрыть её значит убрать
+         с глаз органы управления, а не выключить то, чем они управляют. Свёрнутая
+         анимация продолжает идти. -->
+    <div class="vp-rail" role="toolbar" data-i18n-aria="vp.rail" aria-label="Model controls">
+      <!-- Уровни детализации: переключение прячет остальные уровни, но ничего не
+           удаляет (Правило 11 — показываем, а не редактируем). -->
+      <div id="lod-controls" class="vp-group hidden">
+        <button class="vp-tool vp-group-btn" type="button" aria-expanded="false" data-i18n-title="vp.lod" data-i18n-aria="vp.lod" title="Detail" aria-label="Detail">▤</button>
+        <div class="vp-pop">
+          <span id="lod-label" class="vp-ctl-label" data-i18n="vp.lod">Detail</span>
+          <select id="lod-select" class="vp-anim-clip" data-i18n-aria="vp.lod" aria-label="Level of detail"></select>
+        </div>
       </div>
 
-      <!-- Варианты материала: показывается ТОЛЬКО когда они есть в файле.
-           Имена в списке — из модели, их писал художник; переводу не подлежат. -->
-      <div id="variant-controls" class="vp-anim hidden">
-        <span class="vp-sep" aria-hidden="true"></span>
-        <span class="vp-ctl-label" data-i18n="vp.variant">Look</span>
-        <select id="variant-select" class="vp-anim-clip" data-i18n-aria="vp.variant" aria-label="Material variant"></select>
+      <!-- Варианты материала. Имена в списке — из модели, их писал художник;
+           переводу не подлежат (Правило 8: это данные). -->
+      <div id="variant-controls" class="vp-group hidden">
+        <button class="vp-tool vp-group-btn" type="button" aria-expanded="false" data-i18n-title="vp.variant" data-i18n-aria="vp.variant" title="Look" aria-label="Look">◐</button>
+        <div class="vp-pop">
+          <span class="vp-ctl-label" data-i18n="vp.variant">Look</span>
+          <select id="variant-select" class="vp-anim-clip" data-i18n-aria="vp.variant" aria-label="Material variant"></select>
+        </div>
       </div>
 
-      <div id="anim-controls" class="vp-anim hidden">
-        <span class="vp-sep" aria-hidden="true"></span>
-        <button id="anim-play-btn" class="vp-tool is-on" title="Pause animation" aria-label="Pause animation" aria-pressed="true">⏸</button>
-        <select id="anim-clip" class="vp-anim-clip" data-i18n-aria="vp.clip" aria-label="Animation clip"></select>
-        <input id="anim-seek" class="vp-slider" type="range" min="0" max="1000" value="0" step="1" data-i18n-aria="vp.time" aria-label="Animation time">
-        <span id="anim-time" class="vp-ctl-value">0.0s</span>
+      <!-- Камеры автора: его ракурсы вместо нашей орбиты. Значка нет у моделей без
+           камер. Через авторскую камеру орбита выключается — это точка зрения автора,
+           а не начало для вращения. -->
+      <div id="camera-controls" class="vp-group hidden">
+        <button class="vp-tool vp-group-btn" type="button" aria-expanded="false" data-i18n-title="vp.camera" data-i18n-aria="vp.camera" title="Camera" aria-label="Camera">▣</button>
+        <div class="vp-pop">
+          <span class="vp-ctl-label" data-i18n="vp.camera">Camera</span>
+          <select id="camera-select" class="vp-anim-clip" data-i18n-aria="vp.camera" aria-label="Camera"></select>
+        </div>
+      </div>
+
+      <!-- Свет: наш студийный или тот, что принесла сама модель (KHR_lights_punctual).
+           Значка нет у моделей без своих источников — там «свет из файла» означал бы
+           темноту, а не замысел автора. -->
+      <div id="light-controls" class="vp-group hidden">
+        <button class="vp-tool vp-group-btn" type="button" aria-expanded="false" data-i18n-title="vp.light" data-i18n-aria="vp.light" title="Lighting" aria-label="Lighting">☼</button>
+        <div class="vp-pop">
+          <span class="vp-ctl-label" data-i18n="vp.light">Lighting</span>
+          <select id="light-select" class="vp-anim-clip" data-i18n-aria="vp.light" aria-label="Lighting"></select>
+        </div>
+      </div>
+
+      <!-- Анимация. Оба вьюпорта идут по одному времени, поэтому ползунок и выбор
+           клипа общие, а не по одному на панель. -->
+      <div id="anim-controls" class="vp-group hidden">
+        <button class="vp-tool vp-group-btn" type="button" aria-expanded="false" data-i18n-title="vp.clip" data-i18n-aria="vp.clip" title="Animation" aria-label="Animation">▷</button>
+        <div class="vp-pop">
+          <button id="anim-play-btn" class="vp-tool is-on" title="Pause animation" aria-label="Pause animation" aria-pressed="true">⏸</button>
+          <select id="anim-clip" class="vp-anim-clip" data-i18n-aria="vp.clip" aria-label="Animation clip"></select>
+          <input id="anim-seek" class="vp-slider" type="range" min="0" max="1000" value="0" step="1" data-i18n-aria="vp.time" aria-label="Animation time">
+          <span id="anim-time" class="vp-ctl-value">0.0s</span>
+        </div>
       </div>
     </div>
 

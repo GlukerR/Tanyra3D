@@ -66,6 +66,10 @@
   const lodSel = $('lod-select') as HTMLSelectElement;
   const variantControls = $('variant-controls');
   const variantSel = $('variant-select') as HTMLSelectElement;
+  const lightControls = $('light-controls');
+  const lightSel = $('light-select') as HTMLSelectElement;
+  const cameraControls = $('camera-controls');
+  const cameraSel = $('camera-select') as HTMLSelectElement;
   const animPlayBtn = $('anim-play-btn');
   const animClipSel = $('anim-clip') as HTMLSelectElement;
   const animSeek = $('anim-seek') as HTMLInputElement;
@@ -4012,10 +4016,16 @@
       info.names.forEach((name: string, i: number) => {
         const opt = document.createElement('option');
         opt.value = String(i);
-        // Имя узла — из файла, не переводится. Число треугольников — то, по чему уровни
-        // и отличают друг от друга, поэтому идёт ОДНИМ сообщением с подстановками, а не
-        // склейкой имени и числа в коде (Правило 8 §3).
-        setText(opt, 'viewer.lod.item', { name: name || String(i + 1), tri: info.triangles[i] ?? 0 });
+        // Номер НАШ и один: 1 — самый подробный. Имя узла из файла спорило бы с ним
+        // вторым номером — у Sketchfab-экспорта оно несёт порядок выгрузки
+        // (`Stone_Well_LOD5_5`, `Stone_Well_LOD0_3`), и в списке читались две
+        // несогласованные нумерации. Число треугольников — то, по чему уровни и
+        // отличают друг от друга, поэтому идёт ОДНИМ сообщением с подстановками, а не
+        // склейкой в коде (Правило 8 §3).
+        setText(opt, 'viewer.lod.item', { n: i + 1, tri: info.triangles[i] ?? 0 });
+        // Имя из файла не потеряно — оно в подсказке. Ставится напрямую, БЕЗ ключа:
+        // это данные автора, переводить их нельзя (Правило 8).
+        if (name) opt.title = name;
         lodSel.appendChild(opt);
       });
     }
@@ -4077,6 +4087,87 @@
       if (!window.OptiViewer) return;
       // Пустая строка — «как в файле», и это осмысленный выбор, а не отсутствие его.
       void window.OptiViewer.selectVariant(variantSel.value || null);
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // Свет — наш студийный или авторский
+  //
+  // Значок появляется только у моделей, которые принесли СВОИ источники
+  // (KHR_lights_punctual). У остальных «свет из файла» означал бы темноту, поэтому
+  // выбирать там не из чего и предлагать нечего.
+  //
+  // Почему это вообще нужно: до 2026-08-15 наш направленный источник светил ПОВЕРХ
+  // авторского, и увидеть модель так, как её ставил автор, было нельзя.
+  function refreshLightUI() {
+    if (!lightControls || !window.OptiViewer || !window.OptiViewer.getLight) return;
+    const info = window.OptiViewer.getLight();
+    const has = info.count > 0;
+    lightControls.classList.toggle('hidden', !has);
+    if (!has || !lightSel) return;
+
+    if (!lightSel.dataset.filled) {
+      lightSel.dataset.filled = '1';
+      for (const mode of ['studio', 'file']) {
+        const opt = document.createElement('option');
+        opt.value = mode;
+        setText(opt, mode === 'studio' ? 'viewer.light.studio' : 'viewer.light.file');
+        lightSel.appendChild(opt);
+      }
+    }
+    if (lightSel.value !== info.mode) lightSel.value = info.mode;
+  }
+
+  if (lightSel) {
+    lightSel.addEventListener('change', () => {
+      if (!window.OptiViewer) return;
+      window.OptiViewer.selectLightMode(lightSel.value === 'file' ? 'file' : 'studio');
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // Камеры автора
+  //
+  // Ракурс — решение автора наравне с уровнями и вариантами: он выбирал, откуда на
+  // модель смотреть. Значок появляется только у моделей, где камеры есть; у ToyCar их
+  // восемь, у AnimationPointerUVs одиннадцать.
+  //
+  // Первый пункт — наша свободная орбита. Это не «ничего не выбрано», а осмысленный
+  // выбор: через камеру автора вращать нельзя, и вернуться к своей человек вправе.
+  function refreshCameraUI() {
+    if (!cameraControls || !window.OptiViewer || !window.OptiViewer.getCameras) return;
+    const info = window.OptiViewer.getCameras();
+    const has = info.count > 0;
+    cameraControls.classList.toggle('hidden', !has);
+    if (!has || !cameraSel) return;
+
+    // Пересобираем только при смене модели — иначе список схлопывался бы под курсором.
+    const signature = info.names.join(' ');
+    if (cameraSel.dataset.signature !== signature) {
+      cameraSel.dataset.signature = signature;
+      cameraSel.innerHTML = '';
+      const free = document.createElement('option');
+      free.value = '';
+      setText(free, 'viewer.camera.free');
+      cameraSel.appendChild(free);
+      info.names.forEach((name: string, i: number) => {
+        const opt = document.createElement('option');
+        opt.value = String(i);
+        // Имя из файла — данные автора, переводу не подлежит. Пустое имя означает, что
+        // автор его не задал, и подпись придумываем здесь, по ключу (Правило 8).
+        if (name) opt.textContent = name;
+        else setText(opt, 'viewer.camera.unnamed', { n: i + 1 });
+        cameraSel.appendChild(opt);
+      });
+    }
+    const selected = info.current === null ? '' : String(info.current);
+    if (cameraSel.value !== selected) cameraSel.value = selected;
+  }
+
+  if (cameraSel) {
+    cameraSel.addEventListener('change', () => {
+      if (!window.OptiViewer) return;
+      window.OptiViewer.selectCamera(cameraSel.value === '' ? null : Number(cameraSel.value));
     });
   }
 
@@ -4145,15 +4236,69 @@
     animSeek.addEventListener('input', applySeek);
   }
 
+  // ---------------------------------------------------------------
+  // Полка значков (низ справа): открыть и закрыть полочку группы
+  //
+  // Открыт может быть один: две полочки выезжают в одно место и наложились бы.
+  //
+  // ЗАКРЫТИЕ — ЭТО ТОЛЬКО ПОКАЗ. Оно не трогает ни воспроизведение, ни выбранный
+  // уровень, ни вариант: состояние живёт в движке просмотра, здесь только видимость
+  // органов управления. Свёрнутая анимация продолжает идти — прямое требование
+  // Александра 2026-08-15 («схлопывается, но анимация-то не останавливается»),
+  // и на это стоит сторож в браузерных тестах.
+  //
+  // Обработчик ОДИН на всю полку, а не по одному на группу: групп будет больше
+  // (камеры автора, свет из файла), и каждая не должна тащить свою проводку.
+  const rail = document.querySelector('.vp-rail');
+  if (rail) {
+    rail.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement | null)?.closest('.vp-group-btn');
+      if (!btn) return;
+      const group = btn.closest('.vp-group');
+      if (!group) return;
+      const wasOpen = group.classList.contains('is-open');
+      for (const g of rail.querySelectorAll('.vp-group.is-open')) {
+        g.classList.remove('is-open');
+        g.querySelector('.vp-group-btn')?.setAttribute('aria-expanded', 'false');
+      }
+      if (!wasOpen) {
+        group.classList.add('is-open');
+        btn.setAttribute('aria-expanded', 'true');
+      }
+    });
+    // Щелчок мимо полки закрывает полочку. По той же причине это только показ.
+    document.addEventListener('click', (e) => {
+      if (rail.contains(e.target as Node)) return;
+      for (const g of rail.querySelectorAll('.vp-group.is-open')) {
+        g.classList.remove('is-open');
+        g.querySelector('.vp-group-btn')?.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
+
+  /** Группа исчезла вместе с моделью — её полочка не должна остаться открытой. */
+  function closeHiddenGroups() {
+    if (!rail) return;
+    for (const g of rail.querySelectorAll('.vp-group.hidden.is-open')) {
+      g.classList.remove('is-open');
+      g.querySelector('.vp-group-btn')?.setAttribute('aria-expanded', 'false');
+    }
+  }
+
   // Объявляем ДО того, как модуль вьюера выполнится: app.js — обычный скрипт и
   // отрабатывает раньше type="module". Подписаться через window.OptiViewer здесь
   // ещё нельзя — его не существует.
   // Обе панели состава модели перестраиваются по одному уведомлению: список клипов
   // и список вариантов появляются и исчезают вместе с моделью, которая их несёт.
-  window.onOptiViewerModelLoaded = () => { refreshAnimUI(); refreshVariantUI(); refreshLodUI(); };
+  window.onOptiViewerModelLoaded = () => {
+    refreshAnimUI(); refreshVariantUI(); refreshLodUI();
+    refreshLightUI(); refreshCameraUI(); closeHiddenGroups();
+  };
   refreshAnimUI();    // стартовое состояние: моделей нет — панелей нет
   refreshVariantUI();
   refreshLodUI();
+  refreshLightUI();
+  refreshCameraUI();
   startAnimPolling();
 
   // ---------------------------------------------------------------

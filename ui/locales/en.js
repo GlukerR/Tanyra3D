@@ -53,6 +53,17 @@ window.I18N_CATALOGS.en = {
   // факт, имена соседних узлов — догадка, и выдавать её за факт нечестно.
   'vp.lod': 'Detail',
   'vp.lod.guess': 'Looks like detail levels',
+  // Полка значков справа внизу: свойства этой модели, каждое со своей полочкой.
+  'vp.rail': 'This model’s controls',
+  // Свет. Появляется только у моделей, которые несут свои источники.
+  'vp.light': 'Lighting',
+  'viewer.light.studio': 'Studio',
+  'viewer.light.file': 'From the file',
+  // Камеры автора. Первый пункт — наша свободная орбита, остальные его ракурсы.
+  'vp.camera': 'Camera',
+  'viewer.camera.free': 'Free orbit',
+  // Автор не дал камере имени — подпись придумываем здесь, движок языка не знает.
+  'viewer.camera.unnamed': ({ n }) => `Camera ${n}`,
   'stage.hint': 'Load a .glb from the left panel to preview it here',
 
   // Подписи посреди панелей просмотра (ui/viewer/index.js). Ставятся из кода через
@@ -74,8 +85,15 @@ window.I18N_CATALOGS.en = {
   'viewer.lod.asFile': 'As in the file',
   // Все уровни сразу, наложенные друг на друга — чтобы сравнить их между собой.
   'viewer.lod.all': 'Show all at once',
-  // Имя уровня и его подробность — ОДНО сообщение с подстановками, а не склейка в коде.
-  'viewer.lod.item': ({ name, tri }) => `${name} — ${Number(tri).toLocaleString('en-US')} tri`,
+  // Номер уровня и его подробность — ОДНО сообщение с подстановками, а не склейка в коде.
+  //
+  // Номер НАШ, по подробности: 1 — самый детальный. Имя узла из файла ушло в подсказку
+  // при наведении. Причина: у Sketchfab-экспорта имя несёт ВТОРОЙ номер — порядок узла
+  // при выгрузке (`Stone_Well_LOD5_5`, `Stone_Well_LOD4_0`, `Stone_Well_LOD0_3`), и в
+  // списке два номера спорили друг с другом: по подробности шло 5,4,3,2,1,0, а хвосты
+  // имён читались как 5,0,1,2,4,3. Один номер вместо двух — и он про то, ради чего
+  // человек сюда смотрит.
+  'viewer.lod.item': ({ n, tri }) => `Level ${n} — ${Number(tri).toLocaleString('en-US')} tri`,
 
   // --- окна ---
   'win.close': 'Close',

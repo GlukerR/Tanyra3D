@@ -83,6 +83,20 @@ interface OptiViewerApi {
   getVariants(): { count: number; names: string[]; current: string | null; selected: string | null };
   /** Переключить вариант в ОБОИХ вьюпортах; null — основной вид из файла. */
   selectVariant(name: string | null): Promise<void>;
+  /**
+   * Свет модели. `count` — сколько источников принесла САМА модель; ноль означает, что
+   * переключать нечего и значка быть не должно: «свет из файла» без источников — тьма.
+   */
+  getLight(): { count: number; mode: 'studio' | 'file' };
+  /** Показать авторский свет или вернуть студийный — в ОБОИХ вьюпортах. */
+  selectLightMode(mode: 'studio' | 'file'): void;
+  /**
+   * Камеры автора. `current: null` — смотрим своей орбитальной. Имена ИЗ ФАЙЛА,
+   * пустое имя остаётся пустым: подпись безымянной придумывает интерфейс.
+   */
+  getCameras(): { count: number; names: string[]; current: number | null };
+  /** Смотреть через камеру автора либо вернуться к своей — в ОБОИХ вьюпортах. */
+  selectCamera(index: number | null): void;
   setExposure(v: number): void;
   getExposure(): number;
   /** Нагрузка на отрисовку либо null, пока окно замера не набралось. */

@@ -110,6 +110,11 @@ export default {
   // человек сейчас видит; про создание уровней здесь ни слова — проект их не делает.
   'lod.found': ({ nodes, levels }) =>
     `The file carries levels of detail: ${nodes} part${nodes === 1 ? '' : 's'} with up to ${levels} levels each. The preview shows the most detailed one; on a site the engine picks a simpler level when the object is small on screen.`,
+  // Запасные формы меша. Две строки на два случая; разница между ними и есть смысл.
+  'morph.found.animated': ({ meshes, forms }) =>
+    `The file carries alternative shapes: ${meshes} part${meshes === 1 ? '' : 's'} with up to ${forms} shape${forms === 1 ? '' : 's'} each. Animation drives them — press play to see it.`,
+  'morph.found.still': ({ meshes, forms }) =>
+    `The file carries alternative shapes: ${meshes} part${meshes === 1 ? '' : 's'} with up to ${forms} shape${forms === 1 ? '' : 's'} each. No animation drives them, so both here and on a site only the base shape shows.`,
   'join.keptVariants': ({ meshes }) =>
     `Left alone: ${meshes} mesh(es) that carry material variants — the alternative colours and finishes the model can switch between. Joining them would merge the parts the switch relies on, and the choice would silently stop working. The price is a few extra draw calls.`,
   // 'join.expandedShared' removed 2026-08-01 together with the record itself
@@ -282,6 +287,7 @@ export default {
   'rule.geometryOrphan': () => 'Orphan vertices',
   'rule.sceneJoin': () => 'Mesh join (flatten + join)',
   'rule.sceneLodLevels': () => 'Levels of detail',
+  'rule.sceneMorphTargets': () => 'Alternative shapes',
   'rule.sceneInstance': () => 'GPU instancing',
   'rule.animationResample': () => 'Resample animations',
   'rule.structurePruneFinal': () => 'Cleanup of orphaned resources',

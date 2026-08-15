@@ -215,6 +215,21 @@ function orphanPointerGuard(parser: { json: { animations?: Array<{ channels?: Ar
 }
 
 /**
+ * Сколько остаётся от окружения в режиме «свет из файла». Не ноль намеренно — почему,
+ * подробно у setLightMode(): окружение это не свет, а то, что отражается, и его
+ * обнуление красит металл и стекло в чёрный, а не показывает замысел автора.
+ */
+const FILE_MODE_ENV = 0.15;
+
+/**
+ * Камера из файла. glTF знает два вида, и оба настоящие: перспективную выбирают для
+ * обычного взгляда, ортографическую — когда схождение линий мешает (чертёж, изометрия,
+ * вид сбоку). Держим оба типа в одном списке; различаются они только тем, как задаётся
+ * ширина кадра (см. _applyAspect).
+ */
+type FileCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera;
+
+/**
  * Самодостаточный просмотрщик одной модели: рендерер, сцена, студийный IBL-свет,
  * орбитальные контролы, авто-кадрирование под размер модели.
  */
@@ -251,6 +266,16 @@ export class Viewer implements ViewerLike {
   declare _variant?: string | null;
   /** Переключатель из плагина: (объект, имя|null) → Promise. Живёт вместе с моделью. */
   declare _selectVariant?: ((o: THREE.Object3D, name: string | null) => Promise<unknown>) | null;
+  /** Наш студийный источник. Гасится, когда человек просит показать свет из файла. */
+  declare _key: THREE.DirectionalLight;
+  /** Сколько источников света принесла сама модель (KHR_lights_punctual). */
+  declare _fileLights?: number;
+  /** Чей свет показываем: 'studio' — наш, 'file' — авторский. */
+  declare _lightMode?: 'studio' | 'file';
+  /** Камеры, которые автор положил в файл. Пусто — их нет. */
+  declare _fileCameras?: FileCamera[];
+  /** Через какую камеру смотрим: номер авторской либо null — через нашу орбитальную. */
+  declare _cameraIndex?: number | null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -306,6 +331,8 @@ export class Viewer implements ViewerLike {
     const key = new THREE.DirectionalLight(0xffffff, 1.1);
     key.position.set(8, 12, 6);
     this.scene.add(key);
+    this._key = key;
+    this._lightMode = 'studio';
   }
 
   _initLoaders() {
@@ -394,6 +421,15 @@ export class Viewer implements ViewerLike {
     // габаритам, а они считаются по мировым матрицам.
     this._lods = await detectLods(gltf as never);
     this._lod = null;
+    // Свой свет модели считаем после добавления в сцену: загрузчик кладёт источники
+    // внутрь модели, и до этого момента обходить нечего. Режим при новой модели всегда
+    // студийный — иначе модель без своих источников открылась бы почти чёрной.
+    this._fileLights = this._countFileLights();
+    this.setLightMode('studio');
+    // Камеры автора и свет сбрасываются на своё умолчание при каждой модели по одной
+    // причине: у следующей их может не быть вовсе.
+    this._readFileCameras(gltf);
+    this.setCamera(null);
     this._setupAnimations(gltf.animations);
     // camera передан (сборка/ребилд той же модели) → СОХРАНИТЬ ракурс: приближённая
     // пользователем деталь остаётся на месте. Иначе (новая модель) — авто-кадрирование.
@@ -566,6 +602,170 @@ export class Viewer implements ViewerLike {
     return true;
   }
 
+  // ---------------------------------------------------------------------
+  // Камеры автора
+  //
+  // Ракурс — такое же решение автора, как уровни детализации и варианты материала:
+  // он выбирал, откуда на модель смотреть. Загрузчик камеры читает и кладёт в
+  // `gltf.cameras`, а мы до 2026-08-15 их просто не замечали и всегда ставили свою
+  // орбиту. ToyCar везёт восемь ракурсов, AnimationPointerUVs — одиннадцать.
+  //
+  // Берём только те, что стоят В СЦЕНЕ: камера без родителя никуда не смотрит — её
+  // положение задаётся узлом, и вне графа сцены оно не определено.
+
+  /**
+   * Камеры автора, добравшиеся до сцены. Имя ищем у камеры, потом у её узла.
+   *
+   * Берём и перспективные, и ортографические. Подменять ортографическую своей
+   * перспективной — «взять место и угол, а настройки оставить наши» — нельзя: это
+   * РАЗНАЯ картинка, а не разная настройка. У ортографической нет схождения линий,
+   * ради него её и выбирают (чертёж, изометрия, вид сбоку). Показать вместо неё
+   * перспективу значит показать не то, что делал автор, и молча.
+   *
+   * Стоит это ровно одной развилки в пропорциях кадра (_applyAspect): у перспективной
+   * ширина задаётся полем aspect, у ортографической — границами left/right.
+   */
+  _readFileCameras(gltf: GLTF) {
+    const cams: FileCamera[] = [];
+    for (const cam of gltf.cameras || []) {
+      const c = cam as FileCamera;
+      const known = ('isPerspectiveCamera' in c && c.isPerspectiveCamera)
+        || ('isOrthographicCamera' in c && c.isOrthographicCamera);
+      if (!known) continue;
+      // Камера без родителя нигде не стоит: её положение задаёт узел сцены.
+      if (!c.parent) continue;
+      cams.push(c);
+    }
+    this._fileCameras = cams;
+    this._cameraIndex = null;
+  }
+
+  /** Через какую камеру смотрим и какие есть — для полки значков. */
+  getCameraInfo() {
+    const cams = this._fileCameras || [];
+    return {
+      count: cams.length,
+      // Имя из файла отдаём КАК ЕСТЬ, пустое — пустым. Придумать подпись безымянной
+      // камере — дело интерфейса: движок языка не знает (Правило 8), та же причина,
+      // что у безымянных клипов анимации.
+      //
+      // Здесь лежит имя УЗЛА, а не самой камеры, и это не наша вольность: GLTFLoader
+      // для узла с камерой возвращает сам объект камеры и переписывает ему имя именем
+      // узла (проверено на Ortho Camera 01: в файле камеры зовутся Blueprint_Side и
+      // Hero_View, а приезжают OrthoCameraNode и PerspCameraNode). Так и правильно —
+      // в редакторе художник видит имя объекта, а не имя данных камеры.
+      names: cams.map((c) => c.name || ''),
+      current: this._cameraIndex ?? null,
+    };
+  }
+
+  /**
+   * Смотреть через камеру автора (номер) или вернуться к своей орбитальной (null).
+   *
+   * false = такой камеры в модели нет. Список приходит из файла, и интерфейс не обязан
+   * гадать, что в нём окажется, — та же причина, что у setVariant.
+   */
+  setCamera(index: number | null) {
+    const cams = this._fileCameras || [];
+    if (index !== null && (index < 0 || index >= cams.length)) return false;
+    this._cameraIndex = index;
+    // Орбита работает только со своей камерой: авторский ракурс — это точка зрения
+    // автора, а не начало для вращения. Оставь мы контролы включёнными, первое же
+    // движение мыши увело бы камеру автора с её места, и вернуть её было бы нечем.
+    this.controls.enabled = index === null;
+    this._applyAspect();
+    return true;
+  }
+
+  /** Камера, через которую рисуем прямо сейчас. */
+  _activeCamera(): FileCamera {
+    const cams = this._fileCameras || [];
+    const i = this._cameraIndex;
+    return i === null || i === undefined ? this.camera : (cams[i] || this.camera);
+  }
+
+  /**
+   * Пропорции кадра под размер окна.
+   *
+   * Камера автора несёт СВОЁ соотношение сторон из файла, и оно почти никогда не
+   * совпадает с окном программы. Держим ВЕРТИКАЛЬ авторской и подгоняем ширину — так
+   * поступают все просмотрщики: по вертикали кадр остаётся авторским, по горизонтали
+   * расширяется или сужается под окно. Иначе картинка растянута.
+   *
+   * Вертикаль у двух видов камер записана по-разному, отсюда развилка:
+   *   • перспективная — угол yfov, ширина следует из поля aspect;
+   *   • ортографическая — границы top/bottom, ширину задаём сами через left/right.
+   */
+  _applyAspect() {
+    const parent = this.canvas.parentElement;
+    if (!parent) return;
+    const { clientWidth, clientHeight } = parent;
+    if (!clientWidth || !clientHeight) return;
+    const ratio = clientWidth / clientHeight;
+    const cam = this._activeCamera();
+    if ('isOrthographicCamera' in cam && cam.isOrthographicCamera) {
+      // Половина высоты — авторская, половина ширины — под окно.
+      const halfH = (cam.top - cam.bottom) / 2;
+      const halfW = halfH * ratio;
+      cam.left = -halfW;
+      cam.right = halfW;
+    } else if ('isPerspectiveCamera' in cam && cam.isPerspectiveCamera) {
+      cam.aspect = ratio;
+    }
+    cam.updateProjectionMatrix();
+  }
+
+  // ---------------------------------------------------------------------
+  // Свет: наш студийный или авторский
+  //
+  // Модель может принести собственные источники (KHR_lights_punctual) — загрузчик
+  // создаёт их сам и кладёт внутрь модели. До 2026-08-15 мы просто добавляли свой
+  // направленный источник ПОВЕРХ: авторский свет никуда не девался, но оценить, как
+  // модель задумана, было нельзя — светили оба.
+  //
+  // Гасить целиком нечего: у нас ДВА источника разной природы, и только один спорит
+  // с авторским.
+  //
+  //   • направленный ключевой — наш, конкурент авторскому, гасится начисто;
+  //   • окружение (RoomEnvironment) — это не «свет», а ТО, ЧТО ОТРАЖАЕТСЯ. Металл,
+  //     стекло, лак, радужка и просвет берут картинку отсюда. Обнулив его, мы покажем
+  //     не замысел автора, а чёрные пятна.
+  //
+  // И формат тут ни при чём: glTF окружение не описывает ВООБЩЕ. Его подставляет
+  // каждый просмотрщик от себя, авторского варианта не существует — значит и «выключить
+  // до авторского» нечего. Поэтому в режиме файла окружение приглушается до слабого
+  // остатка (FILE_MODE_ENV наверху файла), а не до нуля: ноль был бы такой же
+  // неправдой, только с другой стороны.
+
+  /** Сколько источников принесла сама модель; 0 — своих у неё нет. */
+  _countFileLights() {
+    let n = 0;
+    if (this.model) this.model.traverse((o) => { if ((o as THREE.Light).isLight) n++; });
+    return n;
+  }
+
+  /** Есть ли у модели свой свет и чей показываем — для полки значков. */
+  getLightInfo() {
+    return {
+      count: this._fileLights ?? 0,
+      mode: this._lightMode ?? 'studio',
+    };
+  }
+
+  /**
+   * Показать свет автора или вернуть студийный.
+   *
+   * false = переключать нечего: своих источников модель не принесла, и «свет из файла»
+   * означал бы полную темноту.
+   */
+  setLightMode(mode: 'studio' | 'file') {
+    if (mode === 'file' && !(this._fileLights ?? 0)) return false;
+    this._key.visible = mode === 'studio';
+    this.scene.environmentIntensity = mode === 'studio' ? 1 : FILE_MODE_ENV;
+    this._lightMode = mode;
+    return true;
+  }
+
   /** Какие варианты материала есть у модели — для панели управления. */
   getVariantInfo() {
     const names = this._variants || [];
@@ -614,8 +814,10 @@ export class Viewer implements ViewerLike {
 
   /** Обновить контролы и отрисовать один кадр (цикл гонит dual-viewport.js). */
   renderFrame() {
-    this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    // Через камеру автора орбита не работает: она увела бы её с места, куда автор
+    // поставил. update() зовём только когда смотрим своей.
+    if (this.controls.enabled) this.controls.update();
+    this.renderer.render(this.scene, this._activeCamera());
   }
 
   /**
@@ -679,6 +881,12 @@ export class Viewer implements ViewerLike {
     this._selectVariant = null;
     this._variants = [];
     this._variant = null;
+    // Камеры автора живут В МОДЕЛИ и сейчас будут освобождены вместе с ней. Не снять
+    // ссылки — и рисовать продолжим через камеру, которой уже нет; вернуть свою орбиту
+    // тоже обязаны, иначе следующая модель откроется через чужой мёртвый ракурс.
+    this._fileCameras = [];
+    this._cameraIndex = null;
+    this.controls.enabled = true;
     this.scene.remove(this.model);
     disposeSubtree(this.model);
     this.model = null;
@@ -702,6 +910,9 @@ export class Viewer implements ViewerLike {
     if (!clientWidth || !clientHeight) return;
     this.camera.aspect = clientWidth / clientHeight;
     this.camera.updateProjectionMatrix();
+    // Активная камера может быть авторской — ей пропорции тоже нужны, иначе кадр
+    // растянут (см. _applyAspect).
+    this._applyAspect();
     this.renderer.setSize(clientWidth, clientHeight, false);
   }
 }
