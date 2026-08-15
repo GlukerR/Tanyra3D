@@ -10,7 +10,9 @@
 // 4. draco на всём золотом корпусе (кроме known-failing)
 // 5. draco на input-папке (выборочно, первые 10 моделей)
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
+
 import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -24,6 +26,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 describeIfModels(['CarConcept.glb'], 'Draco — basic', () => {
   it('advancedFeatures:["draco"] returns status ok on CarConcept.glb', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['draco'],
       dryRun: true,
     });
@@ -33,6 +36,7 @@ describeIfModels(['CarConcept.glb'], 'Draco — basic', () => {
 
   it('applied rules contain draco reference', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['draco'],
       dryRun: true,
     });
@@ -46,6 +50,7 @@ describeIfModels(['CarConcept.glb'], 'Draco — basic', () => {
 
   it('triangles preserved with draco (core invariant)', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['draco'],
       dryRun: true,
     });
@@ -56,6 +61,7 @@ describeIfModels(['CarConcept.glb'], 'Draco — basic', () => {
 
   it('metrics have all required fields with draco', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['draco'],
       dryRun: true,
     });
@@ -80,6 +86,7 @@ describeIfModels(['CarConcept.glb'], 'Draco — vs meshopt', () => {
   it('draco produces different file size than meshopt', async () => {
     // Запускаем с meshopt (дефолт)
     const meshoptResult = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -87,6 +94,7 @@ describeIfModels(['CarConcept.glb'], 'Draco — vs meshopt', () => {
 
     // Запускаем с draco
     const dracoResult = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['draco'],
       dryRun: true,
     });
@@ -100,10 +108,12 @@ describeIfModels(['CarConcept.glb'], 'Draco — vs meshopt', () => {
   it('both draco and meshopt preserve triangles', async () => {
     const [draco, meshopt] = await Promise.all([
       optimizeFile(modelPath('CarConcept.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: ['draco'],
         dryRun: true,
       }),
       optimizeFile(modelPath('CarConcept.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: [],
         dryRun: true,
       }),
@@ -136,6 +146,7 @@ describe('Draco — golden corpus', () => {
   // eachModel: пропуск LOCALS, которых нет на диске.
   eachModel('draco returns ok, triangles preserved', GOLDEN, async (name) => {
     const result = await optimizeFile(modelPath(name), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['draco'],
       dryRun: true,
     });
@@ -169,6 +180,7 @@ describeInput('Draco — input folder (first 10 models)', () => {
 
   it.each(models)('%s — draco returns ok or known fail', async (name) => {
     const result = await optimizeFile(path.join(INPUT_DIR, name), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['draco'],
       dryRun: true,
     });
@@ -191,3 +203,5 @@ describeInput('Draco — input folder (first 10 models)', () => {
     expect(models.length).toBeGreaterThan(0);
   });
 });
+
+afterAll(cleanupTmpOutDirs);

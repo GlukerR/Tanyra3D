@@ -28,7 +28,9 @@
 // Учти: префикс `TESTBUG-*` — отдельный namespace; нумерация аудиторских находок
 // прошлых итераций к этим тестам не относится.
 
-import { it, expect } from 'vitest';
+import { it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
+
 import { optimizeFile, VERSION } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -45,6 +47,7 @@ describeIfModels(['CarConcept.glb'], 'TESTBUG-* — regression documentation (cu
 
     // Sanity: TESTBUG-тест ниже зависит от публичного API.
     const r = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -80,6 +83,7 @@ describeIfModels(['parkergirl.glb'], 'TESTBUG-007 (закрыт) — parkergirl 
   const fn = isParkergirlLocal ? it : it.skip;
   fn(`${targetModel} ${JSON.stringify(expectedMode)} — status='ok', скин один, морфы целы`, async () => {
     const result = await optimizeFile(modelPath(targetModel), {
+      outDir: tmpOutDir(),
       advancedFeatures: expectedMode,
       dryRun: true,
     });
@@ -119,6 +123,7 @@ describeIfModels(['AnimationPointerUVs.glb', 'PotOfCoalsAnimationPointer.glb'], 
   const affectedModels = ['AnimationPointerUVs.glb', 'PotOfCoalsAnimationPointer.glb'];
   eachModel('safe-cleanup returns ok, animations preserved', affectedModels, async (name) => {
     const result = await optimizeFile(modelPath(name), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -173,6 +178,7 @@ describeIfModels(['Dirty Cube 01.glb'], 'TESTBUG-008 (ЗАКРЫТ 2026-08-01) �
   const fn = isPresent ? it : it.skip;
   fn("['safe','meshopt','quantize'] — в skipped «геометрия уже упакована (meshopt)»", async () => {
     const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'meshopt', 'quantize'],
       dryRun: true,
     });
@@ -245,6 +251,7 @@ describeIfModels(['Dirty Cube 01.glb'], 'TESTBUG-009 (ЗАКРЫТ 2026-08-01) �
   const fn = isPresent ? it : it.skip;
   fn("['join','instance'] — в skipped нет join.expandedShared, инстансинг применился", async () => {
     const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['join', 'instance'],
       dryRun: true,
     });
@@ -528,3 +535,5 @@ for (const model of ['Animated Pointer 01.glb', 'Unknown Ext LOD 01.glb', 'Unkno
     }, 300_000);
   }
 }
+
+afterAll(cleanupTmpOutDirs);

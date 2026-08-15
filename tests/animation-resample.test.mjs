@@ -9,7 +9,9 @@
 //
 // Измерено на коммите 125faa2 (см. задание 2026-07-29-вьюер.md).
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
+
 import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -61,6 +63,7 @@ describe('animation/resample — models with animations', () => {
     describe(`${name} — resample preserves animations`, () => {
       it('status ok, applied содержит animation/resample', async () => {
         const result = await optimizeFile(modelPath(name), {
+          outDir: tmpOutDir(),
           advancedFeatures: ['resample'],
           dryRun: true,
         });
@@ -83,6 +86,7 @@ describe('animation/resample — models with animations', () => {
 
       it('число анимаций не изменилось', async () => {
         const result = await optimizeFile(modelPath(name), {
+          outDir: tmpOutDir(),
           advancedFeatures: ['resample'],
           dryRun: true,
         });
@@ -94,6 +98,7 @@ describe('animation/resample — models with animations', () => {
       it('имена клипов сохранены', async () => {
         // Читаем выходной GLB (без dryRun, чтобы получить файл)
         const result = await optimizeFile(modelPath(name), {
+          outDir: tmpOutDir(),
           advancedFeatures: ['resample'],
           // Используем dryRun — метрики в результате уже есть.
           // Для имён проверяем через результат: если бы имена изменились,
@@ -117,6 +122,7 @@ describe('animation/resample — models with animations', () => {
       if (hasSkins) {
         it('skins не изменились', async () => {
           const result = await optimizeFile(modelPath(name), {
+            outDir: tmpOutDir(),
             advancedFeatures: ['resample'],
             dryRun: true,
           });
@@ -128,6 +134,7 @@ describe('animation/resample — models with animations', () => {
 
       it('morphTargets не изменились', async () => {
         const result = await optimizeFile(modelPath(name), {
+          outDir: tmpOutDir(),
           advancedFeatures: ['resample'],
           dryRun: true,
         });
@@ -137,6 +144,7 @@ describe('animation/resample — models with animations', () => {
 
       it('файл стал меньше или равным (resample не увеличивает)', async () => {
         const result = await optimizeFile(modelPath(name), {
+          outDir: tmpOutDir(),
           advancedFeatures: ['resample'],
           dryRun: true,
         });
@@ -158,6 +166,7 @@ describe('animation/resample — model without animations', () => {
 
   it('status ok, applied пуст', async () => {
     const result = await optimizeFile(modelPath(modelName), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['resample'],
       dryRun: true,
     });
@@ -172,6 +181,7 @@ describe('animation/resample — model without animations', () => {
   // текст обязан меняться вместе с языком, ключ — нет.
   it('skipped называет причину «нет анимаций» ключом каталога', async () => {
     const result = await optimizeFile(modelPath(modelName), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['resample'],
       dryRun: true,
     });
@@ -183,6 +193,7 @@ describe('animation/resample — model without animations', () => {
 
   it('треугольники и анимации не изменились (resample не трогает геометрию)', async () => {
     const result = await optimizeFile(modelPath(modelName), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['resample'],
       dryRun: true,
     });
@@ -197,6 +208,7 @@ describe('animation/resample — model without animations', () => {
 
   it('модель проходит валидацию (0 fail)', async () => {
     const result = await optimizeFile(modelPath(modelName), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['resample'],
       dryRun: true,
     });
@@ -218,6 +230,7 @@ describe('animation/resample + safe — combined', () => {
 
   it('status ok, animations preserved under safe+resample', async () => {
     const result = await optimizeFile(modelPath(modelName), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'resample'],
       dryRun: true,
     });
@@ -230,6 +243,7 @@ describe('animation/resample + safe — combined', () => {
 
   it('validation passes under safe+resample', async () => {
     const result = await optimizeFile(modelPath(modelName), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'resample'],
       dryRun: true,
     });
@@ -237,3 +251,5 @@ describe('animation/resample + safe — combined', () => {
     expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
   });
 });
+
+afterAll(cleanupTmpOutDirs);

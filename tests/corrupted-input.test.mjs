@@ -12,6 +12,7 @@
 // 6. Несуществующий файл — не краш, статус fail
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -81,7 +82,7 @@ afterAll(() => {
 
 describe('Corrupted input — graceful failure', () => {
   it('0-byte .glb returns status:fail without crash', async () => {
-    const result = await optimizeFile(BROKEN_FILES.empty, { dryRun: true });
+    const result = await optimizeFile(BROKEN_FILES.empty, { outDir: tmpOutDir(), dryRun: true });
     expect(result.status).toBe('fail');
     expect(result.file.src).toBe(BROKEN_FILES.empty);
     expect(result.file.dst).toBeDefined();
@@ -93,7 +94,7 @@ describe('Corrupted input — graceful failure', () => {
   });
 
   it('random bytes as .glb returns status:fail without crash', async () => {
-    const result = await optimizeFile(BROKEN_FILES.random, { dryRun: true });
+    const result = await optimizeFile(BROKEN_FILES.random, { outDir: tmpOutDir(), dryRun: true });
     expect(result.status).toBe('fail');
     expect(result.error).toBeDefined();
     expect(typeof result.error).toBe('string');
@@ -101,7 +102,7 @@ describe('Corrupted input — graceful failure', () => {
   });
 
   it('broken JSON chunk returns status:fail without crash', async () => {
-    const result = await optimizeFile(BROKEN_FILES.brokenJson, { dryRun: true });
+    const result = await optimizeFile(BROKEN_FILES.brokenJson, { outDir: tmpOutDir(), dryRun: true });
     expect(result.status).toBe('fail');
     expect(result.error).toBeDefined();
     expect(typeof result.error).toBe('string');
@@ -109,7 +110,7 @@ describe('Corrupted input — graceful failure', () => {
   });
 
   it('GLB header with no JSON chunk returns status:fail', async () => {
-    const result = await optimizeFile(BROKEN_FILES.noJson, { dryRun: true });
+    const result = await optimizeFile(BROKEN_FILES.noJson, { outDir: tmpOutDir(), dryRun: true });
     expect(result.status).toBe('fail');
     expect(result.error).toBeDefined();
     expect(typeof result.error).toBe('string');
@@ -122,7 +123,7 @@ describe('Corrupted input — graceful failure', () => {
 describe('Corrupted input — nonexistent file', () => {
   it('nonexistent path returns status:fail', async () => {
     const fakePath = path.join(FIXTURE_DIR, 'does_not_exist.glb');
-    const result = await optimizeFile(fakePath, { dryRun: true });
+    const result = await optimizeFile(fakePath, { outDir: tmpOutDir(), dryRun: true });
     expect(result.status).toBe('fail');
     expect(result.error).toBeDefined();
     expect(typeof result.error).toBe('string');
@@ -132,6 +133,7 @@ describe('Corrupted input — nonexistent file', () => {
   it('nonexistent path with advancedFeatures also returns fail', async () => {
     const fakePath = path.join(FIXTURE_DIR, 'no_such_file.glb');
     const result = await optimizeFile(fakePath, {
+      outDir: tmpOutDir(),
       advancedFeatures: ['draco'],
       dryRun: true,
     });
@@ -145,6 +147,7 @@ describe('Corrupted input — nonexistent file', () => {
 describe('Corrupted input — edge cases', () => {
   it('corrupted file with advancedFeatures:["ktx2"] — no crash', async () => {
     const result = await optimizeFile(BROKEN_FILES.brokenJson, {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2'],
       dryRun: true,
     });
@@ -154,6 +157,7 @@ describe('Corrupted input — edge cases', () => {
 
   it('corrupted file with dryRun:false — no crash (no disk write attempt)', async () => {
     const result = await optimizeFile(BROKEN_FILES.random, {
+      outDir: tmpOutDir(),
       dryRun: false,
       force: true,
     });
@@ -165,6 +169,7 @@ describe('Corrupted input — edge cases', () => {
   it('empty file with onProgress callback — no crash', async () => {
     const progressEvents = [];
     const result = await optimizeFile(BROKEN_FILES.empty, {
+      outDir: tmpOutDir(),
       dryRun: true,
       onProgress: (ev) => progressEvents.push(ev.type),
     });
@@ -187,3 +192,5 @@ describe('Corrupted input — stats', () => {
     }
   });
 });
+
+afterAll(cleanupTmpOutDirs);

@@ -83,10 +83,9 @@
 // зелёного цвета). meta.title — идентификатор для логов (Ловушка 4), нарушением
 // не считается: за него отвечает отдельная проверка titleKey.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 
 import { optimizeFile } from '../optimize2.mjs';
 import { localizeResult, render } from '../core/i18n.mjs';
@@ -123,9 +122,6 @@ const FLAG_SETS = [
   ['safe', 'join', 'instance'],
 ];
 
-function tmpOutDir(prefix = 'i18n-discipline-') {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-}
 
 // Кэш результатов матрицы: один прогон на (модель, флаги), делят разделы 1 и 4.
 const _resultCache = new Map();
@@ -641,3 +637,5 @@ function matchParen(src, from) {
   }
   return i - 1;
 }
+
+afterAll(cleanupTmpOutDirs);
