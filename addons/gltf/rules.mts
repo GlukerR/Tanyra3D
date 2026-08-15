@@ -414,6 +414,38 @@ function weightsAreUnit(sets: SkinSet[], rows: number[][], sum: number): boolean
   return ints === max;
 }
 
+// Настройки квантования, безопасные для ОБЩЕГО скина (TESTBUG-007).
+//
+// Область квантования по умолчанию — 'mesh': своя сетка на каждый меш, а значит своё
+// компенсирующее преобразование. У скинованного меша трансформация узла по спецификации
+// glTF ИГНОРИРУЕТСЯ, поэтому компенсация обязана лечь в inverseBindMatrices — а они
+// принадлежат скину. Несколько мешей с разными областями требуют нескольких наборов IBM,
+// и общий скин расщепляется: 1 → 14 (замер на parkergirl). 'scene' даёт одну область на
+// всю сцену → одно преобразование → один набор IBM, скин остаётся общим.
+//
+// Общее место для всех правил, которые квантуют геометрию: разойдутся — модель начнёт
+// по-разному расщепляться в зависимости от выбранной галочки.
+function quantizeOptions(document: Document): { quantizationVolume?: 'scene' } {
+  return document.getRoot().listSkins().length > 0 ? { quantizationVolume: 'scene' } : {};
+}
+
+/** Исход попытки обработать ОДИН элемент: успех со значением либо причина отказа. */
+type Attempt<T> = { ok: true; value: T } | { ok: false; reason: string };
+
+// Одна точка, где сбой ОДНОГО элемента превращается в результат, а не в обрыв прогона
+// (находка 2 ревью 2026-08-15). Правило, которое обрабатывает текстуры по одной, обязано
+// переживать отказ одной битой картинки; обёртка ловит и возвращает «не удалось», а что
+// с этим делать — счётчик, имя, откат — решает само правило. Структурный сторож —
+// tests/architecture/rule-resilience.test.mjs: новых catch-блоков в fix() быть не должно.
+async function attempt<T>(fn: () => Promise<T> | T): Promise<Attempt<T>> {
+  try {
+    return { ok: true, value: await fn() };
+  } catch (e) {
+    const err = e as { message?: string } | null | undefined;
+    return { ok: false, reason: (err && err.message) || String(e) };
+  }
+}
+
 // Порядок пайплайна ЖЁСТКИЙ и выверен в v2 (кодируется через runAfter):
 // dedup → prune → vertex-colors → skin-joints-dedupe → skin-weights-normalize →
 // skin-zero-weight-joints → weld → degenerate → orphan → (flatten+join)
@@ -1158,7 +1190,7 @@ export const RULES: GltfRule[] = [
 
       for (const c of big) {
         const before = c.tex.getImage()!;
-        try {
+        const res = await attempt(async () => {
           const [w, h] = fitInside(c.w, c.h, target);
           // fit:'fill' — размеры считаем сами (fitInside), а не отдаём на откуп sharp.
           // Причина в замере 2026-08-12 на вопрос Александра про нестандартные размеры:
@@ -1173,13 +1205,13 @@ export const RULES: GltfRule[] = [
             : c.mime === 'image/jpeg' ? await pipeline.jpeg({ quality: 90 }).toBuffer()
               : await pipeline.webp({ quality: 90 }).toBuffer();
           c.tex.setImage(new Uint8Array(encoded));
-          bytesBefore += before.byteLength;
-          bytesAfter += encoded.byteLength;
-          done++;
-        } catch {
-          // Битая картинка не должна ронять сборку — тот же принцип, что у WebP.
-          failed++;
-        }
+          return encoded;
+        });
+        // Битая картинка не должна ронять сборку — тот же принцип, что у WebP.
+        if (!res.ok) { failed++; continue; }
+        bytesBefore += before.byteLength;
+        bytesAfter += res.value.byteLength;
+        done++;
       }
 
       // Одна строка на класс (Правило 9): текстур бывают десятки, и «уменьшена
@@ -1245,6 +1277,7 @@ export const RULES: GltfRule[] = [
       // docs/EXTENDING.md §5b): на модели, которую прогнали вторым заходом, строка
       // на текстуру давала столько же одинаковых записей, сколько текстур.
       const alreadyKtx2 = [];
+      let pngFailed = 0;
       for (const tex of ctx.document.getRoot().listTextures()) {
         const mime = tex.getMimeType();
         const name = tex.getName() || '';
@@ -1254,9 +1287,12 @@ export const RULES: GltfRule[] = [
         }
         if (mime === 'image/webp' || mime === 'image/jpeg') {
           const sharp = (await import('sharp')).default; // ленивый импорт: нужен только для WebP/JPEG
-          const png = await sharp(Buffer.from(tex.getImage()!)).png().toBuffer();
-          tex.setImage(png);
-          tex.setMimeType('image/png');
+          const conv = await attempt(async () => {
+            const png = await sharp(Buffer.from(tex.getImage()!)).png().toBuffer();
+            tex.setImage(png);
+            tex.setMimeType('image/png');
+          });
+          if (!conv.ok) { pngFailed++; continue; }
           toPng.set(mime, (toPng.get(mime) || 0) + 1);
         }
         const slots = fns.listTextureSlots(tex).join(' ');
@@ -1269,6 +1305,7 @@ export const RULES: GltfRule[] = [
       for (const [mime, n] of toPng) {
         out.details.push({ messageId: 'ktx2.done.toPng', data: { n, from: mime.replace('image/', '') } });
       }
+      if (pngFailed) out.skipped.push({ messageId: 'ktx2.skipped.toPngFailed', data: { n: pngFailed } });
       const needKtx = dataTex.length + colorTex.length;
       if (needKtx === 0) {
         ctx.log(render('ktx2.log.skipped', {}, ctx.opts.locale));
@@ -1436,17 +1473,14 @@ export const RULES: GltfRule[] = [
       // без единой компенсации. Возвращаем ей исходную картинку.
       await Promise.all(cands.map(async (c) => {
         const before = c.tex.getImage();
-        try {
+        const res = await attempt(async () => {
           await fns.compressTexture(c.tex, {
             encoder: sharp, targetFormat: 'webp',
             ...(c.isData ? { lossless: true } : { quality: 90 }),
           });
-        } catch (e) {
-          // Битая или экзотическая картинка не должна ронять всю сборку.
-          const err = e as { message?: string } | null | undefined;
-          c.failed = err && err.message ? err.message : String(e);
-          return;
-        }
+        });
+        // Битая или экзотическая картинка не должна ронять всю сборку.
+        if (!res.ok) { c.failed = res.reason; return; }
         const after = c.tex.getImage();
         if (!after || after.byteLength >= before!.byteLength) {
           c.tex.setImage(before!).setMimeType(c.mime);
@@ -1499,20 +1533,10 @@ export const RULES: GltfRule[] = [
       if (ctx.opts.codec === 'draco') {
         await ctx.document.transform(fns.draco());
       } else {
-        // quantizationVolume по умолчанию — 'mesh': своя область квантования на каждый меш,
-        // а значит своё компенсирующее преобразование. Для скинованной модели это тупик:
-        // по спецификации glTF трансформация узла со скином ИГНОРИРУЕТСЯ, поэтому компенсацию
-        // приходится вносить в inverseBindMatrices — а они принадлежат скину, не мешу. Четырнадцать
-        // мешей с разными областями требуют четырнадцати разных наборов IBM, и общий скин
-        // расщепляется: 1 → 14. Это и есть TESTBUG-007.
-        //
-        // 'scene' даёт одну область на всю сцену → одно преобразование → один набор IBM.
-        // Скин остаётся общим. Сжатие чуть слабее (область шире фактической у мелких мешей),
-        // и платим этим только там, где иначе ломается структура.
-        const hasSkins = ctx.document.getRoot().listSkins().length > 0;
+        // Область квантования и общий скин — см. quantizeOptions (TESTBUG-007).
         await ctx.document.transform(fns.meshopt({
           encoder: MeshoptEncoder,
-          ...(hasSkins ? { quantizationVolume: 'scene' } : {}),
+          ...quantizeOptions(ctx.document),
         }));
       }
       return { details: [{ messageId: 'compress.done', data: { codec: ctx.opts.codec } }] };
@@ -1572,13 +1596,9 @@ export const RULES: GltfRule[] = [
       };
       const before = geomBytes();
 
-      // Тот же сторож, что в geometry/compress, и по той же причине (TESTBUG-007):
-      // область квантования «на каждый меш» требует своего компенсирующего
-      // преобразования, а у скина оно живёт в inverseBindMatrices — общий скин при
-      // этом расщепляется по числу мешей. Замерено на `parkergirl`: 1 скин → 14.
-      // 'scene' даёт одну область на всю сцену, скин остаётся общим.
+      // Область квантования и общий скин — см. quantizeOptions (TESTBUG-007).
       const hasSkins = root.listSkins().length > 0;
-      await ctx.document.transform(fns.quantize(hasSkins ? { quantizationVolume: 'scene' } : {}));
+      await ctx.document.transform(fns.quantize(quantizeOptions(ctx.document)));
 
       const after = geomBytes();
       const details: Message[] = [{
