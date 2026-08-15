@@ -169,16 +169,31 @@ function readAssetJson(srcPath: string): AssetJson | null {
 
 // Результат кэшируется в ctx.cache: файл читают несколько правил, а он может весить
 // сотни мегабайт.
+// Разобранный JSON ИСХОДНОГО файла — один раз на прогон, на всех желающих.
+//
+// Желающих стало двое (2026-08-15): сторож незнакомых расширений и наблюдение за
+// уровнями детализации. Оба смотрят на первоисточник, а не на документ (EXTENDING §5c),
+// и оба читали файл сами — а он бывает в сотни мегабайт. Заодно это единственное место,
+// где разбор исходника имеет право сорваться молча: файл не читается — этим займётся
+// сама загрузка, правилам тут сказать нечего.
+function assetJson(ctx: GltfContext): AssetJson | null {
+  const KEY = 'assetJson';
+  if (ctx.cache && ctx.cache.has(KEY)) return ctx.cache.get(KEY) as AssetJson | null;
+  let json: AssetJson | null;
+  try {
+    json = ctx.src ? readAssetJson(ctx.src) : null;
+  } catch {
+    json = null; // файл не разобрался — этим займётся сама загрузка, здесь молчим
+  }
+  if (ctx.cache) ctx.cache.set(KEY, json);
+  return json;
+}
+
 function unsupportedExtensions(ctx: GltfContext): string[] {
   const KEY = 'unsupportedExtensions';
   if (ctx.cache && ctx.cache.has(KEY)) return ctx.cache.get(KEY) as string[];
-  let list: string[];
-  try {
-    const json = ctx.src ? readAssetJson(ctx.src) : null;
-    list = ((json && json.extensionsUsed) || []).filter((name: string) => !KNOWN_EXTENSIONS.has(name));
-  } catch (e) {
-    list = []; // файл не разобрался — этим займётся сама загрузка, здесь молчим
-  }
+  const json = assetJson(ctx);
+  const list = ((json && json.extensionsUsed) || []).filter((name: string) => !KNOWN_EXTENSIONS.has(name));
   if (ctx.cache) ctx.cache.set(KEY, list);
   return list;
 }
@@ -478,6 +493,48 @@ async function attempt<T>(fn: () => Promise<T> | T): Promise<Attempt<T>> {
 // кодек закрепит мусор, а сварка не сведёт вершины, которые стали одинаковыми только
 // после чистки. Прежняя цепочка сохранена целиком — новый участок вложен внутрь неё.
 export const RULES: GltfRule[] = [
+  {
+    // Уровни детализации: правило БЕЗ починки, только наблюдение.
+    //
+    // MSFT_lod вешает на узел список запасных, менее подробных версий; какую показать,
+    // решает движок по тому, сколько места объект занимает на экране. Загрузчик three.js
+    // расширение игнорирует и рисует самый подробный уровень — то есть КАРТИНКА У НАС
+    // ВЕРНАЯ, чинить нечего. Не хватало только слова: человек не знал, что в файле есть
+    // ещё уровни и что показан из них один.
+    //
+    // Создание уровней в задачи проекта не входит (Александр, 2026-08-15), поэтому здесь
+    // нет и не будет `fix`. Правило существует ради одной строки в «Анализе».
+    meta: {
+      id: 'scene/lod-levels', category: 'scene', title: 'Levels of detail', titleKey: 'rule.sceneLodLevels',
+      severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: [], touches: [],
+      reversible: true, dataLoss: 'none',
+      enabled: () => true, // наблюдение, а не оптимизация: не зависит ни от одной галочки
+    },
+    analyze(ctx) {
+      // Читаем ИСХОДНЫЙ файл, а не документ: gltf-transform про MSFT_lod не знает, и в
+      // документе расширения нет вовсе (docs/EXTENDING.md §5c — истина в первоисточнике).
+      // Через общий assetJson: тот же файл читает сторож незнакомых расширений, а весит
+      // он бывает сотни мегабайт.
+      const json = assetJson(ctx);
+      if (!json || !(json.extensionsUsed || []).includes('MSFT_lod')) return [];
+
+      // Считаем УЗЛЫ с уровнями и максимальную глубину списка, а не сумму по всем узлам:
+      // «в файле 47 уровней» ничего не значит, а «у 12 частей до 3 уровней» — значит.
+      let nodes = 0;
+      let deepest = 0;
+      for (const node of (json.nodes || []) as Array<{ extensions?: Record<string, { ids?: unknown[] }> }>) {
+        const ids = node.extensions?.['MSFT_lod']?.ids;
+        if (!Array.isArray(ids) || !ids.length) continue;
+        nodes++;
+        // +1 — сам узел: он и есть самый подробный уровень, список перечисляет запасные.
+        deepest = Math.max(deepest, ids.length + 1);
+      }
+      if (!nodes) return [];
+      // Одна запись на класс (Правило 9): узлов бывают десятки, строка одна.
+      return [{ messageId: 'lod.found', data: { nodes, levels: deepest } }];
+    },
+  },
+
   {
     meta: {
       id: 'structure/dedup', category: 'materials', title: 'Duplicate resources (dedup)', titleKey: 'rule.structureDedup',

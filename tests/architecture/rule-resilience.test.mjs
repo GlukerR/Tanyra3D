@@ -53,7 +53,11 @@ describe('правило «переживи сбой одного элемент
 
     // Три санкционированных места — по подстроке на каждое.
     expect(rulesSrc).toContain('return { ok: true, value: await fn() }'); // сам шов attempt
-    expect(rulesSrc).toContain('list = []; // файл не разобрался'); // unsupportedExtensions: деградация чтения
+    // assetJson: единственное место, где разбор ИСХОДНОГО файла имеет право сорваться
+    // молча. Раньше этот catch жил внутри unsupportedExtensions; вынесен 2026-08-15,
+    // когда за тем же JSON пришло второе правило (уровни детализации) — читать файл
+    // в сотни мегабайт дважды незачем, и второй catch тут был бы лишним.
+    expect(rulesSrc).toContain('json = null; // файл не разобрался');
     expect(rulesSrc).toContain('/* занят — подчистит ОС */'); // ktx2: чистка временного каталога
   });
 });
