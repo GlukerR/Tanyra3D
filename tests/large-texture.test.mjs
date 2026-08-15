@@ -16,6 +16,7 @@
 // 5. Core invariant: треугольники сохранены
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -150,6 +151,7 @@ afterAll(() => {
 describe('Large texture — 4K noise (4096×4096)', () => {
   it('ktx2 does not crash on noise 4K texture', async () => {
     const result = await optimizeFile(LARGE_MODELS['4k_square'], {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2'],
       dryRun: true,
     });
@@ -175,6 +177,7 @@ describe('Large texture — 4K noise (4096×4096)', () => {
 
   it('safe + meshopt + ktx2 work alongside 4K noise texture (no crash)', async () => {
     const result = await optimizeFile(LARGE_MODELS['4k_square'], {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'meshopt', 'ktx2'],
       dryRun: true,
     });
@@ -196,6 +199,7 @@ describe('Large texture — 4K noise (4096×4096)', () => {
 describe('Large texture — 8K noise (8192×4096)', () => {
   it('ktx2 does not crash on noise 8K wide texture', async () => {
     const result = await optimizeFile(LARGE_MODELS['8k_wide'], {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2'],
       dryRun: true,
     });
@@ -218,6 +222,7 @@ describe('Large texture — 8K noise (8192×4096)', () => {
 describe('Large texture — 1×16384 noise strip', () => {
   it('ktx2 does not crash on extreme aspect ratio noise texture', async () => {
     const result = await optimizeFile(LARGE_MODELS['1xnarrow'], {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2'],
       dryRun: true,
     });
@@ -240,6 +245,7 @@ describe('Large texture — 1×16384 noise strip', () => {
 describe('Large texture — metrics comparison', () => {
   it('default pipeline (without ktx2) handles 4K noise texture', async () => {
     const result = await optimizeFile(LARGE_MODELS['4k_square'], {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -253,6 +259,7 @@ describe('Large texture — metrics comparison', () => {
   it('all 3 noise textures report non-zero textureBytes', async () => {
     for (const [, glbPath] of Object.entries(LARGE_MODELS)) {
       const result = await optimizeFile(glbPath, {
+        outDir: tmpOutDir(),
         advancedFeatures: ['ktx2'],
         dryRun: true,
       });
@@ -275,3 +282,5 @@ describe('Large texture — stats', () => {
     }
   });
 });
+
+afterAll(cleanupTmpOutDirs);

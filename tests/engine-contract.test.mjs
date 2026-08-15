@@ -64,9 +64,9 @@
 // Ловушка задания: ktx2 на машине без toktx отвечает ktx2.noTools — легитимное
 // воздержание, не провал (здесь toktx есть).
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import * as fns from '@gltf-transform/functions';
 
@@ -113,9 +113,6 @@ export const ALL_MODELS = [...REPO_MODELS, ...LOCAL_MODELS];
 const ioPromise = gltfAddon.createIO();
 const ruleById = new Map(RULES.map((r) => [r.meta.id, r]));
 
-function tmpOutDir(prefix = 'contract-test-') {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-}
 
 // Матричный цикл с eachModel-семантикой: модель отсутствует — it.skip с маркером.
 function eachMatrix(prefix, body, timeout = 120_000) {
@@ -729,3 +726,5 @@ describe('Контракт движка — раздел 3: ключей-сир�
     expect([...gltfMissing, ...ruMissing, ...coreMissing]).toEqual([]);
   });
 });
+
+afterAll(cleanupTmpOutDirs);

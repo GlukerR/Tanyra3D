@@ -12,7 +12,9 @@
 // 4. Разные advancedFeatures параллельно — ktx2, draco, empty — не влияют друг на друга
 // 5. dryRun:false параллельно — записи не конфликтуют в output/
 
-import { it, expect, beforeEach, afterEach } from 'vitest';
+import { it, expect, beforeEach, afterEach, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
+
 import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -38,6 +40,7 @@ describeIfModels(THREE_LOCAL, 'Parallel — 3 different models', () => {
     const results = await Promise.all(
       models.map((name) =>
         optimizeFile(modelPath(name), {
+          outDir: tmpOutDir(),
           // Явные safe+meshopt+join — дают applied.length > 0 на любой модели
           // (даже на уже-чистых). Это «baseline», используемый для теста параллельности.
           advancedFeatures: ['safe', 'meshopt', 'join'],
@@ -58,9 +61,9 @@ describeIfModels(THREE_LOCAL, 'Parallel — 3 different models', () => {
 
   it('each model has distinct fileBytes before optimization', async () => {
     const results = await Promise.all([
-      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: [], dryRun: true }),
-      optimizeFile(modelPath('ToyCar.glb'), { advancedFeatures: [], dryRun: true }),
-      optimizeFile(modelPath('SpecularSilkPouf.glb'), { advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('CarConcept.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('ToyCar.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('SpecularSilkPouf.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
     ]);
 
     // CarConcept — самая большая, SpecularSilkPouf — самая маленькая
@@ -80,9 +83,9 @@ describeIfModels(THREE_LOCAL, 'Parallel — 3 different models', () => {
 
   it('each model has distinct triangle counts — not mixed up', async () => {
     const results = await Promise.all([
-      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: [], dryRun: true }),
-      optimizeFile(modelPath('ToyCar.glb'), { advancedFeatures: [], dryRun: true }),
-      optimizeFile(modelPath('SpecularSilkPouf.glb'), { advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('CarConcept.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('ToyCar.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('SpecularSilkPouf.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
     ]);
 
     // Каждая модель имеет своё количество треугольников (известные значения)
@@ -105,9 +108,9 @@ describeIfModels(THREE_LOCAL, 'Parallel — 3 different models', () => {
 
   it('each model has its own applied rules (counts differ)', async () => {
     const results = await Promise.all([
-      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: ['safe', 'meshopt', 'join'], dryRun: true }),
-      optimizeFile(modelPath('ToyCar.glb'), { advancedFeatures: ['safe', 'meshopt', 'join'], dryRun: true }),
-      optimizeFile(modelPath('SpecularSilkPouf.glb'), { advancedFeatures: ['safe', 'meshopt', 'join'], dryRun: true }),
+      optimizeFile(modelPath('CarConcept.glb'), { outDir: tmpOutDir(), advancedFeatures: ['safe', 'meshopt', 'join'], dryRun: true }),
+      optimizeFile(modelPath('ToyCar.glb'), { outDir: tmpOutDir(), advancedFeatures: ['safe', 'meshopt', 'join'], dryRun: true }),
+      optimizeFile(modelPath('SpecularSilkPouf.glb'), { outDir: tmpOutDir(), advancedFeatures: ['safe', 'meshopt', 'join'], dryRun: true }),
     ]);
 
     // CarConcept — много мешей → больше applied правил (join, dedup, weld, meshopt)
@@ -133,9 +136,9 @@ describeIfModels(THREE_LOCAL, 'Parallel — 3 different models', () => {
 
   it('metrics.before and metrics.after are distinct objects per call', async () => {
     const results = await Promise.all([
-      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: [], dryRun: true }),
-      optimizeFile(modelPath('ToyCar.glb'), { advancedFeatures: [], dryRun: true }),
-      optimizeFile(modelPath('SpecularSilkPouf.glb'), { advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('CarConcept.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('ToyCar.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('SpecularSilkPouf.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
     ]);
 
     // Каждый result — самостоятельный объект, не ссылается на shared state
@@ -157,9 +160,9 @@ describeIfModels(THREE_LOCAL, 'Parallel — 3 different models', () => {
 
   it('core invariant holds for all 3 models in parallel', async () => {
     const results = await Promise.all([
-      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: [], dryRun: true }),
-      optimizeFile(modelPath('ToyCar.glb'), { advancedFeatures: [], dryRun: true }),
-      optimizeFile(modelPath('SpecularSilkPouf.glb'), { advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('CarConcept.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('ToyCar.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('SpecularSilkPouf.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
     ]);
 
     for (const r of results) {
@@ -174,9 +177,9 @@ describeIfModels(THREE_LOCAL, 'Parallel — 3 different models', () => {
 describeIfModels(THREE_LOCAL, 'Parallel — same model x3', () => {
   it('3 parallel calls to CarConcept return identical metrics', async () => {
     const results = await Promise.all([
-      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: [], dryRun: true }),
-      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: [], dryRun: true }),
-      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('CarConcept.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('CarConcept.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('CarConcept.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
     ]);
 
     // Все три ok
@@ -205,9 +208,9 @@ describeIfModels(THREE_LOCAL, 'Parallel — same model x3', () => {
 
   it('3 parallel calls to ToyCar return identical applied ruleIds', async () => {
     const results = await Promise.all([
-      optimizeFile(modelPath('ToyCar.glb'), { advancedFeatures: [], dryRun: true }),
-      optimizeFile(modelPath('ToyCar.glb'), { advancedFeatures: [], dryRun: true }),
-      optimizeFile(modelPath('ToyCar.glb'), { advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('ToyCar.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('ToyCar.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('ToyCar.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
     ]);
 
     // Все ruleId из applied совпадают между тремя вызовами
@@ -223,10 +226,10 @@ describeIfModels(['CarConcept.glb'], 'Parallel — different features', () => {
   it('meshopt, draco, and strip-colors in parallel — all ok', async () => {
     const results = await Promise.all([
       // 'baseline' = явный meshopt (opt-in: никаких скрытых default-правил)
-      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: ['meshopt'], dryRun: true }),
-      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: ['draco'], dryRun: true }),
+      optimizeFile(modelPath('CarConcept.glb'), { outDir: tmpOutDir(), advancedFeatures: ['meshopt'], dryRun: true }),
+      optimizeFile(modelPath('CarConcept.glb'), { outDir: tmpOutDir(), advancedFeatures: ['draco'], dryRun: true }),
       // strip-colors alone: geometry/compress НЕ включается (opt-in!)
-      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: ['strip-colors'], dryRun: true }),
+      optimizeFile(modelPath('CarConcept.glb'), { outDir: tmpOutDir(), advancedFeatures: ['strip-colors'], dryRun: true }),
     ]);
 
     // Все три вернули ok
@@ -247,8 +250,8 @@ describeIfModels(['CarConcept.glb'], 'Parallel — different features', () => {
 
   it('default and ktx2 in parallel — ktx2 may fail gracefully, default always ok', async () => {
     const results = await Promise.all([
-      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: [], dryRun: true }),
-      optimizeFile(modelPath('CarConcept.glb'), { advancedFeatures: ['ktx2'], dryRun: true }),
+      optimizeFile(modelPath('CarConcept.glb'), { outDir: tmpOutDir(), advancedFeatures: [], dryRun: true }),
+      optimizeFile(modelPath('CarConcept.glb'), { outDir: tmpOutDir(), advancedFeatures: ['ktx2'], dryRun: true }),
     ]);
 
     // Default всегда ok
@@ -338,3 +341,5 @@ describeIfModels(THREE_LOCAL, 'Parallel — dryRun:false (write to tmpdir)', () 
     expect(results[1].file.written).toBe(true);
   });
 });
+
+afterAll(cleanupTmpOutDirs);

@@ -3,7 +3,9 @@
 // Все тесты используют dryRun: true (кроме force-теста, который пишет и чистит).
 // Только публичное API: { optimizeFile, listRules, VERSION } из optimize2.mjs.
 
-import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
+
 import { optimizeFile, listRules } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -20,6 +22,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 describeIfModels(['CarConcept.glb'], 'strip-colors', () => {
   it('advancedFeatures:["strip-colors"] returns status ok', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['strip-colors'],
       dryRun: true,
     });
@@ -29,6 +32,7 @@ describeIfModels(['CarConcept.glb'], 'strip-colors', () => {
 
   it('strip-colors preserves structure (works on models with and without COLOR_n)', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['strip-colors'],
       dryRun: true,
     });
@@ -41,6 +45,7 @@ describeIfModels(['CarConcept.glb'], 'strip-colors', () => {
 
   it('strip-colors preserves triangles (core invariant)', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['strip-colors'],
       dryRun: true,
     });
@@ -52,6 +57,7 @@ describeIfModels(['CarConcept.glb'], 'strip-colors', () => {
   it('strip-colors works alongside safe + meshopt', async () => {
     // strip-colors + явные safe/meshopt — проверяем, что opt-in фичи не конфликтуют.
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'meshopt', 'strip-colors'],
       dryRun: true,
     });
@@ -69,12 +75,14 @@ describeIfModels(['CarConcept.glb'], 'strip-colors', () => {
 describeIfModels(['CarConcept.glb'], 'keepParts', () => {
   it('keepParts:true keeps meshes separate (no join)', async () => {
     const withoutKeep = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'join'],
       dryRun: true,
     });
     expect(withoutKeep.status).toBe('ok');
 
     const withKeep = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'join'],
       keepParts: true,
       dryRun: true,
@@ -92,10 +100,12 @@ describeIfModels(['CarConcept.glb'], 'keepParts', () => {
 
   it('keepParts:true leaves more meshes than default', async () => {
     const withoutKeep = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
     const withKeep = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       keepParts: true,
       dryRun: true,
@@ -109,6 +119,7 @@ describeIfModels(['CarConcept.glb'], 'keepParts', () => {
 
   it('keepParts:true preserves triangle count', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       keepParts: true,
       dryRun: true,
@@ -126,6 +137,7 @@ describeIfModels(['CarConcept.glb'], 'keepParts', () => {
 describeIfModels(['CarConcept.glb'], 'validation', () => {
   it('validation is an array with ok status', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -135,6 +147,7 @@ describeIfModels(['CarConcept.glb'], 'validation', () => {
 
   it('validation entries have level and text fields', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -149,6 +162,7 @@ describeIfModels(['CarConcept.glb'], 'validation', () => {
 
   it('validation includes geometry and triangle checks', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -161,7 +175,7 @@ describeIfModels(['CarConcept.glb'], 'validation', () => {
   });
 
   it('validation for missing file returns fail with validation info', async () => {
-    const result = await optimizeFile(modelPath('does_not_exist.glb'));
+    const result = await optimizeFile(modelPath('does_not_exist.glb'), { outDir: tmpOutDir() });
     expect(result.status).toBe('fail');
     expect(result.error).toBeDefined();
     // validation может быть пустым при fail — это нормально
@@ -330,6 +344,7 @@ describeIfModels(['Dirty Cube 01.glb'], 'skipped feature field', () => {
   it('cost entries in skipped have a non-empty feature field from a valid set', async () => {
     // Dirty Cube 01: 5 текстур, KTX2 даёт cost (51 KB → 175 KB, +239 %).
     const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2'],
       dryRun: true,
     });
@@ -356,3 +371,5 @@ describeIfModels(['Dirty Cube 01.glb'], 'skipped feature field', () => {
     }
   });
 });
+
+afterAll(cleanupTmpOutDirs);

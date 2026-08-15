@@ -16,7 +16,9 @@
 // Все тесты dryRun:true. Имена файлов с пробелами/кириллицей — handled
 // стандартным `path.resolve`.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
+
 import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -78,6 +80,7 @@ describe('Post-GAP-005 corpus — Preinstanced Grid 01: instanceCountOf on entry
     // экземпляров через EXT_mesh_gpu_instancing. Без неё 144 → 12 (один
     // обход узла). Sentinel: если кто-то откатит — этот assert провалится.
     const result = await optimizeFile(modelPath('Preinstanced Grid 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -92,6 +95,7 @@ describe('Post-GAP-005 corpus — Preinstanced Grid 01: instanceCountOf on entry
 
   it('[\'safe\']: без изменений — нечего инстансить/мерджить (1 узел, 144 треугольника)', async () => {
     const result = await optimizeFile(modelPath('Preinstanced Grid 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -132,6 +136,7 @@ describe('Post-GAP-005 corpus — Truncated Broken 01: pipeline must fail', () =
     let threw = null;
     try {
       result = await optimizeFile(modelPath('Truncated Broken 01.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: [],
         dryRun: true,
       });
@@ -145,6 +150,7 @@ describe('Post-GAP-005 corpus — Truncated Broken 01: pipeline must fail', () =
 
   it('passthrough: status=fail с понятной ошибкой про типизированный массив', async () => {
     const result = await optimizeFile(modelPath('Truncated Broken 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -161,6 +167,7 @@ describe('Post-GAP-005 corpus — Truncated Broken 01: pipeline must fail', () =
 
   it('[\'safe\']: тоже fail с той же маркой (не зависит от режима)', async () => {
     const result = await optimizeFile(modelPath('Truncated Broken 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -176,6 +183,7 @@ describe('Post-GAP-005 corpus — Truncated Broken 01: pipeline must fail', () =
     const outDir = path.resolve(PROJECT_ROOT, 'output');
     const before = new Set(fs.existsSync(outDir) ? fs.readdirSync(outDir) : []);
     await optimizeFile(modelPath('Truncated Broken 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -209,6 +217,7 @@ chibiDescribe('Post-GAP-005 corpus — chibi_zenitsu (local CC-BY-4.0): skin + a
 
   it('passthrough: 1 skin, 1 анимация (\'Run\'), morphTargets > 0', async () => {
     const result = await optimizeFile(modelPath('chibi_zenitsu.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -223,6 +232,7 @@ chibiDescribe('Post-GAP-005 corpus — chibi_zenitsu (local CC-BY-4.0): skin + a
 
   it('[\'safe\']: morphTargets и скин сохранены (тест скина под морф + joint)', async () => {
     const result = await optimizeFile(modelPath('chibi_zenitsu.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -234,6 +244,7 @@ chibiDescribe('Post-GAP-005 corpus — chibi_zenitsu (local CC-BY-4.0): skin + a
 
   it('[\'safe\',\'draco\']: компрессия не теряет морфы (4.25 → 2.33 МБ по измерениям)', async () => {
     const result = await optimizeFile(modelPath('chibi_zenitsu.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'draco'],
       dryRun: true,
     });
@@ -275,6 +286,7 @@ parkergirlDescribe('Post-GAP-005 corpus — parkergirl (local CC-BY-4.0): heavy 
 
   it('passthrough: 1 skin, 1 анимация (\'MorphBake\'), morphTargets > 0', async () => {
     const result = await optimizeFile(modelPath('parkergirl.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -288,6 +300,7 @@ parkergirlDescribe('Post-GAP-005 corpus — parkergirl (local CC-BY-4.0): heavy 
 
   it('[\'safe\']: morphTargets 456 → 456, файл 8.48 → 4.82 МБ по измерениям', async () => {
     const result = await optimizeFile(modelPath('parkergirl.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -300,6 +313,7 @@ parkergirlDescribe('Post-GAP-005 corpus — parkergirl (local CC-BY-4.0): heavy 
 
   it('[\'safe\',\'draco\']: 8.48 → 4.09 МБ по измерениям, морфы сохранены', async () => {
     const result = await optimizeFile(modelPath('parkergirl.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'draco'],
       dryRun: true,
     });
@@ -375,6 +389,7 @@ describe('Post-GAP-005 corpus — клиентские модели, KTX2 gracef
     describe(`[client] ${m}: EXT_texture_webp + до 24 материалов`, () => {
       it('[\'safe\']: pipeline отрабатывает без краша, треугольники сохранены', async () => {
         const result = await optimizeFile(p, {
+          outDir: tmpOutDir(),
           advancedFeatures: ['safe'],
           dryRun: true,
         });
@@ -394,6 +409,7 @@ describe('Post-GAP-005 corpus — клиентские модели, KTX2 gracef
         //   - nodal timeouts/KPI timeout = должен вернуть result object;
         //   - result.error должен упоминать toktx или ktx2 при статусе fail.
         const result = await optimizeFile(p, {
+          outDir: tmpOutDir(),
           advancedFeatures: ['safe', 'ktx2'],
           dryRun: true,
         });
@@ -427,3 +443,5 @@ describe('Post-GAP-005 corpus — клиентские модели, KTX2 gracef
     });
   }
 });
+
+afterAll(cleanupTmpOutDirs);

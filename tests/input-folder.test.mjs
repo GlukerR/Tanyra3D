@@ -12,7 +12,9 @@
 // Папки input/ нет на чистом клоне (она в .gitignore) — тогда весь файл
 // пропускается с причиной, см. tests/helpers/input-folder.mjs.
 
-import { it, expect } from 'vitest';
+import { it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
+
 import { optimizeFile } from '../optimize2.mjs';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -47,6 +49,7 @@ describeInput('Input folder — batch passthrough (default pipeline)', () => {
     expect(fs.existsSync(modelFullPath)).toBe(true);
 
     const result = await optimizeFile(modelFullPath, {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -73,6 +76,7 @@ describeInput('Input folder — safe cleanup (core invariant)', () => {
     async (modelName) => {
       const modelFullPath = path.join(INPUT_DIR, modelName);
       const result = await optimizeFile(modelFullPath, {
+        outDir: tmpOutDir(),
         advancedFeatures: ['safe'],
         dryRun: true,
       });
@@ -108,6 +112,7 @@ describeInput('Input folder — edge case filenames', () => {
   it.each(edgeNames)(`edge filename: %s`, async (modelName) => {
     const modelFullPath = path.join(INPUT_DIR, modelName);
     const result = await optimizeFile(modelFullPath, {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -150,3 +155,5 @@ describeInput('Input folder — file size statistics', () => {
     console.log(`  📦 Largest: ${maxModel.name} (${(maxModel.sizeBytes / (1024 * 1024)).toFixed(2)} MB)`);
   });
 });
+
+afterAll(cleanupTmpOutDirs);

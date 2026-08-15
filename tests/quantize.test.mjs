@@ -33,10 +33,8 @@
 //     (расхождение треугольников на драко-кодировщике) — в находки по квантованию
 //     это не пишется и тест под это не подгоняется; отказы проверяем на Dirty Cube.
 
-import { describe, it, expect } from 'vitest';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { describe, it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 import { optimizeFile } from '../optimize2.mjs';
 import { localizeResult, render } from '../core/i18n.mjs';
 import gltfAddon from '../addons/gltf/index.mjs';
@@ -45,9 +43,6 @@ import { modelPath, eachModel, describeLocal, describeIfModels } from './helpers
 // ---- инструменты: чтение выходного .glb тем же io, которым пишет аддон ----
 const ioPromise = gltfAddon.createIO();
 
-function tmpOutDir(prefix = 'quantize-test-') {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-}
 
 // «Вес данных геометрии» — сумма byteLength по аксессорам (ровно как считает правило).
 async function accessorBytes(file) {
@@ -473,3 +468,5 @@ describeIfModels(['Instance Grid 01.glb'], 'Квантование — отчё�
     }
   });
 });
+
+afterAll(cleanupTmpOutDirs);

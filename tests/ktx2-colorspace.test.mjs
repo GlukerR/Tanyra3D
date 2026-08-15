@@ -90,10 +90,9 @@ function readTransferFunction(ktx2Buf) {
 async function runAndRead(modelName, opts = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ktx2-cs-'));
   try {
-    const fullOpts = { ...opts, outDir: tmpDir };
     const result = await optimizeFile(
       path.resolve('fixtures/models', modelName),
-      fullOpts,
+      { ...opts, outDir: tmpDir },
     );
     if (!result.file.dst || !fs.existsSync(result.file.dst)) {
       return { result, glbBytes: null, json: null };

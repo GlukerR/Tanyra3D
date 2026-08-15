@@ -10,7 +10,9 @@
 // не на всех моделях и зависит от внешних кодировщиков. Целенаправленный
 // перебор не проводится — три базовых пункта работы важнее.
 
-import { it, expect } from 'vitest';
+import { it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
+
 import { optimizeFile } from '../optimize2.mjs';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -32,6 +34,7 @@ describeIfModels(
     for (const modelName of [...REPO_MODELS].filter((m) => m !== 'Truncated Broken 01.glb')) {
       it(`${modelName} — dryRun:true → written === false`, async () => {
         const result = await optimizeFile(modelPath(modelName), {
+          outDir: tmpOutDir(),
           advancedFeatures: [],
           dryRun: true,
         });
@@ -144,3 +147,5 @@ describeIfModels(
     }
   },
 );
+
+afterAll(cleanupTmpOutDirs);

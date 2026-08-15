@@ -22,7 +22,9 @@
 // перезаписывается без изменений, applied пуст. Любая оптимизация включается
 // своим флагом; актуальный список — ADVANCED_FEATURES в addons/gltf/index.mjs.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
+
 import { optimizeFile, listRules, VERSION } from '../optimize2.mjs';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -192,6 +194,7 @@ describe('Golden Corpus — passthrough (default pipeline)', () => {
     GOLDEN_MODELS.filter((m) => !APPLY_ON_PASSTHROUGH.has(m)),
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
+        outDir: tmpOutDir(),
         advancedFeatures: [],
         dryRun: true,
       });
@@ -216,6 +219,7 @@ describe('Golden Corpus — passthrough (default pipeline)', () => {
     [...APPLY_ON_PASSTHROUGH],
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
+        outDir: tmpOutDir(),
         advancedFeatures: [],
         dryRun: true,
       });
@@ -236,6 +240,7 @@ describe('Golden Corpus — safe cleanup preserves structure', () => {
     GOLDEN_MODELS.filter(isSafeEligible),
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
+        outDir: tmpOutDir(),
         advancedFeatures: ['safe'],
         dryRun: true,
       });
@@ -253,6 +258,7 @@ describe('Golden Corpus — safe cleanup preserves structure', () => {
   // валидацию на геометрии без нормалей — это главный риск этой модели.
   it('Unlinked Duplicates 01.glb — safe не валит валидацию на геометрии без нормалей', async () => {
     const result = await optimizeFile(modelPath('Unlinked Duplicates 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -270,6 +276,7 @@ describe('Golden Corpus — core invariant: triangles ± small delta', () => {
     GOLDEN_MODELS.filter(isSafeEligible),
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
+        outDir: tmpOutDir(),
         advancedFeatures: ['safe'],
         dryRun: true,
       });
@@ -292,6 +299,7 @@ describe('Golden Corpus — join invariant', () => {
     GOLDEN_MODELS.filter(isSafeEligible),
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
+        outDir: tmpOutDir(),
         advancedFeatures: ['safe', 'join'],
         dryRun: true,
       });
@@ -326,6 +334,7 @@ describe('Golden Corpus — safe+join does not bloat the file', () => {
     GOLDEN_MODELS.filter((m) => isSafeEligible(m)),
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
+        outDir: tmpOutDir(),
         advancedFeatures: ['safe', 'join'],
         dryRun: true,
       });
@@ -359,6 +368,7 @@ describe('Golden Corpus — safe is NOT silent no-op', () => {
 
   eachModel('safe cleanup applies AT LEAST one rule', DIRTY_SAFE_MODELS, async (modelName) => {
     const result = await optimizeFile(modelPath(modelName), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -380,6 +390,7 @@ describe('Golden Corpus — metrics structure', () => {
     GOLDEN_MODELS.filter((m) => !KNOWN_FAILING.has(m)),
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
+        outDir: tmpOutDir(),
         advancedFeatures: [],
         dryRun: true,
       });
@@ -456,8 +467,7 @@ function parseGlbJson(bytes) {
 async function runAndRead(modelName, opts = {}) {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gc-corpus-'));
   try {
-    const fullOpts = { ...opts, outDir: tmpDir };
-    const result = await optimizeFile(modelPath(modelName), fullOpts);
+    const result = await optimizeFile(modelPath(modelName), { ...opts, outDir: tmpDir });
     if (!result.file.dst || !fs.existsSync(result.file.dst)) {
       return { result, glbBytes: null, json: null };
     }
@@ -532,6 +542,7 @@ describe('Golden Corpus — Dirty Cube 01: safe does real work', () => {
 
   it('dedup удаляет дубликаты текстур (5 → меньше; на практике 5 → 1)', async () => {
     const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -549,6 +560,7 @@ describe('Golden Corpus — Dirty Cube 01: safe does real work', () => {
 
   it('prune-unused сообщает обо всех убранных TEXCOORD_1…5 одной строкой', async () => {
     const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -599,6 +611,7 @@ describe('Golden Corpus — Dirty Cube 01: safe does real work', () => {
     expect(after.lights).toBe(before.lights);
     // Один Empty удалён — это спецификацией разрешено. Sanity: nodes не растёт.
     const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -660,6 +673,7 @@ describe('Golden Corpus — Vertex Colors 01: COLOR_n semantics', () => {
   it('треугольники и узлы не изменились ни в safe, ни в strip-colors', async () => {
     for (const flags of [['safe'], ['strip-colors'], ['safe', 'strip-colors']]) {
       const result = await optimizeFile(modelPath('Vertex Colors 01.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: flags,
         dryRun: true,
       });
@@ -678,6 +692,7 @@ describe('Golden Corpus — Morph Cube 01: morph targets survive', () => {
 
   it('safe применяет ноль правил (модель действительно чистая)', async () => {
     const result = await optimizeFile(modelPath('Morph Cube 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -725,6 +740,7 @@ describeLocal('Cthulhu Stone 01.glb', 'Golden Corpus — Cthulhu Stone 01: skins
 
   it('safe: скин и анимации сохранены по количеству', async () => {
     const result = await optimizeFile(modelPath('Cthulhu Stone 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -760,6 +776,7 @@ describeLocal('Lilith Character 01.glb', 'Golden Corpus — Lilith Character 01:
 
   it('safe: скин и 3 анимации сохранены по количеству', async () => {
     const result = await optimizeFile(modelPath('Lilith Character 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -792,6 +809,7 @@ describe('Golden Corpus — Draco Compressed Input 01: re-decompression + safe',
 
   it('safe отрабатывает с status ok и сохраняет треугольники', async () => {
     const result = await optimizeFile(modelPath('Draco Compressed Input 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -814,6 +832,7 @@ describe('Golden Corpus — Draco Compressed Input 01: re-decompression + safe',
 
   it('safe БЕЗ draco — файл ВЫРАСТАЕТ (измерено: 6 380 → 7 052). Это нормально.', async () => {
     const result = await optimizeFile(modelPath('Draco Compressed Input 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -826,6 +845,7 @@ describe('Golden Corpus — Draco Compressed Input 01: re-decompression + safe',
 
   it('safe + draco сжимает обратно — размер возвращается к разумному', async () => {
     const result = await optimizeFile(modelPath('Draco Compressed Input 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'draco'],
       dryRun: true,
     });
@@ -845,6 +865,7 @@ describe('Golden Corpus — Draco Compressed Input 01: re-decompression + safe',
     // движок передаёт это как kind:'cost' с полем feature, чтобы UI показал
     // красный ! именно у галочки KTX2.
     const result = await optimizeFile(modelPath('Draco Compressed Input 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2'],
       dryRun: true,
     });
@@ -865,6 +886,7 @@ describe('Golden Corpus — Meshopt Compressed Input 01: re-decompress + safe', 
 
   it('safe + meshopt — status ok, геометрия не повреждена', async () => {
     const result = await optimizeFile(modelPath('Meshopt Compressed Input 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'meshopt'],
       dryRun: true,
     });
@@ -876,6 +898,7 @@ describe('Golden Corpus — Meshopt Compressed Input 01: re-decompress + safe', 
 
   it('safe + meshopt применяет geometry/compress (видно в applied)', async () => {
     const result = await optimizeFile(modelPath('Meshopt Compressed Input 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'meshopt'],
       dryRun: true,
     });
@@ -913,6 +936,7 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
     // с 12 треугольниками). Если поправка сломается, 144 превратятся в 12.
     for (const flags of [['instance'], ['safe'], ['safe', 'instance'], ['safe', 'join']]) {
       const result = await optimizeFile(modelPath('Linked Duplicates Grid 01.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: flags,
         dryRun: true,
       });
@@ -934,6 +958,7 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
     // Теперь инстансинг берёт каждый меш отдельным батчем: 4 меша × 3 узла → 4 узла.
     // Меши при этом НЕ схлопываются — их связывает dedup, а не instance.
     const result = await optimizeFile(modelPath('Linked Duplicates Grid 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['instance'],
       dryRun: true,
     });
@@ -951,6 +976,7 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
   it('join после instance не раздувает файл (порядок правил + порог)', async () => {
     const src = modelPath('Linked Duplicates Grid 01.glb');
     const withInstance = await optimizeFile(src, {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'instance', 'join'], dryRun: true,
     });
     expect(withInstance.status).toBe('ok');
@@ -966,6 +992,7 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
     // сжимается. Разница между ветками теперь в отрисовках (12 vs 1), а не в байтах.
     // Инвариант прежний: instance защищает от размножения геометрии, отрисовки падают.
     const withoutInstance = await optimizeFile(src, {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'join'], dryRun: true,
     });
     expect(withoutInstance.metrics.after.fileBytes)
@@ -974,6 +1001,7 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
 
   it('["safe"] мерджит 4 меша в 1 (dc/nodes не трогает)', async () => {
     const result = await optimizeFile(modelPath('Linked Duplicates Grid 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -1005,6 +1033,7 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
   // join.keptShared сообщает, что 1 меш оставлен нетронутым.
   it('["safe","join"] больше не раздувает файл: общая геометрия исключена, nodes=12, dc=12', async () => {
     const result = await optimizeFile(modelPath('Linked Duplicates Grid 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'join'],
       dryRun: true,
     });
@@ -1021,6 +1050,7 @@ describe('Golden Corpus — Linked Duplicates Grid 01: instance rule ordering', 
   // файл снова начнёт расти, а keptShared исчезнет из skipped.
   it('join.keptShared: в skipped есть запись с messageId=join.keptShared и meshes>0', async () => {
     const result = await optimizeFile(modelPath('Linked Duplicates Grid 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'join'],
       dryRun: true,
     });
@@ -1048,6 +1078,7 @@ describe('Golden Corpus — Orphan Texture Cube 01: orphan cleanup + drawCalls l
 
   it('текстура-сирота удалена (textures 1 → 0)', async () => {
     const result = await optimizeFile(modelPath('Orphan Texture Cube 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -1061,6 +1092,7 @@ describe('Golden Corpus — Orphan Texture Cube 01: orphan cleanup + drawCalls l
 
   it('два пустых узла коллекций удалены, узел Cube остался (3 → 1)', async () => {
     const result = await optimizeFile(modelPath('Orphan Texture Cube 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -1071,6 +1103,7 @@ describe('Golden Corpus — Orphan Texture Cube 01: orphan cleanup + drawCalls l
 
   it('треугольников 12 и 3 материала на месте (цвета не перепутаны)', async () => {
     const result = await optimizeFile(modelPath('Orphan Texture Cube 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -1082,6 +1115,7 @@ describe('Golden Corpus — Orphan Texture Cube 01: orphan cleanup + drawCalls l
 
   it('файл упал более чем на 80% (измерено −89 %)', async () => {
     const result = await optimizeFile(modelPath('Orphan Texture Cube 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -1097,6 +1131,7 @@ describe('Golden Corpus — Orphan Texture Cube 01: orphan cleanup + drawCalls l
     // что join не испортил).
     for (const flags of [['safe'], ['safe', 'join']]) {
       const result = await optimizeFile(modelPath('Orphan Texture Cube 01.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: flags,
         dryRun: true,
       });
@@ -1120,6 +1155,7 @@ describe('Golden Corpus — Instance Grid 01: 625 узлов, pipeline does not 
     // Тест ловит два дефекта сразу: (а) crash на сцене из 625 узлов,
     // (б) продукт молча сделал вид, что отработал, а должен был отказать.
     const result = await optimizeFile(modelPath('Instance Grid 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['instance'],
       dryRun: true,
     });
@@ -1132,6 +1168,7 @@ describe('Golden Corpus — Instance Grid 01: 625 узлов, pipeline does not 
     // (625 РАЗНЫХ мешей, dedup может дать большое падение). Главное — pipeline
     // не падает, треугольники и счётчик узлов не едут.
     const result = await optimizeFile(modelPath('Instance Grid 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -1155,6 +1192,7 @@ describe('Golden Corpus — Unlinked Duplicates 01: identical geometry without n
 
   it('source: 5 808 треугольников, 6 мешей, 6 узлов, 6 draw calls, 0 материалов, 0 текстур', async () => {
     const result = await optimizeFile(modelPath('Unlinked Duplicates 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -1283,6 +1321,7 @@ describe('Golden Corpus — Unlinked Duplicates 01: identical geometry without n
     //   [] ['safe'] ['instance'] ['safe','instance'] ['safe','join'] ['safe','draco']
     for (const flags of [[], ['safe'], ['instance'], ['safe', 'instance'], ['safe', 'join'], ['safe', 'draco']]) {
       const result = await optimizeFile(modelPath('Unlinked Duplicates 01.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: flags,
         dryRun: true,
       });
@@ -1305,6 +1344,7 @@ describe('Golden Corpus — Preinstanced Grid 01: pre-instanced model survives p
 
   it('source: metrics.before.triangles === 144 (instance count correction), nodes=1, meshes=1, dc=1', async () => {
     const result = await optimizeFile(modelPath('Preinstanced Grid 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -1362,6 +1402,7 @@ describe('Golden Corpus — Preinstanced Grid 01: pre-instanced model survives p
     // Код, который наивно обходит узлы без учёта экземпляров, сломается здесь.
     for (const flags of [[], ['safe'], ['instance'], ['safe', 'instance'], ['safe', 'join'], ['safe', 'draco']]) {
       const result = await optimizeFile(modelPath('Preinstanced Grid 01.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: flags,
         dryRun: true,
       });
@@ -1390,6 +1431,7 @@ describe('Golden Corpus — structural rules refuse on unknown extension', () =>
     ['AnimationPointerUVs.glb'],
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
+        outDir: tmpOutDir(),
         advancedFeatures: ['safe'],
         dryRun: true,
       });
@@ -1414,6 +1456,7 @@ describe('Golden Corpus — structural rules refuse on unknown extension', () =>
     ['PotOfCoalsAnimationPointer.glb'],
     async (modelName) => {
       const result = await optimizeFile(modelPath(modelName), {
+        outDir: tmpOutDir(),
         advancedFeatures: ['safe', 'join', 'draco'],
         dryRun: true,
       });
@@ -1433,6 +1476,7 @@ describe('Golden Corpus — structural rules refuse on unknown extension', () =>
   // в случае, когда отказ срабатывает на всех моделях подряд.
   it('Dirty Cube 01 + safe: ни одной записи unsupportedExtension.refuse в skipped', async () => {
     const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -1452,6 +1496,7 @@ describeLocal('BoomBox.glb', 'Golden Corpus — BoomBox: KTX2 on 2K textures', (
 
   it('source: 6 036 triangles, 1 mesh, 4 textures 2048×2048, no skins/animations', async () => {
     const result = await optimizeFile(modelPath('BoomBox.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -1466,6 +1511,7 @@ describeLocal('BoomBox.glb', 'Golden Corpus — BoomBox: KTX2 on 2K textures', (
 
   it('passthrough: статус ok, геометрия и текстуры не тронуты', async () => {
     const result = await optimizeFile(modelPath('BoomBox.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -1476,6 +1522,7 @@ describeLocal('BoomBox.glb', 'Golden Corpus — BoomBox: KTX2 on 2K textures', (
 
   it('["safe"]: статус ok, applied пуст (модель чистая)', async () => {
     const result = await optimizeFile(modelPath('BoomBox.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -1486,6 +1533,7 @@ describeLocal('BoomBox.glb', 'Golden Corpus — BoomBox: KTX2 on 2K textures', (
 
   it('["safe","ktx2"]: applied содержит textures/ktx2, gpuBytes упали', async () => {
     const result = await optimizeFile(modelPath('BoomBox.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'ktx2'],
       dryRun: true,
     });
@@ -1504,6 +1552,7 @@ describeLocal('BoomBox.glb', 'Golden Corpus — BoomBox: KTX2 on 2K textures', (
 
   it('["safe","ktx2","meshopt"]: треугольники не меняются (meshopt lossless)', async () => {
     const result = await optimizeFile(modelPath('BoomBox.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'ktx2', 'meshopt'],
       dryRun: true,
     });
@@ -1522,6 +1571,7 @@ describeLocal('RiggedSimple.glb', 'Golden Corpus — RiggedSimple: skin animatio
 
   it('source: 188 triangles, skins=1, animations=1, no materials/textures', async () => {
     const result = await optimizeFile(modelPath('RiggedSimple.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -1535,6 +1585,7 @@ describeLocal('RiggedSimple.glb', 'Golden Corpus — RiggedSimple: skin animatio
 
   it('passthrough: скин и анимация сохранены', async () => {
     const result = await optimizeFile(modelPath('RiggedSimple.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -1546,6 +1597,7 @@ describeLocal('RiggedSimple.glb', 'Golden Corpus — RiggedSimple: skin animatio
 
   it('["safe"]: скин и анимация не потеряны, треугольники те же', async () => {
     const result = await optimizeFile(modelPath('RiggedSimple.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -1558,6 +1610,7 @@ describeLocal('RiggedSimple.glb', 'Golden Corpus — RiggedSimple: skin animatio
 
   it('["safe","join"]: join пропускает узел со скином (в skipped c kind=unsafe)', async () => {
     const result = await optimizeFile(modelPath('RiggedSimple.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'join'],
       dryRun: true,
     });
@@ -1575,6 +1628,7 @@ describeLocal('RiggedSimple.glb', 'Golden Corpus — RiggedSimple: skin animatio
 
   it('["safe","meshopt"]: meshopt не расщепляет скин, skins=1, anim=1', async () => {
     const result = await optimizeFile(modelPath('RiggedSimple.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'meshopt'],
       dryRun: true,
     });
@@ -1589,6 +1643,7 @@ describeLocal('RiggedSimple.glb', 'Golden Corpus — RiggedSimple: skin animatio
 
   it('["safe","resample"]: анимация переживает ресэмпл', async () => {
     const result = await optimizeFile(modelPath('RiggedSimple.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'resample'],
       dryRun: true,
     });
@@ -1598,3 +1653,4 @@ describeLocal('RiggedSimple.glb', 'Golden Corpus — RiggedSimple: skin animatio
   });
 });
 
+afterAll(cleanupTmpOutDirs);

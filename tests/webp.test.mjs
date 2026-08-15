@@ -26,10 +26,8 @@
 //   4. (отдельный файл) tests/report-density.test.mjs — сторож плотности отчёта.
 //   5. Отчёт переживает смену языка: localizeResult без пересборки.
 
-import { describe, it, expect } from 'vitest';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { describe, it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 import { optimizeFile } from '../optimize2.mjs';
 import { localizeResult } from '../core/i18n.mjs';
 import gltfAddon from '../addons/gltf/index.mjs';
@@ -55,9 +53,6 @@ async function inspectOutput(file) {
   return { imageBytes, mimes, extensions };
 }
 
-function tmpOutDir(prefix = 'webp-test-') {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-}
 
 // ============================================================================
 // РАЗДЕЛ 1. Модели с PNG-текстурами — правило работает.
@@ -320,3 +315,5 @@ describeIfModels(['ToyCar.glb'], 'WebP — отчёт переживает см�
     expect(ru.skipped.some((s, i) => s.text !== en.skipped[i].text)).toBe(true);
   });
 });
+
+afterAll(cleanupTmpOutDirs);

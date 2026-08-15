@@ -5,6 +5,7 @@
 // (.dryrun.report.md) may be created in output/ and is cleaned up after the test.
 
 import { describe, it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 import { optimizeFile, listRules, VERSION } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -78,6 +79,7 @@ describe('API', () => {
 describeIfModels(['CarConcept.glb'], 'optimizeFile', () => {
   it('passthrough (no advancedFeatures) returns status ok with metrics', async () => {
     const result = await optimizeFile(MODEL, {
+      outDir: tmpOutDir(),
       advancedFeatures: [],
       dryRun: true,
     });
@@ -91,6 +93,7 @@ describeIfModels(['CarConcept.glb'], 'optimizeFile', () => {
 
   it('safe optimizations return status ok and produce findings', async () => {
     const result = await optimizeFile(MODEL, {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -105,6 +108,7 @@ describeIfModels(['CarConcept.glb'], 'optimizeFile', () => {
 describeIfModels(['CarConcept.glb'], 'meshopt', () => {
   it('safe + meshopt preserves triangle count (core invariant)', async () => {
     const result = await optimizeFile(MODEL, {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'meshopt'],
       dryRun: true,
     });
@@ -120,6 +124,7 @@ describeIfModels(['CarConcept.glb'], 'meshopt', () => {
 describeIfModels(['CarConcept.glb'], 'join', () => {
   it('safe + join returns ok and does not increase meshes or draw calls', async () => {
     const result = await optimizeFile(MODEL, {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'join'],
       dryRun: true,
     });
@@ -182,6 +187,7 @@ describeIfModels(['CarConcept.glb'], 'dryRun', () => {
 describeIfModels(['CarConcept.glb'], 'errors', () => {
   it('unknown advancedFeature returns status fail with descriptive message', async () => {
     const result = await optimizeFile(MODEL, {
+      outDir: tmpOutDir(),
       advancedFeatures: ['nonexistent_feature'],
     });
     expect(result.status).toBe('fail');
@@ -191,7 +197,7 @@ describeIfModels(['CarConcept.glb'], 'errors', () => {
   });
 
   it('missing input file returns status fail gracefully (not a crash)', async () => {
-    const result = await optimizeFile(MISSING);
+    const result = await optimizeFile(MISSING, { outDir: tmpOutDir() });
     expect(result.status).toBe('fail');
     expect(result.error).toBeDefined();
     // Error message should explain the problem, not a generic crash
@@ -204,6 +210,7 @@ describeIfModels(['CarConcept.glb'], 'errors', () => {
 describeIfModels(['CarConcept.glb'], 'additional scenarios', () => {
   it('full pipeline: safe + meshopt + join returns ok preserving triangles', async () => {
     const result = await optimizeFile(MODEL, {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'meshopt', 'join'],
       dryRun: true,
     });
@@ -218,6 +225,7 @@ describeIfModels(['CarConcept.glb'], 'additional scenarios', () => {
 
   it('strip-colors combined with safe returns ok', async () => {
     const result = await optimizeFile(MODEL, {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'strip-colors'],
       dryRun: true,
     });
@@ -227,6 +235,7 @@ describeIfModels(['CarConcept.glb'], 'additional scenarios', () => {
 
   it('metrics structure contains expected fields both before and after', async () => {
     const result = await optimizeFile(MODEL, {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -250,3 +259,5 @@ describeIfModels(['CarConcept.glb'], 'additional scenarios', () => {
     expect(after.fileBytes).toBeGreaterThan(0);
   });
 });
+
+afterAll(cleanupTmpOutDirs);
