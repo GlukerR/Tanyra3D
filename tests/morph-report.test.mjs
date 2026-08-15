@@ -147,7 +147,8 @@ describe.skipIf(!isPresent(PLAIN_MODEL))('модель без запасных �
 // «GLB → документ», которого документ в памяти не касается.
 // ═══════════════════════════════════════════════════════════════════════════
 
-const STILL_ANIMATED_MODEL = 'Still Morphs 01.glb'; // формы есть, клип двигает узел
+const STILL_ANIMATED_MODEL = 'Still Morphs 01.glb';   // формы есть, клип двигает УЗЕЛ
+const ANIMATED_FIXTURE = 'Animated Morphs 01.glb';    // формы есть, клип двигает ВЕСА
 
 describe.skipIf(!isPresent(STILL_ANIMATED_MODEL))('модель: клип есть, формы стоят', () => {
   it('отчёт говорит, что формы не двигаются, хотя анимация в файле есть', async () => {
@@ -159,6 +160,18 @@ describe.skipIf(!isPresent(STILL_ANIMATED_MODEL))('модель: клип ест
       // Ровно та подмена, которая на остальном корпусе проходила незамеченной.
       expect(lines[0].i18n?.text?.messageId,
         `[${locale}] клип на узле принят за анимацию форм`).toBe('morph.found.still');
+    }
+  }, 120_000);
+});
+
+describe.skipIf(!isPresent(ANIMATED_FIXTURE))('модель: клип двигает веса форм', () => {
+  it('отчёт зовёт включить проигрывание', async () => {
+    const r = await runOn(ANIMATED_FIXTURE);
+    expect(r.status).toBe('ok');
+    for (const locale of ['ru', 'en']) {
+      const lines = linesOf(r, locale);
+      expect(lines.length, `[${locale}] строк не одна`).toBe(1);
+      expect(lines[0].i18n?.text?.messageId).toBe('morph.found.animated');
     }
   }, 120_000);
 });

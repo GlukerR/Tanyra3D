@@ -70,11 +70,17 @@ afterAll(cleanupTmpOutDirs);
 describeIfModels(MODELS, 'варианты материала переживают оптимизации', () => {
   for (const model of MODELS) {
     describe(model, () => {
-      const before = variantState(glbJson(modelPath(model)));
+      // Читаем исходник ЛЕНИВО, при первом обращении из теста, а не при сборе набора.
+      // На чистом клоне этих моделей нет (лицензия Khronos), и describeIfModels
+      // помечает блок пропущенным — но тело describe vitest всё равно ВЫПОЛНЯЕТ, чтобы
+      // собрать имена тестов. Чтение файла прямо здесь валило весь файл с ENOENT ещё до
+      // единого утверждения, и увидеть это можно было только на CI. Найдено 2026-08-15.
+      let cached = null;
+      const source = () => (cached ||= variantState(glbJson(modelPath(model))));
 
       it('в исходнике есть и имена вариантов, и привязки на примитивах', () => {
-        expect(before.names.length, 'модель выбрана за варианты — их нет').toBeGreaterThan(0);
-        expect(before.prims, 'привязок на примитивах нет — проверять нечего').toBeGreaterThan(0);
+        expect(source().names.length, 'модель выбрана за варианты — их нет').toBeGreaterThan(0);
+        expect(source().prims, 'привязок на примитивах нет — проверять нечего').toBeGreaterThan(0);
       });
 
       for (const flags of FLAG_SETS) {
@@ -88,11 +94,11 @@ describeIfModels(MODELS, 'варианты материала переживаю
           expect(dst && fs.existsSync(dst), 'файл не записан').toBe(true);
 
           const after = variantState(glbJson(dst));
-          expect(after.names, 'имена вариантов изменились').toEqual(before.names);
+          expect(after.names, 'имена вариантов изменились').toEqual(source().names);
           // Главное утверждение. Именно оно краснело до правки: примитивы и привязки
           // обнулялись, а имена оставались — файл заявлял выбор, которого уже нет.
-          expect(after.prims, 'примитивы с переключением исчезли — выбор цвета мёртв').toBe(before.prims);
-          expect(after.mappings, 'привязки вариантов исчезли — выбор цвета мёртв').toBe(before.mappings);
+          expect(after.prims, 'примитивы с переключением исчезли — выбор цвета мёртв').toBe(source().prims);
+          expect(after.mappings, 'привязки вариантов исчезли — выбор цвета мёртв').toBe(source().mappings);
         }, 180_000);
       }
 

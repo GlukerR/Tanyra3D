@@ -66,6 +66,9 @@ export const REPO_MODELS = new Set([
   // форм, которых анимация не касается, — тоже (у Morph Cube 01 клипов нет ВООБЩЕ).
   'Ortho Camera 01.glb',
   'Still Morphs 01.glb',
+  // Третья — уже с CI: коммитимой модели с АНИМИРОВАННЫМИ формами не было ни одной,
+  // и на чистом клоне вторая половина правила scene/morph-targets не выполнялась.
+  'Animated Morphs 01.glb',
 ]);
 
 export function modelPath(name) {
