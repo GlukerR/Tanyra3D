@@ -31,9 +31,10 @@
 // Замечание про метрики: triangles/вершины в metrics считаются «по сцене», а не по
 // мешам (см. Н-3 контракта движка). Здесь это не критично: все инварианты —
 // относительные (before vs after одного и того же прогона).
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
+
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { optimizeFile } from '../optimize2.mjs';
@@ -88,9 +89,6 @@ const featureRuleId = (f) => {
   return rule ? rule.meta.id : null;
 };
 
-function tmpOutDir(prefix = 'combos-') {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-}
 
 const hasApplied = (result, ruleId) => (result.applied || []).some((a) => a.ruleId === ruleId);
 const skippedOf = (result, ruleId) => (result.skipped || []).filter((s) => s.ruleId === ruleId);
@@ -139,6 +137,7 @@ function runAfterViolations(result) {
 // Инварианты одной комбинации. finder — строка для сообщений об ошибке.
 async function checkComboInvariants(model, flags, finder) {
   const result = await optimizeFile(modelPath(model), {
+    outDir: tmpOutDir(),
     advancedFeatures: flags,
     dryRun: true,
   });
@@ -409,6 +408,7 @@ describe('Сочетания фич — сторож плотности на с�
   ]) {
     it(`плотность отчёта ≤${DENSITY_LIMIT} (флаги: [${flags.join(', ')}])`, async () => {
       const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: flags,
         dryRun: true,
       });
@@ -429,6 +429,7 @@ describe('Сочетания фич — localizeResult(ru/en): структур�
   for (const flags of LANG_COMBOS) {
     it(`localizeResult на [${flags.join(', ')}] — ни один ключ не падает`, async () => {
       const result = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: flags,
         dryRun: true,
         locale: 'en',
@@ -500,3 +501,5 @@ describe('Сочетания фич — матрица растёт сама (ф
     }
   });
 });
+
+afterAll(cleanupTmpOutDirs);

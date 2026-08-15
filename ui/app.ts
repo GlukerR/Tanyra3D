@@ -61,6 +61,11 @@
   const resetViewBtn = $('reset-view-btn');
   const linkToggleBtn = $('link-toggle-btn');
   const animControls = $('anim-controls');
+  const lodControls = $('lod-controls');
+  const lodLabel = $('lod-label');
+  const lodSel = $('lod-select') as HTMLSelectElement;
+  const variantControls = $('variant-controls');
+  const variantSel = $('variant-select') as HTMLSelectElement;
   const animPlayBtn = $('anim-play-btn');
   const animClipSel = $('anim-clip') as HTMLSelectElement;
   const animSeek = $('anim-seek') as HTMLInputElement;
@@ -3967,6 +3972,114 @@
     }
   }
 
+  // ---------------------------------------------------------------
+  // Уровни детализации
+  //
+  // Панель появляется только у модели, где уровни есть. Переключение прячет остальные
+  // уровни и НИЧЕГО не удаляет: спрятанный уровень остаётся и в сцене, и в файле
+  // (Правило 11 — мы показываем, а не редактируем).
+  //
+  // Подпись у списка меняется по тому, ОТКУДА мы знаем про уровни. Автор связал их
+  // расширением — это факт, говорим «Детализация». Узнали по именам соседних узлов —
+  // это догадка, и выдавать её за факт нечестно: подпись становится «Похоже на уровни».
+  function refreshLodUI() {
+    if (!lodControls || !window.OptiViewer || !window.OptiViewer.getLods) return;
+    const info = window.OptiViewer.getLods();
+    const has = info.count > 0;
+    lodControls.classList.toggle('hidden', !has);
+    if (!has || !lodSel) return;
+
+    setText(lodLabel, info.source === 'names' ? 'vp.lod.guess' : 'vp.lod');
+
+    const signature = info.source + ':' + info.names.join(' ');
+    if (lodSel.dataset.signature !== signature) {
+      lodSel.dataset.signature = signature;
+      lodSel.innerHTML = '';
+      // Первый пункт — «как в файле». У уровней, узнанных по именам, это ЧЕСТНО значит
+      // «все сразу, друг сквозь друга» — именно так модель и приезжает, и человек имеет
+      // право увидеть, что там на самом деле.
+      const base = document.createElement('option');
+      base.value = '';
+      setText(base, 'viewer.lod.asFile');
+      lodSel.appendChild(base);
+      // «Показать всё» — просьба Александра: сравнить уровни наложенными друг на друга,
+      // а не по очереди. У уровней-соседей это совпадает с «как в файле», и совпадает
+      // ЧЕСТНО: файл именно так и устроен, оба пункта говорят правду.
+      const all = document.createElement('option');
+      all.value = 'all';
+      setText(all, 'viewer.lod.all');
+      lodSel.appendChild(all);
+      info.names.forEach((name: string, i: number) => {
+        const opt = document.createElement('option');
+        opt.value = String(i);
+        // Имя узла — из файла, не переводится. Число треугольников — то, по чему уровни
+        // и отличают друг от друга, поэтому идёт ОДНИМ сообщением с подстановками, а не
+        // склейкой имени и числа в коде (Правило 8 §3).
+        setText(opt, 'viewer.lod.item', { name: name || String(i + 1), tri: info.triangles[i] ?? 0 });
+        lodSel.appendChild(opt);
+      });
+    }
+    const selected = info.selected === null ? '' : String(info.selected);
+    if (lodSel.value !== selected) lodSel.value = selected;
+  }
+
+  if (lodSel) {
+    lodSel.addEventListener('change', () => {
+      if (!window.OptiViewer) return;
+      const v = lodSel.value;
+      window.OptiViewer.selectLod(v === '' ? null : v === 'all' ? 'all' : Number(v));
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // Варианты материала — запасные цвета и отделки модели
+  //
+  // Панели нет по умолчанию и не будет никогда, кроме моделей, где варианты есть в
+  // файле: у художника три окраски машины или четыре ремешка часов, и без этого списка
+  // он видит один вид и не знает про остальные.
+  //
+  // Отдельным блоком, а не вкладкой: это свойство ЭТОЙ модели, а не режим программы.
+  // Тот же принцип, по которому живёт панель анимации рядом.
+  function refreshVariantUI() {
+    if (!variantControls || !window.OptiViewer || !window.OptiViewer.getVariants) return;
+    const info = window.OptiViewer.getVariants();
+    const has = info.count > 0;
+    variantControls.classList.toggle('hidden', !has);
+    if (!has || !variantSel) return;
+
+    // Пересобираем список только при смене модели — иначе он схлопывался бы под
+    // курсором (та же причина, что у списка клипов выше).
+    const signature = info.names.join(' ');
+    if (variantSel.dataset.signature !== signature) {
+      variantSel.dataset.signature = signature;
+      variantSel.innerHTML = '';
+      // Первый пункт — вид, записанный в файле основным. Это не «ничего не выбрано»:
+      // экспортёр выбирает его сознательно, и вернуться к нему человек вправе.
+      const base = document.createElement('option');
+      base.value = '';
+      setText(base, 'viewer.variant.original');
+      variantSel.appendChild(base);
+      for (const name of info.names) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        // Имя приходит ИЗ ФАЙЛА и переводу не подлежит: это данные, а не интерфейс
+        // (Правило 8). «Carmine Candy» так и останется «Carmine Candy».
+        opt.textContent = name;
+        variantSel.appendChild(opt);
+      }
+    }
+    const selected = info.selected ?? '';
+    if (variantSel.value !== selected) variantSel.value = selected;
+  }
+
+  if (variantSel) {
+    variantSel.addEventListener('change', () => {
+      if (!window.OptiViewer) return;
+      // Пустая строка — «как в файле», и это осмысленный выбор, а не отсутствие его.
+      void window.OptiViewer.selectVariant(variantSel.value || null);
+    });
+  }
+
   /** Раз в кадр подтягивать положение ползунка и время под играющую анимацию. */
   function syncAnimProgress() {
     if (!window.OptiViewer || !window.OptiViewer.getAnimation) return;
@@ -4035,8 +4148,12 @@
   // Объявляем ДО того, как модуль вьюера выполнится: app.js — обычный скрипт и
   // отрабатывает раньше type="module". Подписаться через window.OptiViewer здесь
   // ещё нельзя — его не существует.
-  window.onOptiViewerModelLoaded = refreshAnimUI;
-  refreshAnimUI(); // стартовое состояние: моделей нет — панели нет
+  // Обе панели состава модели перестраиваются по одному уведомлению: список клипов
+  // и список вариантов появляются и исчезают вместе с моделью, которая их несёт.
+  window.onOptiViewerModelLoaded = () => { refreshAnimUI(); refreshVariantUI(); refreshLodUI(); };
+  refreshAnimUI();    // стартовое состояние: моделей нет — панелей нет
+  refreshVariantUI();
+  refreshLodUI();
   startAnimPolling();
 
   // ---------------------------------------------------------------

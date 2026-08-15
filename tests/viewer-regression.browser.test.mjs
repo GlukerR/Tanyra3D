@@ -17,6 +17,9 @@
 //   8. resetView() — один frame(), копия во второй вьюпорт
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+// Нужен для замера рамок в тестах уровней детализации: проверяем, что переключение
+// меняет модель НА МЕСТЕ, а не увозит её в сторону.
+import * as THREE from 'three'
 import {
   createViewer,
   disposeViewer,
@@ -80,6 +83,8 @@ const MODEL_FILES = [
   'SheenWoodLeatherSofa.glb',
   'CommercialRefrigerator.glb',
   'CarConcept.glb',
+  'StoneWellLods.glb',
+  'StoneWellLodsFlat.glb',
   'Production Draco Webp 01.glb',
   'Production Multi UV 01.glb',
   'Production Many Materials 01.glb',
@@ -1278,5 +1283,277 @@ describe('Viewer — compressed models via DualViewport (browser)', () => {
     if (states.left) {
       expect(Number.isFinite(states.left.near)).toBe(true)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Viewer — варианты материала (запасные цвета и отделки)
+//
+// KHR_materials_variants загрузчик three.js не читает сам: расширение вынесено в
+// отдельный плагин (three-gltf-extensions, ссылка на него стоит в документации самого
+// GLTFLoader). Без плагина художник видел ОДИН вид из трёх и про остальные не знал.
+//
+// Сторож смотрит на материалы В СЦЕНЕ, а не на состояние панели: «выбран Carmine Candy»
+// — это переменная, которая может обновиться, пока картинка стоит на месте. Дефект такого
+// рода уже был с развёртками текстур (дорожки создавались, но ничего не двигали).
+// ---------------------------------------------------------------------------
+
+describe('Viewer — material variants (browser)', () => {
+  /** @type {HTMLCanvasElement} */
+  let canvas
+  /** @type {import('../ui/viewer/viewer.js').Viewer} */
+  let viewer
+
+  beforeAll(async () => {
+    const result = await createViewer()
+    canvas = result.canvas
+    viewer = result.viewer
+  })
+
+  afterAll(() => {
+    disposeViewer(viewer, canvas)
+  })
+
+  /** Отпечаток раскраски сцены: какой материал стоит на каждом меше. */
+  const materialFingerprint = () => {
+    const out = []
+    viewer.model.traverse((o) => {
+      if (o.material) out.push(o.material.uuid)
+    })
+    return out
+  }
+
+  itWithModels(['CarConcept.glb'], 'CarConcept — три окраски видны в getVariantInfo', async () => {
+    await viewer.load('/CarConcept.glb')
+    const info = viewer.getVariantInfo()
+    expect(info.count).toBe(3)
+    expect(info.names).toEqual(['Carmine Candy', 'Pearly Swirly', 'Torched Graphite'])
+    // Начальный вид — записанный в файле основным, а не первый из списка: экспортёр
+    // выбирает его сознательно, и подменять этот выбор нельзя.
+    expect(info.current).toBeNull()
+  })
+
+  itWithModels(['CarConcept.glb'], 'CarConcept — три окраски дают три РАЗНЫЕ раскраски сцены', async () => {
+    await viewer.load('/CarConcept.glb')
+    const base = materialFingerprint()
+    expect(base.length, 'в сцене нет мешей с материалами').toBeGreaterThan(0)
+
+    // Утверждение именно такое, а не «любой вариант отличается от исходного вида».
+    // Проверено по файлу: основной вид CarConcept СОВПАДАЕТ с «Carmine Candy»
+    // (примитивы стоят на материале 6, и Carmine Candy подменяет его на тот же 6).
+    // Требовать от этой пары различий значило бы требовать от движка выдумать его.
+    const looks = {}
+    for (const name of viewer.getVariantInfo().names) {
+      expect(await viewer.setVariant(name)).toBe(true)
+      looks[name] = materialFingerprint().join(' ')
+    }
+    const distinct = new Set(Object.values(looks))
+    expect(distinct.size, `три варианта дали одинаковую раскраску: ${JSON.stringify(Object.keys(looks))}`).toBe(3)
+
+    // И основной вид — одна из этих трёх раскрасок, а не четвёртая выдуманная.
+    expect(distinct.has(base.join(' ')), 'исходный вид не совпал ни с одним вариантом').toBe(true)
+  })
+
+  itWithModels(['CarConcept.glb'], 'CarConcept — null возвращает вид, записанный в файле', async () => {
+    await viewer.load('/CarConcept.glb')
+    const base = materialFingerprint()
+    await viewer.setVariant('Pearly Swirly')
+    expect(materialFingerprint()).not.toEqual(base)
+    expect(await viewer.setVariant(null)).toBe(true)
+    expect(viewer.getVariantInfo().current).toBeNull()
+    expect(materialFingerprint(), 'возврат «как в файле» не восстановил исходную раскраску').toEqual(base)
+  })
+
+  itWithModels(['CarConcept.glb'], 'неизвестное имя — отказ, а не исключение и не смена вида', async () => {
+    await viewer.load('/CarConcept.glb')
+    const base = materialFingerprint()
+    // Список вариантов приходит из файла, и вьювер не обязан гадать, что в нём окажется.
+    expect(await viewer.setVariant('Такого варианта нет')).toBe(false)
+    expect(materialFingerprint()).toEqual(base)
+  })
+
+  itWithModels(['ChronographWatch.glb'], 'ChronographWatch — четыре отделки', async () => {
+    await viewer.load('/ChronographWatch.glb')
+    const info = viewer.getVariantInfo()
+    expect(info.count).toBe(4)
+    expect(info.names).toEqual(['Surgical White', 'Midnight Gold', 'Commerce Green', 'Khronos Red'])
+  })
+
+  itWithModels(['Dirty Cube 01.glb'], 'модель без вариантов — пустой список, а не выдуманный', async () => {
+    await viewer.load('/Dirty%20Cube%2001.glb')
+    const info = viewer.getVariantInfo()
+    expect(info.count).toBe(0)
+    expect(info.names).toEqual([])
+    // Панели в интерфейсе при этом быть не должно — она рисуется по count.
+    expect(await viewer.setVariant('что угодно')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Viewer — уровни детализации
+//
+// Уровни приезжают ДВУМЯ способами, и оба настоящие:
+//
+//   1. `MSFT_lod` — узел несёт список запасных, менее подробных версий себя. Способ
+//      правильный, но экспортируют его единицы.
+//   2. Отдельные узлы-соседи с LOD в имени — так их отдаёт Sketchfab, то есть самый
+//      массовый источник моделей для веба. Расширения в файле нет, и любой движок
+//      рисует все уровни СРАЗУ, друг сквозь друга.
+//
+// Замер 2026-08-15 на «Stone Well - Photogrammetry & LODs» (Gorgious, CC-BY-4.0): шесть
+// уровней — 67 247 + 9 915 + 2 230 + 480 + 126 + 2 треугольника, все рисуются сразу.
+// Разложены в ряд вдоль X, витриной; перенос лежит в matrix узла уровня.
+//
+// Переключение НИЧЕГО НЕ УДАЛЯЕТ (Правило 11): спрятанный уровень остаётся и в сцене, и
+// в файле. Сторожа ниже это и проверяют — по видимости объектов, а не по их наличию.
+// ---------------------------------------------------------------------------
+
+describe('Viewer — levels of detail (browser)', () => {
+  /** @type {HTMLCanvasElement} */
+  let canvas
+  /** @type {import('../ui/viewer/viewer.js').Viewer} */
+  let viewer
+
+  beforeAll(async () => {
+    const result = await createViewer()
+    canvas = result.canvas
+    viewer = result.viewer
+  })
+
+  afterAll(() => {
+    disposeViewer(viewer, canvas)
+  })
+
+  /** Сколько треугольников реально РИСУЕТСЯ: скрытые ветки не считаются. */
+  const visibleTriangles = () => {
+    let tri = 0
+    viewer.scene.traverse((o) => {
+      if (!o.visible) return
+      // невидимый предок скрывает всё поддерево, traverse про это не знает
+      for (let p = o.parent; p; p = p.parent) if (!p.visible) return
+      const g = o.geometry
+      if (!g || !g.attributes || !g.attributes.position) return
+      tri += g.index ? g.index.count / 3 : g.attributes.position.count / 3
+    })
+    return Math.round(tri)
+  }
+
+  itWithModels(['StoneWellLods.glb'], 'StoneWellLods — шесть уровней найдены через расширение', async () => {
+    await viewer.load('/StoneWellLods.glb')
+    const info = viewer.getLodInfo()
+    expect(info.count).toBe(6)
+    // Автор связал уровни как положено — это ФАКТ, а не догадка по именам.
+    expect(info.source).toBe('extension')
+    // Порядок — от самого подробного к самому грубому, по числу треугольников.
+    expect(info.triangles).toEqual([67247, 9915, 2230, 480, 126, 2])
+    expect(info.current).toBeNull()
+  })
+
+  itWithModels(['StoneWellLods.glb'], 'StoneWellLods — каждый уровень показывается по отдельности', async () => {
+    await viewer.load('/StoneWellLods.glb')
+    const info = viewer.getLodInfo()
+    for (let i = 0; i < info.count; i++) {
+      expect(viewer.setLod(i), `уровень ${i} не переключился`).toBe(true)
+      expect(visibleTriangles(), `на уровне ${i} рисуется не он`).toBe(info.triangles[i])
+    }
+  })
+
+  itWithModels(['StoneWellLods.glb'], 'скрытый уровень остаётся в сцене — его не удаляют', async () => {
+    await viewer.load('/StoneWellLods.glb')
+    viewer.setLod(5) // самый грубый, 2 треугольника
+    // Переключение — состояние ПОКАЗА. Уровни обязаны остаться на месте, иначе это
+    // уже правка модели, а её быть не должно.
+    const info = viewer.getLodInfo()
+    expect(info.count).toBe(6)
+    expect(info.triangles).toEqual([67247, 9915, 2230, 480, 126, 2])
+    // и вернуться к самому подробному можно в любой момент
+    expect(viewer.setLod(0)).toBe(true)
+    expect(visibleTriangles()).toBe(67247)
+  })
+
+  itWithModels(['StoneWellLods.glb'], 'номер вне списка — отказ, а не исключение', async () => {
+    await viewer.load('/StoneWellLods.glb')
+    viewer.setLod(0)
+    const before = visibleTriangles()
+    expect(viewer.setLod(6)).toBe(false)
+    expect(viewer.setLod(-1)).toBe(false)
+    expect(visibleTriangles()).toBe(before)
+  })
+
+  // ── второй способ: уровни как отдельные узлы-соседи ───────────────────────
+  //
+  // StoneWellLodsFlat.glb — НЕТРОНУТАЯ выгрузка Sketchfab, то есть ровно то, что
+  // приносит человек. Расширения в ней нет; шесть уровней лежат соседями и рисуются
+  // одновременно.
+
+  itWithModels(['StoneWellLodsFlat.glb'], 'StoneWellLodsFlat — шесть уровней узнаны по именам соседей', async () => {
+    await viewer.load('/StoneWellLodsFlat.glb')
+    const info = viewer.getLodInfo()
+    expect(info.count).toBe(6)
+    // Это ДОГАДКА по именам, а не факт из расширения, и говорить о ней надо честно.
+    expect(info.source).toBe('names')
+    expect(info.triangles).toEqual([67247, 9915, 2230, 480, 126, 2])
+  })
+
+  itWithModels(['StoneWellLodsFlat.glb'], 'StoneWellLodsFlat — «как в файле» показывает ВСЕ уровни сразу', async () => {
+    await viewer.load('/StoneWellLodsFlat.glb')
+    // Именно так модель и приезжает, и человек имеет право увидеть, что там на самом
+    // деле: 80 000 треугольников вместо 67 247, все шесть друг сквозь друга.
+    const all = 67247 + 9915 + 2230 + 480 + 126 + 2
+    expect(visibleTriangles()).toBe(all)
+
+    expect(viewer.setLod(0)).toBe(true)
+    expect(visibleTriangles()).toBe(67247)
+    expect(viewer.setLod(5)).toBe(true)
+    expect(visibleTriangles()).toBe(2)
+
+    // Возврат к «как в файле» — снова все сразу. Ничего не потеряно.
+    expect(viewer.setLod(null)).toBe(true)
+    expect(visibleTriangles()).toBe(all)
+  })
+
+  itWithModels(['CarConcept.glb'], 'обычная модель из многих частей уровнями не считается', async () => {
+    // Сторож догадки: 25 примитивов, много узлов, но ни одного с LOD в имени.
+    // Принять их за уровни значило бы решать за автора (Правило 11).
+    await viewer.load('/CarConcept.glb')
+    expect(viewer.getLodInfo().count).toBe(0)
+  })
+
+  itWithModels(['StoneWellLods.glb'], 'уровни совмещены в одной точке — переключение не уводит модель', async () => {
+    await viewer.load('/StoneWellLods.glb')
+    // Автор разложил уровни в ряд вдоль X (перенос 1.5, 3, 4.5, 6, 7.5 в матрице узла).
+    // Образец собран со снятым переносом: переключение обязано менять модель НА МЕСТЕ,
+    // а не увозить её из кадра. Проверяем по центрам рамок — они должны совпадать.
+    const centers = []
+    for (let i = 0; i < viewer.getLodInfo().count; i++) {
+      viewer.setLod(i)
+      const box = new THREE.Box3().setFromObject(viewer.model)
+      centers.push(box.getCenter(new THREE.Vector3()))
+    }
+    const first = centers[0]
+    for (const c of centers) {
+      // Допуск 0.05 при габарите модели около 1.3: огрублённые уровни слегка гуляют
+      // формой, но не местом. Прежний ряд давал бы разницу в единицы.
+      expect(c.distanceTo(first), 'уровень уехал в сторону при переключении').toBeLessThan(0.05)
+    }
+  })
+
+  itWithModels(['StoneWellLods.glb'], '«показать все сразу» рисует сумму всех уровней', async () => {
+    await viewer.load('/StoneWellLods.glb')
+    const info = viewer.getLodInfo()
+    const sum = info.triangles.reduce((a, b) => a + b, 0)
+    expect(viewer.setLod('all')).toBe(true)
+    expect(visibleTriangles(), 'показаны не все уровни').toBe(sum)
+    // И обратно к одному — без следов.
+    expect(viewer.setLod(0)).toBe(true)
+    expect(visibleTriangles()).toBe(info.triangles[0])
+  })
+
+  itWithModels(['Dirty Cube 01.glb'], 'модель без уровней — пустой список', async () => {
+    await viewer.load('/Dirty%20Cube%2001.glb')
+    const info = viewer.getLodInfo()
+    expect(info.count).toBe(0)
+    expect(info.source).toBeNull()
+    expect(viewer.setLod(0)).toBe(false)
   })
 })

@@ -37,7 +37,9 @@
 // Production Multi UV 01, parkergirl под ['safe','join','instance'] не нашёл ни одного повтора
 // кроме исключения — сторож обязан быть зелёным на момент выдачи задания.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
+
 import { optimizeFile } from '../optimize2.mjs';
 import { modelPath, eachModel } from './helpers/model-files.mjs';
 import { densityViolations, DENSITY_LIMIT } from './helpers/report-density.mjs';
@@ -104,6 +106,7 @@ describe('Report density — сторож повторов одинаковых 
   for (const flags of DENSITY_FLAG_SETS) {
     eachModel(`плотность отчёта ≤${DENSITY_LIMIT} (флаги: [${flags.join(', ')}])`, DENSITY_CORPUS, async (name) => {
       const result = await optimizeFile(modelPath(name), {
+        outDir: tmpOutDir(),
         advancedFeatures: flags,
         dryRun: true,
       });
@@ -153,3 +156,5 @@ describe('Report density — сторож повторов одинаковых 
     expect(densityViolations(fake)).toEqual([]);
   });
 });
+
+afterAll(cleanupTmpOutDirs);

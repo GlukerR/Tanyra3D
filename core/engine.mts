@@ -400,7 +400,19 @@ async function runFile(
         }
         continue;
       }
-      if (!rule.fix) { addFound(rule.meta, finding.text); continue; }
+      // Правило БЕЗ починки — чистое наблюдение: находка идёт в «Анализ» как есть.
+      //
+      // Передаётся САМА находка, а не `finding.text`. Разница решающая (2026-08-15):
+      // находка — это `{ messageId, data }`, а `text` у неё пуст и пустым останется,
+      // потому что готовой строке в правиле взяться неоткуда — Правило 8 запрещает
+      // пользовательский текст в логике. Здесь стояло `finding.text`, и наблюдение
+      // молча пропадало: правило отрабатывало, находку возвращало, в отчёт не
+      // попадало ничего. Ветка не работала ни разу — правил без починки в проекте
+      // до сих пор не было, и первое же (scene/lod-levels) на это наткнулось.
+      //
+      // entriesOf раскрывает messageId в строку И сохраняет рецепт, поэтому такая
+      // находка переживает смену языка наравне с остальными.
+      if (!rule.fix) { addFound(rule.meta, finding); continue; }
       const decision = rule.canFix ? rule.canFix(finding, ctx) : { safe: true };
       if (!decision.safe) {
         const reason: Message = decision.messageId

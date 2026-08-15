@@ -28,13 +28,14 @@
 // tests/post-gap005-corpus.test.mjs; здесь он не дублируется, чтобы не
 // плодить вводящие в заблуждение «зелёные» стражи над некоммитимой моделью.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 
 import { sourcePath } from './helpers/source-files.mjs';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
@@ -158,6 +159,7 @@ describe('GAP-005 Behavioral — Morph Cube 01 (committed, 2 morph targets)', ()
   for (const { name, flags } of PRESERVE_MODES) {
     it(`${name} — morphTargets preserved (before === after, non-zero)`, async () => {
       const result = await optimizeFile(modelPath('Morph Cube 01.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: flags,
         dryRun: true,
       });
@@ -174,6 +176,7 @@ describe('GAP-005 Behavioral — Morph Cube 01 (committed, 2 morph targets)', ()
 
   it('attributes содержит POSITION — UV-канал и нормаль видны baseline-checkpoint', async () => {
     const result = await optimizeFile(modelPath('Morph Cube 01.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe'],
       dryRun: true,
     });
@@ -184,3 +187,5 @@ describe('GAP-005 Behavioral — Morph Cube 01 (committed, 2 morph targets)', ()
     expect(result.metrics.before.attributes.split(',').map((s) => s.trim())).toContain('POSITION');
   });
 });
+
+afterAll(cleanupTmpOutDirs);

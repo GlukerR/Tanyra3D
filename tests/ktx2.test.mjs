@@ -17,7 +17,9 @@
 //    но не unhandled exception)
 // 4. Baseline pipeline не ломается от присутствия ktx2
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
+
 import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -49,6 +51,7 @@ const TIMEOUT_INPUT = 300000;
 describeIfModels(['CarConcept.glb'], 'KTX2 — basic', () => {
   it('advancedFeatures:["ktx2"] is a valid feature (no unknown error)', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2'],
       dryRun: true,
     });
@@ -58,6 +61,7 @@ describeIfModels(['CarConcept.glb'], 'KTX2 — basic', () => {
 
   it('ktx2 alone triggers textures/ktx2 (geometry/compress stays opt-in)', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2'],
       dryRun: true,
     });
@@ -74,6 +78,7 @@ describeIfModels(['CarConcept.glb'], 'KTX2 — basic', () => {
 
   it('core invariant — triangles preserved with ktx2', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2'],
       dryRun: true,
     });
@@ -85,6 +90,7 @@ describeIfModels(['CarConcept.glb'], 'KTX2 — basic', () => {
 
   it('validation includes baseline entry and geometry present on ktx2', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2'],
       dryRun: true,
     });
@@ -106,6 +112,7 @@ describeIfModels(['CarConcept.glb'], 'KTX2 — basic', () => {
 
   it('metrics have all required fields with ktx2', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2'],
       dryRun: true,
     });
@@ -130,10 +137,12 @@ describeIfModels(['CarConcept.glb'], 'KTX2 — vs default pipeline', () => {
   it('both modes pass baseline validation', async () => {
     const [ktx2Result, defaultResult] = await Promise.all([
       optimizeFile(modelPath('CarConcept.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: ['ktx2'],
         dryRun: true,
       }),
       optimizeFile(modelPath('CarConcept.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: [],
         dryRun: true,
       }),
@@ -188,6 +197,7 @@ describe('KTX2 — golden corpus', () => {
   // it.each → eachModel: пропуск LOCALS, которых нет на диске.
   eachModel('ktx2 returns ok, triangles preserved', HEALTHY_MODELS, async (name) => {
     const result = await optimizeFile(modelPath(name), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2'],
       dryRun: true,
     });
@@ -210,6 +220,7 @@ describe('KTX2 — golden corpus', () => {
 describeIfModels(['CarConcept.glb'], 'KTX2 + Draco — combined features', () => {
   it('advancedFeatures:["ktx2","draco"] is valid (no unknown error)', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2', 'draco'],
       dryRun: true,
     });
@@ -219,6 +230,7 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco — combined features', () =>
 
   it('both ktx2 and draco rules are present in applied', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2', 'draco'],
       dryRun: true,
     });
@@ -236,6 +248,7 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco — combined features', () =>
 
   it('core invariant — triangles preserved with ktx2+draco', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2', 'draco'],
       dryRun: true,
     });
@@ -247,6 +260,7 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco — combined features', () =>
 
   it('validation confirms file integrity with ktx2+draco', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2', 'draco'],
       dryRun: true,
     });
@@ -265,14 +279,17 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco — combined features', () =>
     // Запускаем все три режима параллельно
     const [combined, pureKtx2, pureDraco] = await Promise.all([
       optimizeFile(modelPath('CarConcept.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: ['ktx2', 'draco'],
         dryRun: true,
       }),
       optimizeFile(modelPath('CarConcept.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: ['ktx2'],
         dryRun: true,
       }),
       optimizeFile(modelPath('CarConcept.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: ['draco'],
         dryRun: true,
       }),
@@ -301,6 +318,7 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco — combined features', () =>
 
   it('metrics have all required fields with ktx2+draco', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2', 'draco'],
       dryRun: true,
     });
@@ -326,6 +344,7 @@ const ALL_THREE = ['ktx2', 'draco', 'strip-colors'];
 describeIfModels(['CarConcept.glb'], 'KTX2 + Draco + strip-colors — all three', () => {
   it('advancedFeatures:["ktx2","draco","strip-colors"] is valid', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ALL_THREE,
       dryRun: true,
     });
@@ -335,6 +354,7 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco + strip-colors — all three'
 
   it('all three rules are present in applied', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ALL_THREE,
       dryRun: true,
     });
@@ -358,6 +378,7 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco + strip-colors — all three'
 
   it('core invariant — triangles preserved with all three', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ALL_THREE,
       dryRun: true,
     });
@@ -369,6 +390,7 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco + strip-colors — all three'
 
   it('validation confirms file integrity with all three', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ALL_THREE,
       dryRun: true,
     });
@@ -387,18 +409,22 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco + strip-colors — all three'
     // измерения, по которым размеры различаются.
     const [all3, ktx2Draco, ktx2Strip, dracoStrip] = await Promise.all([
       optimizeFile(modelPath('CarConcept.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: ALL_THREE,
         dryRun: true,
       }),
       optimizeFile(modelPath('CarConcept.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: ['ktx2', 'draco'],
         dryRun: true,
       }),
       optimizeFile(modelPath('CarConcept.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: ['ktx2', 'strip-colors'],
         dryRun: true,
       }),
       optimizeFile(modelPath('CarConcept.glb'), {
+        outDir: tmpOutDir(),
         advancedFeatures: ['draco', 'strip-colors'],
         dryRun: true,
       }),
@@ -434,6 +460,7 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco + strip-colors — all three'
 
   it('metrics have all required fields with all three', async () => {
     const result = await optimizeFile(modelPath('CarConcept.glb'), {
+      outDir: tmpOutDir(),
       advancedFeatures: ALL_THREE,
       dryRun: true,
     });
@@ -464,6 +491,7 @@ describeInput('KTX2 — input folder (first 10 models)', () => {
 
   it.each(models)('%s — no crash with ktx2', async (name) => {
     const result = await optimizeFile(path.join(INPUT_DIR, name), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['ktx2'],
       dryRun: true,
     });
@@ -482,3 +510,5 @@ describeInput('KTX2 — input folder (first 10 models)', () => {
     expect(models.length).toBeGreaterThan(0);
   });
 });
+
+afterAll(cleanupTmpOutDirs);

@@ -64,6 +64,10 @@ const THREE_DIR = path.join(__dirname, 'node_modules', 'three');
 // ui/index.html. Отдельная константа, а не подпапка three, — пакет чужой и обновляется
 // своим циклом; см. docs/ЗАВИСИМОСТИ.md.
 const ANIM_POINTER_DIR = path.join(__dirname, 'node_modules', '@needle-tools', 'three-animation-pointer');
+// Плагины к загрузчику three.js, которых нет в самом three (takahirox, MIT, ~62 КБ на
+// все). Нам нужен один — KHR_materials_variants: запасные цвета и отделки модели.
+// Ссылка на этот репозиторий стоит в документации самого GLTFLoader.
+const GLTF_EXT_DIR = path.join(__dirname, 'node_modules', 'three-gltf-extensions');
 
 // Никаких накоплений: на старте чистим прежние загрузки/результаты (только текущая
 // оптимизация хранится на диске — см. purgeBeyondLimit).
@@ -629,6 +633,12 @@ const server = http.createServer(async (req, res) => {
     // --- плагин KHR_animation_pointer (из node_modules/@needle-tools/…) ---
     if (req.method === 'GET' && pathname.startsWith('/vendor/animation-pointer/')) {
       await serveStatic(req, res, pathname, ANIM_POINTER_DIR, '/vendor/animation-pointer');
+      return;
+    }
+
+    // --- плагины к загрузчику, которых нет в three (из node_modules/three-gltf-extensions/) ---
+    if (req.method === 'GET' && pathname.startsWith('/vendor/gltf-extensions/')) {
+      await serveStatic(req, res, pathname, GLTF_EXT_DIR, '/vendor/gltf-extensions');
       return;
     }
 

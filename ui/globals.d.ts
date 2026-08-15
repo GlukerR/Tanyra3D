@@ -61,6 +61,28 @@ interface OptiViewerApi {
   setAnimationPlaying(on: boolean): void;
   seekAnimation(sec: number): void;
   selectAnimationClip(i: number): void;
+  /**
+   * Уровни детализации. `source`: 'extension' — автор связал их расширением (факт);
+   * 'names' — узнали по именам соседних узлов (догадка). Интерфейс обязан их различать.
+   */
+  getLods(): {
+    count: number;
+    source: 'extension' | 'names' | null;
+    names: string[];
+    triangles: number[];
+    current: number | 'all' | null;
+    selected: number | 'all' | null;
+  };
+  /** Показать уровень в обоих вьюпортах; null — как в файле. */
+  selectLod(index: number | 'all' | null): void;
+  /**
+   * Варианты материала: запасные цвета и отделки, между которыми модель умеет
+   * переключаться. `count === 0` — их в модели нет, и панели быть не должно.
+   * Имена приходят ИЗ ФАЙЛА и переводу не подлежат (Правило 8: это данные).
+   */
+  getVariants(): { count: number; names: string[]; current: string | null; selected: string | null };
+  /** Переключить вариант в ОБОИХ вьюпортах; null — основной вид из файла. */
+  selectVariant(name: string | null): Promise<void>;
   setExposure(v: number): void;
   getExposure(): number;
   /** Нагрузка на отрисовку либо null, пока окно замера не набралось. */

@@ -10,7 +10,9 @@
 // Прогоняется на CarConcept.glb (присутствует у всех) и, при наличии, на всём
 // золотом корпусе.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
+
 import { optimizeFile } from '../optimize2.mjs';
 import { modelPath, eachModel, describeLocal } from './helpers/model-files.mjs';
 
@@ -259,6 +261,7 @@ describeLocal(BASE_MODEL, 'Russian locale — CarConcept', () => {
 
   it('prerequisite — прогон успешен', async () => {
     sharedResult = await optimizeFile(modelPath(BASE_MODEL), {
+      outDir: tmpOutDir(),
       advancedFeatures: SHARED_FLAGS, dryRun: true, locale: 'ru',
     });
     expect(sharedResult.status).toBe('ok');
@@ -298,6 +301,7 @@ describeLocal(BASE_MODEL, 'Russian locale — CarConcept', () => {
 
   it('safe+meshopt+join — сводно все секции', async () => {
     const r = await optimizeFile(modelPath(BASE_MODEL), {
+      outDir: tmpOutDir(),
       advancedFeatures: ['safe', 'meshopt', 'join'], dryRun: true, locale: 'ru',
     });
     expect(r.status).toBe('ok');
@@ -317,6 +321,7 @@ describe('Russian locale — golden corpus', () => {
   for (const { label, flags } of FLAG_SETS) {
     eachModel(`[${label}] все поля локализованы — whitelist OK`, GOLDEN, async (name) => {
       const r = await optimizeFile(modelPath(name), {
+        outDir: tmpOutDir(),
         advancedFeatures: flags, dryRun: true, locale: 'ru',
       });
       // Модели с KHR_animation_pointer и т.д. могут вернуть fail — это ок.
@@ -329,3 +334,5 @@ describe('Russian locale — golden corpus', () => {
     expect(GOLDEN.length).toBeGreaterThan(0);
   });
 });
+
+afterAll(cleanupTmpOutDirs);

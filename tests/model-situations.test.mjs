@@ -27,10 +27,10 @@
 // чистом клоне корпус обязан быть зелёным.
 
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
+
 
 import { optimizeFile } from '../optimize2.mjs';
 import gltfAddon from '../addons/gltf/index.mjs';
@@ -43,9 +43,6 @@ import {
 
 const ioPromise = gltfAddon.createIO();
 
-function tmpOutDir(prefix = 'situations-test-') {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-}
 
 /** Читает ВЫХОДНОЙ файл и возвращает структуру — то, что реально получил пользователь. */
 async function structureOf(file) {
@@ -147,7 +144,7 @@ describe('Реестр ситуаций — санити', () => {
 
 describe('Класс broken — status fail с причиной, исключения наружу нет', () => {
   eachSituation('broken', 'прогон даёт status fail и внятную причину, а не исключение', async (name) => {
-    const r = await optimizeFile(modelPath(name), { dryRun: true });
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), dryRun: true });
     expect(r.status).toBe('fail');
     expect(r.error).toBeDefined();
     expect(typeof r.error).toBe('string');
@@ -157,7 +154,7 @@ describe('Класс broken — status fail с причиной, исключе�
 
 describe('Класс no-geometry — status ok, геометрические правила воздерживаются с причиной', () => {
   eachSituation('no-geometry', 'прогон не падает, счётчики на месте', async (name) => {
-    const r = await optimizeFile(modelPath(name), { advancedFeatures: ['safe'], dryRun: true });
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['safe'], dryRun: true });
     expect(r.status).toBe('ok');
     expect(r.metrics.after.triangles).toBe(0);
   });
@@ -165,7 +162,7 @@ describe('Класс no-geometry — status ok, геометрические п�
 
 describe('Класс textures-only — текстуры есть, треугольников 0; status ok', () => {
   eachSituation('textures-only', 'прогон не падает, текстуры целы', async (name) => {
-    const r = await optimizeFile(modelPath(name), { advancedFeatures: ['safe', 'webp'], dryRun: true });
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['safe', 'webp'], dryRun: true });
     expect(r.status).toBe('ok');
     expect(r.metrics.before.textures).toBeGreaterThan(0);
     expect(r.metrics.after.triangles).toBe(0);
@@ -174,7 +171,7 @@ describe('Класс textures-only — текстуры есть, треугол
 
 describe('Класс no-textures — текстурные правила (ktx2, webp) воздерживаются с причиной', () => {
   eachSituation('no-textures', 'ktx2/webp не применяются и называют причину', async (name) => {
-    const r = await optimizeFile(modelPath(name), { advancedFeatures: ['ktx2', 'webp'], dryRun: true });
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['ktx2', 'webp'], dryRun: true });
     expect(r.status).toBe('ok');
     expect(r.metrics.before.textures).toBe(0);
     // обе текстурные фичи включены, но применять нечего — обе обязаны промолчать
@@ -188,7 +185,7 @@ describe('Класс no-textures — текстурные правила (ktx2, 
 
 describe('Класс unknown-extension — структурные правила отказываются (kind unsafe), модель цела', () => {
   eachSituation('unknown-extension', 'safe отказывается с причиной, анимации целы', async (name) => {
-    const r = await optimizeFile(modelPath(name), { advancedFeatures: ['safe'], dryRun: true });
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['safe'], dryRun: true });
     expect(r.status).toBe('ok');
     // чистка, переставляющая/удаляющая свойства, обязана отказаться (unsupportedExtension.refuse)
     const refuses = r.skipped.filter((s) => s.kind === 'unsafe' && s.i18n?.reason?.messageId === 'unsupportedExtension.refuse');
@@ -217,7 +214,7 @@ describe('Класс edge-name — путь с кириллицей/пробел
 
 describe('Класс heavy — укладывается в таймаут, память не улетает', () => {
   eachSituation('heavy', 'прогон завершается в таймаут со status ok', async (name) => {
-    const r = await optimizeFile(modelPath(name), { advancedFeatures: ['safe'], dryRun: true }, 110000);
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['safe'], dryRun: true }, 110000);
     expect(r.status).toBe('ok');
   }, 110000);
 });
@@ -231,14 +228,14 @@ describe('Класс heavy — укладывается в таймаут, па�
 
 describe('Класс skinned — скинов столько же, сколько было, на любом наборе флагов', () => {
   eachSituation('skinned', 'safe+quantize: скины целы (сторож TESTBUG-007 — quantize не расщепляет скин)', async (name) => {
-    const r = await optimizeFile(modelPath(name), { advancedFeatures: ['safe', 'quantize'], dryRun: true });
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['safe', 'quantize'], dryRun: true });
     expect(r.status).toBe('ok');
     expect(r.metrics.before.skins).toBeGreaterThan(0);
     expect(r.metrics.after.skins).toBe(r.metrics.before.skins);
   });
 
   eachSituation('skinned', 'safe+join: скины целы', async (name) => {
-    const r = await optimizeFile(modelPath(name), { advancedFeatures: ['safe', 'join'], dryRun: true });
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['safe', 'join'], dryRun: true });
     expect(r.status).toBe('ok');
     expect(r.metrics.after.skins).toBe(r.metrics.before.skins);
   });
@@ -246,7 +243,7 @@ describe('Класс skinned — скинов столько же, скольк�
 
 describe('Класс morphed — морф-таргетов столько же', () => {
   eachSituation('morphed', 'safe+quantize: морфы целы (квантование — самый хрупкий для морфов проход)', async (name) => {
-    const r = await optimizeFile(modelPath(name), { advancedFeatures: ['safe', 'quantize'], dryRun: true });
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['safe', 'quantize'], dryRun: true });
     expect(r.status).toBe('ok');
     expect(r.metrics.before.morphTargets).toBeGreaterThan(0);
     expect(r.metrics.after.morphTargets).toBe(r.metrics.before.morphTargets);
@@ -255,7 +252,7 @@ describe('Класс morphed — морф-таргетов столько же',
 
 describe('Класс animated — анимаций столько же', () => {
   eachSituation('animated', 'safe+resample: число анимаций не меняется', async (name) => {
-    const r = await optimizeFile(modelPath(name), { advancedFeatures: ['safe', 'resample'], dryRun: true });
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['safe', 'resample'], dryRun: true });
     expect(r.status).toBe('ok');
     expect(r.metrics.before.animations).toBeGreaterThan(0);
     expect(r.metrics.after.animations).toBe(r.metrics.before.animations);
@@ -282,7 +279,7 @@ describe('Класс vertex-colors — COLOR_0 не исчезает без яв
       }
     }
 
-    const r = await optimizeFile(modelPath(name), { advancedFeatures: ['safe'], dryRun: true });
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['safe'], dryRun: true });
     expect(r.status).toBe('ok');
     if (painted) {
       // раскрашенный канал без явного strip-colors обязан остаться.
@@ -291,7 +288,7 @@ describe('Класс vertex-colors — COLOR_0 не исчезает без яв
       expect(r.metrics.after.attributes).toContain('COLOR_0');
     }
 
-    const rs = await optimizeFile(modelPath(name), { advancedFeatures: ['safe', 'strip-colors'], dryRun: true });
+    const rs = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['safe', 'strip-colors'], dryRun: true });
     expect(rs.status).toBe('ok');
     expect(rs.metrics.after.attributes).not.toContain('COLOR_0');
   });
@@ -300,7 +297,7 @@ describe('Класс vertex-colors — COLOR_0 не исчезает без яв
 describe('Класс multi-scene — сцен столько же, активная сцена та же', () => {
   eachSituation('multi-scene', 'прогон не трогает ни число сцен, ни активную', async (name) => {
     const io = await ioPromise;
-    const r = await optimizeFile(modelPath(name), { advancedFeatures: ['safe'], dryRun: true });
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['safe'], dryRun: true });
     expect(r.status).toBe('ok');
     expect(r.metrics.after.scenes).toBe(r.metrics.before.scenes);
     const doc = await io.read(modelPath(name));
@@ -318,7 +315,7 @@ describe('Класс multi-scene — сцен столько же, активн�
 
 describe('Класс precompressed-draco — входное сжатие названо причиной, идемпотентность', () => {
   eachSituation('precompressed-draco', 'safe: движок называет снятый кодек; повторный прогон не меняет структуру', async (name) => {
-    const r = await optimizeFile(modelPath(name), { advancedFeatures: ['safe'], dryRun: true });
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['safe'], dryRun: true });
     expect(r.status).toBe('ok');
     // причина — в отчёте честно назван кодек, снятый при загрузке (не молчаливая переупаковка)
     const found = r.findings.find((f) => f.i18n?.text?.messageId === 'engine.inputCompression.found');
@@ -331,7 +328,7 @@ describe('Класс precompressed-draco — входное сжатие наз�
 
 describe('Класс precompressed-meshopt — входное сжатие названо причиной, идемпотентность', () => {
   eachSituation('precompressed-meshopt', 'safe: движок называет снятый кодек; повторный прогон не меняет структуру', async (name) => {
-    const r = await optimizeFile(modelPath(name), { advancedFeatures: ['safe'], dryRun: true });
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['safe'], dryRun: true });
     expect(r.status).toBe('ok');
     const found = r.findings.find((f) => f.i18n?.text?.messageId === 'engine.inputCompression.found');
     expect(found).toBeDefined();
@@ -343,7 +340,7 @@ describe('Класс precompressed-meshopt — входное сжатие на�
 
 describe('Класс prequantized — quantize воздерживается с причиной, идемпотентность', () => {
   eachSituation('prequantized', 'quantize: уже квантована — воздержание с причиной; повторный прогон не меняет структуру', async (name) => {
-    const r = await optimizeFile(modelPath(name), { advancedFeatures: ['quantize'], dryRun: true });
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['quantize'], dryRun: true });
     expect(r.status).toBe('ok');
     expect(anySkippedMsg(r, 'geometry/quantize', 'quantize.skipped.already')).toBe(true);
     expect(r.applied.some((a) => a.ruleId === 'geometry/quantize')).toBe(false);
@@ -354,7 +351,7 @@ describe('Класс prequantized — quantize воздерживается с �
 
 describe('Класс pre-webp — уже-webp текстуры получают свою причину, идемпотентность', () => {
   eachSituation('pre-webp', 'webp: уже-webp текстуры названы причиной; повторный прогон не меняет структуру', async (name) => {
-    const r = await optimizeFile(modelPath(name), { advancedFeatures: ['webp'], dryRun: true });
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['webp'], dryRun: true });
     expect(r.status).toBe('ok');
     // каждая уже-webp текстура — отдельная строка причины (одна на класс случаев)
     expect(anySkippedMsg(r, 'textures/webp', 'webp.skipped.already')).toBe(true);
@@ -365,7 +362,7 @@ describe('Класс pre-webp — уже-webp текстуры получают 
 
 describe('Класс pre-ktx2 — уже-KTX2 текстуры получают свою причину, идемпотентность', () => {
   eachSituation('pre-ktx2', 'ktx2: уже-KTX2 текстуры названы причиной; повторный прогон не меняет структуру', async (name) => {
-    const r = await optimizeFile(modelPath(name), { advancedFeatures: ['ktx2'], dryRun: true });
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['ktx2'], dryRun: true });
     expect(r.status).toBe('ok');
     expect(anySkippedMsg(r, 'textures/ktx2', 'ktx2.skipped.already')).toBe(true);
     expect(r.applied.some((a) => a.ruleId === 'textures/ktx2')).toBe(false);
@@ -374,7 +371,7 @@ describe('Класс pre-ktx2 — уже-KTX2 текстуры получают 
 
 describe('Класс preinstanced — входной инстансинг не мешает прогону', () => {
   eachSituation('preinstanced', 'прогон с safe не ломает модель с входным EXT_mesh_gpu_instancing', async (name) => {
-    const r = await optimizeFile(modelPath(name), { advancedFeatures: ['safe'], dryRun: true });
+    const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['safe'], dryRun: true });
     expect(r.status).toBe('ok');
     expect(r.metrics.after.triangles).toBe(r.metrics.before.triangles);
   });
@@ -481,3 +478,5 @@ describe('Покрытие классов — мета-тест (класс бе
     }
   });
 });
+
+afterAll(cleanupTmpOutDirs);

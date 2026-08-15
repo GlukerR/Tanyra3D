@@ -15,11 +15,13 @@ import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
 import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { GLTFAnimationPointerExtension } from "@needle-tools/three-animation-pointer";
+import GLTFMaterialsVariantsExtension from "three-gltf-extensions/loaders/KHR_materials_variants/KHR_materials_variants.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 // Контракт движка просмотра. Импорт типов, а не кода: в собранный файл он не попадает.
 import type { CameraState, LoadOptions, ViewerLike } from "./contract.js";
 import { buildUvPointerDriver, stripUvTransformTracks, type UvPointerDriver } from "./pointer-uv.js";
+import { detectLods, showLod, type LodSet } from "./lod.js";
 
 // Пути к декодерам — тоже из node_modules/three через /vendor-роут сервера (server.mjs).
 const DRACO_DECODER_PATH = "/vendor/three/examples/jsm/libs/draco/gltf/";
@@ -239,6 +241,16 @@ export class Viewer implements ViewerLike {
   declare _action?: THREE.AnimationAction | null;
   /** Привод развёрток текстур по указателю — вне AnimationMixer, см. pointer-uv.ts. */
   declare _uv?: UvPointerDriver | null;
+  /** Уровни детализации загруженной модели; null — их нет. См. lod.ts. */
+  declare _lods?: LodSet | null;
+  /** Показанный уровень; null — как в файле. */
+  declare _lod?: number | 'all' | null;
+  /** Имена вариантов материала (запасные цвета и отделки) — пусто, если их в модели нет. */
+  declare _variants?: string[];
+  /** Выбранный вариант; null — исходный вид модели, как её отдал экспортёр. */
+  declare _variant?: string | null;
+  /** Переключатель из плагина: (объект, имя|null) → Promise. Живёт вместе с моделью. */
+  declare _selectVariant?: ((o: THREE.Object3D, name: string | null) => Promise<unknown>) | null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -337,6 +349,11 @@ export class Viewer implements ViewerLike {
       // то есть до того, как кто-либо возьмётся за анимации.
       this._loader.register((parser) => orphanPointerGuard(parser));
       this._loader.register((parser) => new GLTFAnimationPointerExtension(parser));
+      // Варианты материала — запасные цвета и отделки, между которыми модель умеет
+      // переключаться. Загрузчик three.js их не читает: расширение вынесено в отдельный
+      // плагин, ссылка на который стоит в документации самого GLTFLoader. Без плагина
+      // показывается один вид, и человек не знает, что художник сделал ещё три.
+      this._loader.register((parser) => new GLTFMaterialsVariantsExtension(parser));
     } catch (err) {
       console.warn('KHR_animation_pointer: плагин не зарегистрирован, анимация по указателю показана не будет', err);
     }
@@ -372,6 +389,11 @@ export class Viewer implements ViewerLike {
     // жалуются в консоль и всё равно ничего не двигают.
     this._uv = await buildUvPointerDriver(gltf);
     if (this._uv) stripUvTransformTracks(gltf.animations || []);
+    this._readVariants(gltf);
+    // Уровни детализации ищем ПОСЛЕ добавления модели в сцену: соседей узнаём по
+    // габаритам, а они считаются по мировым матрицам.
+    this._lods = await detectLods(gltf as never);
+    this._lod = null;
     this._setupAnimations(gltf.animations);
     // camera передан (сборка/ребилд той же модели) → СОХРАНИТЬ ракурс: приближённая
     // пользователем деталь остаётся на месте. Иначе (новая модель) — авто-кадрирование.
@@ -488,6 +510,83 @@ export class Viewer implements ViewerLike {
     this.renderer.toneMappingExposure = Number.isFinite(v) ? v : 1;
   }
 
+  // ── Варианты материала ─────────────────────────────────────────────────────
+  //
+  // Плагин кладёт имена в gltf.userData.variants, а переключатель — в
+  // gltf.functions.selectVariant. Обе величины принадлежат КОНКРЕТНОЙ загрузке:
+  // переключатель замкнут на parser этой модели и на следующей станет мусором,
+  // поэтому снимается в _disposeModel вместе с моделью.
+  //
+  // Ни одной строки для человека здесь нет и быть не может: имена вариантов пишет
+  // художник в своём редакторе, а подписи вокруг них — дело интерфейса (Правило 8).
+  _readVariants(gltf: GLTF) {
+    const data = gltf.userData as { variants?: unknown } | undefined;
+    const fns = (gltf as unknown as { functions?: { selectVariant?: unknown } }).functions;
+    const names = Array.isArray(data?.variants) ? (data!.variants as unknown[]) : [];
+    this._variants = names.filter((n): n is string => typeof n === 'string' && n.length > 0);
+    this._selectVariant = typeof fns?.selectVariant === 'function'
+      ? (fns.selectVariant as (o: THREE.Object3D, name: string | null) => Promise<unknown>)
+      : null;
+    // Начальный вид — тот, что записан в самом файле как основной, а не первый из
+    // списка: экспортёр выбирает его сознательно, и подменять этот выбор нельзя.
+    this._variant = null;
+  }
+
+  // ── Уровни детализации ─────────────────────────────────────────────────────
+  //
+  // Переключение — состояние ПОКАЗА, а не правка модели (Правило 11): спрятанный
+  // уровень остаётся и в сцене, и в файле, его просто не рисуют. Ни один уровень
+  // отсюда не удаляется и удалён быть не может.
+
+  /** Какие уровни детализации есть у модели; count === 0 — их нет. */
+  getLodInfo() {
+    const set = this._lods;
+    if (!set) return { count: 0, source: null, names: [] as string[], triangles: [] as number[], current: null };
+    return {
+      count: set.levels.length,
+      // Откуда узнали: 'extension' — автор связал уровни как положено; 'names' — узнали
+      // по именам соседних узлов, то есть это ДОГАДКА. Интерфейс обязан их различать:
+      // выдавать догадку за факт нечестно.
+      source: set.source,
+      names: set.levels.map((l) => l.name),
+      triangles: set.levels.map((l) => l.triangles),
+      current: this._lod ?? null,
+    };
+  }
+
+  /**
+   * Показать уровень по номеру: 0 — самый подробный, дальше по убыванию.
+   * `null` — вернуть как в файле.
+   */
+  setLod(index: number | null) {
+    if (!this._lods || !this.model) return false;
+    if (index !== null && (index < 0 || index >= this._lods.levels.length)) return false;
+    showLod(this._lods, this.model, index);
+    this._lod = index;
+    return true;
+  }
+
+  /** Какие варианты материала есть у модели — для панели управления. */
+  getVariantInfo() {
+    const names = this._variants || [];
+    return { count: names.length, names: [...names], current: this._variant ?? null };
+  }
+
+  /**
+   * Переключить вариант материала. `null` — вернуть исходный вид из файла.
+   *
+   * Возвращает true, когда переключение состоялось. Неизвестное имя — не исключение,
+   * а false: список вариантов приходит из файла, и интерфейс не обязан гадать, что
+   * в нём окажется.
+   */
+  async setVariant(name: string | null) {
+    if (!this.model || !this._selectVariant) return false;
+    if (name !== null && !(this._variants || []).includes(name)) return false;
+    await this._selectVariant(this.model, name);
+    this._variant = name;
+    return true;
+  }
+
   /** Что за анимации в модели — для панели управления. */
   getAnimationInfo() {
     if (!this.clips || !this.clips.length) return { count: 0, names: [], index: -1, duration: 0 };
@@ -571,6 +670,15 @@ export class Viewer implements ViewerLike {
     // Привод развёрток держит ССЫЛКИ НА ТЕКСТУРЫ этой модели. Не снять — и следующий
     // сдвиг ползунка будет писать в текстуры, которые уже освобождены.
     this._uv = null;
+    // Переключатель вариантов замкнут на parser ЭТОЙ загрузки и на материалы, которые
+    // сейчас будут освобождены. Оставить — и он полезет в чужую модель.
+    // Уровни держат ссылки на узлы этой модели — в том числе на запасные, которые в
+    // сцену мог добавить показ. Не снять — и они переживут модель.
+    this._lods = null;
+    this._lod = null;
+    this._selectVariant = null;
+    this._variants = [];
+    this._variant = null;
     this.scene.remove(this.model);
     disposeSubtree(this.model);
     this.model = null;

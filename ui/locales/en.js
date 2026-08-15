@@ -46,6 +46,13 @@ window.I18N_CATALOGS.en = {
   'vp.pause': 'Pause animation',
   'vp.clip': 'Animation clip',
   'vp.time': 'Animation time',
+  // Подпись у списка вариантов материала. «Look», а не «Variant»: художник называет
+  // это внешним видом модели, а слово из спецификации ему ничего не говорит (Правило 10).
+  'vp.variant': 'Look',
+  // Подпись у списка уровней детализации. Два варианта по ИСТОЧНИКУ: расширение —
+  // факт, имена соседних узлов — догадка, и выдавать её за факт нечестно.
+  'vp.lod': 'Detail',
+  'vp.lod.guess': 'Looks like detail levels',
   'stage.hint': 'Load a .glb from the left panel to preview it here',
 
   // Подписи посреди панелей просмотра (ui/viewer/index.js). Ставятся из кода через
@@ -59,6 +66,16 @@ window.I18N_CATALOGS.en = {
   'viewer.hint.noOutput': 'No output file to preview',
   // Клип без имени в файле. Номер — часть сообщения, а не приставка к слову.
   'viewer.clip.unnamed': ({ n }) => `Clip ${n}`,
+  // Первый пункт списка вариантов: вид, записанный в файле основным. Не «не выбрано» —
+  // экспортёр выбирает его сознательно, и вернуться к нему человек вправе.
+  'viewer.variant.original': 'As in the file',
+  // Первый пункт списка уровней. У уровней, узнанных по именам, это честно значит «все
+  // сразу, друг сквозь друга» — именно так модель и приезжает.
+  'viewer.lod.asFile': 'As in the file',
+  // Все уровни сразу, наложенные друг на друга — чтобы сравнить их между собой.
+  'viewer.lod.all': 'Show all at once',
+  // Имя уровня и его подробность — ОДНО сообщение с подстановками, а не склейка в коде.
+  'viewer.lod.item': ({ name, tri }) => `${name} — ${Number(tri).toLocaleString('en-US')} tri`,
 
   // --- окна ---
   'win.close': 'Close',

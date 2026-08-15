@@ -104,6 +104,14 @@ export default {
   // человек выбрал опцию сознательно, ему нужна цифра и подсказка, а не выговор.
   'join.keptShared': ({ meshes }) =>
     `Left alone: ${meshes} mesh(es) shared by several nodes. Joining them would bake the same geometry into a separate copy per node — the file would grow instead of shrinking. Turn on GPU instancing to cut their draw calls without the extra bytes.`,
+  // Цена сохранённого выбора цветов. Слово «варианты» — из интерфейса самой модели
+  // (так их называет художник в Blender), идентификатор расширения не упоминается.
+  // Уровни детализации: наблюдение, а не находка-дефект. Говорим ЧТО в файле и ЧТО
+  // человек сейчас видит; про создание уровней здесь ни слова — проект их не делает.
+  'lod.found': ({ nodes, levels }) =>
+    `The file carries levels of detail: ${nodes} part${nodes === 1 ? '' : 's'} with up to ${levels} levels each. The preview shows the most detailed one; on a site the engine picks a simpler level when the object is small on screen.`,
+  'join.keptVariants': ({ meshes }) =>
+    `Left alone: ${meshes} mesh(es) that carry material variants — the alternative colours and finishes the model can switch between. Joining them would merge the parts the switch relies on, and the choice would silently stop working. The price is a few extra draw calls.`,
   // 'join.expandedShared' removed 2026-08-01 together with the record itself
   // (TESTBUG-009): shared meshes no longer reach join at all, and the growth it
   // measured was undone by the final cleanup right after — the line called geometry
@@ -273,6 +281,7 @@ export default {
   'rule.geometryDegenerate': () => 'Degenerate triangles',
   'rule.geometryOrphan': () => 'Orphan vertices',
   'rule.sceneJoin': () => 'Mesh join (flatten + join)',
+  'rule.sceneLodLevels': () => 'Levels of detail',
   'rule.sceneInstance': () => 'GPU instancing',
   'rule.animationResample': () => 'Resample animations',
   'rule.structurePruneFinal': () => 'Cleanup of orphaned resources',

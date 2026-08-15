@@ -24,7 +24,9 @@
 // Таймаут 300 с на тест — запас поверх измеренных 0.5–19 с. Смысл таймаута —
 // ловить зависание, а не скорость (см. vitest.config.mjs).
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
+
 import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -75,7 +77,7 @@ describe('Тяжёлые модели input/ — стресс (класс heavy)
       it(`${name} — ${combo.name}: завершается в таймаут, без исключений наружу`, async () => {
         const result = await optimizeFile(
           path.join(INPUT_DIR, name),
-          { advancedFeatures: combo.flags, dryRun: true },
+          { outDir: tmpOutDir(), advancedFeatures: combo.flags, dryRun: true },
           TEST_TIMEOUT_MS,
         );
 
@@ -97,3 +99,5 @@ describe('Тяжёлые модели input/ — стресс (класс heavy)
     }
   }
 });
+
+afterAll(cleanupTmpOutDirs);
