@@ -17,6 +17,9 @@
 //   8. resetView() — один frame(), копия во второй вьюпорт
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+// Нужен для замера рамок в тестах уровней детализации: проверяем, что переключение
+// меняет модель НА МЕСТЕ, а не увозит её в сторону.
+import * as THREE from 'three'
 import {
   createViewer,
   disposeViewer,
@@ -1399,7 +1402,7 @@ describe('Viewer — material variants (browser)', () => {
 //
 // Замер 2026-08-15 на «Stone Well - Photogrammetry & LODs» (Gorgious, CC-BY-4.0): шесть
 // уровней — 67 247 + 9 915 + 2 230 + 480 + 126 + 2 треугольника, все рисуются сразу.
-// Разложены в ряд вдоль X, витриной; сдвиг запечён в вершины, а не в трансформы узлов.
+// Разложены в ряд вдоль X, витриной; перенос лежит в matrix узла уровня.
 //
 // Переключение НИЧЕГО НЕ УДАЛЯЕТ (Правило 11): спрятанный уровень остаётся и в сцене, и
 // в файле. Сторожа ниже это и проверяют — по видимости объектов, а не по их наличию.
@@ -1514,6 +1517,36 @@ describe('Viewer — levels of detail (browser)', () => {
     // Принять их за уровни значило бы решать за автора (Правило 11).
     await viewer.load('/CarConcept.glb')
     expect(viewer.getLodInfo().count).toBe(0)
+  })
+
+  itWithModels(['StoneWellLods.glb'], 'уровни совмещены в одной точке — переключение не уводит модель', async () => {
+    await viewer.load('/StoneWellLods.glb')
+    // Автор разложил уровни в ряд вдоль X (перенос 1.5, 3, 4.5, 6, 7.5 в матрице узла).
+    // Образец собран со снятым переносом: переключение обязано менять модель НА МЕСТЕ,
+    // а не увозить её из кадра. Проверяем по центрам рамок — они должны совпадать.
+    const centers = []
+    for (let i = 0; i < viewer.getLodInfo().count; i++) {
+      viewer.setLod(i)
+      const box = new THREE.Box3().setFromObject(viewer.model)
+      centers.push(box.getCenter(new THREE.Vector3()))
+    }
+    const first = centers[0]
+    for (const c of centers) {
+      // Допуск 0.05 при габарите модели около 1.3: огрублённые уровни слегка гуляют
+      // формой, но не местом. Прежний ряд давал бы разницу в единицы.
+      expect(c.distanceTo(first), 'уровень уехал в сторону при переключении').toBeLessThan(0.05)
+    }
+  })
+
+  itWithModels(['StoneWellLods.glb'], '«показать все сразу» рисует сумму всех уровней', async () => {
+    await viewer.load('/StoneWellLods.glb')
+    const info = viewer.getLodInfo()
+    const sum = info.triangles.reduce((a, b) => a + b, 0)
+    expect(viewer.setLod('all')).toBe(true)
+    expect(visibleTriangles(), 'показаны не все уровни').toBe(sum)
+    // И обратно к одному — без следов.
+    expect(viewer.setLod(0)).toBe(true)
+    expect(visibleTriangles()).toBe(info.triangles[0])
   })
 
   itWithModels(['Dirty Cube 01.glb'], 'модель без уровней — пустой список', async () => {

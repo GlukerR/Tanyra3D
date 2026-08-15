@@ -98,8 +98,8 @@ export interface LodInfo {
   names: string[];
   /** Треугольников в каждом уровне: по ним человек и отличает уровни друг от друга. */
   triangles: number[];
-  /** Показанный уровень; null — как в файле. */
-  current: number | null;
+  /** Показанный уровень: номер, `'all'` — все сразу, `null` — как в файле. */
+  current: number | 'all' | null;
 }
 
 /**
@@ -153,8 +153,8 @@ export interface ViewerLike {
   getAnimationInfo(): AnimationInfo;
   /** Какие уровни детализации есть у модели; count === 0 — их нет. */
   getLodInfo(): LodInfo;
-  /** Показать уровень (0 — самый подробный); null — как в файле. false = не вышло. */
-  setLod(index: number | null): boolean;
+  /** Показать уровень (0 — самый подробный), 'all' — все, null — как в файле. */
+  setLod(index: number | 'all' | null): boolean;
   /** Какие варианты материала есть у модели; count === 0 — их нет вовсе. */
   getVariantInfo(): VariantInfo;
   /** Переключить вариант; null — вернуть основной вид из файла. false = не вышло. */

@@ -4002,6 +4002,13 @@
       base.value = '';
       setText(base, 'viewer.lod.asFile');
       lodSel.appendChild(base);
+      // «Показать всё» — просьба Александра: сравнить уровни наложенными друг на друга,
+      // а не по очереди. У уровней-соседей это совпадает с «как в файле», и совпадает
+      // ЧЕСТНО: файл именно так и устроен, оба пункта говорят правду.
+      const all = document.createElement('option');
+      all.value = 'all';
+      setText(all, 'viewer.lod.all');
+      lodSel.appendChild(all);
       info.names.forEach((name: string, i: number) => {
         const opt = document.createElement('option');
         opt.value = String(i);
@@ -4019,7 +4026,8 @@
   if (lodSel) {
     lodSel.addEventListener('change', () => {
       if (!window.OptiViewer) return;
-      window.OptiViewer.selectLod(lodSel.value === '' ? null : Number(lodSel.value));
+      const v = lodSel.value;
+      window.OptiViewer.selectLod(v === '' ? null : v === 'all' ? 'all' : Number(v));
     });
   }
 

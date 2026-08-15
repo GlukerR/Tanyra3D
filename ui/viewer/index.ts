@@ -218,7 +218,7 @@ class DualViewport {
   /** Выбранный вариант материала; null — основной вид из файла. Переживает загрузку. */
   declare _variantName: string | null;
   /** Показанный уровень детализации; null — как в файле. Тоже переживает загрузку. */
-  declare _lodIndex: number | null;
+  declare _lodIndex: number | 'all' | null;
   declare _exposure: number;
   declare _perf: { left: Float64Array; right: Float64Array; frame: Float64Array; i: number };
   // Эти два появляются позже конструктора и до тех пор отсутствуют — отсюда `?`:
@@ -448,7 +448,7 @@ class DualViewport {
    * Показать уровень В ОБОИХ окнах. Переключение — состояние показа: спрятанный уровень
    * остаётся и в сцене, и в файле (Правило 11).
    */
-  selectLod(index: number | null) {
+  selectLod(index: number | 'all' | null) {
     this._lodIndex = index;
     this.left?.viewer?.setLod?.(index);
     this.right?.viewer?.setLod?.(index);

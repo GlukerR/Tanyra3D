@@ -70,11 +70,11 @@ interface OptiViewerApi {
     source: 'extension' | 'names' | null;
     names: string[];
     triangles: number[];
-    current: number | null;
-    selected: number | null;
+    current: number | 'all' | null;
+    selected: number | 'all' | null;
   };
   /** Показать уровень в обоих вьюпортах; null — как в файле. */
-  selectLod(index: number | null): void;
+  selectLod(index: number | 'all' | null): void;
   /**
    * Варианты материала: запасные цвета и отделки, между которыми модель умеет
    * переключаться. `count === 0` — их в модели нет, и панели быть не должно.

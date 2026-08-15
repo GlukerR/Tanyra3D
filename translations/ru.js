@@ -64,6 +64,7 @@ window.I18N_CATALOGS.ru = {
   'viewer.clip.unnamed': ({ n }) => `Клип ${n}`,
   'viewer.variant.original': 'Как в файле',
   'viewer.lod.asFile': 'Как в файле',
+  'viewer.lod.all': 'Показать все сразу',
   'viewer.lod.item': ({ name, tri }) => `${name} — ${Number(tri).toLocaleString('ru-RU')} тр.`,
 
   // --- окна ---

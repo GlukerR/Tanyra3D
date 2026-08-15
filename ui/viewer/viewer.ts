@@ -244,7 +244,7 @@ export class Viewer implements ViewerLike {
   /** Уровни детализации загруженной модели; null — их нет. См. lod.ts. */
   declare _lods?: LodSet | null;
   /** Показанный уровень; null — как в файле. */
-  declare _lod?: number | null;
+  declare _lod?: number | 'all' | null;
   /** Имена вариантов материала (запасные цвета и отделки) — пусто, если их в модели нет. */
   declare _variants?: string[];
   /** Выбранный вариант; null — исходный вид модели, как её отдал экспортёр. */
