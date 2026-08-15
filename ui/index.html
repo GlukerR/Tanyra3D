@@ -240,6 +240,17 @@
         </div>
       </div>
 
+      <!-- Камеры автора: его ракурсы вместо нашей орбиты. Значка нет у моделей без
+           камер. Через авторскую камеру орбита выключается — это точка зрения автора,
+           а не начало для вращения. -->
+      <div id="camera-controls" class="vp-group hidden">
+        <button class="vp-tool vp-group-btn" type="button" aria-expanded="false" data-i18n-title="vp.camera" data-i18n-aria="vp.camera" title="Camera" aria-label="Camera">▣</button>
+        <div class="vp-pop">
+          <span class="vp-ctl-label" data-i18n="vp.camera">Camera</span>
+          <select id="camera-select" class="vp-anim-clip" data-i18n-aria="vp.camera" aria-label="Camera"></select>
+        </div>
+      </div>
+
       <!-- Свет: наш студийный или тот, что принесла сама модель (KHR_lights_punctual).
            Значка нет у моделей без своих источников — там «свет из файла» означал бы
            темноту, а не замысел автора. -->

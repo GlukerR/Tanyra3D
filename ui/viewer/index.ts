@@ -477,6 +477,25 @@ class DualViewport {
     this.right?.viewer?.setLightMode?.(mode);
   }
 
+  /**
+   * Камеры автора — для полки значков. Спрашиваем ЛЕВЫЙ вьюпорт: он показывает
+   * исходник, и набор ракурсов в нём полный по определению.
+   */
+  getCameras() {
+    return this.left?.viewer?.getCameraInfo?.() || { count: 0, names: [], current: null };
+  }
+
+  /**
+   * Смотреть через камеру автора В ОБОИХ окнах. Разные ракурсы слева и справа сделали
+   * бы сравнение бессмысленным — та же причина, по которой связаны орбиты.
+   *
+   * Выбор НЕ запоминается между моделями: у следующей этого ракурса может не быть.
+   */
+  selectCamera(index: number | null) {
+    this.left?.viewer?.setCamera?.(index);
+    this.right?.viewer?.setCamera?.(index);
+  }
+
   setAnimationPlaying(playing: boolean) {
     this._animPlaying = !!playing;
   }
@@ -708,6 +727,9 @@ window.OptiViewer = {
   // Свет: наш студийный или тот, что принесла сама модель. Один на оба вьюпорта.
   getLight: () => dual.getLight(),
   selectLightMode: (mode) => dual.selectLightMode(mode),
+  // Камеры автора: его ракурсы вместо нашей орбиты. Тоже один выбор на оба вьюпорта.
+  getCameras: () => dual.getCameras(),
+  selectCamera: (index) => dual.selectCamera(index),
   // Экспозиция — одна на оба вьюпорта, см. _applyExposure.
   setExposure: (v) => dual.setExposure(v),
   getExposure: () => dual.getExposure(),

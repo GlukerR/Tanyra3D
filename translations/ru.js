@@ -53,6 +53,9 @@ window.I18N_CATALOGS.ru = {
   'vp.light': 'Свет',
   'viewer.light.studio': 'Студийный',
   'viewer.light.file': 'Из файла',
+  'vp.camera': 'Камера',
+  'viewer.camera.free': 'Свободная',
+  'viewer.camera.unnamed': ({ n }) => `Камера ${n}`,
   'stage.hint': 'Загрузите .glb на левой панели — модель появится здесь',
 
   // Подписи посреди панелей просмотра (ui/viewer/index.js). Ставятся из кода через

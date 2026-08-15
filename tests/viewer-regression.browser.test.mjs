@@ -1637,3 +1637,92 @@ describe('Viewer — свет модели (browser)', () => {
     expect(viewer.scene.environmentIntensity).toBe(1)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Камеры автора
+//
+// Ракурс — решение автора наравне с уровнями детализации и вариантами материала. До
+// 2026-08-15 мы их просто не замечали: загрузчик кладёт камеры в gltf.cameras, а мы
+// всегда ставили свою орбиту. У ToyCar их восемь, у AnimationPointerUVs одиннадцать.
+//
+// Сторожим то, что ломается молча:
+//   1. Камеры найдены и посчитаны;
+//   2. Через камеру автора ОРБИТА ВЫКЛЮЧЕНА — иначе первое движение мыши уводит её с
+//      места, куда автор поставил, и вернуть нечем;
+//   3. Пропорции кадра берутся от окна, а не от файла: иначе картинка растянута;
+//   4. Выбор не переезжает на следующую модель — там этого ракурса может не быть, а
+//      камеры прежней модели к тому моменту уже освобождены.
+// ---------------------------------------------------------------------------
+
+describe('Viewer — камеры автора (browser)', () => {
+  /** @type {HTMLCanvasElement} */
+  let canvas
+  /** @type {import('../ui/viewer/viewer.js').Viewer} */
+  let viewer
+
+  beforeAll(async () => {
+    const result = await createViewer()
+    canvas = result.canvas
+    viewer = result.viewer
+  })
+
+  afterAll(() => {
+    disposeViewer(viewer, canvas)
+  })
+
+  itWithModels(['ToyCar.glb'], 'ToyCar — ракурсы автора найдены', async () => {
+    await viewer.load('/ToyCar.glb')
+    const info = viewer.getCameraInfo()
+    expect(info.count, 'камеры автора не найдены').toBeGreaterThan(1)
+    expect(info.names.length).toBe(info.count)
+    // Новая модель открывается НАШЕЙ орбитой: авторский ракурс — выбор человека,
+    // а не то, что происходит само.
+    expect(info.current).toBeNull()
+  })
+
+  itWithModels(['ToyCar.glb'], 'через камеру автора орбита выключена, через свою — включена', async () => {
+    await viewer.load('/ToyCar.glb')
+    expect(viewer.controls.enabled, 'своя камера, а орбита выключена').toBe(true)
+
+    expect(viewer.setCamera(0)).toBe(true)
+    expect(viewer.getCameraInfo().current).toBe(0)
+    // Главное утверждение: иначе первое же движение мыши увело бы камеру автора.
+    expect(viewer.controls.enabled, 'орбита осталась включённой на камере автора').toBe(false)
+    expect(viewer._activeCamera(), 'рисуем всё той же своей камерой').not.toBe(viewer.camera)
+
+    expect(viewer.setCamera(null)).toBe(true)
+    expect(viewer.controls.enabled).toBe(true)
+    expect(viewer._activeCamera()).toBe(viewer.camera)
+  })
+
+  itWithModels(['ToyCar.glb'], 'пропорции кадра — от окна, а не от файла', async () => {
+    await viewer.load('/ToyCar.glb')
+    const parent = viewer.canvas.parentElement
+    const want = parent.clientWidth / parent.clientHeight
+    viewer.setCamera(0)
+    const cam = viewer._activeCamera()
+    // Камера несёт своё соотношение сторон из файла; оставь мы его — картинка растянута.
+    expect(Math.abs(cam.aspect - want), 'кадр растянут: соотношение сторон осталось файловым')
+      .toBeLessThan(0.01)
+    viewer.setCamera(null)
+  })
+
+  itWithModels(['ToyCar.glb'], 'несуществующий номер — отказ, а не пустой экран', async () => {
+    await viewer.load('/ToyCar.glb')
+    const n = viewer.getCameraInfo().count
+    expect(viewer.setCamera(n), 'принят номер за пределами списка').toBe(false)
+    expect(viewer.setCamera(-1)).toBe(false)
+    expect(viewer.getCameraInfo().current, 'после отказа выбор всё-таки сменился').toBeNull()
+  })
+
+  itWithModels(['ToyCar.glb', 'Dirty Cube 01.glb'], 'выбор не переезжает на следующую модель', async () => {
+    await viewer.load('/ToyCar.glb')
+    expect(viewer.setCamera(0)).toBe(true)
+    // Камеры прежней модели сейчас будут освобождены вместе с ней: останься выбор —
+    // рисовали бы через мёртвый объект.
+    await viewer.load(CUBE_URL)
+    expect(viewer.getCameraInfo().current).toBeNull()
+    expect(viewer.controls.enabled, 'орбита не вернулась после чужого ракурса').toBe(true)
+    expect(viewer._activeCamera()).toBe(viewer.camera)
+  })
+})

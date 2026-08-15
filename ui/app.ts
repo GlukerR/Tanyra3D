@@ -68,6 +68,8 @@
   const variantSel = $('variant-select') as HTMLSelectElement;
   const lightControls = $('light-controls');
   const lightSel = $('light-select') as HTMLSelectElement;
+  const cameraControls = $('camera-controls');
+  const cameraSel = $('camera-select') as HTMLSelectElement;
   const animPlayBtn = $('anim-play-btn');
   const animClipSel = $('anim-clip') as HTMLSelectElement;
   const animSeek = $('anim-seek') as HTMLInputElement;
@@ -4123,6 +4125,52 @@
     });
   }
 
+  // ---------------------------------------------------------------
+  // Камеры автора
+  //
+  // Ракурс — решение автора наравне с уровнями и вариантами: он выбирал, откуда на
+  // модель смотреть. Значок появляется только у моделей, где камеры есть; у ToyCar их
+  // восемь, у AnimationPointerUVs одиннадцать.
+  //
+  // Первый пункт — наша свободная орбита. Это не «ничего не выбрано», а осмысленный
+  // выбор: через камеру автора вращать нельзя, и вернуться к своей человек вправе.
+  function refreshCameraUI() {
+    if (!cameraControls || !window.OptiViewer || !window.OptiViewer.getCameras) return;
+    const info = window.OptiViewer.getCameras();
+    const has = info.count > 0;
+    cameraControls.classList.toggle('hidden', !has);
+    if (!has || !cameraSel) return;
+
+    // Пересобираем только при смене модели — иначе список схлопывался бы под курсором.
+    const signature = info.names.join(' ');
+    if (cameraSel.dataset.signature !== signature) {
+      cameraSel.dataset.signature = signature;
+      cameraSel.innerHTML = '';
+      const free = document.createElement('option');
+      free.value = '';
+      setText(free, 'viewer.camera.free');
+      cameraSel.appendChild(free);
+      info.names.forEach((name: string, i: number) => {
+        const opt = document.createElement('option');
+        opt.value = String(i);
+        // Имя из файла — данные автора, переводу не подлежит. Пустое имя означает, что
+        // автор его не задал, и подпись придумываем здесь, по ключу (Правило 8).
+        if (name) opt.textContent = name;
+        else setText(opt, 'viewer.camera.unnamed', { n: i + 1 });
+        cameraSel.appendChild(opt);
+      });
+    }
+    const selected = info.current === null ? '' : String(info.current);
+    if (cameraSel.value !== selected) cameraSel.value = selected;
+  }
+
+  if (cameraSel) {
+    cameraSel.addEventListener('change', () => {
+      if (!window.OptiViewer) return;
+      window.OptiViewer.selectCamera(cameraSel.value === '' ? null : Number(cameraSel.value));
+    });
+  }
+
   /** Раз в кадр подтягивать положение ползунка и время под играющую анимацию. */
   function syncAnimProgress() {
     if (!window.OptiViewer || !window.OptiViewer.getAnimation) return;
@@ -4243,12 +4291,14 @@
   // Обе панели состава модели перестраиваются по одному уведомлению: список клипов
   // и список вариантов появляются и исчезают вместе с моделью, которая их несёт.
   window.onOptiViewerModelLoaded = () => {
-    refreshAnimUI(); refreshVariantUI(); refreshLodUI(); refreshLightUI(); closeHiddenGroups();
+    refreshAnimUI(); refreshVariantUI(); refreshLodUI();
+    refreshLightUI(); refreshCameraUI(); closeHiddenGroups();
   };
   refreshAnimUI();    // стартовое состояние: моделей нет — панелей нет
   refreshVariantUI();
   refreshLodUI();
   refreshLightUI();
+  refreshCameraUI();
   startAnimPolling();
 
   // ---------------------------------------------------------------

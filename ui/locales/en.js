@@ -59,6 +59,11 @@ window.I18N_CATALOGS.en = {
   'vp.light': 'Lighting',
   'viewer.light.studio': 'Studio',
   'viewer.light.file': 'From the file',
+  // Камеры автора. Первый пункт — наша свободная орбита, остальные его ракурсы.
+  'vp.camera': 'Camera',
+  'viewer.camera.free': 'Free orbit',
+  // Автор не дал камере имени — подпись придумываем здесь, движок языка не знает.
+  'viewer.camera.unnamed': ({ n }) => `Camera ${n}`,
   'stage.hint': 'Load a .glb from the left panel to preview it here',
 
   // Подписи посреди панелей просмотра (ui/viewer/index.js). Ставятся из кода через
