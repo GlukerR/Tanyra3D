@@ -154,6 +154,10 @@ elegance.
 Download your file from the [releases page](https://github.com/GlukerR/Tanyra3D/releases)
 and run it. No Node.js, no commands, and the texture encoder is already inside.
 
+The download button above always points at the tested build. Releases marked
+**Pre-release** on that page are the new things being tried out — take one if you want
+what is being worked on right now, and expect rough edges.
+
 | System | File |
 |---|---|
 | Windows | `Tanyra3D-…-windows-x64.exe` |
