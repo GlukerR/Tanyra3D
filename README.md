@@ -22,6 +22,10 @@ for what reason.
 An ordinary application. No Node.js, no terminal, nothing to configure.
 The first launch shows a warning — [why, and what to click](#install).
 
+Want what is being worked on right now? The
+[preview builds](https://github.com/GlukerR/Tanyra3D/releases) are on the releases page,
+marked **Pre-release**.
+
 <br>
 
 [Русская версия](README.ru.md)
