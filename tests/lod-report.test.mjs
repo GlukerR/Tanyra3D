@@ -12,11 +12,10 @@
 // fix, и появиться они не должны. Первое такое правило в проекте, и на нём вскрылась
 // мёртвая ветка ядра (см. второй раздел).
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 import { optimizeFile } from '../optimize2.mjs';
 import { localizeResult } from '../core/i18n.mjs';
 import { RULES } from '../addons/gltf/rules.mjs';
@@ -26,10 +25,12 @@ const RULE_ID = 'scene/lod-levels';
 const LOD_MODEL = 'Unknown Ext LOD 01.glb';
 const PLAIN_MODEL = 'Dirty Cube 01.glb';
 
-const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'lod-report-'));
+// Временные папки — из общего хелпера; своя была БЕЗ уборки и копилась в %TEMP%.
+afterAll(cleanupTmpOutDirs);
+
 const runOn = (model) => optimizeFile(modelPath(model), {
   advancedFeatures: ['safe'],
-  outDir: fs.mkdtempSync(path.join(outRoot, 'run-')),
+  outDir: tmpOutDir(),
 });
 const linesOf = (result, locale) =>
   (localizeResult(result, locale).findings || []).filter((e) => e.ruleId === RULE_ID);

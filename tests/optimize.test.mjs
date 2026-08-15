@@ -1,21 +1,16 @@
 // Integration tests for optimize2.mjs public API.
 // Follows the test plan from tests/TEST_AGENT_PROMPT.md and reviews/tests/README.md.
 //
-// All tests use dryRun:true to avoid writing .glb files. Only the dry-run report
-// (.dryrun.report.md) may be created in output/ and is cleaned up after the test.
+// Ни один тест этого файла не пишет в рабочую `output/` пользователя: каждый вызов
+// получает свою временную папку (tmpOutDir), и они сносятся в конце файла.
 
 import { describe, it, expect, afterAll } from 'vitest';
 import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 import { optimizeFile, listRules, VERSION } from '../optimize2.mjs';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
 import fs from 'node:fs';
 import { modelPath, describeIfModels } from './helpers/model-files.mjs';
 
 // ---- helpers ----
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = path.resolve(__dirname, '..');
 
 // modelPath импортирован из helpers/model-files.mjs. Не определять локальный
 // shadow этого имени — кроме рисков затенения, он ещё и ломает гомогенность
@@ -24,28 +19,15 @@ const PROJECT_ROOT = path.resolve(__dirname, '..');
 const MODEL = modelPath('CarConcept.glb');
 const MISSING = modelPath('does_not_exist.glb');
 
-/** Clean up artifacts left by tests with custom outDir. */
-function cleanOutput(filePath) {
-  try { if (filePath && fs.existsSync(filePath)) fs.rmSync(filePath); } catch { /* best-effort */ }
-}
-
-/** Remove all dry-run report files from output/. */
-function cleanDryRunReports() {
-  const outDir = path.resolve(PROJECT_ROOT, 'output');
-  try {
-    for (const f of fs.readdirSync(outDir)) {
-      if (f.endsWith('.dryrun.report.md')) fs.rmSync(path.join(outDir, f));
-    }
-  } catch { /* output/ may not exist */ }
-}
-
-/** Remove .glb file written by a non-dryRun test. */
-function cleanGlb(filePath) {
-  try { if (filePath && fs.existsSync(filePath)) fs.rmSync(filePath); } catch { /* best-effort */ }
-}
-
-// Startup: clean stale artifacts from previous runs (runs once before any test)
-cleanDryRunReports();
+// Уборщиков здесь больше нет, и это принципиально. Раньше файл держал три штуки, и
+// один из них — cleanDryRunReports() — на ЗАГРУЗКЕ МОДУЛЯ обходил настоящую `output/`
+// пользователя и удалял оттуда каждый `*.dryrun.report.md`. Прогон набора стирал чужие
+// файлы: проверено зондом 2026-08-15 — положенный в `output/` файл после
+// `vitest run tests/optimize.test.mjs` исчезал.
+//
+// Своё убирать надо, чужое трогать нельзя. Теперь каждый вызов пишет в свою временную
+// папку (tmpOutDir), а cleanupTmpOutDirs() в конце сносит их целиком — вместе с .glb и
+// отчётами, поимённой уборки не требуется.
 
 // ---- API ----
 
@@ -142,10 +124,8 @@ describeIfModels(['CarConcept.glb'], 'join', () => {
 // ---- dryRun ----
 
 describeIfModels(['CarConcept.glb'], 'dryRun', () => {
-  afterAll(() => cleanDryRunReports()); // clean any dry-run reports left by this and earlier describe blocks
-
   it('dryRun=true does not write glb but produces a report file', async () => {
-    const outDir = path.resolve(PROJECT_ROOT, 'output');
+    const outDir = tmpOutDir();
 
     const result = await optimizeFile(MODEL, {
       advancedFeatures: ['safe', 'meshopt'],
@@ -161,7 +141,7 @@ describeIfModels(['CarConcept.glb'], 'dryRun', () => {
   });
 
   it('non-dryRun writes .glb file with written=true', async () => {
-    const outDir = path.resolve(PROJECT_ROOT, 'output');
+    const outDir = tmpOutDir();
 
     const result = await optimizeFile(MODEL, {
       advancedFeatures: ['safe'],
@@ -175,10 +155,7 @@ describeIfModels(['CarConcept.glb'], 'dryRun', () => {
 
     const glbExists = fs.existsSync(result.file.dst);
     expect(glbExists).toBe(true);
-
-    // Clean up the .glb and its report
-    cleanGlb(result.file.dst);
-    cleanOutput(result.file.reportPath);
+    // Убирать поимённо нечего: папка временная, её сносит cleanupTmpOutDirs().
   });
 });
 

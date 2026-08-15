@@ -22,9 +22,8 @@
 
 import { describe, it, expect, afterAll } from 'vitest';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 import { optimizeFile } from '../optimize2.mjs';
 import { localizeResult } from '../core/i18n.mjs';
 import { RULES } from '../addons/gltf/rules.mjs';
@@ -47,18 +46,10 @@ const FLAG_SETS = [
 
 const TOKTX_OK = Boolean(TOKTX && HAS_GLTF_CLI); // ktx2-правило гейтится обоими
 
-// Временные папки прогона с уборкой в afterAll (тесты пишут в %TEMP%, не в output/).
-const tmpDirs = [];
-function tmpOut(prefix = 'variants-cov-') {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tmpDirs.push(dir);
-  return dir;
-}
-afterAll(() => {
-  for (const dir of tmpDirs) {
-    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* занят — подчистит ОС */ }
-  }
-});
+// Временные папки прогона — из общего хелпера, своей копии здесь нет. Эта ветка
+// писалась параллельно с той, что как раз сводила шесть таких копий в одну; при
+// слиянии копия оказалась бы седьмой.
+afterAll(cleanupTmpOutDirs);
 
 function glbJson(file) {
   const b = fs.readFileSync(file);
@@ -100,7 +91,7 @@ describeIfModels(MODELS, 'варианты материала переживаю
         const body = async () => {
           const r = await optimizeFile(modelPath(model), {
             advancedFeatures: flags,
-            outDir: tmpOut(),
+            outDir: tmpOutDir(),
           });
           expect(r.status).toBe('ok');
           const dst = r.file?.dst;
@@ -133,7 +124,7 @@ describeIfModels(MODELS, 'варианты переживают двойной �
 
       const r1 = await optimizeFile(modelPath(model), {
         advancedFeatures: ['safe', 'join'],
-        outDir: tmpOut(),
+        outDir: tmpOutDir(),
       });
       expect(r1.status).toBe('ok');
       expect(r1.file?.dst && fs.existsSync(r1.file.dst), 'первый прогон не записал файл').toBe(true);
@@ -142,7 +133,7 @@ describeIfModels(MODELS, 'варианты переживают двойной �
       // запись «уже KTX2», которая на втором заходе выдавала строку на каждую текстуру.
       const r2 = await optimizeFile(r1.file.dst, {
         advancedFeatures: ['safe', 'join'],
-        outDir: tmpOut(),
+        outDir: tmpOutDir(),
       });
       expect(r2.status).toBe('ok');
       expect(r2.file?.dst && fs.existsSync(r2.file.dst), 'второй прогон не записал файл').toBe(true);
@@ -164,7 +155,7 @@ describeIfModels(MODELS, 'отчёт человеку: ровно одна ст�
     it(`${model} — [safe+join]: одна строка, переживает смену языка без пересборки`, async () => {
       const r = await optimizeFile(modelPath(model), {
         advancedFeatures: ['safe', 'join'],
-        outDir: tmpOut(),
+        outDir: tmpOutDir(),
       });
       // localizeResult на ГОТОВОМ результате — движок не вызывается повторно (Правило 8).
       const ru = localizeResult(r, 'ru');
@@ -180,7 +171,7 @@ describeIfModels(MODELS, 'отчёт человеку: ровно одна ст�
   it('модель без вариантов — строки join.keptVariants нет вовсе', async () => {
     const r = await optimizeFile(modelPath(NO_VARIANT_MODEL), {
       advancedFeatures: ['safe', 'join'],
-      outDir: tmpOut(),
+      outDir: tmpOutDir(),
     });
     const ru = localizeResult(r, 'ru');
     const en = localizeResult(r, 'en');

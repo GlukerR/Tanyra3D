@@ -22,11 +22,10 @@
 // Слои (ПРАВИЛА_ТЕСТОВ_универсальность.md): утверждения о выходном ФАЙЛЕ (слой 2),
 // имени движка тут нет — Babylon прочитает тот же GLB и получит те же варианты.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 
+import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 import { optimizeFile } from '../optimize2.mjs';
 import { localizeResult } from '../core/i18n.mjs';
 import { modelPath, describeIfModels } from './helpers/model-files.mjs';
@@ -64,9 +63,11 @@ function variantState(json) {
   return { names, prims, mappings };
 }
 
-describeIfModels(MODELS, 'варианты материала переживают оптимизации', () => {
-  const outRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'variants-test-'));
+// Временные папки — из общего хелпера. Прежде здесь была своя `outRoot` БЕЗ уборки:
+// папки копились в %TEMP% от прогона к прогону, а модели тут по десятку мегабайт.
+afterAll(cleanupTmpOutDirs);
 
+describeIfModels(MODELS, 'варианты материала переживают оптимизации', () => {
   for (const model of MODELS) {
     describe(model, () => {
       const before = variantState(glbJson(modelPath(model)));
@@ -80,7 +81,7 @@ describeIfModels(MODELS, 'варианты материала переживаю
         it(`[${flags.join('+')}] привязки целы`, async () => {
           const r = await optimizeFile(modelPath(model), {
             advancedFeatures: flags,
-            outDir: fs.mkdtempSync(path.join(outRoot, 'run-')),
+            outDir: tmpOutDir(),
           });
           expect(r.status).toBe('ok');
           const dst = r.file?.dst;
@@ -98,7 +99,7 @@ describeIfModels(MODELS, 'варианты материала переживаю
       it('[safe+join] человеку сказано, что меши оставлены ради вариантов', async () => {
         const r = await optimizeFile(modelPath(model), {
           advancedFeatures: ['safe', 'join'],
-          outDir: fs.mkdtempSync(path.join(outRoot, 'msg-')),
+          outDir: tmpOutDir(),
         });
         // Цена сохранённого выбора — лишние отрисовки, и она обязана быть названа.
         // Молчание здесь было бы тем же дефектом с другой стороны: человек видит

@@ -11,6 +11,11 @@
 // rule-resilience и i18n-discipline: ломаемся от нарушения дисциплины, а не от
 // плохого результата. Без него через месяц появится одиннадцатый такой вызов.
 //
+// Проверок ДВЕ, и вторая появилась не сразу (2026-08-15): мало потребовать `outDir` —
+// надо ещё запретить направлять его в настоящую `output/`. Первая редакция сторожа
+// пропускала `outDir: path.resolve(PROJECT_ROOT, 'output')` как законный, и прогон
+// продолжал стирать чужие файлы из рабочей папки человека.
+//
 // Токенизация сознательно упрощена до того, что нужно сторожу: комментарии вырезаны
 // (с сохранением переносов строк ради номеров), строки/шаблоны/регекспы пропускаются
 // как непрозрачные куски — внутри них `optimizeFile(` не ищем. Вызов внутри
@@ -133,26 +138,43 @@ function findCallSites(src, name) {
 
 const CALL_NAMES = ['optimizeFile', 'runOptimize'];
 
+// Адрес НАСТОЯЩЕЙ рабочей папки: `'output'` или `"output"` литералом в аргументах.
+// Проверять надо не только НАЛИЧИЕ слова outDir, но и КУДА оно указывает — иначе
+// сторож зелёный там, где беда как раз и случается. Так и вышло 2026-08-15:
+// tests/optimize.test.mjs передавал `outDir: path.resolve(PROJECT_ROOT, 'output')`,
+// слово в аргументах стояло, сторож молчал, а прогон стирал чужие файлы из output/
+// (проверено зондом: положенный туда файл после прогона исчезал).
+const REAL_OUTPUT = /['"]output['"]/;
+
+// Утверждения к нарушению: что не так и куда смотреть.
 function violations() {
-  const bad = [];
+  const noOutDir = [];
+  const realOutput = [];
   for (const file of listTestFiles(TESTS_ROOT)) {
     const rel = path.relative(path.resolve(__dirname, '..', '..'), file).replaceAll(BS, '/');
     const src = stripComments(fs.readFileSync(file, 'utf8'));
     for (const name of CALL_NAMES) {
       for (const site of findCallSites(src, name)) {
-        if (!/outDir/.test(site.args)) {
-          const snippet = site.args.replace(/\s+/g, ' ').slice(0, 80);
-          bad.push(`${rel}:${site.line}  ${name}( ${snippet} )`);
-        }
+        const snippet = site.args.replace(/\s+/g, ' ').slice(0, 80);
+        const where = `${rel}:${site.line}  ${name}( ${snippet} )`;
+        if (!/outDir/.test(site.args)) noOutDir.push(where);
+        else if (REAL_OUTPUT.test(site.args)) realOutput.push(where);
       }
     }
   }
-  return bad;
+  return { noOutDir, realOutput };
 }
 
 describe('тесты не пишут в output/ (сторож outDir)', () => {
   it('каждый вызов optimizeFile/runOptimize в tests/ несёт outDir', () => {
-    const bad = violations();
-    expect(bad, 'Вызовы без outDir (пишут в рабочую output/):\n  ' + bad.join('\n  ')).toEqual([]);
+    const { noOutDir } = violations();
+    expect(noOutDir, 'Вызовы без outDir (пишут в рабочую output/):\n  ' + noOutDir.join('\n  ')).toEqual([]);
+  });
+
+  // Вторая половина той же дисциплины. Своё убирать надо, чужое трогать нельзя:
+  // рабочая папка принадлежит человеку, а не набору тестов.
+  it('ни один outDir не указывает на настоящую output/', () => {
+    const { realOutput } = violations();
+    expect(realOutput, 'outDir смотрит в рабочую папку человека:\n  ' + realOutput.join('\n  ')).toEqual([]);
   });
 });
