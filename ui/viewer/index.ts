@@ -217,6 +217,8 @@ class DualViewport {
   declare _animClipIndex: number;
   /** Выбранный вариант материала; null — основной вид из файла. Переживает загрузку. */
   declare _variantName: string | null;
+  /** Показанный уровень детализации; null — как в файле. Тоже переживает загрузку. */
+  declare _lodIndex: number | null;
   declare _exposure: number;
   declare _perf: { left: Float64Array; right: Float64Array; frame: Float64Array; i: number };
   // Эти два появляются позже конструктора и до тех пор отсутствуют — отсюда `?`:
@@ -237,6 +239,7 @@ class DualViewport {
     this._animTime = 0;
     this._animClipIndex = 0; // выбранный клип переживает загрузку новой модели
     this._variantName = null; // выбранный вариант материала — тоже (см. _applyVariantSelection)
+    this._lodIndex = null;    // и показанный уровень детализации
     this._exposure = 1;      // 1.0 — как отдаёт three.js без поправки
     // Кольцевые буферы замера отрисовки; заполняются в _pushPerf каждый кадр.
     this._perf = {
@@ -428,6 +431,29 @@ class DualViewport {
     ]);
   }
 
+  /**
+   * Уровни детализации загруженной модели — для панели управления.
+   *
+   * Спрашиваем ЛЕВЫЙ вьюпорт: он показывает исходник, и набор уровней в нём полный по
+   * определению. Меньше справа — это находка про оптимизацию, и говорить о ней должен
+   * отчёт, а не молча укоротившийся список.
+   */
+  getLods() {
+    const info = this.left?.viewer?.getLodInfo?.()
+      || { count: 0, source: null, names: [], triangles: [], current: null };
+    return { ...info, selected: this._lodIndex ?? null };
+  }
+
+  /**
+   * Показать уровень В ОБОИХ окнах. Переключение — состояние показа: спрятанный уровень
+   * остаётся и в сцене, и в файле (Правило 11).
+   */
+  selectLod(index: number | null) {
+    this._lodIndex = index;
+    this.left?.viewer?.setLod?.(index);
+    this.right?.viewer?.setLod?.(index);
+  }
+
   setAnimationPlaying(playing: boolean) {
     this._animPlaying = !!playing;
   }
@@ -514,6 +540,7 @@ class DualViewport {
     if (this.left!.viewer && this.right!.viewer) this._linkCameras();
     this._applyAnimSelection();
     this._applyVariantSelection();
+    this._applyLodSelection();
     this._applyExposure();
     this._startLoop();
     // Состав модели изменился — панели управления надо перестроить СЕЙЧАС, а не
@@ -555,6 +582,20 @@ class DualViewport {
    * основной вид, пока второй стоит на выбранном цвете, и сравнение сравнивало бы
    * окраски вместо оптимизации. `null` пропускаем — это и есть состояние по умолчанию.
    */
+  /**
+   * Привести только что загруженную модель к показанному уровню детализации.
+   *
+   * Та же причина, что у клипа и у варианта: слева исходник, справа результат, и разные
+   * уровни в окнах сравнивали бы не оптимизацию, а подробность. `null` пропускаем —
+   * это и есть состояние по умолчанию.
+   */
+  _applyLodSelection() {
+    const index = this._lodIndex;
+    if (index === null) return;
+    this.left?.viewer?.setLod?.(index);
+    this.right?.viewer?.setLod?.(index);
+  }
+
   _applyVariantSelection() {
     const name = this._variantName;
     if (name === null) return;
@@ -636,6 +677,9 @@ window.OptiViewer = {
   selectAnimationClip: (i) => dual.selectAnimationClip(i),
   // Варианты материала — запасные цвета и отделки. Один выбор на оба вьюпорта:
   // разъехавшийся цвет превратил бы сравнение оптимизации в сравнение окрасок.
+  // Уровни детализации: показ одного из них, без правки файла (Правило 11).
+  getLods: () => dual.getLods(),
+  selectLod: (index) => dual.selectLod(index),
   getVariants: () => dual.getVariants(),
   selectVariant: (name) => dual.selectVariant(name),
   // Экспозиция — одна на оба вьюпорта, см. _applyExposure.

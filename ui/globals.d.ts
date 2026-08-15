@@ -62,6 +62,20 @@ interface OptiViewerApi {
   seekAnimation(sec: number): void;
   selectAnimationClip(i: number): void;
   /**
+   * Уровни детализации. `source`: 'extension' — автор связал их расширением (факт);
+   * 'names' — узнали по именам соседних узлов (догадка). Интерфейс обязан их различать.
+   */
+  getLods(): {
+    count: number;
+    source: 'extension' | 'names' | null;
+    names: string[];
+    triangles: number[];
+    current: number | null;
+    selected: number | null;
+  };
+  /** Показать уровень в обоих вьюпортах; null — как в файле. */
+  selectLod(index: number | null): void;
+  /**
    * Варианты материала: запасные цвета и отделки, между которыми модель умеет
    * переключаться. `count === 0` — их в модели нет, и панели быть не должно.
    * Имена приходят ИЗ ФАЙЛА и переводу не подлежат (Правило 8: это данные).

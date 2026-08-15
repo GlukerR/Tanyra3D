@@ -47,6 +47,8 @@ window.I18N_CATALOGS.ru = {
   'vp.clip': 'Клип анимации',
   'vp.time': 'Время анимации',
   'vp.variant': 'Вид',
+  'vp.lod': 'Детализация',
+  'vp.lod.guess': 'Похоже на уровни',
   'stage.hint': 'Загрузите .glb на левой панели — модель появится здесь',
 
   // Подписи посреди панелей просмотра (ui/viewer/index.js). Ставятся из кода через
@@ -61,6 +63,8 @@ window.I18N_CATALOGS.ru = {
   // Клип без имени в файле. Номер — часть сообщения, а не приставка к слову.
   'viewer.clip.unnamed': ({ n }) => `Клип ${n}`,
   'viewer.variant.original': 'Как в файле',
+  'viewer.lod.asFile': 'Как в файле',
+  'viewer.lod.item': ({ name, tri }) => `${name} — ${Number(tri).toLocaleString('ru-RU')} тр.`,
 
   // --- окна ---
   'win.close': 'Закрыть',

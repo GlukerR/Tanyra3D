@@ -80,6 +80,8 @@ const MODEL_FILES = [
   'SheenWoodLeatherSofa.glb',
   'CommercialRefrigerator.glb',
   'CarConcept.glb',
+  'StoneWellLods.glb',
+  'StoneWellLodsFlat.glb',
   'Production Draco Webp 01.glb',
   'Production Multi UV 01.glb',
   'Production Many Materials 01.glb',
@@ -1381,5 +1383,144 @@ describe('Viewer — material variants (browser)', () => {
     expect(info.names).toEqual([])
     // Панели в интерфейсе при этом быть не должно — она рисуется по count.
     expect(await viewer.setVariant('что угодно')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Viewer — уровни детализации
+//
+// Уровни приезжают ДВУМЯ способами, и оба настоящие:
+//
+//   1. `MSFT_lod` — узел несёт список запасных, менее подробных версий себя. Способ
+//      правильный, но экспортируют его единицы.
+//   2. Отдельные узлы-соседи с LOD в имени — так их отдаёт Sketchfab, то есть самый
+//      массовый источник моделей для веба. Расширения в файле нет, и любой движок
+//      рисует все уровни СРАЗУ, друг сквозь друга.
+//
+// Замер 2026-08-15 на «Stone Well - Photogrammetry & LODs» (Gorgious, CC-BY-4.0): шесть
+// уровней — 67 247 + 9 915 + 2 230 + 480 + 126 + 2 треугольника, все рисуются сразу.
+// Разложены в ряд вдоль X, витриной; сдвиг запечён в вершины, а не в трансформы узлов.
+//
+// Переключение НИЧЕГО НЕ УДАЛЯЕТ (Правило 11): спрятанный уровень остаётся и в сцене, и
+// в файле. Сторожа ниже это и проверяют — по видимости объектов, а не по их наличию.
+// ---------------------------------------------------------------------------
+
+describe('Viewer — levels of detail (browser)', () => {
+  /** @type {HTMLCanvasElement} */
+  let canvas
+  /** @type {import('../ui/viewer/viewer.js').Viewer} */
+  let viewer
+
+  beforeAll(async () => {
+    const result = await createViewer()
+    canvas = result.canvas
+    viewer = result.viewer
+  })
+
+  afterAll(() => {
+    disposeViewer(viewer, canvas)
+  })
+
+  /** Сколько треугольников реально РИСУЕТСЯ: скрытые ветки не считаются. */
+  const visibleTriangles = () => {
+    let tri = 0
+    viewer.scene.traverse((o) => {
+      if (!o.visible) return
+      // невидимый предок скрывает всё поддерево, traverse про это не знает
+      for (let p = o.parent; p; p = p.parent) if (!p.visible) return
+      const g = o.geometry
+      if (!g || !g.attributes || !g.attributes.position) return
+      tri += g.index ? g.index.count / 3 : g.attributes.position.count / 3
+    })
+    return Math.round(tri)
+  }
+
+  itWithModels(['StoneWellLods.glb'], 'StoneWellLods — шесть уровней найдены через расширение', async () => {
+    await viewer.load('/StoneWellLods.glb')
+    const info = viewer.getLodInfo()
+    expect(info.count).toBe(6)
+    // Автор связал уровни как положено — это ФАКТ, а не догадка по именам.
+    expect(info.source).toBe('extension')
+    // Порядок — от самого подробного к самому грубому, по числу треугольников.
+    expect(info.triangles).toEqual([67247, 9915, 2230, 480, 126, 2])
+    expect(info.current).toBeNull()
+  })
+
+  itWithModels(['StoneWellLods.glb'], 'StoneWellLods — каждый уровень показывается по отдельности', async () => {
+    await viewer.load('/StoneWellLods.glb')
+    const info = viewer.getLodInfo()
+    for (let i = 0; i < info.count; i++) {
+      expect(viewer.setLod(i), `уровень ${i} не переключился`).toBe(true)
+      expect(visibleTriangles(), `на уровне ${i} рисуется не он`).toBe(info.triangles[i])
+    }
+  })
+
+  itWithModels(['StoneWellLods.glb'], 'скрытый уровень остаётся в сцене — его не удаляют', async () => {
+    await viewer.load('/StoneWellLods.glb')
+    viewer.setLod(5) // самый грубый, 2 треугольника
+    // Переключение — состояние ПОКАЗА. Уровни обязаны остаться на месте, иначе это
+    // уже правка модели, а её быть не должно.
+    const info = viewer.getLodInfo()
+    expect(info.count).toBe(6)
+    expect(info.triangles).toEqual([67247, 9915, 2230, 480, 126, 2])
+    // и вернуться к самому подробному можно в любой момент
+    expect(viewer.setLod(0)).toBe(true)
+    expect(visibleTriangles()).toBe(67247)
+  })
+
+  itWithModels(['StoneWellLods.glb'], 'номер вне списка — отказ, а не исключение', async () => {
+    await viewer.load('/StoneWellLods.glb')
+    viewer.setLod(0)
+    const before = visibleTriangles()
+    expect(viewer.setLod(6)).toBe(false)
+    expect(viewer.setLod(-1)).toBe(false)
+    expect(visibleTriangles()).toBe(before)
+  })
+
+  // ── второй способ: уровни как отдельные узлы-соседи ───────────────────────
+  //
+  // StoneWellLodsFlat.glb — НЕТРОНУТАЯ выгрузка Sketchfab, то есть ровно то, что
+  // приносит человек. Расширения в ней нет; шесть уровней лежат соседями и рисуются
+  // одновременно.
+
+  itWithModels(['StoneWellLodsFlat.glb'], 'StoneWellLodsFlat — шесть уровней узнаны по именам соседей', async () => {
+    await viewer.load('/StoneWellLodsFlat.glb')
+    const info = viewer.getLodInfo()
+    expect(info.count).toBe(6)
+    // Это ДОГАДКА по именам, а не факт из расширения, и говорить о ней надо честно.
+    expect(info.source).toBe('names')
+    expect(info.triangles).toEqual([67247, 9915, 2230, 480, 126, 2])
+  })
+
+  itWithModels(['StoneWellLodsFlat.glb'], 'StoneWellLodsFlat — «как в файле» показывает ВСЕ уровни сразу', async () => {
+    await viewer.load('/StoneWellLodsFlat.glb')
+    // Именно так модель и приезжает, и человек имеет право увидеть, что там на самом
+    // деле: 80 000 треугольников вместо 67 247, все шесть друг сквозь друга.
+    const all = 67247 + 9915 + 2230 + 480 + 126 + 2
+    expect(visibleTriangles()).toBe(all)
+
+    expect(viewer.setLod(0)).toBe(true)
+    expect(visibleTriangles()).toBe(67247)
+    expect(viewer.setLod(5)).toBe(true)
+    expect(visibleTriangles()).toBe(2)
+
+    // Возврат к «как в файле» — снова все сразу. Ничего не потеряно.
+    expect(viewer.setLod(null)).toBe(true)
+    expect(visibleTriangles()).toBe(all)
+  })
+
+  itWithModels(['CarConcept.glb'], 'обычная модель из многих частей уровнями не считается', async () => {
+    // Сторож догадки: 25 примитивов, много узлов, но ни одного с LOD в имени.
+    // Принять их за уровни значило бы решать за автора (Правило 11).
+    await viewer.load('/CarConcept.glb')
+    expect(viewer.getLodInfo().count).toBe(0)
+  })
+
+  itWithModels(['Dirty Cube 01.glb'], 'модель без уровней — пустой список', async () => {
+    await viewer.load('/Dirty%20Cube%2001.glb')
+    const info = viewer.getLodInfo()
+    expect(info.count).toBe(0)
+    expect(info.source).toBeNull()
+    expect(viewer.setLod(0)).toBe(false)
   })
 })

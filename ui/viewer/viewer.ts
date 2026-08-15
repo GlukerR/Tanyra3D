@@ -21,6 +21,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 // Контракт движка просмотра. Импорт типов, а не кода: в собранный файл он не попадает.
 import type { CameraState, LoadOptions, ViewerLike } from "./contract.js";
 import { buildUvPointerDriver, stripUvTransformTracks, type UvPointerDriver } from "./pointer-uv.js";
+import { detectLods, showLod, type LodSet } from "./lod.js";
 
 // Пути к декодерам — тоже из node_modules/three через /vendor-роут сервера (server.mjs).
 const DRACO_DECODER_PATH = "/vendor/three/examples/jsm/libs/draco/gltf/";
@@ -240,6 +241,10 @@ export class Viewer implements ViewerLike {
   declare _action?: THREE.AnimationAction | null;
   /** Привод развёрток текстур по указателю — вне AnimationMixer, см. pointer-uv.ts. */
   declare _uv?: UvPointerDriver | null;
+  /** Уровни детализации загруженной модели; null — их нет. См. lod.ts. */
+  declare _lods?: LodSet | null;
+  /** Показанный уровень; null — как в файле. */
+  declare _lod?: number | null;
   /** Имена вариантов материала (запасные цвета и отделки) — пусто, если их в модели нет. */
   declare _variants?: string[];
   /** Выбранный вариант; null — исходный вид модели, как её отдал экспортёр. */
@@ -385,6 +390,10 @@ export class Viewer implements ViewerLike {
     this._uv = await buildUvPointerDriver(gltf);
     if (this._uv) stripUvTransformTracks(gltf.animations || []);
     this._readVariants(gltf);
+    // Уровни детализации ищем ПОСЛЕ добавления модели в сцену: соседей узнаём по
+    // габаритам, а они считаются по мировым матрицам.
+    this._lods = await detectLods(gltf as never);
+    this._lod = null;
     this._setupAnimations(gltf.animations);
     // camera передан (сборка/ребилд той же модели) → СОХРАНИТЬ ракурс: приближённая
     // пользователем деталь остаётся на месте. Иначе (новая модель) — авто-кадрирование.
@@ -523,6 +532,40 @@ export class Viewer implements ViewerLike {
     this._variant = null;
   }
 
+  // ── Уровни детализации ─────────────────────────────────────────────────────
+  //
+  // Переключение — состояние ПОКАЗА, а не правка модели (Правило 11): спрятанный
+  // уровень остаётся и в сцене, и в файле, его просто не рисуют. Ни один уровень
+  // отсюда не удаляется и удалён быть не может.
+
+  /** Какие уровни детализации есть у модели; count === 0 — их нет. */
+  getLodInfo() {
+    const set = this._lods;
+    if (!set) return { count: 0, source: null, names: [] as string[], triangles: [] as number[], current: null };
+    return {
+      count: set.levels.length,
+      // Откуда узнали: 'extension' — автор связал уровни как положено; 'names' — узнали
+      // по именам соседних узлов, то есть это ДОГАДКА. Интерфейс обязан их различать:
+      // выдавать догадку за факт нечестно.
+      source: set.source,
+      names: set.levels.map((l) => l.name),
+      triangles: set.levels.map((l) => l.triangles),
+      current: this._lod ?? null,
+    };
+  }
+
+  /**
+   * Показать уровень по номеру: 0 — самый подробный, дальше по убыванию.
+   * `null` — вернуть как в файле.
+   */
+  setLod(index: number | null) {
+    if (!this._lods || !this.model) return false;
+    if (index !== null && (index < 0 || index >= this._lods.levels.length)) return false;
+    showLod(this._lods, this.model, index);
+    this._lod = index;
+    return true;
+  }
+
   /** Какие варианты материала есть у модели — для панели управления. */
   getVariantInfo() {
     const names = this._variants || [];
@@ -629,6 +672,10 @@ export class Viewer implements ViewerLike {
     this._uv = null;
     // Переключатель вариантов замкнут на parser ЭТОЙ загрузки и на материалы, которые
     // сейчас будут освобождены. Оставить — и он полезет в чужую модель.
+    // Уровни держат ссылки на узлы этой модели — в том числе на запасные, которые в
+    // сцену мог добавить показ. Не снять — и они переживут модель.
+    this._lods = null;
+    this._lod = null;
     this._selectVariant = null;
     this._variants = [];
     this._variant = null;
