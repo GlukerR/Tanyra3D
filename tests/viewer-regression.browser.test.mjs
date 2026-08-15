@@ -1726,3 +1726,139 @@ describe('Viewer — камеры автора (browser)', () => {
     expect(viewer._activeCamera()).toBe(viewer.camera)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Выбор ракурса и света переживает сборку
+//
+// Дефект, найденный Александром 2026-08-15: «синхронизация камер при оптимизации
+// ломается и как-то неверно отрабатывает сразу после оптимизации».
+//
+// Причина: _afterLoad() возвращал свежезагруженному вьюпорту клип, вариант и уровень,
+// но НЕ ракурс и НЕ режим света, а load() их сбрасывает на умолчание. После сборки
+// левое окно продолжало смотреть камерой автора, правое — своей орбитой. Два окна
+// показывали РАЗНОЕ, и разница выглядела как последствие оптимизации.
+//
+// Разделять надо два события, которые до этого были одним:
+//   • человек открыл ДРУГУЮ модель — сбрасываем: этого ракурса у неё может не быть;
+//   • та же модель пересобрана — сохраняем, как клип и вариант.
+// ---------------------------------------------------------------------------
+
+describeWithModels(['ToyCar.glb'], 'DualViewport — ракурс и свет переживают сборку', () => {
+  beforeAll(async () => {
+    await setupDualViewportDOM()
+  })
+
+  afterAll(() => {
+    teardownDualViewportDOM()
+  })
+
+  it('камера автора остаётся выбранной в ОБОИХ окнах после загрузки результата', async () => {
+    const resp = await fetch('/ToyCar.glb')
+    const file = new File([await resp.blob()], 'ToyCar.glb', { type: 'model/gltf-binary' })
+    await window.OptiViewer.loadOriginal(file)
+
+    const cams = window.OptiViewer.getCameras()
+    expect(cams.count, 'у ToyCar нет камер — проверять нечего').toBeGreaterThan(0)
+    window.OptiViewer.selectCamera(0)
+    expect(window.OptiViewer.getCameras().current).toBe(0)
+
+    // «Результатом» берём тот же файл: правое окно проходит ровно тот же путь загрузки,
+    // что и после настоящей сборки, а сравнивать содержимое здесь не требуется.
+    await window.OptiViewer.loadOptimized('/ToyCar.glb')
+
+    // Главное утверждение. До правки правое окно возвращалось к своей орбите, и два
+    // окна показывали разные ракурсы одной модели.
+    const after = window.OptiViewer.getCameras()
+    expect(after.leftCurrent, 'в левом окне ракурс автора слетел').toBe(0)
+    expect(after.rightCurrent, 'правое окно вернулось к своей орбите — окна показывают разное').toBe(0)
+  })
+
+  it('режим света остаётся выбранным после загрузки результата', async () => {
+    const resp = await fetch(CUBE_URL)
+    const file = new File([await resp.blob()], 'Dirty Cube 01.glb', { type: 'model/gltf-binary' })
+    await window.OptiViewer.loadOriginal(file)
+
+    expect(window.OptiViewer.getLight().count, 'у этой модели нет своего света').toBeGreaterThan(0)
+    window.OptiViewer.selectLightMode('file')
+    expect(window.OptiViewer.getLight().mode).toBe('file')
+
+    await window.OptiViewer.loadOptimized(CUBE_URL)
+    const after = window.OptiViewer.getLight()
+    expect(after.leftMode, 'в левом окне свет вернулся к студийному').toBe('file')
+    expect(after.rightMode, 'правое окно вернулось к студийному — окна светятся по-разному').toBe('file')
+  })
+
+  it('другая модель ракурс НЕ наследует', async () => {
+    const resp = await fetch('/ToyCar.glb')
+    const file = new File([await resp.blob()], 'ToyCar.glb', { type: 'model/gltf-binary' })
+    await window.OptiViewer.loadOriginal(file)
+    window.OptiViewer.selectCamera(0)
+
+    // Открыли ДРУГУЮ модель — у неё этого ракурса может не быть вовсе.
+    const resp2 = await fetch(CUBE_URL)
+    const file2 = new File([await resp2.blob()], 'Dirty Cube 01.glb', { type: 'model/gltf-binary' })
+    await window.OptiViewer.loadOriginal(file2)
+    expect(window.OptiViewer.getCameras().current, 'чужой ракурс переехал на новую модель').toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Ортографическая камера автора
+//
+// В корпусе таких моделей нет, поэтому камеру собираем здесь и кладём в тот же список,
+// куда её положил бы загрузчик. Проверяем не «читается ли файл» (это работа
+// GLTFLoader), а НАШУ развилку: у перспективной ширина кадра задаётся полем aspect,
+// у ортографической — границами left/right, и общего кода тут нет.
+//
+// Почему не подменяем ортографическую своей перспективной, хотя так проще: это разная
+// КАРТИНКА, а не разная настройка. У ортографической нет схождения линий — ради этого
+// её и выбирают (чертёж, изометрия, вид сбоку). Показать вместо неё перспективу значит
+// показать не то, что делал автор, и молча.
+// ---------------------------------------------------------------------------
+
+describe('Viewer — ортографическая камера (browser)', () => {
+  /** @type {HTMLCanvasElement} */
+  let canvas
+  /** @type {import('../ui/viewer/viewer.js').Viewer} */
+  let viewer
+
+  beforeAll(async () => {
+    const result = await createViewer()
+    canvas = result.canvas
+    viewer = result.viewer
+  })
+
+  afterAll(() => {
+    disposeViewer(viewer, canvas)
+  })
+
+  itWithModels(['Dirty Cube 01.glb'], 'вертикаль остаётся авторской, ширина берётся от окна', async () => {
+    await viewer.load(CUBE_URL)
+
+    // Так её отдал бы загрузчик: камера стоит в сцене узлом-родителем.
+    const ortho = new THREE.OrthographicCamera(-2, 2, 1.5, -1.5, 0.1, 100)
+    ortho.name = 'Blueprint_Side'
+    viewer.model.add(ortho)
+    viewer._fileCameras = [ortho]
+
+    expect(viewer.setCamera(0)).toBe(true)
+    expect(viewer._activeCamera(), 'рисуем не той камерой').toBe(ortho)
+    expect(viewer.controls.enabled, 'орбита должна быть выключена и здесь').toBe(false)
+
+    const parent = viewer.canvas.parentElement
+    const ratio = parent.clientWidth / parent.clientHeight
+    // Вертикаль автора не тронута: 1.5 и −1.5 остались как были.
+    expect(ortho.top).toBe(1.5)
+    expect(ortho.bottom).toBe(-1.5)
+    // Ширина пересчитана под окно, а не оставлена файловой (была ±2).
+    expect(ortho.right).toBeCloseTo(1.5 * ratio, 5)
+    expect(ortho.left).toBeCloseTo(-1.5 * ratio, 5)
+
+    // И рисование через неё не падает.
+    viewer.renderFrame()
+
+    viewer.setCamera(null)
+    expect(viewer._activeCamera()).toBe(viewer.camera)
+    expect(viewer.controls.enabled).toBe(true)
+  })
+})

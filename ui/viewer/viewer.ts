@@ -222,6 +222,14 @@ function orphanPointerGuard(parser: { json: { animations?: Array<{ channels?: Ar
 const FILE_MODE_ENV = 0.15;
 
 /**
+ * Камера из файла. glTF знает два вида, и оба настоящие: перспективную выбирают для
+ * обычного взгляда, ортографическую — когда схождение линий мешает (чертёж, изометрия,
+ * вид сбоку). Держим оба типа в одном списке; различаются они только тем, как задаётся
+ * ширина кадра (см. _applyAspect).
+ */
+type FileCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera;
+
+/**
  * Самодостаточный просмотрщик одной модели: рендерер, сцена, студийный IBL-свет,
  * орбитальные контролы, авто-кадрирование под размер модели.
  */
@@ -265,7 +273,7 @@ export class Viewer implements ViewerLike {
   /** Чей свет показываем: 'studio' — наш, 'file' — авторский. */
   declare _lightMode?: 'studio' | 'file';
   /** Камеры, которые автор положил в файл. Пусто — их нет. */
-  declare _fileCameras?: THREE.PerspectiveCamera[];
+  declare _fileCameras?: FileCamera[];
   /** Через какую камеру смотрим: номер авторской либо null — через нашу орбитальную. */
   declare _cameraIndex?: number | null;
 
@@ -605,13 +613,28 @@ export class Viewer implements ViewerLike {
   // Берём только те, что стоят В СЦЕНЕ: камера без родителя никуда не смотрит — её
   // положение задаётся узлом, и вне графа сцены оно не определено.
 
-  /** Камеры автора, добравшиеся до сцены. Имя ищем у камеры, потом у её узла. */
+  /**
+   * Камеры автора, добравшиеся до сцены. Имя ищем у камеры, потом у её узла.
+   *
+   * Берём и перспективные, и ортографические. Подменять ортографическую своей
+   * перспективной — «взять место и угол, а настройки оставить наши» — нельзя: это
+   * РАЗНАЯ картинка, а не разная настройка. У ортографической нет схождения линий,
+   * ради него её и выбирают (чертёж, изометрия, вид сбоку). Показать вместо неё
+   * перспективу значит показать не то, что делал автор, и молча.
+   *
+   * Стоит это ровно одной развилки в пропорциях кадра (_applyAspect): у перспективной
+   * ширина задаётся полем aspect, у ортографической — границами left/right.
+   */
   _readFileCameras(gltf: GLTF) {
-    const cams: THREE.PerspectiveCamera[] = [];
+    const cams: FileCamera[] = [];
     for (const cam of gltf.cameras || []) {
-      if (!(cam as THREE.PerspectiveCamera).isPerspectiveCamera) continue; // ортографические — отдельный разговор
-      if (!cam.parent) continue;
-      cams.push(cam as THREE.PerspectiveCamera);
+      const c = cam as FileCamera;
+      const known = ('isPerspectiveCamera' in c && c.isPerspectiveCamera)
+        || ('isOrthographicCamera' in c && c.isOrthographicCamera);
+      if (!known) continue;
+      // Камера без родителя нигде не стоит: её положение задаёт узел сцены.
+      if (!c.parent) continue;
+      cams.push(c);
     }
     this._fileCameras = cams;
     this._cameraIndex = null;
@@ -649,7 +672,7 @@ export class Viewer implements ViewerLike {
   }
 
   /** Камера, через которую рисуем прямо сейчас. */
-  _activeCamera(): THREE.PerspectiveCamera {
+  _activeCamera(): FileCamera {
     const cams = this._fileCameras || [];
     const i = this._cameraIndex;
     return i === null || i === undefined ? this.camera : (cams[i] || this.camera);
@@ -659,17 +682,30 @@ export class Viewer implements ViewerLike {
    * Пропорции кадра под размер окна.
    *
    * Камера автора несёт СВОЁ соотношение сторон из файла, и оно почти никогда не
-   * совпадает с окном программы. Держим вертикальный угол (yfov из glTF) и подгоняем
-   * ширину — так поступают все просмотрщики: по вертикали кадр остаётся авторским,
-   * по горизонтали расширяется или сужается под окно. Иначе картинка растянута.
+   * совпадает с окном программы. Держим ВЕРТИКАЛЬ авторской и подгоняем ширину — так
+   * поступают все просмотрщики: по вертикали кадр остаётся авторским, по горизонтали
+   * расширяется или сужается под окно. Иначе картинка растянута.
+   *
+   * Вертикаль у двух видов камер записана по-разному, отсюда развилка:
+   *   • перспективная — угол yfov, ширина следует из поля aspect;
+   *   • ортографическая — границы top/bottom, ширину задаём сами через left/right.
    */
   _applyAspect() {
     const parent = this.canvas.parentElement;
     if (!parent) return;
     const { clientWidth, clientHeight } = parent;
     if (!clientWidth || !clientHeight) return;
+    const ratio = clientWidth / clientHeight;
     const cam = this._activeCamera();
-    cam.aspect = clientWidth / clientHeight;
+    if ('isOrthographicCamera' in cam && cam.isOrthographicCamera) {
+      // Половина высоты — авторская, половина ширины — под окно.
+      const halfH = (cam.top - cam.bottom) / 2;
+      const halfW = halfH * ratio;
+      cam.left = -halfW;
+      cam.right = halfW;
+    } else if ('isPerspectiveCamera' in cam && cam.isPerspectiveCamera) {
+      cam.aspect = ratio;
+    }
     cam.updateProjectionMatrix();
   }
 
