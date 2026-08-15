@@ -53,6 +53,8 @@ window.I18N_CATALOGS.en = {
   // факт, имена соседних узлов — догадка, и выдавать её за факт нечестно.
   'vp.lod': 'Detail',
   'vp.lod.guess': 'Looks like detail levels',
+  // Полка значков справа внизу: свойства этой модели, каждое со своей полочкой.
+  'vp.rail': 'This model’s controls',
   'stage.hint': 'Load a .glb from the left panel to preview it here',
 
   // Подписи посреди панелей просмотра (ui/viewer/index.js). Ставятся из кода через

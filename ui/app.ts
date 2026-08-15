@@ -4145,12 +4145,63 @@
     animSeek.addEventListener('input', applySeek);
   }
 
+  // ---------------------------------------------------------------
+  // Полка значков (низ справа): открыть и закрыть полочку группы
+  //
+  // Открыт может быть один: две полочки выезжают в одно место и наложились бы.
+  //
+  // ЗАКРЫТИЕ — ЭТО ТОЛЬКО ПОКАЗ. Оно не трогает ни воспроизведение, ни выбранный
+  // уровень, ни вариант: состояние живёт в движке просмотра, здесь только видимость
+  // органов управления. Свёрнутая анимация продолжает идти — прямое требование
+  // Александра 2026-08-15 («схлопывается, но анимация-то не останавливается»),
+  // и на это стоит сторож в браузерных тестах.
+  //
+  // Обработчик ОДИН на всю полку, а не по одному на группу: групп будет больше
+  // (камеры автора, свет из файла), и каждая не должна тащить свою проводку.
+  const rail = document.querySelector('.vp-rail');
+  if (rail) {
+    rail.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement | null)?.closest('.vp-group-btn');
+      if (!btn) return;
+      const group = btn.closest('.vp-group');
+      if (!group) return;
+      const wasOpen = group.classList.contains('is-open');
+      for (const g of rail.querySelectorAll('.vp-group.is-open')) {
+        g.classList.remove('is-open');
+        g.querySelector('.vp-group-btn')?.setAttribute('aria-expanded', 'false');
+      }
+      if (!wasOpen) {
+        group.classList.add('is-open');
+        btn.setAttribute('aria-expanded', 'true');
+      }
+    });
+    // Щелчок мимо полки закрывает полочку. По той же причине это только показ.
+    document.addEventListener('click', (e) => {
+      if (rail.contains(e.target as Node)) return;
+      for (const g of rail.querySelectorAll('.vp-group.is-open')) {
+        g.classList.remove('is-open');
+        g.querySelector('.vp-group-btn')?.setAttribute('aria-expanded', 'false');
+      }
+    });
+  }
+
+  /** Группа исчезла вместе с моделью — её полочка не должна остаться открытой. */
+  function closeHiddenGroups() {
+    if (!rail) return;
+    for (const g of rail.querySelectorAll('.vp-group.hidden.is-open')) {
+      g.classList.remove('is-open');
+      g.querySelector('.vp-group-btn')?.setAttribute('aria-expanded', 'false');
+    }
+  }
+
   // Объявляем ДО того, как модуль вьюера выполнится: app.js — обычный скрипт и
   // отрабатывает раньше type="module". Подписаться через window.OptiViewer здесь
   // ещё нельзя — его не существует.
   // Обе панели состава модели перестраиваются по одному уведомлению: список клипов
   // и список вариантов появляются и исчезают вместе с моделью, которая их несёт.
-  window.onOptiViewerModelLoaded = () => { refreshAnimUI(); refreshVariantUI(); refreshLodUI(); };
+  window.onOptiViewerModelLoaded = () => {
+    refreshAnimUI(); refreshVariantUI(); refreshLodUI(); closeHiddenGroups();
+  };
   refreshAnimUI();    // стартовое состояние: моделей нет — панелей нет
   refreshVariantUI();
   refreshLodUI();

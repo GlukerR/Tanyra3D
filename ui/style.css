@@ -599,10 +599,13 @@ body.resizing .splitter-grip { background: var(--surface); }
 body.resizing .viewer-canvas { pointer-events: none; }
 body.resizing { cursor: col-resize; user-select: none; }
 
-/* Мини-панель управления вьюпортом (низ по центру) */
+/* Мини-панель управления вьюпортом (ВЕРХ по центру).
+   Наверху с 2026-08-15: внизу её замечали позже, чем стоило бы. Держит только то,
+   что относится к любой модели — камера и свет, — и поэтому не растёт. Всё, что
+   зависит от содержимого файла, ушло в .vp-rail ниже. */
 .vp-toolbar {
   position: absolute;
-  bottom: 14px;
+  top: 14px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 7;
@@ -614,6 +617,71 @@ body.resizing { cursor: col-resize; user-select: none; }
   border: 1px solid var(--outline-variant);
   border-radius: var(--radius-md);
 }
+
+/* ---------- Полка свойств модели (низ справа) ----------
+   Значок на группу, у каждого своя полочка. Прежде это была одна строка внизу, и
+   она росла с каждой возможностью: три группы уже не помещались, а впереди камеры
+   автора и свет из файла.
+
+   Столбиком, а не строкой: строка снова упёрлась бы в ширину вьюпорта, а по высоте
+   места больше и оно не кончится так скоро. */
+.vp-rail {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 7;
+  display: flex;
+  flex-direction: column-reverse; /* первый значок — у нижнего края, ближе к руке */
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.vp-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* Двумя классами, а не одним: .vp-tool объявлен ниже по файлу и при равном весе
+   перебивал бы размер. */
+.vp-tool.vp-group-btn {
+  width: 32px;
+  height: 32px;
+  background: var(--surface-low);
+  border: 1px solid var(--outline-variant);
+  font-size: 16px;
+}
+
+/* Открытая группа отмечена так же, как нажатая кнопка: одно значение — один вид. */
+.vp-group.is-open > .vp-group-btn {
+  color: var(--primary-container);
+  background: rgba(192, 193, 255, 0.10);
+}
+
+/* Полочка выезжает ВЛЕВО от значка: справа от него край вьюпорта.
+   Потолок ширины и сжимаемый ползунок — чтобы будущая группа с длинными именами
+   (камеры автора) не выехала за левый край сцены. */
+.vp-pop {
+  position: absolute;
+  right: calc(100% + 6px);
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  max-width: 340px;
+  white-space: nowrap;
+  background: var(--surface-low);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius-md);
+}
+
+.vp-pop .vp-slider {
+  flex: 1 1 70px;
+  min-width: 60px;
+}
+
+.vp-group.is-open > .vp-pop { display: flex; }
 
 .vp-tool {
   width: 28px;
@@ -631,16 +699,6 @@ body.resizing { cursor: col-resize; user-select: none; }
 
 .vp-tool:hover { background: var(--surface-container-high); color: var(--on-surface); }
 .vp-tool.is-on { color: var(--primary-container); background: rgba(192, 193, 255, 0.10); }
-
-/* ---------- Управление анимацией ----------
-   Живёт в той же панели, что «сброс вида» и «связать камеры», и появляется только
-   у моделей с анимацией. Ползунок общий на оба вьюпорта: время у них одно. */
-
-.vp-anim {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
 
 .vp-sep {
   width: 1px;
