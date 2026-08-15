@@ -494,19 +494,58 @@ function collectCarried(json: Record<string, unknown>): Carried | null {
   return { used, required, spots, shape: shapeOf(json) };
 }
 
-/** Вернуть собранное в записанный файл, если структура не сдвинулась. */
-function restoreCarried(glb: Uint8Array, carried: Carried | undefined): Uint8Array {
-  if (!carried) return glb;
+/** Общая механика правки JSON-чанка GLB: разобрать → поправить → пересобрать.
+ *
+ * restoreCarried и dropEmptyArrays правят СЕРИАЛИЗОВАННЫЙ JSON-чанк, а не документ, и обе
+ * пересобирают контейнер с выравниванием JSON-чанка пробелами до кратности четырём
+ * (спецификация §4.4). Раньше каждая делала это сама — и один и тот же JSON гонялся через
+ * parse→rebuild дважды за запись. Теперь контейнер разбирается и собирается здесь один
+ * раз, а правки получают уже разобранный объект.
+ *
+ * patch(json, hasBinChunk) возвращает false, когда правки ничего не изменили, — тогда
+ * возвращается исходный массив без пересборки. Не GLB, не JSON-чанк или нечитаемый JSON —
+ * тоже возвращается как есть. Бинарный чанк (если он есть) переносится без изменений.
+ */
+function withGlbJson(
+  glb: Uint8Array,
+  patch: (json: GltfJson, hasBinChunk: boolean) => boolean,
+): Uint8Array {
   const view = new DataView(glb.buffer, glb.byteOffset, glb.byteLength);
+  // GLB (спецификация §4.4): заголовок 12 байт, дальше чанки. Первый — JSON.
   if (glb.byteLength < 20 || view.getUint32(0, true) !== 0x46546c67) return glb;
   const jsonLen = view.getUint32(12, true);
-  if (view.getUint32(16, true) !== 0x4e4f534a) return glb;
-  let json: Record<string, unknown>;
+  if (view.getUint32(16, true) !== 0x4e4f534a) return glb; // не JSON-чанк — не трогаем
+  let json: GltfJson;
   try {
     json = JSON.parse(new TextDecoder().decode(glb.subarray(20, 20 + jsonLen)));
   } catch {
     return glb;
   }
+
+  const rest = glb.subarray(20 + jsonLen);
+  if (!patch(json, rest.length > 0)) return glb;
+
+  // Пересобираем контейнер. JSON-чанк выравнивается пробелами до кратности четырём —
+  // требование спецификации; без выравнивания следующий чанк начнётся не там.
+  const encoded = new TextEncoder().encode(JSON.stringify(json));
+  const padded = new Uint8Array(Math.ceil(encoded.length / 4) * 4).fill(0x20);
+  padded.set(encoded);
+
+  const out = new Uint8Array(12 + 8 + padded.length + rest.length);
+  const ov = new DataView(out.buffer);
+  ov.setUint32(0, 0x46546c67, true);
+  ov.setUint32(4, 2, true);
+  ov.setUint32(8, out.length, true);
+  ov.setUint32(12, padded.length, true);
+  ov.setUint32(16, 0x4e4f534a, true);
+  out.set(padded, 20);
+  out.set(rest, 20 + padded.length);
+  return out;
+}
+
+/** Вернуть собранное в разобранный JSON-чанк, если структура не сдвинулась. */
+function restoreCarried(json: Record<string, unknown>, carried: Carried | undefined): boolean {
+  if (!carried) return false;
 
   // Сдвинулась ли структура — теперь вопрос НЕ ко всему документу сразу, а к тем
   // массивам, на которые смотрит конкретное расширение (см. arraysAddressedBy).
@@ -560,7 +599,7 @@ function restoreCarried(glb: Uint8Array, carried: Carried | undefined): Uint8Arr
   const declared = Array.isArray(json.extensionsUsed) ? json.extensionsUsed as string[] : [];
   if (carried.used.some((n) => !declared.includes(n))) touched = true;
 
-  if (!touched) return glb;
+  if (!touched) return false;
 
   const addNames = (key: 'extensionsUsed' | 'extensionsRequired', names: string[]) => {
     if (!names.length) return;
@@ -570,22 +609,7 @@ function restoreCarried(glb: Uint8Array, carried: Carried | undefined): Uint8Arr
   };
   addNames('extensionsUsed', carried.used);
   addNames('extensionsRequired', carried.required);
-
-  const encoded = new TextEncoder().encode(JSON.stringify(json));
-  const padded = new Uint8Array(Math.ceil(encoded.length / 4) * 4).fill(0x20);
-  padded.set(encoded);
-  const rest = glb.subarray(20 + jsonLen);
-
-  const out = new Uint8Array(12 + 8 + padded.length + rest.length);
-  const ov = new DataView(out.buffer);
-  ov.setUint32(0, 0x46546c67, true);
-  ov.setUint32(4, 2, true);
-  ov.setUint32(8, out.length, true);
-  ov.setUint32(12, padded.length, true);
-  ov.setUint32(16, 0x4e4f534a, true);
-  out.set(padded, 20);
-  out.set(rest, 20 + padded.length);
-  return out;
+  return true;
 }
 
 // Что снято с ЭТОГО документа. WeakMap, а не поле: документ принадлежит библиотеке, и
@@ -615,19 +639,7 @@ const readBytes = (io: NodeIOType, bytes: Uint8Array) => io.readBinary(bytes);
 // Убираем ключ, а не выдумываем узел: сцена без поля `nodes` — законная пустая сцена,
 // и рисуется она ровно так же, то есть никак. Правилом это не сделать: пустой массив
 // существует только в сериализованном виде, в документе его нет.
-function dropEmptyArrays(glb: Uint8Array): Uint8Array {
-  const view = new DataView(glb.buffer, glb.byteOffset, glb.byteLength);
-  // GLB (спецификация §4.4): заголовок 12 байт, дальше чанки. Первый — JSON.
-  if (glb.byteLength < 20 || view.getUint32(0, true) !== 0x46546c67) return glb;
-  const jsonLen = view.getUint32(12, true);
-  if (view.getUint32(16, true) !== 0x4e4f534a) return glb; // не JSON-чанк — не трогаем
-  const jsonBytes = glb.subarray(20, 20 + jsonLen);
-  const text = new TextDecoder().decode(jsonBytes);
-  let json;
-  try { json = JSON.parse(text); } catch { return glb; }
-
-  const rest0 = glb.subarray(20 + jsonLen);
-
+function dropEmptyArrays(json: GltfJson, hasBinChunk: boolean): boolean {
   let touched = false;
   for (const scene of json.scenes || []) {
     if (Array.isArray(scene.nodes) && scene.nodes.length === 0) { delete scene.nodes; touched = true; }
@@ -643,32 +655,14 @@ function dropEmptyArrays(glb: Uint8Array): Uint8Array {
   // Убираем только когда убирать заведомо нечего: двоичного чанка в файле нет вовсе и
   // ни одна запись буфера ни на что не ссылается. Иначе легко снести буфер, на который
   // смотрит геометрия, — а это уже не чистка отчёта, а порча модели.
-  const noBinChunk = rest0.length === 0;
+  const noBinChunk = !hasBinChunk;
   const noViews = !Array.isArray(json.bufferViews) || json.bufferViews.length === 0;
   const allBuffersEmpty = Array.isArray(json.buffers)
     && json.buffers.length > 0
     && json.buffers.every((b: unknown) => b && typeof b === 'object' && Object.keys(b).length === 0);
   if (noBinChunk && noViews && allBuffersEmpty) { delete json.buffers; touched = true; }
 
-  if (!touched) return glb;
-
-  // Пересобираем контейнер. JSON-чанк выравнивается пробелами до кратности четырём —
-  // требование спецификации; без выравнивания следующий чанк начнётся не там.
-  const encoded = new TextEncoder().encode(JSON.stringify(json));
-  const padded = new Uint8Array(Math.ceil(encoded.length / 4) * 4).fill(0x20);
-  padded.set(encoded);
-
-  const rest = rest0;
-  const out = new Uint8Array(12 + 8 + padded.length + rest.length);
-  const ov = new DataView(out.buffer);
-  ov.setUint32(0, 0x46546c67, true);          // magic
-  ov.setUint32(4, 2, true);                   // версия
-  ov.setUint32(8, out.length, true);          // общая длина
-  ov.setUint32(12, padded.length, true);      // длина JSON-чанка
-  ov.setUint32(16, 0x4e4f534a, true);         // тип чанка: JSON
-  out.set(padded, 20);
-  out.set(rest, 20 + padded.length);
-  return out;
+  return touched;
 }
 
 /**
@@ -695,7 +689,14 @@ function dropEmptyArrays(glb: Uint8Array): Uint8Array {
 const writeBytes = async (io: NodeIOType, doc: Document, src?: string) => {
   const bytes = await io.writeBinary(doc);
   const json = src ? sourceJson(src) : null;
-  return dropEmptyArrays(restoreCarried(bytes, (json && collectCarried(json)) || undefined));
+  const carried = (json && collectCarried(json)) || undefined;
+  // Один проход по JSON-чанку на обе правки: раньше каждая сама разбирала и
+  // пересобирала контейнер, и один и тот же JSON гонялся через parse→rebuild дважды.
+  return withGlbJson(bytes, (out, hasBinChunk) => {
+    const restored = restoreCarried(out, carried);
+    const dropped = dropEmptyArrays(out, hasBinChunk);
+    return restored || dropped;
+  });
 };
 
 // Входное сжатие геометрии (Draco/Meshopt) снимаем сразу после загрузки — иначе каждая

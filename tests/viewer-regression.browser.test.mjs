@@ -503,6 +503,80 @@ describe('Viewer — animation (browser)', () => {
     expect(moved, 'развёртки текстур стоят на месте').toBeGreaterThan(50)
   })
 
+  // Слот, которого нет в таблице SLOT_TO_THREE, обязан тихо пропуститься, а не
+  // уронить показ (pointer-uv.ts: `if (!threeProps) continue`). В корпусе такого
+  // канала нет — образцы diffuse transmission статичны, без анимации, — поэтому
+  // правим байты копии в памяти: у одного канала слот заменяется на заведомо
+  // незнакомый, но оканчивающийся на Texture, чтобы упражнять именно ветку «слота
+  // нет в таблице», а не «это вообще не слот».
+  itWithModels(['AnimationPointerUVs.glb'], 'AnimationPointerUVs — незнакомый слот в канале тихо пропускается, остальные развёртки едут', async () => {
+    const buf = new Uint8Array(await (await fetch('/AnimationPointerUVs.glb')).arrayBuffer())
+    const view = new DataView(buf.buffer)
+    const jsonLen = view.getUint32(12, true)
+    const json = JSON.parse(new TextDecoder().decode(buf.subarray(20, 20 + jsonLen)))
+
+    // Найти канал на развёртку и заменить его слот на незнакомый.
+    let changed = false
+    for (const anim of json.animations || []) {
+      for (const ch of anim.channels || []) {
+        const ext = ch.target && ch.target.extensions && ch.target.extensions['KHR_animation_pointer']
+        if (!ext || typeof ext.pointer !== 'string') continue
+        const m = ext.pointer.match(/^(\/materials\/\d+\/)(.+)(\/extensions\/KHR_texture_transform\/(?:offset|rotation|scale))$/)
+        if (!m) continue
+        const segs = m[2].split('/')
+        const slot = segs[segs.length - 1]
+        if (!slot || !slot.endsWith('Texture')) continue
+        segs[segs.length - 1] = 'notInTableTexture'
+        ext.pointer = m[1] + segs.join('/') + m[3]
+        changed = true
+        break
+      }
+      if (changed) break
+    }
+    expect(changed).toBe(true)
+
+    // Пересобрать GLB — тот же приём, что в тесте «осиротевший канал» выше.
+    let text = JSON.stringify(json)
+    while (text.length % 4) text += ' '
+    const jsonBytes = new TextEncoder().encode(text)
+    const bin = buf.subarray(20 + jsonLen)
+    const out = new Uint8Array(20 + jsonBytes.length + bin.length)
+    const ov = new DataView(out.buffer)
+    out.set(buf.subarray(0, 20))
+    ov.setUint32(8, out.length, true)
+    ov.setUint32(12, jsonBytes.length, true)
+    out.set(jsonBytes, 20)
+    out.set(bin, 20 + jsonBytes.length)
+
+    const url = URL.createObjectURL(new Blob([out], { type: 'model/gltf-binary' }))
+    try {
+      // Главное утверждение: модель ДОЕЗЖАЕТ до конца, незнакомый слот не роняет показ.
+      const stats = await viewer.load(url)
+      expect(stats).toBeTruthy()
+      expect(viewer.model).toBeTruthy()
+
+      // Остальные развёртки не застыли: сломан один канал из 103, прочие едут.
+      const snapshot = (t) => {
+        viewer.setAnimationTime(t)
+        const out = []
+        viewer.model.traverse((o) => {
+          const m = o.material
+          if (!m) return
+          for (const [key, v] of Object.entries(m)) {
+            if (v && v.isTexture) out.push(`${key}:${v.rotation}:${v.offset.x},${v.offset.y}:${v.repeat.x},${v.repeat.y}`)
+          }
+        })
+        return out
+      }
+      const a = snapshot(0)
+      const b = snapshot(2)
+      const moved = a.filter((s, i) => s !== b[i]).length
+      expect(moved, 'развёртки текстур застыли после пропуска незнакомого слота').toBeGreaterThan(50)
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+  })
+
   itWithModels(['Cthulhu Stone 01.glb'], 'loads Cthulhu Stone (morph targets) — getAnimationInfo shows 1 clip named Scene', async () => {
     await viewer.load(CTHULHU_URL)
     const info = viewer.getAnimationInfo()

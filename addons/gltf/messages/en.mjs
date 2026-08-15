@@ -138,6 +138,7 @@ export default {
   'ktx2.safe': () => 'UASTC --level 2 --zstd 18 without RDO — near-lossless, user\'s choice',
   'ktx2.skipped.already': ({ name }) => `Texture "${name}": already KTX2 — not re-encoded (no extra loss)`,
   'ktx2.skipped.already.many': ({ n }) => `${n} textures are already KTX2 — not re-encoded (no extra loss)`,
+  'ktx2.skipped.toPngFailed': ({ n }) => `${n} texture${n === 1 ? '' : 's'} could not be converted to PNG — left in the original format`,
   // Одной строкой на все текстуры, а не строкой на каждую. Экспортёры почти никогда
   // не именуют текстуры, поэтому тринадцать одинаковых строк вида `Texture "—": …`
   // не сообщали ничего, кроме своего количества.
