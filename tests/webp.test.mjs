@@ -38,8 +38,9 @@ import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 import { optimizeFile } from '../optimize2.mjs';
 import { localizeResult } from '../core/i18n.mjs';
 import gltfAddon from '../addons/gltf/index.mjs';
+import { RULES } from '../addons/gltf/rules.mjs';
 import { TOKTX, HAS_GLTF_CLI } from '../addons/gltf/tools.mjs';
-import { modelPath, eachModel, describeIfModels } from './helpers/model-files.mjs';
+import { modelPath, eachModel, describeIfModels, itIfModel } from './helpers/model-files.mjs';
 
 // ---- инструменты: чтение выходного .glb для контроля картинок ----
 // optimizeFile отдаёт метрики (gpuBytes/textureBytes и т.д.), но инвариант
@@ -498,6 +499,45 @@ describe('WebP — ползунок качества считается от и�
       expect(bytes, `значение ${JSON.stringify(bad)}`).toBe(at100.bytes);
     }
   }, 900000);
+});
+
+// ---------------------------------------------------------------------------
+// 3в. Знак цены: порог «вдвое» снят 2026-08-18 — и что об этом показал замер
+// ---------------------------------------------------------------------------
+//
+// Правка сделана по Правилу 12 (молчание о росте делает замер человека неправдой), но
+// честный отчёт о ней такой: РОСТ НЕ ВОСПРОИЗВОДИТСЯ. Через само правило не выросла ни
+// одна модель корпуса, и синтетику вырасти заставить не удалось — шумный JPEG любого
+// качества, случайный шум в PNG с альфой и без, крошечные заливки 4×4…64×64. Поэтому
+// теста «вырос → знак есть» здесь нет и быть не может: нечем создать условие.
+//
+// Отдельно записано, ПОЧЕМУ первая версия правки опиралась на неверное число. Замер
+// «ABeautifulGame растёт на +21 %» был сделан прямым вызовом кодировщика на quality:100,
+// а правило кодирует в качество ИСХОДНИКА (JPEG ≈83). Через правило та же модель
+// ужимается на 56 %. Метод замера обязан повторять то, что делает код, иначе меряется
+// не оно.
+//
+// Что тест всё же держит: знак НЕ загорается там, где модель ужалась. Это половина
+// Правила 12, которую проверить можно, и она же охраняет от обратной ошибки — если
+// однажды порог снимут так, что знак начнёт гореть на каждой модели, тест покраснеет.
+describe('textures/webp — знак цены не загорается на ровном месте', () => {
+  const rule = RULES.find((r) => r.meta.id === 'textures/webp');
+
+  itIfModel('BoomBox.glb', 'модель ужалась — цены нет', async () => {
+    const io = await ioPromise;
+    const doc = await io.read(modelPath('BoomBox.glb'));
+    let before = 0;
+    for (const t of doc.getRoot().listTextures()) before += t.getImage()?.byteLength || 0;
+
+    const out = await rule.fix({}, {
+      document: doc, opts: { locale: 'ru' }, log: () => {}, dstName: 'webp-nocost.glb',
+    });
+
+    let after = 0;
+    for (const t of doc.getRoot().listTextures()) after += t.getImage()?.byteLength || 0;
+    expect(after, 'предпосылка теста: модель должна ужаться').toBeLessThan(before);
+    expect(out.cost, 'ужалась — знака цены быть не должно').toBeFalsy();
+  }, 600000);
 });
 
 afterAll(cleanupTmpOutDirs);
