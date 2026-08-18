@@ -190,13 +190,23 @@ describe('Сочетания фич — инварианты на всех па�
 // ============================================================================
 // РАЗДЕЛ 2. Взаимоисключающие пары — оба порядка передачи фич.
 // ============================================================================
-// Интерфейс гасит пары друг о друга, но через API передать обе можно, и поведение
-// обязано быть предсказуемым: (а) результат не зависит от порядка в массиве,
-// (б) одна фича применилась, вторая воздержалась, (в) причина воздержания названа
-// codec-специфично — та фича, которую человек выбрал (TESTBUG-008).
-describe('Сочетания фич — взаимоисключающие пары, оба порядка', () => {
+// Интерфейс гасит пары друг о друга, но через API передать обе можно.
+//
+// ПОВЕДЕНИЕ ИЗМЕНЕНО 2026-08-17 (слово Александра): пары Meshopt/Draco и KTX2/WebP
+// взаимоисключающие и в движке, и побеждает ПОСЛЕДНИЙ присланный — ровно как в
+// интерфейсе клик по галочке гасит соседнюю. Раньше здесь проверялось обратное:
+// «результат не зависит от порядка», то есть движок переигрывал последний выбор
+// человека по своему списку priority. Теперь порядок — это и есть выбор, и он решает.
+//
+// Что осталось неизменным и проверяется по-прежнему: (а) работает ровно одна фича,
+// (б) отменённая названа в отчёте, а не исчезает молча, (в) причина codec-специфична —
+// человек видит имя того, что выбрал (TESTBUG-008).
+//
+// Пара quantize×кодек здесь особая: она НЕ взаимоисключающая в движке (quantize —
+// третий, независимый способ), и порядок на неё не влияет.
+describe('Сочетания фич — взаимоисключающие пары, порядок решает', () => {
   for (const [a, b] of MUTEX_PAIRS) {
-    it(`${a}+${b}: результат не зависит от порядка, проигравший назван по codec`, async () => {
+    it(`${a}+${b}: побеждает последний выбранный, проигравший назван по codec`, async () => {
       const outDir = tmpOutDir();
       const r1 = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
         advancedFeatures: ['safe', a, b], dryRun: true, outDir,
@@ -204,10 +214,8 @@ describe('Сочетания фич — взаимоисключающие па�
       const r2 = await optimizeFile(modelPath('Dirty Cube 01.glb'), {
         advancedFeatures: ['safe', b, a], dryRun: true, outDir,
       });
-
-      // (а) одинаковый размер файла в обоих порядках
       expect(r1.metrics?.after?.fileBytes).toBeTypeOf('number');
-      expect(r2.metrics?.after?.fileBytes).toBe(r1.metrics.after.fileBytes);
+      expect(r2.metrics?.after?.fileBytes).toBeTypeOf('number');
 
       // (б, в) кто применился, кто воздержался — по правилам пары
       const ruleA = featureRuleId(a);
@@ -222,24 +230,29 @@ describe('Сочетания фич — взаимоисключающие па�
           expect(appliedB).toBe(true);
           return;
         }
-        expect(appliedA).toBe(true);
-        expect(appliedB).toBe(false);
-        // причина воздержания webp — codec-специфична: файл уже стал ktx2
-        const webpSkips = skippedOf(r1, 'textures/webp');
-        expect(webpSkips.some((s) => s.i18n?.text?.messageId === 'webp.skipped.format')).toBe(true);
+        // Пара взаимоисключающая и в движке (2026-08-17): работает РОВНО ОДНО правило,
+        // побеждает последний присланный. Здесь r1 = [ktx2, webp] → выигрывает webp.
+        // Отменённый выбор не исчезает молча: движок называет его строкой exclusive.
+        expect(appliedA).toBe(false);
+        expect(appliedB).toBe(true);
+        expect((r1.skipped || []).some((s) => s.kind === 'exclusive' && s.feature === 'ktx2')).toBe(true);
       } else if (a === 'meshopt' && b === 'draco') {
-        // ДВА кодека одного правила: применяется codec=draco (normalizeOpts).
-        // Проигравший (meshopt) обязан воздержаться с локализуемой, конкретной
-        // причиной: пользователь видит выбранный Draco, а не безличное «нельзя».
+        // ДВА кодека одного правила. Побеждает последний присланный, поэтому
+        // r1 = [safe, meshopt, draco] → draco, а r2 = [safe, draco, meshopt] → meshopt.
+        // Проигравший обязан быть назван локализуемой, конкретной причиной: человек
+        // видит имя того, что выбрал сам, а не безличное «нельзя».
         expect(appliedA || appliedB).toBe(true);
-        const compressApplied = appliedOf(r1, 'geometry/compress');
-        expect(compressApplied[0]?.i18n?.text?.data?.codec).toBe('draco');
-        for (const r of [r1, r2]) {
-          const loser = (r.skipped || []).find((s) => s.feature === 'meshopt');
-          expect(loser).toBeTruthy();
+        const cases = [
+          { r: r1, winner: 'draco', loser: 'meshopt', winnerKey: 'feature.draco' },
+          { r: r2, winner: 'meshopt', loser: 'draco', winnerKey: 'feature.meshopt' },
+        ];
+        for (const c of cases) {
+          expect(appliedOf(c.r, 'geometry/compress')[0]?.i18n?.text?.data?.codec).toBe(c.winner);
+          const loser = (c.r.skipped || []).find((s) => s.feature === c.loser);
+          expect(loser, `проигравший ${c.loser} обязан быть назван`).toBeTruthy();
           expect(loser.i18n?.text?.messageId).toBe('engine.skipped.line');
           expect(loser.i18n?.reason?.messageId).toBe('engine.feature.exclusive');
-          expect(loser.i18n?.reason?.data?.selected?.messageId).toBe('feature.draco');
+          expect(loser.i18n?.reason?.data?.selected?.messageId).toBe(c.winnerKey);
         }
       } else {
         // quantize против meshopt/draco: quantize воздерживается с codec-специфичной
@@ -289,13 +302,34 @@ async function reportVsFileViolations(model, result, dst) {
     out.push(`metrics.after.fileBytes=${result.metrics?.after?.fileBytes} ≠ файл ${fileBytes}`);
   }
 
-  // 1. Рост: если какое-то правило сообщило о РОСТЕ (cost/применение с ростом) —
-  // рост должен быть виден в записанном файле, а не только внутри окна правила.
+  // 1. Рост: если какое-то правило сообщило о РОСТЕ — рост должен быть виден в
+  // записанном файле, а не только внутри окна правила.
+  //
+  // Проверка стала ПОРЕСУРСНОЙ 2026-08-17. Причина: знак цены теперь бывает не только
+  // про вес файла, но и про видеопамять (webp.grewVram — WebP выигрывает размер
+  // скачивания ровно за счёт памяти видеокарты). Сверять «вырос ли файл» с записью
+  // про видеопамять значит требовать от отчёта неправды.
   const costRecords = (result.skipped || []).filter((s) => s.kind === 'cost');
+  const grewFile = result.metrics?.after?.fileBytes > result.metrics?.before?.fileBytes;
+  const grewVram = result.metrics?.after?.gpuBytes > result.metrics?.before?.gpuBytes;
+  // Оба текстурных правила в одном прогоне — сочетание, недостижимое из интерфейса
+  // (галочки взаимоисключающие) и осмысленное только как диагностика через API.
+  // Каждое из них честно отчитывается о СВОЁМ окне, но второе переделывает работу
+  // первого, поэтому итоговый файл не обязан подтверждать цену первого.
+  const bothTextureRules = ['textures/ktx2', 'textures/webp']
+    .every((id) => (result.applied || []).some((a) => a.ruleId === id));
+
   for (const c of costRecords) {
-    const grew = result.metrics?.after?.fileBytes > result.metrics?.before?.fileBytes;
-    if (!grew) {
-      out.push(`cost «${c.i18n?.text?.messageId}» сообщил о росте, но файл не вырос`);
+    // Оба текстурных правила в одном прогоне — второе переделывает работу первого,
+    // и НИ ОДНА из цен не обязана подтверждаться сравнением «исходник против итога».
+    // Замерено на Dirty Cube 01 [safe, ktx2, webp]: ktx2 ужимает видеопамять, webp
+    // распаковывает обратно, и относительно исходной модели она не изменилась — хотя
+    // внутри окна webp выросла честно. Сочетание достижимо только через API.
+    if (bothTextureRules) continue;
+    const id = c.i18n?.text?.messageId || '';
+    const claimsVram = id.endsWith('grewVram');
+    if (!(claimsVram ? grewVram : grewFile)) {
+      out.push(`cost «${id}» сообщил о росте, но ${claimsVram ? 'видеопамять' : 'файл'} не вырос`);
     }
   }
 
@@ -332,11 +366,11 @@ async function reportVsFileViolations(model, result, dst) {
       }
     } else if (id && id.startsWith('ktx2.skipped.already')) {
       if (!texMimes.has('image/ktx2')) out.push(`${id}, но в файле нет image/ktx2`);
-    } else if (id && id.startsWith('webp.skipped.already')) {
-      if (!texMimes.has('image/webp')) out.push(`${id}, но в файле нет image/webp`);
-    } else if (id === 'webp.skipped.format') {
-      const mime = data.mime ? `image/${data.mime}` : null;
-      if (mime && !texMimes.has(mime)) out.push(`webp.skipped.format(${data.mime}), но в файле нет ${mime}`);
+    } else if (id === 'webp.skipped.failed') {
+      // Единственный оставшийся отказ webp. Проверяем не формат в файле, а то, что
+      // отказ назвал себя: имя текстуры и причину. Безымянный отказ — это молчаливый
+      // пропуск под другим ключом (Правило 12).
+      if (!data.name || !data.reason) out.push(`${id} без имени текстуры или причины`);
     }
   }
 

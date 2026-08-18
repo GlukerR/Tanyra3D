@@ -44,8 +44,14 @@ interface WebpCandidate {
   isData: boolean;
   /** сообщение отказа кодировщика; поле появляется только на неудачной ветке */
   failed?: string;
-  /** результат оказался не легче исходного — картинку вернули на место */
-  reverted?: boolean;
+  /** картинку пришлось сперва распаковать из формата видеокарты (KTX2) */
+  fromGpu?: boolean;
+  /** кодировали без потерь (исходник без потерь, и человек не сдвинул ползунок) */
+  lossless?: boolean;
+  /** как узнали качество исходника — попадает в отчёт одной строкой на класс */
+  how?: Ceiling['how'];
+  /** качество исходника, если его удалось узнать: то самое «примерно 83» */
+  sourceQ?: number;
 }
 
 /** Разобранный JSON ассета. Читается ради `extensionsUsed` — остальное не наше дело. */
@@ -53,6 +59,8 @@ interface AssetJson {
   extensionsUsed?: string[];
   [key: string]: unknown;
 }
+import { decodeKtx2 } from './ktx2-decode.mjs';
+import { type Ceiling, probeWebpCeiling, readCeiling, targetQuality } from './source-quality.mjs';
 import { collectMetrics, countTriangles, effectiveSkins, listSemantics, textureSize } from './metrics.mjs';
 import { HAS_GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 
@@ -67,11 +75,44 @@ import { HAS_GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 const DATA_SLOT_RE = /normal|occlusion|roughness/i;
 const DATA_SLOT_GLOB = '*{normal,Normal,occlusion,Occlusion,metallicRoughness,Roughness}*';
 
-// Форматы, которые остаются сжатыми В ВИДЕОПАМЯТИ. Только для них верно «это уже
-// формат для видеокарты» — причина, по которой переводить их в WebP бессмысленно.
-// AVIF, BMP, TGA сюда НЕ входят: они распаковываются в ту же несжатую RGBA, что и
-// PNG, и не трогаем мы их по другой причине — просто не берёмся перекодировать.
-const GPU_FORMATS = new Set(['ktx2', 'ktx', 'basis', 'dds']);
+/**
+ * Качество WebP, когда потолок исходника узнать НЕЧЕМ (KTX2 и всё незнакомое).
+ *
+ * Ровно прежнее поведение правила — жёсткий q90. Держится отдельной константой, потому
+ * что это не расчёт, а признание незнания: правило обязано сказать о нём вслух строкой
+ * `webp.ceilingUnknown`, а не подставить число молча.
+ */
+const WEBP_UNKNOWN_CEILING = 90;
+
+/**
+ * Умолчание ползунка качества.
+ *
+ * Сто (Александр, 2026-08-17, посмотрев результат: «рекомендованные 90 портят уже сильно
+ * модель. пусть изначально ползунок просто будет на 100»). Кратко была попытка поставить
+ * 90 ради прежней лёгкости — на глаз она оказалась слишком дорогой, и это тот случай,
+ * когда смотрят, а не считают.
+ *
+ * Сотня НЕ означает «без потерь» для лоссового исходника, и обещать этого нельзя. Замер
+ * `_work/generation-loss.mjs` на ABeautifulGame: перекодирование JPEG q83 в WebP q83 даёт
+ * RMSE 1.7…6.2, и убрать это нечем — запас по качеству почти не помогает (при +15 всё ещё
+ * 5.6 при тройном весе), отключение прореживания цветности тоже (5.95). Ноль даёт только
+ * режим без потерь, и он для той же текстуры вчетверо тяжелее исходника. Два лоссовых
+ * кодека по-разному раскладывают картинку — второй честно кодирует артефакты первого.
+ * Для исходника БЕЗ потерь сотня действительно означает ноль потерь.
+ */
+const WEBP_QUALITY_DEFAULT = 100;
+
+/**
+ * Доля от качества исходника: 0…100.
+ *
+ * Значение приходит с ползунка и через API; чужое, поэтому проверяется здесь, а не на
+ * входе. Мусор («abc», null) откатывается к рекомендуемому, числа за краями зажимаются.
+ */
+function webpShare(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return WEBP_QUALITY_DEFAULT;
+  return Math.min(100, Math.max(0, Math.round(n)));
+}
 
 // Текстура «цветная» (данные в sRGB), если так сказала сама модель — ребро графа
 // помечено isColor, — ИЛИ если имя слота содержит color/emissive.
@@ -1273,6 +1314,97 @@ export const RULES: GltfRule[] = [
 
   {
     meta: {
+      // Текстура, залитая ОДНИМ цветом, ужимается до одного пикселя.
+      //
+      // Мысль Александра (2026-08-17): «текстуры полностью залитые одним цветом должны
+      // ужиматься максимально сразу. например полностью чёрный или полностью синяя
+      // нормалмапа. её сделать на пару пикселей и сжать максимально».
+      //
+      // Правилу 11 это не противоречит: заливка одним цветом не несёт НИКАКОЙ
+      // пространственной информации, и её разрешение — не замысел автора, а остаток
+      // экспорта. Никто не рисует 2048×2048 ради одного серого. Сам ЦВЕТ сохраняется
+      // побайтно, поэтому картинка после правила означает ровно то же, что до него:
+      // синяя нормаль (128,128,255) как говорила «рельефа нет», так и говорит.
+      //
+      // ЦЕНА ЗДЕСЬ НЕ В ФАЙЛЕ, А В ВИДЕОПАМЯТИ, и это главное. Плоскую заливку любой
+      // кодек жмёт почти в ноль — 2048×2048 весит на диске 33 КБ. Но видеокарта хранит
+      // пиксели РАСПАКОВАННЫМИ, и ей всё равно, что они одинаковые: та же текстура
+      // занимает 21.3 МБ видеопамяти. Разница в 660 раз. Замер на 61 реальной модели
+      // (`_work/flat-vram.mjs`): пять таких текстур — 100 КБ файла и 64 МБ видеопамяти.
+      id: 'textures/flat', category: 'textures', title: 'Single-colour textures', titleKey: 'rule.texturesFlat',
+      severity: 'info', fixSafety: 'provable', tier: 'basic',
+      // После dedup: побайтно одинаковые копии к этому моменту уже сведены в одну, и
+      // мы не разбираем одну и ту же заливку по нескольку раз.
+      runAfter: ['structure/dedup'], touches: ['texture'],
+      // Цвет сохранён точно, размер картинки к её смыслу отношения не имел.
+      reversible: false, dataLoss: 'none',
+      enabled: (o) => o.safe,
+    },
+    analyze() { return [{ messageId: 'pipeline', data: {} }]; },
+    canFix() { return { safe: true, messageId: 'flat.safe', data: {} }; },
+    async fix(finding, ctx) {
+      const out: FixOut = { found: [], skipped: [], details: [] };
+      const sharp = (await import('sharp')).default; // ленивый импорт, как у KTX2 и WebP
+
+      let n = 0;
+      let vramSaved = 0;
+      for (const tex of ctx.document.getRoot().listTextures()) {
+        const img = tex.getImage();
+        if (!img || !img.byteLength) continue;
+        // KTX2 обычным декодером не читается, а разворачивать его ради поиска заливки
+        // дороже, чем возможная находка: в этом формате модели приходят уже собранными.
+        if (tex.getMimeType() === 'image/ktx2') continue;
+
+        const res = await attempt(async () => {
+          // Сперва ДЕШЁВЫЙ отсев по заголовку, и он здесь не оптимизация, а условие
+          // жизнеспособности правила: разбор пикселей (stats) распаковывает картинку
+          // целиком, и на модели из 33 текстур это 2 секунды НА КАЖДОМ прогоне. Чтение
+          // одних заголовков — 8 мс, в 250 раз дешевле (замер 2026-08-17).
+          //
+          // Признак заливки — ничтожный вес на пиксель: 2048×2048 одного цвета весит
+          // 33 КБ, то есть 0.008 байта на пиксель, тогда как настоящая картинка занимает
+          // десятые доли байта и больше. Порог 0.05 оставляет запас в шесть раз.
+          // Мелкие картинки пропускаем к разбору без вопросов: у них служебные байты
+          // формата перевешивают сами пиксели (4×4 заливка — 4.4 байта на пиксель),
+          // и отсев по весу отбросил бы именно то, что ищем. Распаковать их даром.
+          const meta = await sharp(Buffer.from(img)).metadata();
+          const w = meta.width || 0;
+          const h = meta.height || 0;
+          if (w <= 1 && h <= 1) return null; // уже ужата
+          const px = w * h;
+          if (px > 4096 && img.byteLength / px > 0.05) return null; // на заливку не похоже
+
+          const stats = await sharp(Buffer.from(img)).stats();
+          // Заливка одним цветом: у КАЖДОГО канала минимум равен максимуму. Альфу
+          // проверяем наравне с цветом — прозрачность тоже бывает рисунком.
+          if (!stats.channels.every((c) => c.min === c.max)) return null;
+          // PNG, а не формат исходника: он без потерь, и цвет доедет побайтно. Один
+          // пиксель в PNG — меньше сотни байт, спорить тут не о чем.
+          const one = await sharp(Buffer.from(img)).resize(1, 1, { kernel: 'nearest' }).png().toBuffer();
+          return { one, w, h, channels: stats.channels.length };
+        });
+        if (!res.ok || !res.value) continue;
+
+        const { one, w, h, channels } = res.value;
+        // Видеопамять считаем ДО подмены и тем же способом, что метрика в шапке:
+        // распакованные пиксели плюс пирамида уровней (коэффициент 4/3).
+        vramSaved += Math.round(w * h * channels * 4 / 3);
+        tex.setImage(new Uint8Array(one)).setMimeType('image/png');
+        n += 1;
+      }
+
+      if (!n) return out;
+      // Одна строка на класс случаев, а не на текстуру (Правило 9). Видеопамять названа
+      // прямо: без неё выигрыш выглядит копеечным и человек справедливо не поймёт, зачем
+      // мы вообще трогали его текстуры.
+      out.found.push({ messageId: 'flat.found', data: { n } });
+      out.details.push({ messageId: 'flat.done', data: { n, vramMb: Math.round(vramSaved / 1048576) } });
+      return out;
+    },
+  },
+
+  {
+    meta: {
       // Уменьшение текстур до выбранного потолка (решение Александра 2026-08-12:
       // «нужно сделать изменение размера 4к, 2к, 1к, 512 на 512»).
       //
@@ -1534,6 +1666,13 @@ export const RULES: GltfRule[] = [
       //
       // Расширение EXT_texture_webp ратифицировано Khronos, three.js понимает его
       // из коробки, без отдельного декодера, — поэтому значка ⚠ у опции нет.
+      //
+      // ГАЛОЧКА СТОИТ — ТЕКСТУРЫ СТАНОВЯТСЯ WebP. Все, без исключений (Правило 12,
+      // Александр 2026-08-17). Раньше правило обходило стороной KTX2 («это уже формат
+      // для видеокарты»), уже-WebP, картинки без объявленного mime и карты данных в
+      // JPEG — и человек, выбравший WebP, получал в метаданных KHR_texture_basisu без
+      // единого слова объяснения. Теперь отказ бывает ровно один: кодировщик не смог,
+      // и тогда виновная текстура названа по имени с причиной.
       id: 'textures/webp', category: 'textures', title: 'Textures → WebP', titleKey: 'rule.texturesWebp',
       severity: 'warn', fixSafety: 'perceptual', tier: 'advanced', feature: 'webp',
       // После textures/resize по той же причине, что и KTX2: сжимаем уже уменьшенное.
@@ -1550,106 +1689,249 @@ export const RULES: GltfRule[] = [
       // что правило наполняет их условно, уже после создания объекта.
       const out: FixOut = { found: [], skipped: [], details: [] };
 
-      // Что вообще можно кодировать. KTX2 (image/ktx2) не трогаем: это уже готовый
-      // формат для видеокарты, и «сжать» его в WebP значило бы распаковать обратно.
-      const CONVERTIBLE = new Set(['image/png', 'image/jpeg']);
-      // Кандидат на перекодирование. Поля failed/reverted появляются ПОЗЖЕ, уже после
-      // попытки, — поэтому объявлены здесь необязательными: без объявления компилятор
-      // видел бы объект из четырёх полей и не пускал бы к нему пятое.
+      // Галочка называет ЦЕЛЕВОЕ СОСТОЯНИЕ («пусть текстуры будут WebP»), а не действие
+      // («пережать»). Отсюда весь разбор (Александр, 2026-08-17):
+      //
+      //   PNG, JPEG, пустой mime — цели не достигли → кодируем;
+      //   KTX2                   — цели не достиг  → распаковываем и кодируем;
+      //   уже WebP               — ЦЕЛЬ ДОСТИГНУТА → работы нет.
+      //
+      // Последнее — не тот молчаливый отказ, что запрещает Правило 12. Разница ровно
+      // одна: после прежних отказов модель НЕ была в обещанном состоянии (KTX2 оставался
+      // KTX2), а здесь она в нём уже находится. Пережимать её незачем и вредно: WebP —
+      // один формат, но с ручкой качества, и второй проход с НАШИМ качеством и файл
+      // растит, и картинку портит. Замер на этой самой модели: автор сжал на ~q75–q80,
+      // наш q90 давал +32 % веса при худшем изображении. Даже прицел ровно в её потолок
+      // (оценка q81) даёт +6 %: пережатие WebP в WebP не бывает бесплатным в принципе.
+      //
+      // Ползунок качества (Александр, 2026-08-17). Шкала — доля от качества ИСХОДНИКА:
+      // «если они уже сжаты, мы ведь не можем вернуть качество — значит это для нас уже
+      // и есть всегда 100 процентное качество». Выше 100 шкала не идёт намеренно.
+      //
+      // Ползунок сдвигает ровно одну границу разбора выше — последнюю. Пока он на сотне,
+      // цель «быть WebP», и уже-WebP ей отвечает. Сдвинули — человек попросил ЛЕГЧЕ, и та
+      // же текстура цели больше не отвечает: работаем. Его слова, когда увидел обратное:
+      // «WebP-модель не меняется вовсе — не должно быть такого. мы не можем сами дальше
+      // сжать никак вообще?» Можем. Безопасно это ровно потому, что умолчание — сотня:
+      // без просьбы человека ни одна уже-WebP текстура не трогается.
+      const share = webpShare(ctx.opts.webpQuality);
+      const atCeiling = share >= 100;
+
       const cands: WebpCandidate[] = [];
-      // Пропуски копим группами, а не пишем строкой на текстуру: на ABeautifulGame
-      // это давало двадцать одинаковых строк подряд, на Production Many Materials 01 — одиннадцать.
-      const skips: { already: string[]; noMime: string[]; jpegData: string[] } = { already: [], noMime: [], jpegData: [] };
-      const byFormat = new Map<string, string[]>(); // формат для видеокарты: mime без "image/" → имена
-      const byUnsupported = new Map<string, string[]>(); // прочие форматы, которые мы не кодируем
+      let alreadyTarget = 0;
       for (const tex of ctx.document.getRoot().listTextures()) {
-        const mime = tex.getMimeType() || '';
-        const name = tex.getName() || '—';
-        if (mime === 'image/webp') { skips.already.push(name); continue; }
-        // Пустой mime — не «неизвестный формат для видеокарты», а модель, которая
-        // не сказала, что у неё внутри. Кодировать вслепую нельзя, и врать про
-        // причину тоже: у этого случая своя строка.
-        if (!mime) { skips.noMime.push(name); continue; }
-        // Не всё, что мы не умеем кодировать, — «формат для видеокарты». KTX2 и
-        // DDS остаются сжатыми в видеопамяти, и это настоящая причина не трогать
-        // их. AVIF, BMP, TGA распаковываются в ту же RGBA, что PNG: там причина
-        // другая — мы просто не берёмся их перекодировать. Разные причины —
-        // разные строки, иначе отчёт объясняет неправдой.
-        if (!CONVERTIBLE.has(mime)) {
-          const short = mime.replace('image/', '');
-          const bucket = GPU_FORMATS.has(short) ? byFormat : byUnsupported;
-          if (!bucket.has(short)) bucket.set(short, []);
-          bucket.get(short)!.push(name);
-          continue;
-        }
-        // Тот же раздел, что у KTX2: нормали, occlusion и roughness — это ЧИСЛА,
-        // а не картинка. Лоссовый WebP режет цветность (4:2:0) и портит вектор
-        // нормали, поэтому им — только lossless, цветным — обычное сжатие.
-        const isData = DATA_SLOT_RE.test(fns.listTextureSlots(tex).join(' '));
-        // Карта данных, пришедшая в JPEG, — тупик в обе стороны: без потерь она
-        // станет в разы тяжелее (lossless честно сохраняет и артефакты JPEG),
-        // а лоссово её кодировать нельзя по той же причине, что и любую другую
-        // карту данных. Оставляем как есть. Замерено на PotOfCoals: пять таких
-        // карт давали +139 % к весу картинок.
-        if (isData && mime === 'image/jpeg') { skips.jpegData.push(name); continue; }
-        cands.push({ tex, name, mime, isData });
+        const image = tex.getImage();
+        if (!image || !image.byteLength) continue; // кодировать нечего — картинки нет вовсе
+        if (atCeiling && tex.getMimeType() === 'image/webp') { alreadyTarget += 1; continue; }
+        cands.push({
+          tex,
+          name: tex.getName() || '—',
+          mime: tex.getMimeType() || '',
+          // Тот же раздел, что у KTX2: нормали, occlusion и roughness — это ЧИСЛА,
+          // а не картинка. Лоссовый WebP режет цветность (4:2:0) и портит вектор
+          // нормали, поэтому им — только lossless, цветным — обычное сжатие.
+          // Это выбор СПОСОБА кодирования, а не отказ кодировать: Правило 12 запрещает
+          // второе и никак не ограничивает первое.
+          isData: DATA_SLOT_RE.test(fns.listTextureSlots(tex).join(' ')),
+        });
       }
-
-      // Одна текстура — называем её по имени; несколько — только счёт. Перечислять
-      // десяток безымянных «—» смысла нет, а строка отчёта становится нечитаемой.
-      const reportSkips = (names: string[], id: string, extra: Record<string, unknown> = {}) => {
-        if (names.length === 1) out.skipped.push({ messageId: id, data: { name: names[0], ...extra } });
-        else if (names.length > 1) out.skipped.push({ messageId: `${id}.many`, data: { n: names.length, ...extra } });
+      // Строка про уже достигнутую цель идёт в «Что сделано», а НЕ в отказы: это
+      // состояние модели, а не наше воздержание. И она обязана быть — молчание здесь
+      // было бы неотличимо от прежнего тихого пропуска.
+      const reportAlreadyTarget = () => {
+        if (alreadyTarget) out.details.push({ messageId: 'webp.alreadyTarget', data: { n: alreadyTarget } });
       };
-      reportSkips(skips.already, 'webp.skipped.already');
-      reportSkips(skips.noMime, 'webp.skipped.noMime');
-      reportSkips(skips.jpegData, 'webp.skipped.jpegData');
-      for (const [mime, names] of byFormat) reportSkips(names, 'webp.skipped.format', { mime });
-      for (const [mime, names] of byUnsupported) reportSkips(names, 'webp.skipped.unsupported', { mime });
-
-      if (!cands.length) return out;
+      if (!cands.length) { reportAlreadyTarget(); return out; }
 
       const sharp = (await import('sharp')).default; // ленивый импорт: тот же путь, что у KTX2
 
-      // Кодируем ПО ОДНОЙ и оставляем результат, только если он реально легче.
-      // Выигрыш WebP — исключительно в размере файла (видеопамять не меняется),
-      // поэтому текстура, потяжелевшая после кодирования, — это чистый проигрыш
-      // без единой компенсации. Возвращаем ей исходную картинку.
+      // Две разные тяжести, и обе надо мерить отдельно. Вес КАРТИНОК — это размер
+      // скачиваемого файла. ВИДЕОПАМЯТЬ — это то, что модель займёт на видеокарте, и
+      // меняется она в другую сторону: KTX2 остаётся сжатым на GPU, WebP разворачивается
+      // в полную RGBA. На DiffuseTransmissionTeacup файл падает 5.76 → 1.94 МБ, а
+      // видеопамять растёт 12 → 48 МБ. Показать только первое значило бы соврать.
+      const imageBytes = () => ctx.document.getRoot().listTextures()
+        .reduce((sum, t) => sum + (t.getImage()?.byteLength || 0), 0);
+      // Через шов attempt, а не своим try/catch: inspect срывается на экзотике, но
+      // обходить единственный шов файла ради этого нельзя — сторож
+      // tests/architecture/rule-resilience.test.mjs считает catch-блоки во всём rules.mts
+      // именно затем, чтобы такие «мелкие» исключения не расползались по правилам.
+      const gpuBytes = async (): Promise<number> => {
+        const res = await attempt(() => {
+          // Тот же источник, что и у метрики gpuBytes в metrics.mts, — иначе цена у
+          // галочки и цифра в шапке считались бы по-разному и однажды разошлись бы.
+          let total = 0;
+          for (const t of fns.inspect(ctx.document).textures.properties) total += t.gpuSize || 0;
+          return total;
+        });
+        return res.ok ? res.value : 0; // не сосчиталось — цену по памяти просто не назовём
+      };
+      const bytesBefore = imageBytes();
+      const vramBefore = await gpuBytes();
+
+      // Кодируем по одной. Результат оставляем ВСЕГДА — даже если он тяжелее исходного.
+      // Прежде здесь стоял молчаливый откат «потяжелело — вернули как было», и он
+      // ровно та самая неработающая клавиша: человек включает WebP в том числе чтобы
+      // ИЗМЕРИТЬ цену, а откат превращал его замер во враньё. Потяжелевший результат
+      // теперь виден в отчёте красным знаком у этой же галочки (канал cost ниже).
       await Promise.all(cands.map(async (c) => {
-        const before = c.tex.getImage();
+        const src = c.tex.getImage()!;
         const res = await attempt(async () => {
-          await fns.compressTexture(c.tex, {
-            encoder: sharp, targetFormat: 'webp',
-            ...(c.isData ? { lossless: true } : { quality: 90 }),
-          });
+          let pipeline;
+          if (c.mime === 'image/ktx2') {
+            // Формат для видеокарты сам себя не отдаёт: сперва разворачиваем его
+            // в обычные пиксели транскодером Basis, и только потом кодируем.
+            const { image, reason } = await decodeKtx2(src);
+            if (!image) throw new Error(reason || 'ktx2.decodeFailed');
+            c.fromGpu = true;
+            pipeline = sharp(Buffer.from(image.data), {
+              raw: { width: image.width, height: image.height, channels: 4 },
+            });
+          } else {
+            pipeline = sharp(Buffer.from(src));
+          }
+          // Потолок исходника — то, выше чего прыгнуть нельзя. Читается по байтам, а не
+          // по mime: mime у моделей врёт или отсутствует, это мы уже видели.
+          const ceiling = readCeiling(src, c.mime);
+          if (ceiling.how === 'probe') {
+            // У WebP качество в файле не записано вовсе — только оценка пробными
+            // кодированиями (PROBE_STEPS штук на текстуру, замер: 11 текстур → 32 с).
+            // Ветка достижима лишь когда ползунок сдвинут: на 100 такая текстура уже
+            // отсеяна как достигшая цели, и платить за оценку не приходится.
+            ceiling.q = await probeWebpCeiling(
+              src.byteLength,
+              (q) => sharp(Buffer.from(src)).webp({ quality: q }).toBuffer(),
+            );
+          }
+          if (ceiling.how === 'unknown') ceiling.q = WEBP_UNKNOWN_CEILING;
+          c.how = ceiling.how;
+          // Присваиваем только когда потолок есть: при exactOptionalPropertyTypes запись
+          // undefined в необязательное поле — не то же самое, что его отсутствие.
+          if (ceiling.q !== null) c.sourceQ = ceiling.q;
+
+          // Без потерь — только когда исходник САМ без потерь и человек не просил хуже.
+          // Иначе это чистый проигрыш: информацию уничтожил первый кодек, а lossless лишь
+          // дорого копирует его артефакты (замер: карта данных 4184 → 28233 КБ).
+          // smartSubsample отключает прореживание цветности — нормалям и roughness это
+          // важнее лишних процентов размера.
+          c.lossless = ceiling.how === 'lossless' && atCeiling;
+          const q = targetQuality(ceiling, share);
+          const encoded = await (c.lossless
+            ? pipeline.webp({ lossless: true })
+            : pipeline.webp(c.isData ? { quality: q, smartSubsample: true } : { quality: q })
+          ).toBuffer();
+          c.tex.setImage(new Uint8Array(encoded)).setMimeType('image/webp');
         });
         // Битая или экзотическая картинка не должна ронять всю сборку.
-        if (!res.ok) { c.failed = res.reason; return; }
-        const after = c.tex.getImage();
-        if (!after || after.byteLength >= before!.byteLength) {
-          c.tex.setImage(before!).setMimeType(c.mime);
-          c.reverted = true;
-        }
+        if (!res.ok) c.failed = res.reason;
       }));
 
-      // Расширение объявляем сами: transform этого больше не делает, а часть
-      // текстур могла вернуться в PNG/JPEG после отката.
+      // Расширение объявляем сами: transform этого больше не делает, а какая-то из
+      // текстур могла не закодироваться и остаться в прежнем формате.
       const ext = ctx.document.createExtension(EXTTextureWebP);
-      if (ctx.document.getRoot().listTextures().some((t) => t.getMimeType() === 'image/webp')) ext.setRequired(true);
+      const mimesNow = ctx.document.getRoot().listTextures().map((t) => t.getMimeType());
+      if (mimesNow.some((m) => m === 'image/webp')) ext.setRequired(true);
       else ext.dispose();
 
-      const color = cands.filter((c) => !c.isData && !c.reverted && !c.failed);
-      const data = cands.filter((c) => c.isData && !c.reverted && !c.failed);
-      const kept = cands.filter((c) => c.reverted);
+      // KHR_texture_basisu, оставшееся без единой своей текстуры, — это ложь в
+      // extensionsRequired: загрузчик обязан отказать файлу, требующему расширение,
+      // которым тот больше не пользуется. Снимаем ровно тогда, когда ktx2 не осталось.
+      if (!mimesNow.some((m) => m === 'image/ktx2')) {
+        for (const used of ctx.document.getRoot().listExtensionsUsed()) {
+          if (used.extensionName === 'KHR_texture_basisu') used.dispose();
+        }
+      }
+
+      // Карты данных распадаются на ТРИ случая, и разводит их ИСТОЧНИК, а не то, как мы
+      // в итоге закодировали. Пока lossless зависел только от источника, второе совпадало
+      // с первым; с появлением ползунка совпадение кончилось, и карта из честного PNG,
+      // сжатая по просьбе человека, получала объяснение «пришла уже сжатой» — неправда
+      // про его собственную модель (поймано замером на BoomBox, 2026-08-17).
+      const ok = cands.filter((c) => !c.failed);
+      const color = ok.filter((c) => !c.isData);
+      const data = ok.filter((c) => c.isData && c.lossless);
+      // Источник был лоссовым — сохранять нечего, и это НЕ выбор человека, а факт файла.
+      const dataLossy = ok.filter((c) => c.isData && !c.lossless && c.how !== 'lossless');
+      // Источник был без потерь, огрубили по прямой просьбе. Молчать нельзя: числа
+      // нормалей испорчены, и причина этому — сдвинутый ползунок, а не чужой экспорт.
+      const dataByChoice = ok.filter((c) => c.isData && !c.lossless && c.how === 'lossless');
+      const fromGpu = ok.filter((c) => c.fromGpu);
       const failed = cands.filter((c) => c.failed);
 
+      reportAlreadyTarget();
       out.found.push({ messageId: 'webp.found', data: { n: cands.length } });
+
+      // Качество исходника — ОДНА строка на модель, а не на текстуру (Правило 9). Именно
+      // она отвечает на вопрос «а насколько модель уже пережата»: у ABeautifulGame это
+      // 77…97, и одно число было бы полуправдой, поэтому при разбросе показываем размах.
+      const known = ok.filter((c) => c.sourceQ !== undefined && c.how !== 'unknown');
+      if (known.length) {
+        const qs = known.map((c) => c.sourceQ!);
+        const min = Math.min(...qs);
+        const max = Math.max(...qs);
+        // exact — только у JPEG: там качество прочитано из файла. У WebP оно оценено
+        // пробой, и называть оценку измерением значило бы соврать в мелочи, которую
+        // человек проверить не может.
+        //
+        // Две ветки с явными ключами, а не один тернарник в поле messageId: сторож
+        // ключей-сирот (tests/engine-contract) разбирает исходник статически, и внутри
+        // тернарника ключ ему не виден — строка каталога числилась бы мёртвой.
+        const qData = { n: known.length, q: min, min, max, exact: known.every((c) => c.how === 'jpeg') };
+        if (min === max) out.details.push({ messageId: 'webp.sourceQuality', data: qData });
+        else out.details.push({ messageId: 'webp.sourceQuality.range', data: qData });
+      }
+      // Потолок неизвестен — сказать обязательно: там мы подставили своё число, а не
+      // прочитали авторское, и человек имеет право знать, что эта часть модели не
+      // подчиняется ползунку так же точно, как остальная.
+      const unknownCeiling = ok.filter((c) => c.how === 'unknown');
+      if (unknownCeiling.length) {
+        out.details.push({ messageId: 'webp.ceilingUnknown', data: { n: unknownCeiling.length, q: WEBP_UNKNOWN_CEILING } });
+      }
+      // Сдвинутый ползунок называем прямо: это выбор человека, и в отчёте он должен быть
+      // виден рядом с его последствиями, а не только в настройках.
+      if (!atCeiling) out.details.push({ messageId: 'webp.quality', data: { share } });
       if (color.length) out.details.push({ messageId: 'webp.done.color', data: { n: color.length } });
       if (data.length) out.details.push({ messageId: 'webp.done.data', data: { n: data.length } });
-      if (kept.length) out.skipped.push({ messageId: 'webp.keptOriginal', data: { n: kept.length } });
+      if (dataLossy.length) out.details.push({ messageId: 'webp.done.dataLossy', data: { n: dataLossy.length } });
+      if (dataByChoice.length) out.details.push({ messageId: 'webp.done.dataByChoice', data: { n: dataByChoice.length, share } });
+      // Распаковка из формата видеокарты стоит дорого и молчать об этом нельзя:
+      // Basis сжимает с потерями, поэтому потери сложились дважды; пирамида уровней
+      // потеряна; видеопамять вырастет. Отдельная строка, а не примечание к общей.
+      if (fromGpu.length) out.details.push({ messageId: 'webp.done.fromGpu', data: { n: fromGpu.length } });
       // Сбой кодирования — редкий и единичный случай, его называем поимённо:
       // причина у каждой текстуры своя и она нужна для разбора.
       for (const c of failed) out.skipped.push({ messageId: 'webp.skipped.failed', data: { name: c.name, reason: c.failed } });
+
+      // Цена. Порог вдвое — тот же, что у KTX2 (см. ktx2.grewFile): небольшой рост это
+      // обычная плата, и кричать о нём значит приучить не читать. Красный знак встаёт
+      // у ЭТОЙ галочки — движок берёт адрес из meta.feature.
+      //
+      // Обе цены могут гореть разом, и это не дублирование: файл и видеопамять — разные
+      // ресурсы, и WebP на KTX2-модели выигрывает первый ровно за счёт второго.
+      const cost: { messageId: string; data: Record<string, unknown> }[] = [];
+      const bytesAfter = imageBytes();
+      if (bytesBefore > 0 && bytesAfter > bytesBefore * 2) {
+        cost.push({
+          messageId: 'webp.grewFile',
+          data: {
+            beforeKb: Math.round(bytesBefore / 1024),
+            afterKb: Math.round(bytesAfter / 1024),
+            pct: Math.round((bytesAfter - bytesBefore) / bytesBefore * 100),
+          },
+        });
+      }
+      const vramAfter = await gpuBytes();
+      if (vramBefore > 0 && vramAfter > vramBefore * 2) {
+        cost.push({
+          messageId: 'webp.grewVram',
+          data: {
+            beforeMb: Math.round(vramBefore / 1048576),
+            afterMb: Math.round(vramAfter / 1048576),
+            pct: Math.round((vramAfter - vramBefore) / vramBefore * 100),
+          },
+        });
+      }
+      if (cost.length) out.cost = cost;
       return out;
     },
   },

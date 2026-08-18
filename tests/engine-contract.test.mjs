@@ -623,18 +623,13 @@ const ORPHAN_EXCLUSIONS = {
   'vertexColors.done.white.many': 'собирается из vertexColors.done.white + .many',
   'vertexColors.stripped.many': 'собирается из vertexColors.stripped + .many',
   'vertexColors.skipped.many': 'собирается из vertexColors.skipped + .many',
-  'webp.skipped.already.many': 'собирается из webp.skipped.already + .many (reportSkips)',
-  'webp.skipped.format.many': 'собирается из webp.skipped.format + .many',
-  'webp.skipped.noMime.many': 'собирается из webp.skipped.noMime + .many',
-  'webp.skipped.jpegData.many': 'собирается из webp.skipped.jpegData + .many',
-  'webp.skipped.unsupported.many': 'собирается из webp.skipped.unsupported + .many',
   'ktx2.skipped.already.many': 'собирается из ktx2.skipped.already + .many',
 
-  // --- ветки, не срабатывающие на корпусе (требуют текстур в экзотических форматах)
-  'webp.skipped.format': 'нужна текстура в GPU-формате (ktx2/dds) — корпус таких не несёт',
-  'webp.skipped.noMime': 'нужна текстура без mimeType',
-  'webp.skipped.unsupported': 'нужна текстура в формате, который мы не перекодируем (avif/bmp/tga)',
-  'webp.skipped.jpegData': 'нужна data-текстура в JPEG (PotOfCoals — локальная, вне матрицы)',
+  // Девять ключей webp.skipped.* удалены 2026-08-17 вместе с самими отказами
+  // (Правило 12: показанная галочка обязана работать). Список сознательно НЕ заменён
+  // новыми исключениями: у правила остался ровно один отказ — webp.skipped.failed,
+  // и он ловится обычным сканом. Появление здесь нового webp.skipped.* — повод
+  // спросить, не вернулся ли молчаливый пропуск.
 
   // --- движковые служебные: не попадают в отчёт как messageId
   'ktx2.log.skipped': 'пишется в лог правила (ctx.log), не в отчёт',

@@ -167,25 +167,42 @@ export default {
   'ktx2.log.skipped': () => '        all textures are already KTX2 or absent — encoding skipped',
   'ktx2.log.encoding': ({ n, mixed }) => `        KTX2 encoding (${n}, mode ${mixed ? 'mixed: ETC1S+UASTC' : 'uastc'})`,
 
+  // --- textures/flat ---
+  // Video memory is named outright on purpose: the file win is pennies (a codec squeezes
+  // a flat fill to almost nothing) while the VRAM win is huge — the GPU stores pixels
+  // unpacked. Measured: 2048×2048 is 33 KB on disk and 21.3 MB in video memory.
+  'flat.safe': () => 'the colour is kept byte for byte; only the resolution changes, and in a single-colour fill it means nothing',
+  'flat.found': ({ n }) => `${n} texture${n === 1 ? ' is' : 's are'} filled with a single colour`,
+  'flat.done': ({ n, vramMb }) => `${n} single-colour texture${n === 1 ? '' : 's'} shrunk to one pixel — ${vramMb} MB less video memory, same colour${n === 1 ? '' : 's'}`,
+
   // --- textures/webp ---
-  'webp.safe': () => 'color textures at quality 90, data textures (normal/occlusion/roughness) lossless; anything that gets heavier is left as it was',
-  'webp.skipped.already': ({ name }) => `Texture "${name}": already WebP — not re-encoded (no extra loss)`,
-  'webp.skipped.already.many': ({ n }) => `${n} textures are already WebP — not re-encoded (no extra loss)`,
-  'webp.skipped.format': ({ name, mime }) => `Texture "${name}": ${mime} is not converted to WebP — it is already a GPU format`,
-  'webp.skipped.format.many': ({ n, mime }) => `${n} textures in ${mime} — not converted to WebP, that is already a GPU format`,
-  // Separate from the GPU-format case: AVIF, BMP, TGA unpack to the same
-  // uncompressed image PNG does — the reason is simply that we do not re-encode them.
-  'webp.skipped.unsupported': ({ name, mime }) => `Texture "${name}": we do not re-encode ${mime} — left as it was`,
-  'webp.skipped.unsupported.many': ({ n, mime }) => `${n} textures in ${mime} — we do not re-encode that format, left as they were`,
-  'webp.skipped.noMime': ({ name }) => `Texture "${name}": the model does not state its format — not encoded blindly`,
-  'webp.skipped.noMime.many': ({ n }) => `${n} textures with no stated format — not encoded blindly`,
-  'webp.skipped.jpegData': ({ name }) => `Data texture "${name}" arrived as JPEG — left as it is: lossless would make it several times heavier, and data textures must not be encoded lossily`,
-  'webp.skipped.jpegData.many': ({ n }) => `${n} data textures arrived as JPEG — left as they are: lossless would make them several times heavier, and data textures must not be encoded lossily`,
+  'webp.safe': () => 'quality is taken from the source itself: whatever arrived lossless is encoded lossless, and whatever arrived compressed keeps its own quality — no higher, no lower; every texture in the model is encoded',
   'webp.skipped.failed': ({ name, reason }) => `Texture "${name}" could not be encoded (${reason}) — left as it was, the build was not interrupted`,
-  'webp.keptOriginal': ({ n }) => `${n} texture${n === 1 ? '' : 's'} kept in the original format — WebP came out heavier, and WebP only ever wins on file size`,
-  'webp.found': ({ n }) => `${n} texture${n === 1 ? ' is' : 's are'} PNG or JPEG — these are the ones being encoded`,
-  'webp.done.color': ({ n }) => `${n} color texture${n === 1 ? '' : 's'} → WebP, quality 90 — smaller file, video memory unchanged`,
+  'webp.found': ({ n }) => `${n} texture${n === 1 ? ' — it is' : 's — all of them are'} being encoded`,
+  'webp.done.color': ({ n }) => `${n} color texture${n === 1 ? '' : 's'} → WebP — smaller file, video memory unchanged`,
   'webp.done.data': ({ n }) => `${n} data texture${n === 1 ? '' : 's'} → WebP lossless — normals and roughness are numbers, lossy chroma would distort them`,
+  // A separate line from the one above: the reason differs and that reason is the point.
+  'webp.done.dataLossy': ({ n }) => `${n} data texture${n === 1 ? ' arrived' : 's arrived'} already lossily compressed — encoded the same way, with chroma subsampling off: lossless would make ${n === 1 ? 'it' : 'them'} several times heavier without recovering a single lost value`,
+  // Unpacking from a GPU format. All three consequences are stated outright: staying
+  // quiet about them is not an option when the point of the run is to measure the cost.
+  // A third case for data textures: the source WAS lossless and got coarsened because the
+  // quality slider was moved. Deliberately a separate line from the one above — there the
+  // cause is someone else's export, here it is the user's own choice.
+  'webp.done.dataByChoice': ({ n, share }) => `${n} data texture${n === 1 ? ' arrived' : 's arrived'} lossless but ${n === 1 ? 'was' : 'were'} encoded lossily — the quality slider is at ${share}%: normals and roughness are numbers, and they got coarser`,
+  'webp.done.fromGpu': ({ n }) => `${n} texture${n === 1 ? '' : 's'} unpacked from a GPU format and converted to WebP — quality lost twice (that format is lossy too), the mip pyramid is gone and will be rebuilt by the engine, video memory will grow`,
+  'webp.alreadyTarget': ({ n }) => `${n} texture${n === 1 ? ' is' : 's are'} already WebP — nothing to convert, the goal is already met`,
+  // Source quality. One line per model, not per texture (Rule 9). For JPEG it is read
+  // from the file exactly; for WebP it is probed, and "about" marks the difference
+  // between a measurement and a guess.
+  'webp.sourceQuality': ({ q, exact }) => `Source texture quality: ${exact ? '' : 'about '}${q} — encoded at the same level, there is no going above the source`,
+  'webp.sourceQuality.range': ({ min, max, exact }) => `Source texture quality: ${exact ? '' : 'about '}${min} to ${max} — each encoded at its own level, there is no going above the source`,
+  'webp.ceilingUnknown': ({ n, q }) => `${n} texture${n === 1 ? ' gives' : 's give'} no way to tell the source quality — ${q} was used`,
+  // Neutral wording on purpose: 90 is the recommended position, so this line usually
+  // appears without the user having done anything. "Your choice" would be a plain lie
+  // at the default.
+  'webp.quality': ({ share }) => `Quality: ${share}% of the source`,
+  'webp.grewFile': ({ beforeKb, afterKb, pct }) => `Images got heavier because of this option: ${beforeKb} KB → ${afterKb} KB (+${pct}%)`,
+  'webp.grewVram': ({ beforeMb, afterMb, pct }) => `Video memory grew because of this option: ${beforeMb} MB → ${afterMb} MB (+${pct}%). The file may well have shrunk at the same time: WebP wins on download size and loses on GPU memory`,
 
   'prune.refuse.wouldEmptyScene': ({ n }) => `the model has ${n} node${n === 1 ? '' : 's'} and no shapes at all — cleanup would take the whole scene away, so it is left alone`,
 
@@ -281,6 +298,7 @@ export default {
   'rule.skinWeightsNormalize': () => 'Skin weights normalization',
   'rule.skinZeroWeightJoints': () => 'Joints referenced with zero weight',
   'rule.sceneSkinnedMeshRoot': () => 'Skinned mesh outside the scene root',
+  'rule.texturesFlat': () => 'Single-colour textures',
   'rule.texturesResize': () => 'Texture downscale',
   'rule.geometryWeld': () => 'Vertex weld',
   'rule.geometryDegenerate': () => 'Degenerate triangles',

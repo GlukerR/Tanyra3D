@@ -341,6 +341,18 @@ const result = await optimizeFile(srcPath, {
   codec: 'meshopt' | 'draco',        // 'meshopt' by default
   texMode: 'mixed' | 'uastc',        // 'uastc' by default — the safest for a beginner;
                                      // 'mixed' (ETC1S for colour, UASTC for data) must be asked for
+  webpQuality: 90,                   // 0…100, a SHARE of the source texture's own quality,
+                                     // not an absolute encoder setting. 90 is the default
+                                     // and the position the UI marks as recommended; 100
+                                     // means "as in the source" — lossless input stays
+                                     // lossless and JPEG keeps the quality read from its own
+                                     // quantisation table. There is no value above 100:
+                                     // quality destroyed by the first codec cannot come back.
+                                     // Out-of-range and non-numeric values fall back to 90.
+                                     // Textures that are ALREADY WebP are never re-encoded,
+                                     // at any slider position — that is a rule about format,
+                                     // not about quality (measured: WebP→WebP costs +6% even
+                                     // when aimed exactly at the source's own ceiling).
   keepParts: false,                  // don't merge parts even under 'join'
   noKtx: true,                       // KTX2 stays off until advancedFeatures contains 'ktx2'
   stripColors: false, dryRun: false,

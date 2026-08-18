@@ -1768,6 +1768,34 @@ details[open] > .collapsible-summary::before {
 
 .ktx2-mode-opt input { accent-color: var(--primary-container); flex-shrink: 0; }
 
+/* WebP — раскрывающийся ползунок качества. Оформление намеренно то же, что у режима
+   KTX2: обе ручки живут под своим флажком и делают одно и то же по смыслу — уточняют
+   силу уже выбранного действия. Разные на вид, они читались бы как разные по важности. */
+.webp-quality {
+  margin: 8px 0 0 22px;
+  font-size: 11px;
+}
+
+.webp-quality > summary {
+  cursor: pointer;
+  list-style: none;
+  color: var(--on-surface-variant);
+}
+
+.webp-quality > summary::-webkit-details-marker { display: none; }
+.webp-quality > summary::before { content: '▸ '; color: var(--outline); }
+.webp-quality[open] > summary::before { content: '▾ '; }
+
+.webp-quality-current { color: var(--primary-container); font-family: var(--font-mono); }
+
+.webp-quality-slider {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  accent-color: var(--primary-container);
+  cursor: pointer;
+}
+
 .summary-text {
   margin: 0;
   font-size: 13px;
