@@ -437,16 +437,35 @@ The honest list of what the tool doesn't do, or doesn't do fully.
   read from the image header (PNG, JPEG, WebP, KTX2) and checked against the platform
   threshold. Downscaling an oversized texture is a separate opt-in — the tool never
   discards pixels on its own.
-- **Two engines, one store target.** The viewer renders through three.js or model-viewer,
-  and of the store targets only Shopify is switched on. The mobile and Quest profiles exist
-  as data and carry real numbers (triangle and VRAM budgets, texture limits), but they are
-  drafts: nobody has measured a model against them. They ship switched off
-  (`enabled: false`) and are not offered in the interface.
+- **Two engines, three store targets.** The viewer renders through three.js or
+  model-viewer; the targets are Shopify, VNTANA and the Google Merchant Center 3D
+  listing, each with numbers taken from that platform's own documentation. A target is
+  an ADDRESS a model is sent to, not a class of device: the "mobile" and "Quest"
+  profiles were deleted on 2026-08-18 because a phone browser and a headset browser are
+  the same three.js, and their numbers were never confirmed by a primary source.
 - **Batch processing is command-line only**; the web interface takes one model at a time.
 
 ---
 
 ## Status
+
+**0.2.5 — a target need not name an engine.** A target profile may leave `engine` empty,
+and then it fits any engine — the way an empty engine field means "no preference". Two
+new targets ship with numbers from their own documentation: VNTANA (which rejects Draco
+outright, so the option is subtracted rather than warned about) and the Google Merchant
+Center 3D listing. The "mobile" and "Quest" profiles are gone: a device class is not an
+address. A checkbox that is shown now always acts — a failed image decode is reported as
+a failure instead of being passed off as "nothing to flatten".
+
+**0.2.4 — a new viewing interface.** A shelf of icons instead of a growing toolbar: the
+model's own properties — detail levels, view, cameras, lights, animation — each open
+their own shelf. Lights and cameras authored in the file are shown rather than replaced
+by ours, orthographic cameras included.
+
+**0.2.3 — pointer animation survives.** `KHR_animation_pointer` is neither dropped nor
+broken by the optimizations, and it plays in both viewports. The rule behind it: the
+result is compared against the original file, not against an intermediate document, so an
+unfamiliar extension survives passthrough, optimization and KTX2 alike.
 
 **0.2.2 — a target of your own, and order on disk.** A target now subtracts options: an
 unchecked box means "this target does not read that", and the option disappears from the

@@ -149,13 +149,13 @@ plain advice.
 If any invariant fails, the offending fix is rolled back (working copy model makes this
 cheap) and recorded as skipped-with-reason. **We never mutate the input file.**
 
-### 2.6 Device profiles and budgets are DATA, not code
+### 2.6 Target profiles and budgets are DATA, not code
 
-This is how one codebase serves Three.js / Mobile / Quest / Shopify without forks.
+This is how one codebase serves Shopify, VNTANA and Google's 3D listing without forks.
 
 A **Profile** is a declarative file: triangle budget, texture budget, VRAM budget,
 draw-call budget, allowed fix-safety tier, per-rule severity overrides, and which rule
-packs are active. "Quest Score" is not code — it is a target profile with tight
+packs are active. "VNTANA's limits" are not code — they are a target profile with tight
 budgets. "Shopify limits" is a profile. Rules read budgets from the active profile
 instead of hardcoding numbers.
 
@@ -181,7 +181,7 @@ tanyra3d/
 ├─ packages/
 │  ├─ core/          # engine, interfaces, Context, phase runner, safety model, DAG scheduler
 │  ├─ rules/         # built-in rule packs: geometry, textures, materials, uv, attributes, scene, perf
-│  ├─ profiles/      # web, mobile, quest, threejs, shopify (declarative data + loader)
+│  ├─ profiles/      # shopify, vntana, google-store (declarative data + loader)
 │  ├─ validate/      # invariants + gltf-validator wrapper + (later) headless perceptual diff
 │  ├─ reporters/     # json, markdown, html, sarif
 │  ├─ cli/           # command-line entry (thin — orchestrates core)
@@ -263,7 +263,7 @@ interface Context {
 
 // ---- Profiles are data ----
 interface Profile {
-  id: string;                // "quest"
+  id: string;                // "shopify"
   budgets: { triangles?: number; drawCalls?: number; vramMB?: number; textureMB?: number };
   allowFixSafety: FixSafety; // highest tier auto-applied ('numeric' default, 'perceptual' for web)
   severityOverrides?: Record<string, Severity>;
@@ -1000,9 +1000,12 @@ built when the second engine arrives.
   a fixed viewer — Shopify is one, and says `model-viewer`. "Mobile (smartphones)" and
   "Meta Quest (VR)" are **device classes**: a phone browser and a headset browser will run
   three.js, Babylon, model-viewer or anything else, because the engine is chosen by the site,
-  not by the device. Both profiles now carry **no engine field at all**, and an absent field
-  is a legitimate state meaning *does not dictate one* — the same standing the dash has. It
-  matters because §4g lets a chosen target **override** the engine select: with the old field,
+  not by the device. Both profiles were first stripped of the field and then, later the same
+  day, **deleted outright**: once a device class no longer dictates an engine, nothing was
+  left in it that a target profile is for — no address, no numbers from a primary source.
+  An absent `engine` remains a legitimate state meaning *does not dictate one*, the same
+  standing the dash has, and `_none.json` plus any user profile rely on it. It matters
+  because §4g lets a chosen target **override** the engine select: with the old field,
   picking "Mobile" silently forced the three.js palette on someone whose mobile site may run
   anything. Mechanics: `engineIdOf(profile, asked)` falls through to the engine the person
   picked, `dictatesEngine()` reports null to the UI, and such a target fits every engine and

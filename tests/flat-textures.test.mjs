@@ -17,11 +17,37 @@
 // задолго до него. Это страховка на случай ИСПОЛЬЗУЕМОЙ заливки, а не выигрыш здесь и
 // сейчас, и тест говорит об этом прямо, чтобы следующая сессия не переоткрывала вопрос.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import sharp from 'sharp';
 import { RULES } from '../addons/gltf/rules.mjs';
 import gltfAddon from '../addons/gltf/index.mjs';
 import { modelPath, itIfModel } from './helpers/model-files.mjs';
+
+// Счётчик разборов пикселей. Правило сперва читает ЗАГОЛОВОК (`metadata()`) и по весу на
+// пиксель решает, стоит ли разворачивать картинку целиком (`stats()`). Второе — дорогая
+// операция, ради отсева от которой правило и написано так.
+//
+// Считаем вызовы, а не время. История вопроса: сначала здесь стоял порог в 700 мс, и
+// 2026-08-18 он покраснел на исправном коде внутри полного набора (1017 мс при 572 мс на
+// весь файл в одиночку). Замена абсолютного порога на замер «в пять раз дешевле одного
+// разбора» тоже не спасла — тот же прогон дал разбор 148 мс против 1501 мс у правила,
+// которое ничего не разбирает. Под нагрузкой время съедает не работа, а ожидание, и
+// дешёвый путь из 33 вызовов страдает от этого СИЛЬНЕЕ дорогого из одного. Любая мерка
+// временем здесь врёт в обе стороны: краснеет на занятой машине и молчит на быстрой.
+//
+// Вызов `stats()` — это и есть то, чего быть не должно. Его и считаем.
+const parses = vi.hoisted(() => ({ n: 0 }));
+vi.mock('sharp', async (importOriginal) => {
+  const actual = (await importOriginal()).default;
+  const counted = (...args) => {
+    const pipeline = actual(...args);
+    const stats = pipeline.stats.bind(pipeline);
+    pipeline.stats = (...rest) => { parses.n += 1; return stats(...rest); };
+    return pipeline;
+  };
+  Object.assign(counted, actual);
+  return { default: counted };
+});
 
 const ioPromise = gltfAddon.createIO();
 const rule = RULES.find((r) => r.meta.id === 'textures/flat');
@@ -72,10 +98,16 @@ describe('textures/flat — заливка одним цветом ужимае�
       await flat(2048, 2048, [128, 128, 255]), // синяя нормаль: «рельефа нет»
       await flat(4, 4, [0, 0, 0]),
     ]);
+    parses.n = 0;
     const out = await rule.fix({}, ctxFor(doc));
     expect(out.found).toHaveLength(1);
     expect(out.found[0].messageId).toBe('flat.found');
     expect(out.found[0].data.n).toBe(2);
+
+    // Проверка счётчика на себе. Здесь разбор пикселей ОБЯЗАН произойти — заливки иначе
+    // не найти, — и если счётчик показывает ноль, значит перехват не встал, а тест про
+    // ABeautifulGame ниже зелен впустую: он сравнивает с нулём то, что всегда ноль.
+    expect(parses.n, 'счётчик разборов не считает — перехват sharp не встал').toBeGreaterThan(0);
   }, 120000);
 
   it('ГРАНИЦА: заливка в лоссовом WebP не находится — и это записано, а не забыто', async () => {
@@ -162,12 +194,19 @@ describe('textures/flat — заливка одним цветом ужимае�
     // прогон ABeautifulGame становился на 2 секунды длиннее ради нуля находок.
     const io = await ioPromise;
     const doc = await io.read(modelPath('ABeautifulGame.glb'));
-    const t0 = Date.now();
+    const textures = doc.getRoot().listTextures();
+
+    parses.n = 0;
     const out = await rule.fix({}, ctxFor(doc));
-    const ms = Date.now() - t0;
     expect(out.found).toHaveLength(0);
-    // Порог с большим запасом от замеренных 11 мс, но втрое ниже стоимости полного
-    // разбора: если отсев уберут, тест это заметит.
-    expect(ms, `разбор 33 текстур занял ${ms} мс`).toBeLessThan(700);
+
+    // Ни одной картинки этой модели разворачивать не понадобилось: все 33 отсеялись по
+    // заголовку. Уберут отсев — счётчик станет 33, и тест назовёт это числом, а не
+    // секундами.
+    expect(
+      parses.n,
+      `правило развернуло ${parses.n} картинок из ${textures.length}; `
+        + 'настоящие текстуры обязаны отсеиваться по заголовку, без разбора пикселей',
+    ).toBe(0);
   }, 120000);
 });
