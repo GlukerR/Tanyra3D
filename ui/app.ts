@@ -735,6 +735,9 @@
   function syncEngineToPlatform() {
     if (!engines.length) return;
     const p = platforms.find((x) => x.id === platformSelect.value);
+    // engine === null означает «площадка движок не диктует» (класс устройств, а не
+    // витрина). Такая площадка поле движка НЕ трогает: человек выбрал движок сам, и
+    // подменять его нам нечем и незачем.
     const wanted = p && p.engine;
     if (wanted && [...engineSelect.options].some((o) => o.value === wanted)) engineSelect.value = wanted;
     updateEngineDescription();
@@ -746,7 +749,9 @@
     if (!engines.length || !platforms.length) return;
     const engineId = engineSelect.value;
     const titleOfEngine = (id: string) => (engines.find((x) => x.id === id) || ({} as EngineDto)).title || id;
-    const fits = (p: PlatformDto) => p.engine === engineId;
+    // Площадка без движка годится ЛЮБОМУ — ровно как прочерк, и по той же причине:
+    // она ничего не утверждает о том, чем сайт рисует модель.
+    const fits = (p: PlatformDto) => !p.engine || p.engine === engineId;
     const chosen = platformSelect.value;
 
     platformSelect.innerHTML = '';
@@ -786,7 +791,10 @@
     // движку и ничего не утверждает. Список площадок при этом не сокращается: выбрать
     // Shopify по-прежнему можно, и тогда движок догонит её сам, симметрично.
     const текущая = platforms.find((x) => x.id === platformSelect.value);
-    if (текущая && текущая.engine !== engineSelect.value) {
+    // Сбрасываем только площадку, которая ДИКТУЕТ другой движок: пара «Shopify +
+    // Three.js» не существует. Площадка без движка совместима с любым — сбрасывать её
+    // значило бы отменять выбор человека без причины.
+    if (текущая && текущая.engine && текущая.engine !== engineSelect.value) {
       platformSelect.value = '';
       updatePlatformDescription();
       logMessage('info', t('log.platform.reset', { platform: текущая.title || текущая.id }));

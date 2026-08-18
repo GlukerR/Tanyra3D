@@ -1,6 +1,5 @@
 {
   "id": "mobile",
-  "engine": "threejs",
   "enabled": false,
   "title": "Mobile (smartphones)",
   "description": {
@@ -23,6 +22,7 @@
     "dryRun": false
   },
   "notes": [
+    "Движок НЕ указан намеренно (решение Александра 2026-08-18). Это класс устройств, а не витрина: браузер здесь запустит three.js, Babylon, model-viewer или что угодно ещё — движок выбирает сайт, а не устройство. Стоявшее тут \"engine\": \"threejs\" было утверждением, которого никто не делал. Пустое поле значит «площадка движок не диктует»: палитра опций придёт от того движка, который человек выберет сам, а профиль отвечает только за бюджеты. Проверять это — tests/engine-target-split.test.mjs.",
     "triangles 50000 — a conservative guideline for inexpensive smartphones; below the Khronos 3D Commerce recommendations for smoothness on a weak GPU.",
     "drawCalls 30 — guideline: each draw call is costlier on a mobile GPU, so we keep them few.",
     "textureMaxSize 1024 — a conservative guideline: 1K is enough for a phone screen and saves memory.",

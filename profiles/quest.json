@@ -1,6 +1,5 @@
 {
   "id": "quest",
-  "engine": "threejs",
   "enabled": false,
   "title": "Meta Quest (VR)",
   "description": {
@@ -23,6 +22,7 @@
     "dryRun": false
   },
   "notes": [
+    "Движок НЕ указан намеренно (решение Александра 2026-08-18). Это класс устройств, а не витрина: браузер здесь запустит three.js, Babylon, model-viewer или что угодно ещё — движок выбирает сайт, а не устройство. Стоявшее тут \"engine\": \"threejs\" было утверждением, которого никто не делал. Пустое поле значит «площадка движок не диктует»: палитра опций придёт от того движка, который человек выберет сам, а профиль отвечает только за бюджеты. Проверять это — tests/engine-target-split.test.mjs.",
     "triangles 100000 — a conservative budget for a single object: Meta's recommendations for Quest allow 350–500k triangles for the whole frame, so we leave headroom for the environment and other objects.",
     "drawCalls 50 — Meta's recommendation for Quest: 50–100 draw calls per frame; for a single object we take the lower bound.",
     "textureMaxSize 1024 — Meta's recommendation: on the headset's mobile GPU keep textures small (1K), 2K only for large surfaces.",
