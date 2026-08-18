@@ -125,22 +125,32 @@ describe('Движок и площадка — разные оси (ARCHITECTURE
     }
   });
 
-  it('площадка без движка следует за выбором человека, а с движком — за собой', () => {
-    // Суть правки 2026-08-18 в одном тесте. Проверяется наблюдаемое поведение, а не поле.
-    const свободные = profiles.filter((p) => !p.data.engine);
-    const диктующие = profiles.filter((p) => p.data.engine);
-    expect(свободные.length, 'нет ни одной площадки без движка — проверять нечего').toBeGreaterThan(0);
-
-    for (const { file, data } of свободные) {
-      for (const { data: eng } of engineData) {
-        const plan = planFor(data.id, 'ru', eng.id);
-        expect(plan.engine, `${file}: не пошла за выбранным движком ${eng.id}`).toBe(eng.id);
-      }
+  it('без своего движка план идёт за выбором человека, с движком — за собой', () => {
+    // Механизм, а не перепись файлов. Раньше тест требовал, чтобы площадка БЕЗ движка
+    // существовала в дереве, и упал 2026-08-18, когда mobile.json и quest.json удалили
+    // (они не были площадками — см. EXTENDING.md §5d). Требование было лишним: свойство
+    // проверяется на прочерке, который engine-less по определению, и на своих площадках
+    // человека, где поле движка можно не заполнять вовсе.
+    //
+    // Прочерк — канонический случай «движок не продиктован».
+    for (const { data: eng } of engineData) {
+      expect(planFor('', 'ru', eng.id).engine, `прочерк не пошёл за движком ${eng.id}`).toBe(eng.id);
     }
-    for (const { file, data } of диктующие) {
-      // Чужой движок ей передать можно, но она обязана остаться при своём.
-      const plan = planFor(data.id, 'ru', 'threejs');
-      expect(plan.engine, `${file}: витрина уступила чужому движку`).toBe(data.engine);
+
+    // Витрина остаётся при своём, даже если передать ей чужой движок: пары не существует.
+    for (const { file, data } of profiles.filter((p) => p.data.engine)) {
+      const чужой = engineData.map((e) => e.data.id).find((id) => id !== data.engine);
+      if (!чужой) continue;
+      expect(planFor(data.id, 'ru', чужой).engine, `${file}: витрина уступила чужому движку`)
+        .toBe(data.engine);
+    }
+
+    // И если площадка без движка когда-нибудь появится (своя, из формы) — она обязана
+    // вести себя как прочерк. Проверяем те, что есть; отсутствие таких не роняет тест.
+    for (const { file, data } of profiles.filter((p) => !p.data.engine)) {
+      for (const { data: eng } of engineData) {
+        expect(planFor(data.id, 'ru', eng.id).engine, `${file}: не пошла за ${eng.id}`).toBe(eng.id);
+      }
     }
   });
 
