@@ -78,6 +78,24 @@ describe('textures/flat — заливка одним цветом ужимае�
     expect(out.found[0].data.n).toBe(2);
   }, 120000);
 
+  it('ГРАНИЦА: заливка в лоссовом WebP не находится — и это записано, а не забыто', async () => {
+    // Найдено ревью 2026-08-18. Сравнение строгое (min === max), а лоссовый WebP слегка
+    // «шевелит» ровное поле: сплошной RGB(50,60,70) после q90 читается как 50/52 · 59/60.
+    // Тест закрепляет ГРАНИЦУ, а не желаемое поведение: пока он зелёный, дыра видна и
+    // описана. Смягчение допуска — это выбор представительного цвета вместо настоящего,
+    // то есть правка пикселей автора; такое решается разговором (Правило 11), а не в коде.
+    const solid = { create: { width: 128, height: 128, channels: 3, background: { r: 50, g: 60, b: 70 } } };
+    const lossy = await sharp(solid).webp({ quality: 90 }).toBuffer();
+    const doc = await docWithImages('Dirty Cube 01.glb', [lossy]);
+    const out = await rule.fix({}, ctxFor(doc));
+    expect(out.found, 'если это упало — лоссовые заливки стали находиться, обновить границу').toHaveLength(0);
+
+    // А те же байты без потерь находятся: значит дело именно в кодеке, а не в правиле.
+    const clean = await docWithImages('Dirty Cube 01.glb', [await sharp(solid).webp({ lossless: true }).toBuffer()]);
+    const ok = await rule.fix({}, ctxFor(clean));
+    expect(ok.found).toHaveLength(1);
+  }, 120000);
+
   it('настоящую картинку не трогает', async () => {
     const before = await noisy(256, 256);
     const doc = await docWithImages('Dirty Cube 01.glb', [before]);

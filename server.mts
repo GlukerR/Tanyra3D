@@ -1024,8 +1024,13 @@ const server = http.createServer(async (req, res) => {
       // texMode: нет параметра или мусор в нём — ключа в опциях не будет вовсе, и
       // умолчание («как в исходнике») останется за аддоном. Дробное округляем, за края
       // не выпускаем: 100 — потолок исходника, выше него не бывает по определению.
+      // Пустое значение (`?webpQuality=`) — это ОТСУТСТВИЕ параметра, а не ноль:
+      // `Number('')` даёт 0, то есть самое разрушительное положение ползунка молча
+      // получалось бы из пустой строки в адресе.
       const webpQualityRaw = url.searchParams.get('webpQuality');
-      const webpQualityNum = webpQualityRaw === null ? NaN : Number(webpQualityRaw);
+      const webpQualityNum = (webpQualityRaw === null || webpQualityRaw.trim() === '')
+        ? NaN
+        : Number(webpQualityRaw);
       const webpQualityChoice = Number.isFinite(webpQualityNum)
         ? { webpQuality: Math.min(100, Math.max(0, Math.round(webpQualityNum))) }
         : {};

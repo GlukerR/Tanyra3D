@@ -425,16 +425,20 @@ describe('WebP — ползунок качества считается от и�
     expect(ids).not.toContain('webp.done.dataLossy');
   }, 300000);
 
-  it('исходник JPEG: качество прочитано из файла точно и прицел в потолок легче жёсткого q90', async () => {
+  it('исходник JPEG: качество читается из файла и названо ПРИМЕРНЫМ, прицел в потолок легче q90', async () => {
     const src = await sourceBytes('ABeautifulGame.glb');
     const { bytes, result } = await runAt('ABeautifulGame.glb', 100);
 
     const rec = result.applied.find((a) => a.i18n?.text?.messageId?.startsWith('webp.sourceQuality'));
     expect(rec).toBeTruthy();
-    // exact:true — качество взято из маркера DQT, а не угадано пробным кодированием,
-    // и слова «примерно» в строке быть не должно: это измерение, а не оценка.
-    expect(rec.i18n.text.data.exact).toBe(true);
-    expect(rec.text).not.toMatch(/примерно/);
+    // «Примерно» обязано быть, и это исправление ошибки, а не осторожность. Сперва
+    // строка обещала точность: качество ведь читается из маркера DQT, без единого
+    // пробного кодирования. Замер ревью 2026-08-18 показал, что обещание ложное —
+    // кодировщик собран с mozjpeg, чьи таблицы отличаются от эталонных IJG, и обратный
+    // ход ошибается до шести единиц в середине шкалы (50 читается как 44, 75 как 71).
+    // Каким кодировщиком сделан ЧУЖОЙ файл, мы не знаем никогда.
+    expect(rec.text).toMatch(/примерно/);
+    expect(rec.i18n.text.data.exact, 'флаг exact снят вместе с обещанием точности').toBeUndefined();
     // У этой модели текстуры сжаты по-разному (77…97) — значит именно размах, а не
     // одно число: одно число здесь было бы полуправдой.
     expect(rec.i18n.text.messageId).toBe('webp.sourceQuality.range');

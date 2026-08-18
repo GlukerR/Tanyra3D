@@ -312,13 +312,34 @@ function normalizeOpts(opts: RawOpts = {}): GltfOpts {
   // между codec:'draco' и явным meshopt — такой же выбор, и прятать его нельзя.
   const requestedCodecs = adv.filter((feature) => allMembers.includes(feature));
   if (opts.codec === 'draco' && !requestedCodecs.includes('draco')) requestedCodecs.push('draco');
-  if (opts.compress && opts.codec !== 'draco' && !requestedCodecs.includes('meshopt')) requestedCodecs.push('meshopt');
+  // `compress: true` — НЕ выбор кодека, а общий выключатель «сжимать геометрию».
+  // Дописывать его как выбор meshopt можно только когда кодек не назван вовсе: иначе
+  // он оказывался последним в списке и по закону «побеждает последний» отменял ЯВНО
+  // запрошенный draco, а отчёт называл победителем meshopt, которого человек не выбирал
+  // (найдено ревью 2026-08-18: `{compress:true, advancedFeatures:['draco']}` давал
+  // meshopt, хотя до этого коммита давал draco).
+  const codecAsked = EXCLUSIVE_FEATURES.geometry!.enforce!;
+  if (opts.compress && opts.codec !== 'draco' && !requestedCodecs.some((f) => codecAsked.includes(f))) {
+    requestedCodecs.push('meshopt');
+  }
 
   // Взаимоисключающие пары разводятся ОДИН раз и ДО вывода флагов: иначе compress/codec
   // считались бы по фиче, которую движок сам же и отменил.
   const conflicts = exclusiveConflicts(requestedCodecs);
   const { dropped } = enforceExclusives(requestedCodecs);
   const kept = adv.filter((feature) => !dropped.has(feature));
+
+  // Качество WebP: значением считается ТОЛЬКО число либо непустая строка с числом.
+  // Всё прочее (null, '', false, [], объект) — это «не задавали», а не ноль. Ловушка
+  // одна и та же на весь список: `Number(null)`, `Number('')`, `Number(false)` и
+  // `Number([])` дают 0, то есть «сжать до предела», — самое разрушительное положение
+  // ползунка молча получалось из пустого значения. Числовой мусор ('abc' → NaN) сюда
+  // проходит намеренно: диапазон и откат к умолчанию держит правило (webpShare).
+  const rawQuality = opts.webpQuality;
+  const webpQuality = (typeof rawQuality === 'number'
+    || (typeof rawQuality === 'string' && rawQuality.trim() !== ''))
+    ? Number(rawQuality)
+    : undefined;
 
   // Компрессия геометрии — opt-in: флажок 'meshopt' или 'draco' (либо legacy codec/compress).
   // Legacy-поля проходят через тот же фильтр: проигравший кодек не влияет на выбор,
@@ -356,13 +377,8 @@ function normalizeOpts(opts: RawOpts = {}): GltfOpts {
     // Качество WebP — доля от качества ИСХОДНИКА, 0…100. Умолчание и проверку диапазона
     // держит само правило (WEBP_QUALITY_DEFAULT в rules.mts): значение приходит и из
     // интерфейса, и из чужого вызова по API, и одно место на оба входа надёжнее двух.
-    // Здесь только пробрасываем, ничего не подставляя.
-    // null отсекается наравне с undefined намеренно: `Number(null)` это 0, а не NaN, —
-    // то есть «значение не задали» молча превращалось бы в «сжать до предела». Поймано
-    // тестом; в самом правиле это уже не отличить, поэтому нормализуем здесь.
-    webpQuality: (opts.webpQuality === undefined || opts.webpQuality === null)
-      ? undefined
-      : Number(opts.webpQuality),
+    // Здесь только отделяем «задали» от «не задавали» (см. rawQuality выше).
+    webpQuality,
     stripColors: !!opts.stripColors || adv.includes('strip-colors'),
     // Ноль — «не уменьшать», и это значение по умолчанию. Из нескольких просьб берётся
     // самая крупная цель (см. приоритет группы texture-size): выбросить больше пикселей,

@@ -167,6 +167,16 @@ export default {
   'ktx2.log.skipped': () => '        all textures are already KTX2 or absent — encoding skipped',
   'ktx2.log.encoding': ({ n, mixed }) => `        KTX2 encoding (${n}, mode ${mixed ? 'mixed: ETC1S+UASTC' : 'uastc'})`,
 
+  // KTX2 transcoder failures. Substituted INTO the reason slot of webp.skipped.failed as
+  // a nested message (core/i18n.mjs expands { messageId, data }). Until 2026-08-18 a raw
+  // token such as "ktx2.hdr" went there — equally meaningless in both languages.
+  'ktx2.invalid': () => 'the texture file cannot be read',
+  'ktx2.hdr': () => 'a high dynamic range texture — we do not convert those',
+  'ktx2.multiface': () => 'a cube or layered texture — we do not convert those',
+  'ktx2.transcodeStart': () => 'the unpacker could not start',
+  'ktx2.transcodeFailed': () => 'unpacking failed',
+  'ktx2.decodeFailed': () => 'could not be unpacked',
+
   // --- textures/flat ---
   // Video memory is named outright on purpose: the file win is pennies (a codec squeezes
   // a flat fill to almost nothing) while the VRAM win is huge — the GPU stores pixels
@@ -194,12 +204,13 @@ export default {
   // Source quality. One line per model, not per texture (Rule 9). For JPEG it is read
   // from the file exactly; for WebP it is probed, and "about" marks the difference
   // between a measurement and a guess.
-  'webp.sourceQuality': ({ q, exact }) => `Source texture quality: ${exact ? '' : 'about '}${q} — encoded at the same level, there is no going above the source`,
-  'webp.sourceQuality.range': ({ min, max, exact }) => `Source texture quality: ${exact ? '' : 'about '}${min} to ${max} — each encoded at its own level, there is no going above the source`,
+  'webp.sourceQuality': ({ q }) => `Source texture quality: about ${q} — encoded at the same level, there is no going above the source`,
+  'webp.sourceQuality.range': ({ min, max }) => `Source texture quality: about ${min} to ${max} — each encoded at its own level, there is no going above the source`,
   'webp.ceilingUnknown': ({ n, q }) => `${n} texture${n === 1 ? ' gives' : 's give'} no way to tell the source quality — ${q} was used`,
-  // Neutral wording on purpose: 90 is the recommended position, so this line usually
-  // appears without the user having done anything. "Your choice" would be a plain lie
-  // at the default.
+  // Neutral wording on purpose, and it stays that way. Comment corrected 2026-08-18:
+  // the default is now 100, and at the default this line does not appear at all — the
+  // rule emits it only when the slider has been moved. The old justification referred
+  // to a default of 90, which Alexander dropped the same day.
   'webp.quality': ({ share }) => `Quality: ${share}% of the source`,
   'webp.grewFile': ({ beforeKb, afterKb, pct }) => `Images got heavier because of this option: ${beforeKb} KB → ${afterKb} KB (+${pct}%)`,
   'webp.grewVram': ({ beforeMb, afterMb, pct }) => `Video memory grew because of this option: ${beforeMb} MB → ${afterMb} MB (+${pct}%). The file may well have shrunk at the same time: WebP wins on download size and loses on GPU memory`,
