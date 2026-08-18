@@ -6,10 +6,10 @@
 > result, and *explains* every decision.
 >
 > **How to read this document.** It is layered by date, not rewritten each time: §1–§3 and
-> §5–§13 are the original design review, §4b–§4f are contracts fixed later and marked with
+> §5–§12 are the original design review, §4b–§4f are contracts fixed later and marked with
 > their dates. Where the two disagree, the dated section wins. The project was called
-> `gltf-audit` during the design review; §11 and §12 preserve the decisions that were open
-> at that point and are marked with how they were resolved.
+> `gltf-audit` during the design review; the name survives nowhere in this document, and §11
+> records the decisions that were open at that point with how each was resolved.
 
 ---
 
@@ -177,7 +177,7 @@ once the rule set and budgets are mature enough that the number is trustworthy.
 ## 3. Folder structure (pnpm monorepo, TypeScript)
 
 ```
-gltf-audit/
+tanyra3d/
 ├─ packages/
 │  ├─ core/          # engine, interfaces, Context, phase runner, safety model, DAG scheduler
 │  ├─ rules/         # built-in rule packs: geometry, textures, materials, uv, attributes, scene, perf
@@ -192,7 +192,7 @@ gltf-audit/
 │  └─ action/                   # GitHub Action wrapper (phase 3)
 ├─ fixtures/         # golden test assets + expected reports (the trust backbone)
 ├─ docs/
-└─ gltf-audit.config.ts         # example user config
+└─ tanyra3d.config.ts          # example user config
 ```
 
 Core has **zero** dependency on any specific rule, reporter, or profile — they are
@@ -543,7 +543,7 @@ explainResult(runResult, platformId)
 - `baselineOpts` are exactly the `opts` fields from §4b (camelCase), passed to `optimizeFile`
   without transformation. This is the platform's BASELINE plan: KTX2 and Draco are not part
   of it — the user enables those through `advancedFeatures`.
-- The `engineOpts` field inside a profile file is a **deprecated name**. `assistant.mjs:122`
+- The `engineOpts` field inside a profile file is a **deprecated name**. `assistant.mjs`
   reads it as a fallback (`profile.baselineOpts || profile.engineOpts`), but new profiles
   must use `baselineOpts`. Not to be confused with the `engineOpts` field in the **response**
   of `planFor()` — that name is unchanged and there is no reason to change it.
@@ -853,7 +853,7 @@ Looking at the actual files, one profile carries **three different kinds of fact
 
 | Field | Actually belongs to | Why |
 |---|---|---|
-| `budgets` (+ their sources in `notes`) | **the target** | Shopify's 4 MB advisory and 15 MB ceiling are Shopify's, whatever renders the model |
+| `budgets` (+ their sources in `notes`) | **the target** | Shopify's own size thresholds are Shopify's, whatever renders the model |
 | `availableExtensions` — what to offer | **the engine** | whether KTX2 opens without a decoder is a property of the reader |
 | `reversible`, `dataLoss` | **the optimization itself** | `join` is irreversible and loses structure always, everywhere |
 
@@ -914,7 +914,7 @@ Two consequences worth stating:
   costed. The parameter is additive, so §4c's stability rules hold.
 - **The default had to move.** With Shopify enabled and the list sorted, the first real
   platform would have been selected on startup, and the app would silently have claimed a
-  target the user never picked — along with Shopify's hard 15 MB rejection. The dash claims
+  target the user never picked — along with its budgets. The dash claims
   nothing. For the same reason the leading engine is named in data (`"primary": true`) rather
   than left to alphabetical order, which would have put `model-viewer` ahead of `threejs`.
 
@@ -1025,16 +1025,17 @@ built when the second engine arrives.
   creation, so an already-loaded model keeps the old implementation until reset. With one
   implementation this cannot occur; the second one will need the slots recreated.
 
-### Known inaccuracies, deliberately left for when a second engine is real
+### Known inaccuracies (closed 2026-08-18 — kept as a record of what was wrong)
 
-- `profiles/shopify.json` says `"engine": "threejs"`. Strictly this is wrong: a Shopify
-  storefront renders 3D through Google's **model-viewer**, not through three.js directly. The
-  correct value is `model-viewer`, but there is no such engine yet and no viewer module behind
-  the name, so writing it now would be a claim the code cannot honour. Fix it together with
-  `engines/model-viewer.json`. The profile is disabled meanwhile, so nothing depends on it.
-- The sample sentence above — "Draco will not open here" — is **false**, and is kept only as
-  an illustration of the *shape* of an on-the-spot explanation. Checked 2026-08-10 (sources
-  below): model-viewer supports Draco, KTX2/Basis and Meshopt. Do not reuse the wording.
+- `profiles/shopify.json` used to say `"engine": "threejs"`, which was wrong: a Shopify
+  storefront renders 3D through Google's **model-viewer**. **Closed.** `engines/model-viewer.json`
+  exists and is enabled, and the profile now names it. The consequence is visible in the app:
+  the target inherits the engine's decoder marks, so Meshopt and GPU instancing carry the
+  yellow "needs a decoder" badge on Shopify while Draco, KTX2 and WebP do not.
+- The sample sentence above — "Draco will not open here" — is **false**, and survives only as
+  an illustration of the *shape* of an on-the-spot explanation. Checked 2026-08-10 and again
+  2026-08-14 against model-viewer's sources: it supports Draco, KTX2/Basis and Meshopt, and
+  only Meshopt needs the site to wire a decoder. Never reuse the wording as a claim.
 
 ### What model-viewer actually is (checked 2026-08-10)
 
@@ -1141,10 +1142,10 @@ An optimizer that corrupts one asset loses the community permanently. Trust is e
 ## 9. Config (flat, ESLint-style)
 
 ```ts
-// gltf-audit.config.ts
+// tanyra3d.config.ts
 export default {
   profile: 'web',                       // or path to custom profile
-  rulePacks: ['@gltf-audit/rules'],     // + community packs
+  rulePacks: ['@tanyra3d/rules'],       // + community packs
   autofix: 'numeric',                   // highest tier applied without --force
   ignore: [
     { rule: 'attributes/vertex-colors', target: 'Plane.017' }, // suppression = override our caution
@@ -1173,7 +1174,7 @@ export default {
 
 1. **Language** — proposed TypeScript. **Resolved twice.** At design review: plain JavaScript
    (ESM, `.mjs`). Reversed on 2026-08-10: the project moved to TypeScript module by module,
-   and by 2026-08-11 every non-catalog module had followed. See §14 for what that means for
+   and by 2026-08-11 every non-catalog module had followed. See §13 for what that means for
    anyone reading or building the code.
 2. **Monorepo tool** — proposed pnpm workspaces. **Not resolved, because the question is not
    live yet:** the repository is flat and moves to `packages/*` only when the first external
@@ -1182,20 +1183,10 @@ export default {
 4. **Scope of v1 autofix**: `provable`+`numeric` only — should `perceptual` ever default to
    on for the `web` profile? **Resolved: no.** Everything is opt-in; the empty option set is
    a passthrough (§4b).
-5. **Name** (§12). **Resolved: Tanyra3D.**
 
 ---
 
-## 12. Name candidates (historical)
-
-Considered during the design review: `gltf-audit` · `meshlint` · `polylint` · `gltf-doctor` ·
-`prism` · `facet`. The lean at the time was `gltf-audit` (says what it does, SEO-clean) or
-`meshlint` (the ESLint echo being the whole positioning). The name chosen was **Tanyra3D**;
-`gltf-audit` survives in this document's older sections and in the sample config in §9.
-
----
-
-## 13. One-paragraph summary
+## 12. One-paragraph summary
 
 Build a TypeScript monorepo whose `core` is a rule *engine* — rules analyze in parallel
 (read-only), the engine plans fixes as a dependency DAG gated by a four-tier safety
@@ -1208,7 +1199,7 @@ autofix; layer scoring, CI, and GUI surfaces onto the same core afterward.
 
 ---
 
-## 14. Sources are TypeScript, the files you import are not (2026-08-11)
+## 13. Sources are TypeScript, the files you import are not (2026-08-11)
 
 The repository stopped being plain JavaScript on 2026-08-10 and finished the move a day
 later. Nothing about the shape of the project changed — only where the text you edit lives.

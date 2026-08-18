@@ -509,7 +509,7 @@ async function runFile(
   if (advancedPlanned.length) log(`      extensions (${advancedPlanned.length} fixes)`);
   await applyPlanned(advancedPlanned);
 
-  // -------- ФАЗА 4 · ВАЛИДАЦИЯ (весь ассет; при провале .glb НЕ записывается) --------
+  // -------- ФАЗА 4 · ВАЛИДАЦИЯ (весь ассет; провал НЕ отменяет запись — см. фазу 5) --------
   progress({ type: 'phase', phase: 4, name: 'validation' });
   log('    phase 4/5 · validation');
   // src — ИСХОДНЫЙ файл, не промежуточное состояние: аддон обязан сверяться с тем, что

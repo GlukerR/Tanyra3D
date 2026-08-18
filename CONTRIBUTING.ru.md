@@ -41,7 +41,7 @@ npm test
   следующая сборка молча затёрла бы его работу.
 
 `npm run typecheck` проверяет оба проекта сборки (движок и браузер) и ничего не пишет.
-Подробности — [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §14.
+Подробности — [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §13.
 
 Устройство проекта — [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), как добавить
 своё правило — [`docs/EXTENDING.md`](docs/EXTENDING.md), карта тестов —

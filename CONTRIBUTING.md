@@ -37,7 +37,7 @@ Two things surprise people:
   build discard their work.
 
 `npm run typecheck` checks both compile projects (engine and browser) and writes nothing.
-Full detail: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §14.
+Full detail: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §13.
 
 Design overview: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Adding your own rule:
 [`docs/EXTENDING.md`](docs/EXTENDING.md).
