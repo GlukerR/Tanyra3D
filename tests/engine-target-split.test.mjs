@@ -512,3 +512,60 @@ describe('Пометка декодера различает движки, а н
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Площадки, заведённые 2026-08-18: VNTANA и Google Store
+//
+// У обеих есть по одному факту, ради которого профиль и существует, и оба взяты из
+// первоисточника, а не из обзоров. Факт, живущий только в JSON, теряется молча при
+// первой же перетасовке файла — поэтому здесь сторож.
+// ---------------------------------------------------------------------------
+describe('VNTANA и Google Store — факты, ради которых профили заведены', () => {
+  const профиль = (id) => (profiles.find((p) => p.data.id === id) || {}).data;
+
+  it('VNTANA вычитает Draco — она не принимает его НА ВХОДЕ', () => {
+    // «We do not support Draco Compression on input for any file»: файл с уже
+    // применённым Draco не даёт выходов ВООБЩЕ. Это единственный законный по Правилу 12
+    // случай спрятать опцию — действие физически невозможно, а не «нам не нравится».
+    const p = профиль('vntana');
+    expect(p, 'профиль vntana исчез').toBeTruthy();
+    expect(
+      p.excludeExtensions,
+      'Draco вернулся в список VNTANA. Их документация прямо говорит, что файл с Draco '
+        + 'не даст выходов; показывать эту галочку значит обещать работу, которой не будет.',
+    ).toContain('draco');
+
+    const выдаётся = getAvailableExtensions('vntana').map((e) => e.id);
+    expect(выдаётся, 'вычитание объявлено, но до панели не доехало').not.toContain('draco');
+    // А у соседей по тому же движку Draco остаётся: вычитает ПЛОЩАДКА, не движок.
+    expect(getAvailableExtensions('', 'ru', 'threejs').map((e) => e.id)).toContain('draco');
+  });
+
+  it('Google Store несёт бюджет 2 МБ и только его', () => {
+    // Ценность профиля именно в том, что его единственное число настоящее. Дописать
+    // «для симметрии» треугольники и отрисовки, которых Google не публиковала, значило бы
+    // выдать выдумку за источник — ровно то, за что мы правили Shopify.
+    const p = профиль('google-store');
+    expect(p, 'профиль google-store исчез').toBeTruthy();
+    expect(p.budgets.fileMB.warn, 'бюджет 2 МБ потерян').toBe(2);
+    expect(p.budgets.fileMB.limit, 'у Google Store не может быть жёсткого предела: '
+      + 'посторонний туда ничего не загружает, это совет, а не отказ').toBeUndefined();
+    expect(p.budgets.fileMB.source, 'число без источника — то же, что выдуманное').toBeTruthy();
+
+    const счисламии = Object.entries(p.budgets)
+      .filter(([, v]) => v && (v.warn != null || v.limit != null))
+      .map(([k]) => k);
+    expect(счисламии, 'у Google Store появились числа помимо веса — проверить источник')
+      .toEqual(['fileMB']);
+  });
+
+  it('Google Store просит Draco базовым — это свойство движка, а не вкус', () => {
+    // model-viewer читает Draco и KTX2 без настройки сайта, а Meshopt — только если сайт
+    // вызвал setMeshoptDecoderLocation. Базовый план обязан работать у того, кто ничего
+    // не настраивал. Если однажды поставят meshopt «как у всех» — тест напомнит почему.
+    expect(planFor('google-store').engineOpts.codec).toBe('draco');
+    expect(планДвижка('google-store')).toBe('model-viewer');
+  });
+
+  function планДвижка(id) { return planFor(id).engine; }
+});
