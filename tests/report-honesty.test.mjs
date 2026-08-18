@@ -88,33 +88,40 @@ describe('Честность отчёта — один класс случаев
 // ============================================================================
 // 2. Причина пропуска — настоящая (GAP-007).
 // ============================================================================
-// «Это уже формат для видеокарты» верно ровно для форматов, которые остаются
-// сжатыми в видеопамяти. AVIF распаковывается в ту же RGBA, что PNG: экономии
-// видеопамяти там нет, и обещать её человеку — врать о результате.
+// Смысл раздела сменился 2026-08-17 (Правило 12). Раньше здесь проверялось, что у
+// РАЗНЫХ отказов разные причины: «уже формат для видеокарты» для ktx2 и «мы такое не
+// перекодируем» для avif. Обоих отказов больше нет — правило кодирует всё. Проверять
+// теперь надо противоположное: молчаливого отказа не осталось ни для какого формата,
+// а единственный законный (сбой кодировщика) назван по имени текстуры и с причиной.
 describe('Честность отчёта — причина пропуска называет настоящую причину', () => {
-  it('textures/webp: KTX2 и AVIF получают РАЗНЫЕ причины пропуска', async () => {
+  it('textures/webp: ни один формат не даёт молчаливого отказа', async () => {
     const doc = await docWithMimes('Dirty Cube 01.glb', ['image/ktx2', 'image/avif']);
     const out = await ruleById('textures/webp').fix({}, ctxFor(doc));
 
-    const gpu = (out.skipped || []).filter((s) => s.messageId.startsWith('webp.skipped.format'));
-    const other = (out.skipped || []).filter((s) => s.messageId.startsWith('webp.skipped.unsupported'));
+    // Единственный разрешённый вид пропуска — назвавший себя сбой кодировщика.
+    // Любой другой webp.skipped.* означает, что молчаливый отказ вернулся.
+    const ids = (out.skipped || []).map((s) => s.messageId).filter((id) => id.startsWith('webp.skipped'));
+    expect(new Set(ids)).toEqual(new Set(ids.length ? ['webp.skipped.failed'] : []));
 
-    expect(gpu).toHaveLength(1);
-    expect(gpu[0].data.mime).toBe('ktx2');
-    expect(other).toHaveLength(1);
-    expect(other[0].data.mime).toBe('avif');
+    // И у каждого такого пропуска обязаны быть имя текстуры и причина — иначе это
+    // тот же молчаливый отказ, только под другим ключом.
+    for (const rec of (out.skipped || []).filter((s) => s.messageId === 'webp.skipped.failed')) {
+      expect(rec.data.name).toBeTruthy();
+      expect(rec.data.reason).toBeTruthy();
+    }
   });
 
-  it('textures/webp: строка про AVIF не обещает выигрыша в видеопамяти', async () => {
-    const doc = await docWithMimes('Dirty Cube 01.glb', 'image/avif');
-    const out = await ruleById('textures/webp').fix({}, ctxFor(doc));
-    const rec = (out.skipped || []).find((s) => s.messageId.startsWith('webp.skipped.unsupported'));
-    expect(rec).toBeDefined();
-
+  it('textures/webp: строка про распаковку из GPU-формата НЕ обещает выигрыша, а называет цену', () => {
+    // Раньше правило отказывалось трогать KTX2 и объясняло это выигрышем видеопамяти.
+    // Теперь оно его распаковывает — и обязано сказать, что видеопамять ВЫРАСТЕТ,
+    // а качество потеряно дважды. Обещать здесь экономию было бы враньём наоборот.
     for (const locale of ['ru', 'en']) {
-      const text = render(rec.messageId, rec.data, locale);
+      const text = render('webp.done.fromGpu', { n: 3 }, locale).toLowerCase();
       expect(text.length).toBeGreaterThan(0);
-      expect(text.toLowerCase()).not.toMatch(/видеокарт|видеопамят|gpu format|video memory/);
+      expect(text).toMatch(/видеопамят|video memory/);
+      expect(text).toMatch(/вырастет|will grow/);
+      // ни слова про экономию/уменьшение видеопамяти
+      expect(text).not.toMatch(/меньше видеопамят|экономи|less video memory|saves/);
     }
   });
 
@@ -133,7 +140,10 @@ describe('Честность отчёта — причина пропуска н
 // Русский не обходится подстановкой: «1 текстур» и «именно они» про одну штуку —
 // ошибка согласования на самом видном месте отчёта. У единицы своя ветка.
 describe('Честность отчёта — согласование числа в русском каталоге', () => {
-  const COUNTED_KEYS = ['webp.found', 'webp.keptOriginal', 'ktx2.found'];
+  // webp.keptOriginal убран вместе с откатом (Правило 12). На его месте — два новых
+  // счётных ключа того же правила: оба появились 2026-08-17 и оба обязаны согласовывать
+  // число, иначе «1 текстур распаковано» вернётся на самое видное место отчёта.
+  const COUNTED_KEYS = ['webp.found', 'webp.done.fromGpu', 'webp.alreadyTarget', 'ktx2.found'];
 
   for (const id of COUNTED_KEYS) {
     it(`${id}: при n = 1 нет ни «1 текстур», ни множественных местоимений`, () => {

@@ -349,12 +349,20 @@ describe('Класс prequantized — quantize воздерживается с �
   });
 });
 
-describe('Класс pre-webp — уже-webp текстуры получают свою причину, идемпотентность', () => {
-  eachSituation('pre-webp', 'webp: уже-webp текстуры названы причиной; повторный прогон не меняет структуру', async (name) => {
+// Класс переписан 2026-08-17 (Правило 12). Раньше проверялось, что уже-webp текстуры
+// «получают свою причину» — то есть что правило от них отказывается. Теперь оно их
+// кодирует заново, и проверять надо это: отказа нет, работа сделана, а структура модели
+// от повторного прогона по-прежнему не меняется.
+describe('Класс pre-webp — цель уже достигнута, правило говорит об этом вслух', () => {
+  eachSituation('pre-webp', 'webp: уже-webp текстуры названы достигнутой целью, а не отказом; повтор не меняет структуру', async (name) => {
     const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['webp'], dryRun: true });
     expect(r.status).toBe('ok');
-    // каждая уже-webp текстура — отдельная строка причины (одна на класс случаев)
-    expect(anySkippedMsg(r, 'textures/webp', 'webp.skipped.already')).toBe(true);
+    // Правило отработало и сказало о себе. Молчание здесь неотличимо от тихого пропуска.
+    expect(r.applied.some((a) => a.ruleId === 'textures/webp')).toBe(true);
+    // Строка про достигнутую цель — в «Что сделано», а не в отказах.
+    expect(r.applied.some((a) => a.i18n?.text?.messageId === 'webp.alreadyTarget')).toBe(true);
+    // Отказа «уже WebP» больше не существует — его возвращение и есть регресс.
+    expect(anySkippedMsg(r, 'textures/webp', 'webp.skipped.already')).toBe(false);
 
     await idempotentPair(name, ['webp']);
   });

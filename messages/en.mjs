@@ -104,8 +104,11 @@ export default {
   'option.ktx2.description': () => 'Converts textures to a format the graphics card keeps compressed: up to ~80% less video memory. The site has to be able to open such textures — without that the model will not show.',
   'option.ktx2.impact': () => 'The file may grow 5–10%, but texture video memory drops several-fold.',
   'option.webp.title': () => 'WebP compression',
-  'option.webp.description': () => 'Repacks the model\'s textures so the file gets smaller — video memory stays the same. Textures already prepared for the graphics card are left alone. The site needs nothing extra to open this.',
-  'option.webp.impact': () => 'Smaller download — the page opens faster. Video memory is unchanged: WebP is unpacked before it reaches the GPU.',
+  // Rewritten 2026-08-17. The old text promised that textures already prepared for the
+  // graphics card are left alone — no longer true (Rule 12) — and said nothing about
+  // quality, which is the option's main lever.
+  'option.webp.description': () => 'Converts the model\'s textures to a leaner format — the file gets smaller, video memory stays the same. Quality is measured against the model itself: we will not squeeze harder than the source, and we cannot make it better than the source. Textures already in this format are left untouched. The site needs nothing extra to open this.',
+  'option.webp.impact': () => 'A markedly smaller download — the page opens faster. The slider decides what you pay with: the lower it goes, the lighter the file and the coarser the picture. An uncompressed texture is left untouched at the top of the scale; an already-compressed one loses a little regardless — that is how any second round of compression works. Getting lost quality back takes a fresh build from the original model.',
   'option.draco.title': () => 'Draco compression',
   'option.draco.description': () => 'Minimal file weight (often −50% on geometry). Decodes slower than Meshopt in the browser but is supported everywhere.',
   'option.draco.impact': () => 'The file is noticeably lighter; decoding on open is slower.',

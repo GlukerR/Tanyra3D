@@ -315,6 +315,21 @@
   // Что советует текущая площадка (приходит с /api/extensions).
   let platformDefaults: Record<string, any> = {};
   const defaultKtx2Mode = () => platformDefaults.texMode || KTX2_MODE_FALLBACK;
+  // Качество WebP — доля от качества ИСХОДНИКА, 0…100. Сотня значит «как в исходнике»
+  // и она же начальное положение.
+  //
+  // Шкала относительная, а не абсолютная, потому что абсолютная врала бы. Качество
+  // исходника — потолок: уничтоженное первым кодеком не возвращается, и просить «90»
+  // у картинки, сжатой на 77, значит платить весом за бережное копирование чужих
+  // артефактов (замер: жёсткий q90 даёт −41 %, прицел в потолок −60 %). Поэтому выше
+  // сотни ползунок не идёт, а каждая текстура считает долю от СВОЕГО потолка — модель,
+  // где текстуры сжаты по-разному (у ABeautifulGame от 77 до 97), обслуживается верно
+  // без единого числа на всех.
+  // Сто (Александр, 2026-08-17, посмотрев результат: «рекомендованные 90 портят уже
+  // сильно модель. пусть изначально ползунок просто будет на 100»). Кратко стояло 90
+  // ради прежней лёгкости — на глаз оказалось слишком дорого.
+  const WEBP_QUALITY_DEFAULT = 100;
+  let webpQuality = WEBP_QUALITY_DEFAULT;
   // Геометрия — взаимоисключающий выбор: 'none' | 'meshopt' | 'draco'.
   let geometryChoice = 'none';
   // Размер текстур — такой же выбор одного из списка: 'none' | 'resize-4096' | ...
@@ -398,7 +413,11 @@
   function currentSettingsSignature() {
     const feats = getSelectedFeatures().slice().sort();
     const mode = feats.includes('ktx2') ? `|ktx2:${ktx2Mode}` : '';
-    return platformSelect.value + '|' + feats.join(',') + mode;
+    // Качество — такая же часть настроек, как режим KTX2: без него кнопка «Пересобрать»
+    // не заметила бы сдвинутого ползунка и человек не смог бы сделать ровно тот замер,
+    // ради которого ползунок и появился.
+    const quality = feats.includes('webp') ? `|webpq:${webpQuality}` : '';
+    return platformSelect.value + '|' + feats.join(',') + mode + quality;
   }
 
   // Пользователь тронул флажок/радио — состояние кнопки + запись в логи, чтобы по логам
@@ -431,9 +450,17 @@
       runBtn.title = t('btn.building');
       return;
     }
-    if (!selectedFile || getSelectedFeatures().length === 0) {
+    // Нет файла — собирать нечего, и это единственная причина держать кнопку выключенной.
+    //
+    // До 2026-08-17 здесь стояло ещё и `getSelectedFeatures().length === 0`: без единой
+    // галочки собрать было НЕЛЬЗЯ. Это неверно дважды. Во-первых, прогон без опций —
+    // не пустое действие: движок всегда снимает входное сжатие (ARCHITECTURE §6), то
+    // есть модель с Draco выйдет распакованной, и это законный, измеримый результат,
+    // ради которого человек может нажать кнопку намеренно. Во-вторых, кнопка при этом
+    // оставалась ВИДНОЙ и просто не работала — ровно то, что запрещает Правило 12.
+    if (!selectedFile) {
       runBtn.disabled = true;
-      runBtn.title = !selectedFile ? '' : t('btn.pickOption');
+      runBtn.title = '';
       return;
     }
     if (lastBuildSignature === null) { runBtn.disabled = false; runBtn.removeAttribute('title'); return; }
@@ -1358,6 +1385,9 @@
       // режима должен уехать вместе с ним. Свой обработчик у флажка KTX2 (ниже)
       // на чужой клик не срабатывает.
       toggleKtx2Mode(!!((document.getElementById('ext-ktx2') || {}) as HTMLInputElement).checked);
+      // То же и для ползунка качества: WebP могли погасить выбором KTX2, а не своим
+      // кликом — тогда ручка должна уехать вместе с ним.
+      toggleWebpQuality(!!((document.getElementById('ext-webp') || {}) as HTMLInputElement).checked);
       onOptionChanged();
     });
 
@@ -1418,6 +1448,57 @@
       checkbox.addEventListener('change', () => mode.classList.toggle('hidden', !checkbox.checked));
     }
 
+    // WebP — тот же приём, что у KTX2: один флажок, а под ним ручка силы. Только здесь
+    // это ползунок, а не список: качество непрерывно по своей природе, и разбивать его
+    // на ступеньки значило бы выдумать границы, которых в формате нет.
+    if (ext.id === 'webp') {
+      const box = document.createElement('details');
+      box.className = 'webp-quality hidden';
+      const summary = document.createElement('summary');
+      // Ключи интерфейса живут в своём каталоге (ui/locales), поэтому префикс `opt.` —
+      // одноимённый `webp.quality` уже занят движком, и совпадение имён между двумя
+      // каталогами когда-нибудь обязательно вышло бы боком.
+      summary.textContent = `${t('opt.webpQuality')} `;
+      const current = document.createElement('span');
+      current.className = 'webp-quality-current';
+      summary.appendChild(current);
+      box.appendChild(summary);
+
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.className = 'webp-quality-slider';
+      // 0…100 — тот же диапазон, что объявляют types.mts и webpShare в движке. Стояло
+      // min='10' из соображения «ниже смотреть не на что», и получалось расхождение:
+      // код восстановления выбора прямо говорит «ноль — законное значение ползунка»,
+      // а из интерфейса ноль был недостижим (найдено ревью 2026-08-18).
+      slider.min = '0';
+      slider.max = '100';  // потолок исходника; выше него качества не существует
+      slider.step = '5';
+      slider.value = String(webpQuality);
+      // Подпись положения — ключ каталога, а не строка здесь (Правило 8). У сотни свои
+      // слова: это не «100 процентов», а «как в исходнике», и человеку важна вторая
+      // формулировка — она объясняет, почему шкала на ней кончается.
+      // Одна подпись на все положения — только число (Александр, 2026-08-17: «не будет
+      // написано ничего кроме качества процентов. всё. просто и понятно»). Прежде их было
+      // три: «как в исходнике» на сотне и «рекомендуется» на умолчании. Первая вдобавок
+      // обещала то, чего код не делает, — для лоссового исходника сотня не означает
+      // отсутствия потерь, и замер это показал.
+      const label = (v: number) => t('opt.webpQuality.share', { share: v });
+      current.textContent = label(webpQuality);
+      slider.addEventListener('input', () => {
+        webpQuality = Number(slider.value);
+        current.textContent = label(webpQuality);
+      });
+      slider.addEventListener('change', () => {
+        updateRunButtonState();
+        rememberSelection(); // качество — такая же часть выбора платформы, как режим KTX2
+        logMessage('debug', t('log.webpQuality', { share: webpQuality }));
+      });
+      box.appendChild(slider);
+      row.appendChild(box);
+      checkbox.addEventListener('change', () => box.classList.toggle('hidden', !checkbox.checked));
+    }
+
     return row;
   }
 
@@ -1427,6 +1508,14 @@
     const row = cb && cb.closest('.ext-row');
     const mode = row && row.querySelector('.ktx2-mode');
     if (mode) mode.classList.toggle('hidden', !show);
+  }
+
+  // То же для ползунка качества WebP.
+  function toggleWebpQuality(show: boolean) {
+    const cb = document.getElementById('ext-webp');
+    const row = cb && cb.closest('.ext-row');
+    const box = row && row.querySelector('.webp-quality');
+    if (box) box.classList.toggle('hidden', !show);
   }
 
   function getSelectedFeatures() {
@@ -1533,6 +1622,13 @@
       if (data.sourceId) currentSourceId = data.sourceId; // сборка переиспользует исходник
       btnMetadata.disabled = false;
       btnValidation.disabled = false;
+      // Открытые окна ОБЯЗАНЫ переехать на новую модель. Без этих двух строк они
+      // показывали данные предыдущей: человек загружал модель с WebP поверх модели с
+      // KTX2 и читал в метаданных KHR_texture_basisu — то есть про чужой файл. Симметрия
+      // с инспекцией результата, где такая перерисовка стоит с самого начала: расхождение
+      // и было дефектом (найдено Александром 2026-08-17).
+      if (!metadataWindow.classList.contains('hidden')) renderMetadataWindow();
+      if (!validationWindow.classList.contains('hidden')) renderValidationWindow();
       const n = (data.validation || []).filter((m: any) => !m.explainedBy).length;
       // Ошибка по стандарту — это дефект САМОЙ модели, а не замечание к ней:
       // предупреждения и подсказки валидатора в счёт не идут.
@@ -1650,6 +1746,8 @@
     syncTextureSizeRadio();
     syncKtx2ModeUI();
     toggleKtx2Mode(!!(document.getElementById('ext-ktx2') && (document.getElementById('ext-ktx2') as HTMLInputElement).checked));
+    syncWebpQualityUI();
+    toggleWebpQuality(!!(document.getElementById('ext-webp') && (document.getElementById('ext-webp') as HTMLInputElement).checked));
     // Панель пересобрана заново (смена языка) — заморозку надо наложить снова: новые
     // элементы про идущую сборку ничего не знают и приходят доступными.
     freezeSettings(buildInFlight);
@@ -1665,6 +1763,7 @@
     setCheck('ktx2', false);
     // Человек ничего не выбирал — значит показываем то, что советует площадка.
     ktx2Mode = defaultKtx2Mode();
+    webpQuality = WEBP_QUALITY_DEFAULT; // «как в исходнике» — самое сохранное из положений
     geometryChoice = 'none';
     // Размер текстур в умолчания НЕ входит и входить не может: это единственная опция
     // из тех, что включены по умолчанию быть могли бы, которая выбрасывает пиксели
@@ -1698,6 +1797,9 @@
     textureSizeChoice = saved!.textureSizeChoice || 'none';
     syncTextureSizeRadio(); // он же откатит выбор, которого на этой площадке нет
     ktx2Mode = saved!.ktx2Mode || defaultKtx2Mode();
+    // Ноль — законное значение ползунка, поэтому проверка на undefined, а не `||`:
+    // с `||` выбранный ноль молча превращался бы в «как в исходнике».
+    webpQuality = saved!.webpQuality === undefined ? WEBP_QUALITY_DEFAULT : saved!.webpQuality;
     for (const cb of extensionsList.querySelectorAll('.ext-checkbox')) {
       (cb as HTMLInputElement).checked = saved!.checked.includes((cb as HTMLInputElement).value);
     }
@@ -1711,6 +1813,7 @@
       geometryChoice,
       textureSizeChoice,
       ktx2Mode,
+      webpQuality,
       checked: [...extensionsList.querySelectorAll<HTMLInputElement>('.ext-checkbox:checked')].map((cb) => cb.value),
     };
   }
@@ -1814,6 +1917,14 @@
     if (radio) (radio as HTMLInputElement).checked = true;
     const cur = document.querySelector('.ktx2-mode-current');
     if (cur) cur.textContent = ktx2Mode === 'mixed' ? 'ETC1S' : 'UASTC';
+  }
+
+  // Синхронизировать ползунок качества WebP с переменной при восстановлении выбора.
+  function syncWebpQualityUI() {
+    const slider = document.querySelector('.webp-quality-slider');
+    if (slider) (slider as HTMLInputElement).value = String(webpQuality);
+    const cur = document.querySelector('.webp-quality-current');
+    if (cur) cur.textContent = t('opt.webpQuality.share', { share: webpQuality });
   }
 
   function badgeGeometry(v: string) {
@@ -2068,6 +2179,13 @@
     }
     updateInspectButtons();
     updateRunButtonState();
+    // Открытые окна инспекции обязаны переехать на модель, которая теперь на экране.
+    // Место выбрано осознанно: showActiveModel — ЕДИНСТВЕННАЯ воронка смены активной
+    // модели (её зовут и selectModel, и removeModel), поэтому одна пара строк здесь
+    // закрывает оба пути, а три копии по местам вызова разошлись бы при следующей правке.
+    // К этому моменту applyModelState уже вернул modelInspect/resultInspect новой модели.
+    if (!metadataWindow.classList.contains('hidden')) renderMetadataWindow();
+    if (!validationWindow.classList.contains('hidden')) renderValidationWindow();
   }
 
   // Панели результата — в исходное. В отличие от clearResults() НЕ трогает состояние
@@ -2706,10 +2824,12 @@
     const sourceParam = useSource && currentSourceId ? `&source=${encodeURIComponent(currentSourceId)}` : '';
     // режим KTX2 (UASTC/ETC1S) → texMode; актуален только когда выбран флажок ktx2
     const texParam = features.includes('ktx2') ? `&texMode=${encodeURIComponent(ktx2Mode)}` : '';
+    // качество WebP → webpQuality; актуально только когда выбран флажок webp
+    const qualityParam = features.includes('webp') ? `&webpQuality=${encodeURIComponent(String(webpQuality))}` : '';
     // Движок — по тем же основаниям, что и в /api/extensions: при прочерке базовый план
     // берётся у него, иначе сборка пошла бы с чужими умолчаниями.
     const engineParam = `&engine=${encodeURIComponent(engineSelect.value || '')}`;
-    return `/api/optimize?platform=${encodeURIComponent(platformId)}${engineParam}&job=${encodeURIComponent(jobId)}&${langParam()}${featuresParam}${sourceParam}${texParam}`;
+    return `/api/optimize?platform=${encodeURIComponent(platformId)}${engineParam}&job=${encodeURIComponent(jobId)}&${langParam()}${featuresParam}${sourceParam}${texParam}${qualityParam}`;
   }
 
   // Повтор по sourceId — без тела (модель уже на сервере); первый прогон — с телом файла.

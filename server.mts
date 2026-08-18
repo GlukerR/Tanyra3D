@@ -1020,6 +1020,21 @@ const server = http.createServer(async (req, res) => {
       const texModeRaw = url.searchParams.get('texMode');
       const texModeChoice = (texModeRaw === 'mixed' || texModeRaw === 'uastc') ? { texMode: texModeRaw } : {};
 
+      // Качество WebP — доля от качества исходника, 0…100. По той же логике, что и
+      // texMode: нет параметра или мусор в нём — ключа в опциях не будет вовсе, и
+      // умолчание («как в исходнике») останется за аддоном. Дробное округляем, за края
+      // не выпускаем: 100 — потолок исходника, выше него не бывает по определению.
+      // Пустое значение (`?webpQuality=`) — это ОТСУТСТВИЕ параметра, а не ноль:
+      // `Number('')` даёт 0, то есть самое разрушительное положение ползунка молча
+      // получалось бы из пустой строки в адресе.
+      const webpQualityRaw = url.searchParams.get('webpQuality');
+      const webpQualityNum = (webpQualityRaw === null || webpQualityRaw.trim() === '')
+        ? NaN
+        : Number(webpQualityRaw);
+      const webpQualityChoice = Number.isFinite(webpQualityNum)
+        ? { webpQuality: Math.min(100, Math.max(0, Math.round(webpQualityNum))) }
+        : {};
+
       // Повторная оптимизация уже загруженного исходника (без перезаливки тела).
       const sourceParam = url.searchParams.get('source') || '';
       let sourceId;
@@ -1071,7 +1086,7 @@ const server = http.createServer(async (req, res) => {
 
       const plan = planForSafe(platformId, langOf(url), engineId);
       // Порядок значим: фолбэк → профиль площадки → явный выбор человека.
-      const engineOpts = { ...FALLBACK_ENGINE_OPTS, ...(plan.engineOpts || {}), ...texModeChoice };
+      const engineOpts = { ...FALLBACK_ENGINE_OPTS, ...(plan.engineOpts || {}), ...texModeChoice, ...webpQualityChoice };
 
       const onProgress = (e: Record<string, unknown>) => {
         if (jobId) sendSSE(jobId, e);

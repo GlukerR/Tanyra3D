@@ -93,6 +93,16 @@ interface ExclusiveGroupDef {
   members: string[];
   /** порядок совместимости, а не порядок флажков пользователя */
   priority: string[];
+  /**
+   * Члены, которые движок ДЕЙСТВИТЕЛЬНО делает взаимоисключающими: лишние вычёркиваются
+   * из advancedFeatures, побеждает ПОСЛЕДНИЙ присланный. Не указан — группа только
+   * объявлена (интерфейс сам гасит соседа), а движок исполняет всё, что пришло.
+   *
+   * Почему последний, а не по priority: в интерфейсе клик по галочке гасит соседнюю,
+   * то есть выигрывает тот, кого выбрали последним. Движок обязан вести себя так же,
+   * иначе один и тот же выбор даёт разный результат в приложении и через API.
+   */
+  enforce?: string[];
   titleKeys: Record<string, string>;
   /** кого объясняет САМ движок; остальных объясняют их правила */
   engineExplains: string[];
@@ -186,9 +196,15 @@ const EXCLUSIVE_FEATURES: Record<string, ExclusiveGroupDef> = {
   geometry: {
     ruleId: 'geometry/compress',
     members: ['meshopt', 'draco', 'quantize'],
-    // Это порядок совместимости v0.0.9, а не порядок флагов пользователя: оба
-    // порядка ['meshopt', 'draco'] и ['draco', 'meshopt'] дают один файл.
     priority: ['draco', 'meshopt', 'quantize'],
+    // Пара кодеков ВЗАИМОИСКЛЮЧАЮЩАЯ и в движке тоже (Александр, 2026-08-17: «они просто
+    // должны всегда быть взаимоисключающими, выбирается последний, как с галочками»).
+    // Побеждает ПОСЛЕДНИЙ присланный — тем же образом, каким в интерфейсе клик по одной
+    // галочке гасит соседнюю. До этого порядок аргументов игнорировался, и ['draco',
+    // 'meshopt'] молча давал draco: движок переигрывал последний выбор человека.
+    // Квантование в enforce НЕ входит: это третий, независимый способ, и оно объясняет
+    // себя само (quantize.skipped.compressed с именем кодека).
+    enforce: ['meshopt', 'draco'],
     titleKeys: { meshopt: 'feature.meshopt', draco: 'feature.draco', quantize: 'rule.geometryQuantize' },
     // Пару кодеков объяснить некому: meshopt и draco — две ветки ОДНОГО правила
     // geometry/compress, и воздержаться там нечему. Квантование объясняет себя само
@@ -199,10 +215,15 @@ const EXCLUSIVE_FEATURES: Record<string, ExclusiveGroupDef> = {
     ruleId: 'textures/webp',
     members: ['ktx2', 'webp'],
     priority: ['ktx2', 'webp'],
+    // Взаимоисключающая не только в интерфейсе, но и в движке — по той же причине и тем
+    // же способом, что пара кодеков: KTX2 и WebP делают с текстурами противоположное,
+    // и «два процесса друг за другом» означали бы, что второй разбирает работу первого.
+    // Побеждает последний присланный.
+    enforce: ['ktx2', 'webp'],
     titleKeys: { ktx2: 'rule.texturesKtx2', webp: 'rule.texturesWebp' },
-    // Причину называет правило textures/webp: оно видит image/ktx2 и уступает
-    // с webp.skipped.format. Формат в строке точнее, чем общее «выбран другой».
-    engineExplains: [],
+    // Теперь объясняет движок: проигравшее правило просто не запускается, и сказать
+    // «выбран KTX2, а не WebP» больше некому.
+    engineExplains: ['ktx2', 'webp'],
   },
   'texture-size': {
     ruleId: 'textures/resize',
@@ -229,14 +250,42 @@ export function exclusiveGroups() {
   return Object.entries(EXCLUSIVE_FEATURES).map(([id, d]) => ({ id, members: [...d.members] }));
 }
 
-function exclusiveConflicts(requested: Set<string>): ExclusiveConflict[] {
+/**
+ * Разводит взаимоисключающие члены групп с `enforce`: победитель — ПОСЛЕДНИЙ присланный,
+ * проигравшие вычёркиваются из списка фич. Возвращает очищенный список.
+ *
+ * Порядок здесь единственный источник правды о выборе человека, поэтому вычёркивать надо
+ * ДО того, как из списка выведутся compress/codec — иначе движок посчитает флаги по
+ * фиче, которую сам же и отменил.
+ */
+function enforceExclusives(adv: string[]): { adv: string[]; dropped: Map<string, string> } {
+  const dropped = new Map<string, string>(); // проигравший → победитель
+  for (const definition of Object.values(EXCLUSIVE_FEATURES)) {
+    const enforce = definition.enforce;
+    if (!enforce) continue;
+    const asked = adv.filter((feature) => enforce.includes(feature));
+    if (asked.length < 2) continue;
+    const winner = asked[asked.length - 1]!;
+    for (const loser of asked.slice(0, -1)) dropped.set(loser, winner);
+  }
+  return { adv: adv.filter((feature) => !dropped.has(feature)), dropped };
+}
+
+// Список приходит УПОРЯДОЧЕННЫМ, а не множеством: для групп с enforce победитель — тот,
+// кого выбрали последним, и без порядка его не определить (Set это знание терял).
+function exclusiveConflicts(requested: string[]): ExclusiveConflict[] {
   const conflicts: ExclusiveConflict[] = [];
+  const asked = (feature: string) => requested.includes(feature);
   for (const [group, definition] of Object.entries(EXCLUSIVE_FEATURES)) {
-    const selected = definition.priority.find((feature) => requested.has(feature));
+    // У групп с enforce победителя выбирает тот же закон, что и в enforceExclusives —
+    // последний присланный. Спрашивать здесь priority значило бы назвать в отчёте не того.
+    const selected = definition.enforce
+      ? requested.filter((feature) => definition.enforce!.includes(feature)).pop()
+      : definition.priority.find(asked);
     if (!selected) continue;
     const explains = definition.engineExplains || definition.members;
     const rejected = definition.members
-      .filter((feature) => feature !== selected && requested.has(feature))
+      .filter((feature) => feature !== selected && asked(feature))
       .filter((feature) => explains.includes(feature));
     if (!rejected.length) continue;
     conflicts.push({
@@ -258,21 +307,51 @@ function normalizeOpts(opts: RawOpts = {}): GltfOpts {
   if (unknown.length) {
     throw new Error(`Unknown advancedFeatures: ${unknown.join(', ')}. Available: ${Object.keys(ADVANCED_FEATURES).join(', ')}.`);
   }
-  // Компрессия геометрии — opt-in: флажок 'meshopt' или 'draco' (либо legacy codec/compress).
-  const draco = opts.codec === 'draco' || adv.includes('draco');
-  const compress = draco || adv.includes('meshopt') || !!opts.compress;
   const allMembers = Object.values(EXCLUSIVE_FEATURES).flatMap((d) => d.members);
-  const requestedCodecs = new Set(adv.filter((feature) => allMembers.includes(feature)));
-  // Legacy-поля — такой же вход движка, как advancedFeatures: конфликт между
-  // codec:'draco' и явным meshopt тоже нельзя прятать молча.
-  if (opts.codec === 'draco') requestedCodecs.add('draco');
-  if (opts.compress && opts.codec !== 'draco') requestedCodecs.add('meshopt');
+  // Что человек ВЫБРАЛ, по порядку выбора. Legacy-поля дописываются сюда же: конфликт
+  // между codec:'draco' и явным meshopt — такой же выбор, и прятать его нельзя.
+  const requestedCodecs = adv.filter((feature) => allMembers.includes(feature));
+  if (opts.codec === 'draco' && !requestedCodecs.includes('draco')) requestedCodecs.push('draco');
+  // `compress: true` — НЕ выбор кодека, а общий выключатель «сжимать геометрию».
+  // Дописывать его как выбор meshopt можно только когда кодек не назван вовсе: иначе
+  // он оказывался последним в списке и по закону «побеждает последний» отменял ЯВНО
+  // запрошенный draco, а отчёт называл победителем meshopt, которого человек не выбирал
+  // (найдено ревью 2026-08-18: `{compress:true, advancedFeatures:['draco']}` давал
+  // meshopt, хотя до этого коммита давал draco).
+  const codecAsked = EXCLUSIVE_FEATURES.geometry!.enforce!;
+  if (opts.compress && opts.codec !== 'draco' && !requestedCodecs.some((f) => codecAsked.includes(f))) {
+    requestedCodecs.push('meshopt');
+  }
+
+  // Взаимоисключающие пары разводятся ОДИН раз и ДО вывода флагов: иначе compress/codec
+  // считались бы по фиче, которую движок сам же и отменил.
+  const conflicts = exclusiveConflicts(requestedCodecs);
+  const { dropped } = enforceExclusives(requestedCodecs);
+  const kept = adv.filter((feature) => !dropped.has(feature));
+
+  // Качество WebP: значением считается ТОЛЬКО число либо непустая строка с числом.
+  // Всё прочее (null, '', false, [], объект) — это «не задавали», а не ноль. Ловушка
+  // одна и та же на весь список: `Number(null)`, `Number('')`, `Number(false)` и
+  // `Number([])` дают 0, то есть «сжать до предела», — самое разрушительное положение
+  // ползунка молча получалось из пустого значения. Числовой мусор ('abc' → NaN) сюда
+  // проходит намеренно: диапазон и откат к умолчанию держит правило (webpShare).
+  const rawQuality = opts.webpQuality;
+  const webpQuality = (typeof rawQuality === 'number'
+    || (typeof rawQuality === 'string' && rawQuality.trim() !== ''))
+    ? Number(rawQuality)
+    : undefined;
+
+  // Компрессия геометрии — opt-in: флажок 'meshopt' или 'draco' (либо legacy codec/compress).
+  // Legacy-поля проходят через тот же фильтр: проигравший кодек не влияет на выбор,
+  // каким бы способом его ни попросили.
+  const draco = kept.includes('draco') || (opts.codec === 'draco' && !dropped.has('draco'));
+  const compress = draco || kept.includes('meshopt') || (!!opts.compress && !dropped.has('meshopt'));
 
   return {
-    advancedFeatures: adv,
-    exclusiveConflicts: exclusiveConflicts(requestedCodecs),
+    advancedFeatures: kept,
+    exclusiveConflicts: conflicts,
     // opt-in-флаги: по умолчанию всё выключено (passthrough).
-    safe: adv.includes('safe') || !!opts.safe, // безопасная чистка (бандл)
+    safe: kept.includes('safe') || !!opts.safe, // безопасная чистка (бандл)
     compress, // сжимать ли геометрию вообще
     codec: draco ? 'draco' : 'meshopt', // какой кодек — если compress включён
     // Квантование — третий способ сжать геометрию, единственный без декодера. Одна
@@ -289,12 +368,17 @@ function normalizeOpts(opts: RawOpts = {}): GltfOpts {
     keepParts: !!opts.keepParts,
     // KTX2 по умолчанию ВЫКЛЮЧЕН (advanced). Приоритет: фича 'ktx2' > явный boolean noKtx
     // (legacy) > default true.
-    noKtx: adv.includes('ktx2') ? false : (typeof opts.noKtx === 'boolean' ? opts.noKtx : true),
+    noKtx: kept.includes('ktx2') ? false : (typeof opts.noKtx === 'boolean' ? opts.noKtx : true),
     // WebP — тоже opt-in и тоже про текстуры, но противоположный KTX2 по смыслу
-    // (меньше файл против меньше видеопамяти). Взаимоисключение делает интерфейс:
-    // движок обязан честно выполнить то, что попросили, даже если попросили оба, —
-    // молча отменять выбор он не вправе.
-    noWebp: adv.includes('webp') ? false : (typeof opts.noWebp === 'boolean' ? opts.noWebp : true),
+    // (меньше файл против меньше видеопамяти). Пара взаимоисключающая и в движке
+    // (enforce), поэтому читаем из ОЧИЩЕННОГО списка: если пришли обе, здесь останется
+    // только последняя выбранная, а про отменённую отчёт скажет вслух.
+    noWebp: kept.includes('webp') ? false : (typeof opts.noWebp === 'boolean' ? opts.noWebp : true),
+    // Качество WebP — доля от качества ИСХОДНИКА, 0…100. Умолчание и проверку диапазона
+    // держит само правило (WEBP_QUALITY_DEFAULT в rules.mts): значение приходит и из
+    // интерфейса, и из чужого вызова по API, и одно место на оба входа надёжнее двух.
+    // Здесь только отделяем «задали» от «не задавали» (см. rawQuality выше).
+    webpQuality,
     stripColors: !!opts.stripColors || adv.includes('strip-colors'),
     // Ноль — «не уменьшать», и это значение по умолчанию. Из нескольких просьб берётся
     // самая крупная цель (см. приоритет группы texture-size): выбросить больше пикселей,
@@ -1060,6 +1144,14 @@ async function inspect(srcPath: string): Promise<Record<string, unknown>> {
   const asset = doc.getRoot().getAsset() || {};
   const extensions = doc.getRoot().listExtensionsUsed().map((e: { extensionName: string }) => e.extensionName);
 
+  // «Генератор» читаем из СЫРОГО json, а не из документа. gltf-transform на чтении
+  // подставляет в asset.generator СВОЮ версию, и панель метаданных у любой модели
+  // показывала «glTF-Transform v4.4.2» — то есть поле, которое должно назвать Blender
+  // или Sketchfab, всегда называло нас. Найдено 2026-08-17 на двух образцах подряд:
+  // в файлах стояло v4.2.1 и v4.4.1, на экране — одинаковое v4.4.2.
+  let rawGenerator = '';
+  try { rawGenerator = parseGltfJson(bytes)?.asset?.generator || ''; } catch { /* не GLB или битый JSON — оставим пустым */ }
+
   let metadata: InspectLike = { scenes: { properties: [] }, meshes: { properties: [] }, materials: { properties: [] }, textures: { properties: [] }, animations: { properties: [] } };
   try { metadata = fns.inspect(doc); } catch { /* экзотика — отдаём пустые таблицы */ }
 
@@ -1086,7 +1178,7 @@ async function inspect(srcPath: string): Promise<Record<string, unknown>> {
 
   return {
     format: 'gltf',
-    asset: { version: asset.version || '', generator: asset.generator || '' },
+    asset: { version: asset.version || '', generator: rawGenerator || asset.generator || '' },
     extensions,
     metadata,
     metrics,

@@ -121,8 +121,8 @@ model, eleven of "already WebP" on another, eight of "attribute unused" on a thi
 The shape is two keys for one meaning:
 
 ```js
-if (names.length === 1) out.skipped.push({ messageId: 'webp.skipped.jpegData', data: { name: names[0] } });
-else if (names.length > 1) out.skipped.push({ messageId: 'webp.skipped.jpegData.many', data: { n: names.length } });
+if (names.length === 1) out.skipped.push({ messageId: 'ktx2.skipped.already', data: { name: names[0] } });
+else if (names.length > 1) out.skipped.push({ messageId: 'ktx2.skipped.already.many', data: { n: names.length } });
 ```
 
 Three conditions, each of which has been broken and cost time:

@@ -201,7 +201,6 @@ window.I18N_CATALOGS.en = {
   // Без «файл всё равно можно сохранить»: кнопка активна и подсвечена — это и так видно,
   // а лишняя оговорка делает подсказку длиннее самой новости.
   'btn.download.alert': 'The result differs from the source — open to see what exactly.',
-  'btn.pickOption': 'Select an optimization to build',
   'btn.changeSetting': 'Change a setting to rebuild',
   'btn.building': 'Building — wait for it to finish',
 
@@ -304,6 +303,12 @@ window.I18N_CATALOGS.en = {
   // остаются: по ним человек ищет ответ.
   'ktx2.mode.uastc': 'UASTC — sharper picture, heavier file',
   'ktx2.mode.etc1s': 'ETC1S — lighter file, coarser color',
+  // WebP quality slider: one number and nothing else (Alexander, 2026-08-17). There used
+  // to be three labels — "as in the source", "recommended", plain percent; the first also
+  // promised something the code does not deliver. The scale is explained in the 📖 hint;
+  // the position label has to read at a glance.
+  'opt.webpQuality': 'Quality:',
+  'opt.webpQuality.share': ({ share }) => `${share}%`,
   'decoder.legend': 'Marks options that need extra decoder/engine support to display correctly',
   'decoder.meshopt': 'Install the Meshopt decoder on the target site/engine.',
   'decoder.draco': 'Install the Draco decoder on the target site/engine.',
@@ -379,6 +384,7 @@ window.I18N_CATALOGS.en = {
   'log.serverError': ({ status }) => `The server responded with an error (${status}).`,
   'log.noServer': ({ error }) => `Could not reach the server: ${error}`,
   'log.ktx2mode': ({ mode }) => `KTX2 mode: ${mode}`,
+  'log.webpQuality': ({ share }) => `WebP quality: ${share}%`,
   'log.langChanged': ({ name }) => `Interface language: ${name}`,
 
 };
