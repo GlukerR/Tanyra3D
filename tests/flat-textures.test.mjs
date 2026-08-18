@@ -96,6 +96,34 @@ describe('textures/flat — заливка одним цветом ужимае�
     expect(ok.found).toHaveLength(1);
   }, 120000);
 
+  it('битую картинку не выдаёт за «не заливку» — сбой попадает в «Пропущено»', async () => {
+    // Правило 12 в чистом виде. Галочка safe стояла, разобрать текстуру не вышло, работа
+    // не сделана — значит человек обязан узнать. Раньше проверка была одна на два разных
+    // исхода (`if (!res.ok || !res.value) continue`), и битая текстура молча выпадала под
+    // видом «это не заливка». Найдено ревью 2026-08-18.
+    const broken = Buffer.from('это не картинка, а просто байты', 'utf8');
+    const doc = await docWithImages('Dirty Cube 01.glb', [broken]);
+    const out = await rule.fix({}, ctxFor(doc));
+
+    const said = out.skipped.find((s) => s.messageId === 'flat.skipped.failed');
+    expect(said, 'сбой разбора обязан попасть в отчёт, а не потеряться').toBeTruthy();
+    expect(said.data.n).toBe(1);
+    // и байты битой текстуры не тронуты — правило её не «починило» по дороге
+    expect(Buffer.from(doc.getRoot().listTextures()[0].getImage())).toEqual(broken);
+  }, 120000);
+
+  it('сбой доезжает до отчёта, даже когда заливок не нашлось вовсе', async () => {
+    // Отдельный случай, а не дубль предыдущего: строка о сбое стояла ПОСЛЕ раннего
+    // выхода `if (!n) return out`, и на модели без единой заливки терялась целиком.
+    const doc = await docWithImages('Dirty Cube 01.glb', [
+      Buffer.from('битые байты', 'utf8'),
+      await noisy(64, 64), // настоящая картинка — заливок в модели нет ни одной
+    ]);
+    const out = await rule.fix({}, ctxFor(doc));
+    expect(out.found).toHaveLength(0);
+    expect(out.skipped.find((s) => s.messageId === 'flat.skipped.failed')).toBeTruthy();
+  }, 120000);
+
   it('настоящую картинку не трогает', async () => {
     const before = await noisy(256, 256);
     const doc = await docWithImages('Dirty Cube 01.glb', [before]);

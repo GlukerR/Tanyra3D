@@ -182,6 +182,7 @@ export default {
   // a flat fill to almost nothing) while the VRAM win is huge — the GPU stores pixels
   // unpacked. Measured: 2048×2048 is 33 KB on disk and 21.3 MB in video memory.
   'flat.safe': () => 'the colour is kept byte for byte; only the resolution changes, and in a single-colour fill it means nothing',
+  'flat.skipped.failed': ({ n }) => `${n} texture${n === 1 ? '' : 's'} not checked for a flat fill — the image could not be read`,
   'flat.found': ({ n }) => `${n} texture${n === 1 ? ' is' : 's are'} filled with a single colour`,
   'flat.done': ({ n, vramMb }) => `${n} single-colour texture${n === 1 ? '' : 's'} shrunk to one pixel — ${vramMb} MB less video memory, same colour${n === 1 ? '' : 's'}`,
 
