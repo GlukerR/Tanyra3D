@@ -366,6 +366,13 @@ describeIfModels(['ToyCar.glb'], 'WebP — отчёт переживает см�
 // раньше правило обращалось со всеми одинаково (жёсткий q90) и обе беды шли именно
 // оттуда: у слабого исходника мы «улучшали» его и платили весом, у сильного — молча
 // огрубляли.
+// ВНИМАНИЕ: каждый тест здесь помечен своей моделью через itIfModel, и это обязательно.
+// Раздел писался 2026-08-17 и был единственным в файле с ГОЛЫМ describe — соседние блоки
+// обёрнуты в describeIfModels. Модели BoomBox, ABeautifulGame и Production Many Materials
+// в репозиторий не коммитятся, поэтому на CI тесты падали с ENOENT: семь красных на трёх
+// версиях Node (найдено 2026-08-18 при первом же прогоне этих тестов на CI — до того они
+// жили только на машине разработчика). Блок целиком в describeIfModels не заворачивается
+// намеренно: моделей три, и общая обёртка погасила бы раздел даже там, где нужная есть.
 describe('WebP — ползунок качества считается от исходника', () => {
   const imageBytes = (doc) => doc.getRoot().listTextures()
     .reduce((s, t) => s + (t.getImage()?.byteLength || 0), 0);
@@ -401,7 +408,7 @@ describe('WebP — ползунок качества считается от и�
     return imageBytes(await io.read(modelPath(model)));
   }
 
-  it('шкала монотонна: чем ниже ползунок, тем легче картинки', async () => {
+  itIfModel('BoomBox.glb', 'шкала монотонна: чем ниже ползунок, тем легче картинки', async () => {
     const at100 = await runAt('BoomBox.glb', 100);
     const at70 = await runAt('BoomBox.glb', 70);
     const at40 = await runAt('BoomBox.glb', 40);
@@ -409,7 +416,7 @@ describe('WebP — ползунок качества считается от и�
     expect(at40.bytes).toBeLessThan(at70.bytes);
   }, 300000);
 
-  it('исходник без потерь (PNG): на 100 кодируем без потерь и всё равно легче исходника', async () => {
+  itIfModel('BoomBox.glb', 'исходник без потерь (PNG): на 100 кодируем без потерь и всё равно легче исходника', async () => {
     const src = await sourceBytes('BoomBox.glb');
     const { bytes, ids } = await runAt('BoomBox.glb', 100);
     // Ровно тот случай, из-за которого «без потерь» когда-то раздуло модели: там
@@ -418,7 +425,7 @@ describe('WebP — ползунок качества считается от и�
     expect(bytes).toBeLessThan(src);
   }, 300000);
 
-  it('исходник без потерь, ползунок сдвинут: причина названа выбором человека, а не чужим экспортом', async () => {
+  itIfModel('BoomBox.glb', 'исходник без потерь, ползунок сдвинут: причина названа выбором человека, а не чужим экспортом', async () => {
     const { ids } = await runAt('BoomBox.glb', 70);
     // Дефект, пойманный замером 2026-08-17: карта данных из честного PNG получала
     // объяснение «пришла уже сжатой с потерями» — неправда про модель человека.
@@ -426,7 +433,7 @@ describe('WebP — ползунок качества считается от и�
     expect(ids).not.toContain('webp.done.dataLossy');
   }, 300000);
 
-  it('исходник JPEG: качество читается из файла и названо ПРИМЕРНЫМ, прицел в потолок легче q90', async () => {
+  itIfModel('ABeautifulGame.glb', 'исходник JPEG: качество читается из файла и названо ПРИМЕРНЫМ, прицел в потолок легче q90', async () => {
     const src = await sourceBytes('ABeautifulGame.glb');
     const { bytes, result } = await runAt('ABeautifulGame.glb', 100);
 
@@ -451,7 +458,7 @@ describe('WebP — ползунок качества считается от и�
     expect(bytes).toBeLessThan(src * 0.5);
   }, 600000);
 
-  it('исходник уже WebP: на сотне не трогаем, ниже — жмём по просьбе', async () => {
+  itIfModel('Production Many Materials 01.glb', 'исходник уже WebP: на сотне не трогаем, ниже — жмём по просьбе', async () => {
     const model = 'Production Many Materials 01.glb';
     const src = await sourceBytes(model);
 
@@ -469,7 +476,7 @@ describe('WebP — ползунок качества считается от и�
     expect(at40.bytes).toBeLessThan(src);
   }, 900000);
 
-  it('умолчание — сотня: без просьбы человека качество не понижается', async () => {
+  itIfModel('BoomBox.glb', 'умолчание — сотня: без просьбы человека качество не понижается', async () => {
     // Кратко умолчанием было 90 ради прежней лёгкости; Александр посмотрел результат
     // глазами и вернул сотню. Цифры говорили одно, глаз другое — здесь прав глаз.
     const io = await ioPromise;
@@ -483,7 +490,7 @@ describe('WebP — ползунок качества считается от и�
     expect(bytes).toBe(at100.bytes);
   }, 600000);
 
-  it('мусор в значении не роняет сборку и откатывается к умолчанию', async () => {
+  itIfModel('BoomBox.glb', 'мусор в значении не роняет сборку и откатывается к умолчанию', async () => {
     // Значение приходит и от чужого вызова по API, а не только с ползунка.
     // Отдельно про null: `Number(null)` это 0, а не NaN, — без явной отсечки
     // «не задавали» молча означало бы «сжать до предела». Дефект пойман этим тестом.
@@ -537,6 +544,29 @@ describe('textures/webp — знак цены не загорается на р�
     for (const t of doc.getRoot().listTextures()) after += t.getImage()?.byteLength || 0;
     expect(after, 'предпосылка теста: модель должна ужаться').toBeLessThan(before);
     expect(out.cost, 'ужалась — знака цены быть не должно').toBeFalsy();
+  }, 600000);
+
+  it('знак цены не встаёт на росте, которого не видно в напечатанных числах', async () => {
+    // Сторож против правки, которую я сам сделал и откатил 2026-08-18. Сняв порог
+    // «вдвое», я получил на `Dirty Cube 01` запись webp.grewVram с числами «было 16 МБ,
+    // стало 16 МБ, 0 %»: красный знак у галочки и строка, сама себя опровергающая.
+    //
+    // Модель лежит в репозитории, значит этот случай видит и CI. Тест закрепляет не
+    // порог как число, а требование к смыслу: если запись о цене появилась, напечатанные
+    // числа обязаны эту цену ПОКАЗЫВАТЬ. Порог можно менять, враньё — нет.
+    const io = await ioPromise;
+    const doc = await io.read(modelPath('Dirty Cube 01.glb'));
+    const out = await rule.fix({}, {
+      document: doc, opts: { locale: 'ru' }, log: () => {}, dstName: 'webp-cost-honest.glb',
+    });
+    for (const c of out.cost || []) {
+      const d = c.data || {};
+      const before = d.beforeKb ?? d.beforeMb;
+      const after = d.afterKb ?? d.afterMb;
+      expect(d.pct, `${c.messageId}: заявлен рост, а процент ${d.pct}`).toBeGreaterThan(0);
+      expect(after, `${c.messageId}: заявлен рост, а числа ${before} → ${after}`)
+        .toBeGreaterThan(before);
+    }
   }, 600000);
 });
 

@@ -21,6 +21,10 @@ import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 
 import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
+// describeLocal — тот же приём «нет модели → describe.skip», что был здесь руками, но
+// один на весь набор. Переведено 2026-08-18: два способа делать одно и то же означали,
+// что сторож tests/local-model-guard.test.mjs знал про один и ругался на другой.
+import { describeLocal } from './helpers/model-files.mjs';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -210,10 +214,7 @@ describe('Post-GAP-005 corpus — Truncated Broken 01: pipeline must fail', () =
 // при следующем клоне можно было сразу увидеть, что «модель не в репо».
 
 // ---- 3.1 chibi_zenitsu ----
-const chibiPath = modelPath('chibi_zenitsu.glb');
-const chibiPresent = fs.existsSync(chibiPath);
-const chibiDescribe = chibiPresent ? describe : describe.skip;
-chibiDescribe('Post-GAP-005 corpus — chibi_zenitsu (local CC-BY-4.0): skin + anim + morphs', () => {
+describeLocal('chibi_zenitsu.glb', 'Post-GAP-005 corpus — chibi_zenitsu (local CC-BY-4.0): skin + anim + morphs', () => {
 
   it('passthrough: 1 skin, 1 анимация (\'Run\'), morphTargets > 0', async () => {
     const result = await optimizeFile(modelPath('chibi_zenitsu.glb'), {
@@ -279,10 +280,7 @@ chibiDescribe('Post-GAP-005 corpus — chibi_zenitsu (local CC-BY-4.0): skin + a
 });
 
 // ---- 3.2 parkergirl ----
-const parkergirlPath = modelPath('parkergirl.glb');
-const parkergirlPresent = fs.existsSync(parkergirlPath);
-const parkergirlDescribe = parkergirlPresent ? describe : describe.skip;
-parkergirlDescribe('Post-GAP-005 corpus — parkergirl (local CC-BY-4.0): heavy morph stress', () => {
+describeLocal('parkergirl.glb', 'Post-GAP-005 corpus — parkergirl (local CC-BY-4.0): heavy morph stress', () => {
 
   it('passthrough: 1 skin, 1 анимация (\'MorphBake\'), morphTargets > 0', async () => {
     const result = await optimizeFile(modelPath('parkergirl.glb'), {

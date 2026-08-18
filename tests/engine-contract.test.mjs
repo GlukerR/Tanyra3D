@@ -52,7 +52,7 @@
 //
 // Н-5. РАЗДЕЛ 4 (профили) — профиль площадки расходится с meta правила:
 //   - threejs.json ktx2: dataLoss 'none', правило textures/ktx2 — 'minor';
-//   - mobile.json/quest.json/shopify.json: у ktx2, draco, quantize, strip-colors
+//   - в профилях площадок: у ktx2, draco, quantize, strip-colors
 //     полей reversible/dataLoss НЕТ вовсе — интерфейс не получает признак;
 //   - threejs.json strip-colors: dataLoss 'significant', правило
 //     attributes/vertex-colors (базовая ветка) — 'none'. Здесь расхождение

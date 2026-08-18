@@ -1015,8 +1015,9 @@ const server = http.createServer(async (req, res) => {
       //
       // Раньше здесь стояло `=== 'mixed' ? 'mixed' : 'uastc'`, то есть отсутствие
       // параметра означало «uastc», и это значение подставлялось ПОСЛЕ профиля —
-      // профиль не мог задать режим никогда. `profiles/mobile.json` и `quest.json`
-      // объявляют `texMode: mixed` и объясняют человеку почему; их выбор выбрасывался.
+      // профиль не мог задать режим никогда: профиль объявлял `texMode` и объяснял
+      // человеку почему, а его выбор выбрасывался. Дефект принадлежит этому месту, а не
+      // какому-то одному профилю, и воспроизводится с любым, который задаёт `texMode`.
       const texModeRaw = url.searchParams.get('texMode');
       const texModeChoice = (texModeRaw === 'mixed' || texModeRaw === 'uastc') ? { texMode: texModeRaw } : {};
 

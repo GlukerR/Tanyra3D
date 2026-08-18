@@ -155,7 +155,7 @@ This is how one codebase serves Three.js / Mobile / Quest / Shopify without fork
 
 A **Profile** is a declarative file: triangle budget, texture budget, VRAM budget,
 draw-call budget, allowed fix-safety tier, per-rule severity overrides, and which rule
-packs are active. "Quest Score" is not code — it is `profiles/quest.json` with tight
+packs are active. "Quest Score" is not code — it is a target profile with tight
 budgets. "Shopify limits" is a profile. Rules read budgets from the active profile
 instead of hardcoding numbers.
 
