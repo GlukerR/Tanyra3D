@@ -991,9 +991,22 @@ built when the second engine arrives.
 
 ### What was done immediately (so the change stays cheap)
 
-- Every profile now carries an explicit `"engine": "threejs"`. The field is redundant with a
-  single engine — that is the point: the pair becomes visible **in the data** instead of
+- Every profile then carried an explicit `"engine": "threejs"`. The field was redundant with a
+  single engine — that was the point: the pair becomes visible **in the data** instead of
   hiding inside a display title.
+
+  **Superseded 2026-08-18 (Alexander's decision).** A blanket `"engine"` on every profile was
+  itself a claim nobody had made. A target names an engine only when it *is* a storefront with
+  a fixed viewer — Shopify is one, and says `model-viewer`. "Mobile (smartphones)" and
+  "Meta Quest (VR)" are **device classes**: a phone browser and a headset browser will run
+  three.js, Babylon, model-viewer or anything else, because the engine is chosen by the site,
+  not by the device. Both profiles now carry **no engine field at all**, and an absent field
+  is a legitimate state meaning *does not dictate one* — the same standing the dash has. It
+  matters because §4g lets a chosen target **override** the engine select: with the old field,
+  picking "Mobile" silently forced the three.js palette on someone whose mobile site may run
+  anything. Mechanics: `engineIdOf(profile, asked)` falls through to the engine the person
+  picked, `dictatesEngine()` reports null to the UI, and such a target fits every engine and
+  is never reset when the engine changes.
 - `reversible` / `dataLoss` were **removed from the profiles**. Nothing read them: the UI
   takes both from `result.applied`, and the tests from `listRules()`. Duplicated dead data is
   how the next divergence starts. The old guard in `tests/engine-contract.test.mjs` demanded

@@ -293,10 +293,33 @@ function loadEngine(engineId: string): EngineJson | null {
   }
 }
 
-// Движок площадки. Профиль обязан называть его явно; фолбэк оставлен на случай
-// профиля, написанного до §4g, — он не должен ронять приложение.
-function engineIdOf(profile: ProfileJson): string {
-  return (profile && profile.engine) || DEFAULT_ENGINE;
+// Движок площадки — или ЕГО ОТСУТСТВИЕ, и это законное состояние (решение Александра
+// 2026-08-18: «убери движок у mobile и quest»).
+//
+// Площадка диктует движок только если она И ЕСТЬ конкретная витрина с конкретным
+// просмотрщиком. Shopify такова: её карточка товара рисуется через model-viewer, и
+// выбрать под неё Babylon нельзя — такой пары не существует. А «Смартфоны» и «Meta
+// Quest» — это КЛАССЫ УСТРОЙСТВ, а не витрины. Браузер телефона и браузер шлема
+// одинаково запустят three.js, Babylon, model-viewer и что угодно ещё: движок выбирает
+// сайт, а не устройство. Стоявшее там "engine": "threejs" было утверждением, которого
+// никто не делал, — тем же по природе, что и "engine": "threejs" у Shopify до сверки
+// 2026-08-10; только у Shopify нашёлся настоящий ответ, а здесь его нет и быть не может.
+//
+// Молча подставлять DEFAULT_ENGINE вместо отсутствующего поля нельзя: по §4g выбранная
+// площадка ПЕРЕБИВАЕТ выбор движка, и подстановка означала бы, что человек, выбравший
+// «Мобильные», молча получает палитру three.js — при том что его мобильный сайт может
+// быть на чём угодно.
+//
+// Поэтому: поле есть — оно и есть ответ; поля нет — берём тот движок, который человек
+// выбрал сам; не выбрал ничего — DEFAULT_ENGINE как последняя опора, чтобы приложение
+// не осталось без списка опций.
+function engineIdOf(profile: ProfileJson, asked?: string): string {
+  return (profile && profile.engine) || asked || DEFAULT_ENGINE;
+}
+
+/** Диктует ли площадка движок. Пусто — значит годится любому, как прочерк. */
+function dictatesEngine(profile: ProfileJson): boolean {
+  return !!(profile && profile.engine);
 }
 
 export function listEngines(lang: string = DEFAULT_LANG) {
@@ -344,7 +367,9 @@ export function noPlatformInfo(lang: string = DEFAULT_LANG) {
 export function platformsForEngine(engineId: string, lang: string = DEFAULT_LANG) {
   return listPlatforms(lang).filter((p) => {
     try {
-      return engineIdOf(loadProfile(p.id)) === engineId;
+      const profile = loadProfile(p.id);
+      // Площадка, которая движок не диктует, годится ЛЮБОМУ — как прочерк.
+      return !dictatesEngine(profile) || engineIdOf(profile) === engineId;
     } catch {
       return false;
     }
@@ -353,12 +378,15 @@ export function platformsForEngine(engineId: string, lang: string = DEFAULT_LANG
 
 // Обратная сторона той же симметрии: какие движки годятся для площадки.
 export function enginesForPlatform(platformId: string, lang: string = DEFAULT_LANG) {
-  let wanted;
+  let profile;
   try {
-    wanted = engineIdOf(loadProfile(platformId));
+    profile = loadProfile(platformId);
   } catch {
     return [];
   }
+  // Не диктует движок — годятся все: выбор остаётся за человеком.
+  if (!dictatesEngine(profile)) return listEngines(lang);
+  const wanted = engineIdOf(profile);
   return listEngines(lang).filter((e) => e.id === wanted);
 }
 
@@ -448,7 +476,9 @@ export function listPlatforms(lang: string = DEFAULT_LANG) {
           // Откуда у площадки её запреты и числа. Второй вопрос, отдельный от «что это
           // за площадка», и в книжечке он идёт отдельной строкой.
           source: pick(p.source, lang),
-          engine: engineIdOf(p),
+          // null, а не подставленный движок: интерфейс по этому полю решает, показывать
+          // ли «нужен другой движок». Площадка без движка годится любому.
+          engine: dictatesEngine(p) ? engineIdOf(p) : null,
           // Откуда взялся профиль. Интерфейсу это нужно, чтобы не выдавать свои числа
           // за выверенные по первоисточнику (ROADMAP.md §5i).
           custom,
@@ -488,7 +518,7 @@ export function planFor(platformId: string, lang: string = DEFAULT_LANG, engineI
   // baselineOpts не пишет вовсе: спрашивать про кодек того, кто заводит площадку по
   // письму менеджера, — ровно то, чего Правило 10 не велит.
   const opts = profile.baselineOpts || profile.engineOpts
-    || (loadEngine(engineIdOf(profile)) || {}).baselineOpts || {};
+    || (loadEngine(engineIdOf(profile, engineId)) || {}).baselineOpts || {};
   const b = profile.budgets || {};
 
   const explanation = [];
@@ -527,12 +557,12 @@ export function planFor(platformId: string, lang: string = DEFAULT_LANG, engineI
     // в этом и смысл: пара «площадка + движок» должна быть видна в данных, а не
     // прятаться в названии вроде «Web (Three.js)» (ARCHITECTURE.md §4g). Когда
     // движков станет несколько, добавление будет данными, а не сменой протокола.
-    engine: engineIdOf(profile),
+    engine: engineIdOf(profile, engineId),
     // Как движок называется и какой вьюпорт монтировать — из engines/<id>.json.
     // null, если файла движка нет: интерфейс покажет площадку без движка, но не
     // выдумает имя.
     engineInfo: (() => {
-      const e = loadEngine(engineIdOf(profile));
+      const e = loadEngine(engineIdOf(profile, engineId));
       return e ? { id: e.id, title: pick(e.title, lang) || e.id, description: pick(e.description, lang), viewer: e.viewer || e.id } : null;
     })(),
     engineOpts: { ...opts },
@@ -587,8 +617,11 @@ export function narrowToPlatform(list: ExtensionEntry[], profile: ProfileJson): 
   return drop.size ? list.filter((e) => !drop.has(e.id)) : list;
 }
 
-function extensionsOf(profile: ProfileJson, lang: string = DEFAULT_LANG): ExtensionEntry[] {
-  const engine = loadEngine(engineIdOf(profile));
+function extensionsOf(profile: ProfileJson, lang: string = DEFAULT_LANG, engineId?: string): ExtensionEntry[] {
+  // engineId — движок, выбранный человеком. Он применяется ТОЛЬКО когда площадка своего
+  // не назвала: у Shopify палитру задаёт model-viewer и спорить не с чем, а у «Смартфонов»
+  // движка нет вовсе, и палитра обязана прийти от того, что выбрано в соседнем поле.
+  const engine = loadEngine(engineIdOf(profile, engineId));
   const all = engine && Array.isArray(engine.availableExtensions) ? engine.availableExtensions : [];
   const list = narrowToPlatform(all, profile);
   // копии: мутации у потребителя не должны влиять на закешированные профили
@@ -602,7 +635,7 @@ function extensionsOf(profile: ProfileJson, lang: string = DEFAULT_LANG): Extens
 }
 
 export function getAvailableExtensions(platformId: string, lang: string = DEFAULT_LANG, engineId?: string) {
-  return extensionsOf(loadProfile(platformId, engineId, lang), lang);
+  return extensionsOf(loadProfile(platformId, engineId, lang), lang, engineId);
 }
 
 // Алиас под имя, которое web-interface (server.mjs) уже ищет у ассистента.
@@ -875,7 +908,13 @@ const MAX_TEXT = 150;
 export interface CustomProfileInput {
   id?: string;
   title?: string;
-  engine?: string;
+  /**
+   * Движок площадки — или null, если площадка его НЕ ДИКТУЕТ. Пустое значение законно
+   * и означает «годится любому»: так живут классы устройств (смартфоны, VR-шлем), где
+   * движок выбирает сайт, а не устройство. Отличать от отсутствия поля в форме своей
+   * площадки — там его просто не спрашивают.
+   */
+  engine?: string | null;
   description?: string;
   /**
    * Откуда взяты запреты и числа этой площадки: ссылка на документ или пояснение
@@ -1051,7 +1090,7 @@ export function readCustomProfile(id: string, lang: string = DEFAULT_LANG): Cust
   return {
     id: p.id,
     title: pick(p.title, lang) || p.id,
-    engine: engineIdOf(p),
+    engine: dictatesEngine(p) ? engineIdOf(p) : null,
     description: pick(p.description, lang),
     source: pick(p.source, lang),
     budgets,
