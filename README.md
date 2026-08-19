@@ -6,8 +6,9 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Node](https://img.shields.io/badge/Node-20.9%2B-brightgreen)](https://nodejs.org/)
-[![Version](https://img.shields.io/badge/version-0.2.2-orange)](#status)
-[![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#install)
+[![Version](https://img.shields.io/github/v/release/GlukerR/Tanyra3D?label=version&color=orange)](https://github.com/GlukerR/Tanyra3D/releases/latest)
+[![Built for](https://img.shields.io/badge/built%20for-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)](#install)
+[![Tested on](https://img.shields.io/badge/tested%20on-Windows-brightgreen)](#status)
 
 Drop in a `.glb`, tick the boxes you want, get a smaller model back — along with a
 report in plain language: what was found, what was applied, what was left alone, and

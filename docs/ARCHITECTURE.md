@@ -201,7 +201,7 @@ interfaces below.
 
 > **Layout status (2026-07-24):** this monorepo structure is the TARGET shape for the first
 > external plugin, not the current state. The repository is FLAT today (`optimize2.mjs`,
-> `core/`, `addons/gltf/`, `assistant.mjs`, `server.mjs`, `ui/`, `profiles/`). Moving to
+> `core/`, `addons/gltf/`, `assistant.mts`, `server.mts`, `ui/`, `profiles/`, `engines/`). Moving to
 > `packages/*` is a deliberate event, triggered by the first external package or plugin —
 > not a tidy-up done before then (same principle as EXTENDING §4: don't pay for structure
 > ahead of demand).
@@ -1173,16 +1173,30 @@ export default {
 
 ---
 
-## 10. Missing functionality the spec did not list (a maintainer needs these)
+## 10. Functionality the original spec did not list (a maintainer needs these)
 
-- **Baseline / regression diff** — compare to a stored report, fail CI on regression. Essential for the CI/CD story.
-- **SARIF output** — GitHub code-scanning integration; makes findings appear inline on PRs. High leverage, low cost.
+Written at design review as a wish list. Half of it shipped since; keeping the whole list
+under the word *missing* told readers we lack things we have. Marked up 2026-08-19.
+
+**Built:**
+
+- **Baseline / regression diff** ✓ — a checkpoint of structural metrics is taken before the
+  fixes run and compared after; a violation fails the run, and CI has a step that
+  deliberately breaks it to prove the gate still bites (`core/contract.mts`).
+- **`--dry-run` / suggestions vs apply** ✓ — `dryRun` skips the write and still produces the
+  full report, so "tell me" and "do it" are the same code path with one flag between them.
+- **Never-in-place writes** ✓ — fixes are applied to a working copy; the source file is
+  never opened for writing. Stated as an invariant in §2.5 and enforced by the engine.
+- **Zero telemetry** ✓ — by construction: nothing in the tree opens a network socket except
+  the viewer fetching its own assets from the local server.
+
+**Still not built, and no one has asked for them:**
+
+- **SARIF output** — GitHub code-scanning integration; findings inline on PRs.
 - **Suppression / ignore** — inline or config, for false positives and intentional choices.
-- **Deterministic, reproducible output** — for CI caching and trustworthy diffs.
-- **Caching** — hash asset+config, skip unchanged.
-- **`--dry-run` / suggestions vs apply** — separate "tell me" from "do it".
-- **Zero telemetry by default** — open-source trust.
-- **Never-in-place writes** — source file immutable, always new output path.
+- **Caching** — hash asset + config, skip unchanged.
+- **Deterministic, byte-reproducible output** — untested either way; two runs on the same
+  input have never been compared byte for byte, so this is an open question, not a claim.
 
 ---
 
