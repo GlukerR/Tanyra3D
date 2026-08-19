@@ -65,10 +65,34 @@ function upload(body, { name = 'probe.glb', path: url = '/api/inspect', headers 
   });
 }
 
-/** Сколько папок исходников лежит в рабочем каталоге сервера. */
+/** Имена папок исходников в рабочем каталоге сервера. */
 function uploadDirs() {
   const dir = path.join(dataDir, 'uploads');
   try { return fs.readdirSync(dir); } catch { return []; }
+}
+
+/**
+ * Выполнить запрос и дождаться, пока после него не останется НИ ОДНОЙ новой папки.
+ *
+ * Считаем не количество, а РАЗНИЦУ множеств, и ждём её схождения к пустой. Первая
+ * редакция сравнивала числа «до» и «после» с паузой в 300 мс — и упала на CI (Node 24),
+ * потому что чужая уборка от предыдущей проверки прилетала уже во время этой: «до»
+ * оказывалось единицей, «после» нулём, и тест винил код за чистоту.
+ *
+ * Разница множеств от чужой уборки не зависит: она отвечает ровно на вопрос «оставил ли
+ * ЭТОТ запрос свой след», а ожидание вместо фиксированной паузы — на то, что уборка
+ * на занятой машине приходит позже ответа.
+ */
+async function leftoverAfter(run, waitMs = 15_000) {
+  const before = new Set(uploadDirs());
+  const res = await run();
+  const deadline = Date.now() + waitMs;
+  let extra = uploadDirs().filter((d) => !before.has(d));
+  while (extra.length && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 200));
+    extra = uploadDirs().filter((d) => !before.has(d));
+  }
+  return { res, extra };
 }
 
 beforeAll(async () => {
@@ -109,17 +133,14 @@ afterAll(() => {
 
 describe('приём модели идёт потоком на диск', () => {
   it('тело сверх предела отвергается, и обрывок не остаётся на диске', async () => {
-    const before = uploadDirs().length;
-    const res = await upload(Buffer.alloc(LIMIT * 3, 7));
-    // 413 либо обрыв соединения — оба означают отказ. Чего быть НЕ должно: 200 и
-    // молча принятый файл.
-    expect([0, 413].includes(res.status), `ожидался отказ, пришло ${res.status}: ${res.body}`).toBe(true);
-
     // Папка исходника заводится ДО приёма (файл течёт в неё), поэтому при отказе её
     // надо убрать. Иначе на каждой неудачной попытке в рабочем каталоге оставался бы
     // обрывок, который считается в занятое место и не убирается никогда.
-    await new Promise((r) => setTimeout(r, 300)); // серверу дать дописать уборку
-    expect(uploadDirs().length, 'после отказа осталась папка с обрывком').toBe(before);
+    const { res, extra } = await leftoverAfter(() => upload(Buffer.alloc(LIMIT * 3, 7)));
+    // 413 либо обрыв соединения — оба означают отказ. Чего быть НЕ должно: 200 и
+    // молча принятый файл.
+    expect([0, 413].includes(res.status), `ожидался отказ, пришло ${res.status}: ${res.body}`).toBe(true);
+    expect(extra, `после отказа осталась папка: ${extra.join(', ')}`).toEqual([]);
   }, 60_000);
 
   it('заявленный размер сверх предела отвергается ДО приёма тела', async () => {
@@ -132,11 +153,9 @@ describe('приём модели идёт потоком на диск', () => 
   }, 60_000);
 
   it('пустое тело — понятный отказ, а не пустая папка исходника', async () => {
-    const before = uploadDirs().length;
-    const res = await upload(Buffer.alloc(0));
+    const { res, extra } = await leftoverAfter(() => upload(Buffer.alloc(0)));
     expect(res.status).toBe(400);
-    await new Promise((r) => setTimeout(r, 300));
-    expect(uploadDirs().length, 'пустой запрос оставил папку').toBe(before);
+    expect(extra, `пустой запрос оставил папку: ${extra.join(', ')}`).toEqual([]);
   }, 60_000);
 
   it('нормальный файл принимается и доезжает до разбора', async () => {
