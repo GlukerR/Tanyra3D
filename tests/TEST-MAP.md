@@ -132,6 +132,36 @@ If none of the three fits, the check probably isn't needed — or it is a findin
   places for three different reasons (the baseline checkpoint, the `skinned` class, the
   quantization guard); a fourth copy would add nothing.
 
+## A check must not measure the clock, and must not depend on its neighbours
+
+Written down 2026-08-19, after the same mistake landed three times in two days. Each one
+was green locally and red on a loaded run — that is, each accused working code.
+
+1. **`textures/flat`, first version.** A hard ceiling of 700 ms proved "pixels are not
+   parsed". Inside the full suite the same rule took 1017 ms and the gate went red on
+   untouched code.
+2. **Same guard, second version.** The ceiling was made relative — "at most five times the
+   cost of one parse" — and it still failed: under load one parse took 148 ms while the rule
+   that parses *nothing* took 1501 ms. Waiting, not work, dominates the cheap path.
+3. **`upload-streaming`, leftover check.** It compared the *number* of upload folders before
+   and after a request, with a 300 ms pause. On CI another test's cleanup landed mid-check,
+   so "before" read 1 and "after" read 0 — the test blamed the code for tidying up.
+
+The rules that came out of it:
+
+- **Count events, not seconds.** The flat-texture guard now counts calls to `stats()` through
+  a `vi.mock` wrapper. Zero parses is zero parses on any machine, at any load.
+- **Compare set differences, not totals.** The upload guard now asks "which folders appeared
+  because of *this* request", which no neighbour can perturb.
+- **Wait for a condition, never for a duration.** A fixed `setTimeout` encodes an assumption
+  about machine speed. Poll until the thing is true, with a generous deadline.
+- **A timing threshold that would still hold on a machine ten times slower is fine.** One
+  that would not is a future false alarm, and it will fire on the day you are least able to
+  tell a real regression from noise.
+- **Whatever the guard measures, break the code on purpose and watch it fail.** Every guard
+  above was probed that way; the flat-texture one was green for a while precisely because
+  nobody had.
+
 ## What the layers deliberately do NOT cover
 
 - **Performance** — there are no measurements, and none are planned before 0.1.0.
