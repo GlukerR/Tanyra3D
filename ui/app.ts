@@ -30,6 +30,14 @@
   const chooseFileBtn = $('choose-file-btn');
   const chosenFileLabel = $('chosen-file');
   const modelList = $('model-list');
+  const batchBar = $('batch-bar');
+  const batchCount = $('batch-count');
+  const batchAllBtn = $('batch-all') as HTMLButtonElement;
+  const batchNoneBtn = $('batch-none') as HTMLButtonElement;
+  const batchSummaryBtn = $('batch-summary') as HTMLButtonElement;
+  const summaryWindow = $('summary-window');
+  const summaryBody = $('summary-body');
+  const summarySaveBtn = $('summary-save') as HTMLButtonElement;
   const stageHint = $('stage-hint');
 
   const btnMetadata = $('btn-metadata') as HTMLButtonElement;
@@ -397,6 +405,17 @@
   let activeModelId: string | null = null;
   let modelSeq = 0;
 
+  // Пакетная сборка идёт ПОСЛЕДОВАТЕЛЬНО, модель за моделью, а не пачкой запросов.
+  // Причина та же, по которой в сцене одна модель: пятьдесят разборов разом положат
+  // вкладку. Побочная польза — человек видит в вьюпорте ту модель, которая сейчас
+  // считается, и по списку понимает, где остановились.
+  //
+  // Объявлено здесь, рядом с остальным состоянием списка, а не у самого пакета:
+  // `updateRunButtonState` читает эти флаги и зовётся при первой отрисовке — из
+  // временной мёртвой зоны `let` это дало бы ReferenceError на пустом экране.
+  let batchInFlight = false;
+  let batchCancel = false;
+
   const activeModel = () => models.find((m) => m.id === activeModelId) || null;
 
   function captureActiveModel() {
@@ -440,6 +459,35 @@
   // кнопка не активна. С файлом и ≥1 флажком: до сборки — активна; после сборки — активна
   // только если настройки изменились (иначе пересборка дала бы тот же результат).
   function updateRunButtonState() {
+    // Пакет идёт — кнопка становится «Остановить» и ОСТАЁТСЯ рабочей. Проверка стоит
+    // первой, до buildInFlight: внутри пакета сборка идёт почти всегда, и общая ветка
+    // погасила бы единственный способ остановиться.
+    if (batchInFlight) {
+      runBtn.disabled = false;
+      setText(runBtn, 'btn.stop');
+      runBtn.removeAttribute('title');
+      return;
+    }
+    // Отмечено несколько — кнопка говорит, сколько именно соберёт. Без числа человек,
+    // снявший половину галочек, не может убедиться, что его выбор услышан.
+    if (batchMode()) {
+      const n = pickedModels().length;
+      if (!n) {
+        setText(runBtn, 'btn.build');
+        runBtn.disabled = true;
+        runBtn.title = t('btn.nothingPicked');
+        return;
+      }
+      if (n > 1) {
+        // Правило «настройки не менялись — собирать нечего» здесь неприменимо: оно
+        // смотрит на модель, которая на экране, а собрать предстоит ещё девятнадцать,
+        // из которых не тронута ни одна. Кнопка остаётся рабочей.
+        setText(runBtn, 'btn.buildPicked', { n });
+        runBtn.disabled = !!buildInFlight;
+        runBtn.removeAttribute('title');
+        return;
+      }
+    }
     // Сборка уже идёт — кнопка заблокирована, что бы человек ни менял в настройках.
     // Раньше этой строки не было, и любая правка флажка ВОЗВРАЩАЛА кнопку в строй
     // (сигнатура настроек разошлась с собранной → «есть что пересобирать»). Нажатие
@@ -1545,22 +1593,57 @@
   // Drag & drop / выбор файла
   // ---------------------------------------------------------------
 
-  async function handleFile(file: File) {
-    if (!file) return;
-    if (!/\.glb$/i.test(file.name)) {
+  /**
+   * Несколько файлов разом: бросок пачки, выбор пачки в диалоге, папка.
+   *
+   * Тяжёлую часть — разбор во вьюпорте и инспекцию на сервере — получает ТОЛЬКО одна
+   * модель, первая из принесённых. Остальные заводят строку в списке и ждут: пятьдесят
+   * одновременных разборов положили бы вкладку (одна ABeautifulGame — 704 МБ
+   * видеопамяти), а показать всё равно можно только одну.
+   */
+  async function handleFiles(list: ArrayLike<File>) {
+    const files = Array.from(list || []);
+    if (!files.length) return;
+
+    const good = files.filter((f) => /\.glb$/i.test(f.name));
+    const badCount = files.length - good.length;
+    // Одна строка на класс случаев, а не строка на файл (Правило 9): бросили папку с
+    // сотней картинок — человек получит одно сообщение, а не сотню.
+    if (badCount) {
       chosenFileLabel.textContent = t('dropzone.rejected');
-      logMessage('warn', t('log.rejected', { name: file.name }));
-      selectedFile = null;
-      runBtn.disabled = true;
+      logMessage('warn', badCount === 1 && files.length === 1
+        ? t('log.rejected', { name: files[0]!.name })
+        : t('log.rejectedMany', { n: badCount }));
+    }
+    if (!good.length) {
+      if (!models.length) { selectedFile = null; runBtn.disabled = true; }
       return;
     }
-    // Новая модель — новая запись в списке. addModel сначала складывает состояние
-    // той, что была на экране, поэтому вернуться к ней можно будет без перезагрузки.
-    addModel(file);
+
+    // Порядок важен: сначала заводим ВСЕ записи, потом занимаемся первой. Иначе
+    // тяжёлый разбор первой модели идёт, пока остальных ещё нет в списке, и человек
+    // минуту смотрит на одну строку вместо пятидесяти.
+    const added = good.map((f) => addModel(f));
+    // addModel делает активной КАЖДУЮ по очереди, поэтому активной осталась последняя.
+    // Возвращаем на первую: человек, бросивший пачку, ждёт увидеть её начало.
+    const first = added[0]!;
+    activeModelId = first.id;
+    applyModelState(first.state);
+    selectedFile = first.file;
+    renderModelList();
+    if (good.length > 1) logMessage('info', t('log.loadedMany', { n: good.length }));
+    await loadActive(first.file);
+  }
+
+  /**
+   * Тяжёлая половина загрузки: показать модель в левом вьюпорте и отправить на
+   * инспекцию. Вынесена из приёма файлов, потому что при пачке записи заводятся всем,
+   * а это — только одной.
+   */
+  async function loadActive(file: File) {
     chosenFileLabel.textContent = '';
     runBtn.disabled = false;
     logMessage('info', t('log.loaded', { name: file.name, size: fmtBytes(file.size) }));
-    renderModelList();
     if (stageHint) stageHint.classList.add('hidden');
     // Новый файл → сбросить прежний результат и серверный исходник (будет перезалит).
     clearResults();
@@ -2031,12 +2114,44 @@
     dropzone.classList.toggle('hidden', modelList.children.length > 0);
   }
 
+  // Модели, отмеченные для сборки. Порядок — как в списке, то есть как загружали.
+  const pickedModels = () => models.filter((m) => m.picked);
+
+  // Пакетный режим включается наличием второй модели, а не отдельной настройкой.
+  // Одна модель — и выбирать не из чего: галочка над ней только сбивала бы с толку.
+  const batchMode = () => models.length > 1;
+
+  function renderBatchBar() {
+    batchBar.classList.toggle('hidden', !batchMode());
+    if (!batchMode()) return;
+    setText(batchCount, 'batch.count', { n: pickedModels().length, total: models.length });
+  }
+
   function renderModelList() {
     modelList.innerHTML = '';
     for (const rec of models) {
       const li = document.createElement('li');
       li.className = 'model-item' + (rec.id === activeModelId ? ' selected' : '');
       li.dataset.modelId = rec.id;
+
+      if (batchMode()) {
+        const pick = document.createElement('input');
+        pick.type = 'checkbox';
+        pick.className = 'model-pick';
+        pick.checked = rec.picked;
+        pick.title = t('batch.pick');
+        pick.setAttribute('aria-label', `${t('batch.pick')}: ${rec.file.name}`);
+        // stopPropagation по той же причине, что у крестика: отметить модель и
+        // показать её на экране — разные действия. Человек, снимающий галочку у
+        // двадцатой модели, не просил перезагружать вьюпорт.
+        pick.addEventListener('click', (e) => e.stopPropagation());
+        pick.addEventListener('change', () => {
+          rec.picked = pick.checked;
+          renderBatchBar();
+          updateRunButtonState();
+        });
+        li.appendChild(pick);
+      }
       // Галочка у моделей, которые уже собраны: по списку сразу видно, что сделано,
       // а что ещё ждёт. Без этого при пяти моделях приходится щёлкать каждую.
       const icon = document.createElement('span');
@@ -2085,8 +2200,200 @@
       li.addEventListener('click', () => selectModel(rec.id));
       modelList.appendChild(li);
     }
+    renderBatchBar();
+    updateSummaryButton();
+    // Сводка открыта, а список изменился (собралась ещё одна модель, убрали строку) —
+    // перерисовываем. Иначе окно показывает вчерашний состав пакета.
+    if (!summaryWindow.classList.contains('hidden')) renderSummaryWindow();
     syncDropzone();
   }
+
+  // «Все» / «ничего» — одна кнопка на два состояния была бы короче, но её название
+  // пришлось бы менять на лету, а человек, вернувшийся к списку через минуту, не помнит,
+  // что она сделает. Две кнопки говорят о себе сами.
+  batchAllBtn.addEventListener('click', () => setAllPicked(true));
+  batchNoneBtn.addEventListener('click', () => setAllPicked(false));
+
+  function setAllPicked(picked: boolean) {
+    for (const rec of models) rec.picked = picked;
+    renderModelList();
+    updateRunButtonState();
+  }
+
+  // -----------------------------------------------------------------------
+  // Сводка по пакету
+  //
+  // Двадцать моделей дают двадцать отчётов и ни одного общего. Спросить хочется
+  // простое: сколько всего сэкономили, кто не уложился в порог площадки, где сборка
+  // не прошла. Здесь НЕ СЧИТАЕТСЯ ни одной новой цифры — всё берётся из готовых
+  // отчётов моделей. Считать заново значило бы завести второй источник правды,
+  // который однажды разойдётся с первым (тот же довод, что у `selectedFile`).
+  // -----------------------------------------------------------------------
+
+  /** Строки сводки: по одной на модель, у которой есть результат. */
+  function summaryRows() {
+    const rows = [];
+    for (const rec of models) {
+      // У активной модели результат живёт в переменных, в записи он появляется
+      // только после captureActiveModel().
+      const live = rec.id === activeModelId;
+      const res = live ? lastResult : rec.state.lastResult;
+      const explain = live ? lastExplain : rec.state.lastExplain;
+      if (!res) continue;
+      const before = (res.metrics && res.metrics.before) || null;
+      const after = (res.metrics && res.metrics.after) || null;
+      // Уровень бюджета берём худший из проверок: человеку важно «есть ли повод
+      // смотреть», а подробности он прочтёт в отчёте самой модели.
+      let budget = 'none';
+      for (const c of (explain && explain.budgetChecks) || []) {
+        if (c.level === 'over') { budget = 'over'; break; }
+        if (c.level === 'warn') budget = 'warn';
+        else if (c.level === 'ok' && budget === 'none') budget = 'ok';
+      }
+      rows.push({
+        name: rec.file.name,
+        failed: res.status === 'fail',
+        fileBefore: before ? before.fileBytes : null,
+        fileAfter: after ? after.fileBytes : null,
+        vramBefore: before ? before.gpuBytes : null,
+        vramAfter: after ? after.gpuBytes : null,
+        triangles: after ? after.triangles : null,
+        budget,
+      });
+    }
+    return rows;
+  }
+
+  /** Итоговая строка: суммы «было» и «стало» по тем моделям, где числа есть. */
+  function summaryTotal(rows: ReturnType<typeof summaryRows>) {
+    let before = 0;
+    let after = 0;
+    let counted = 0;
+    for (const r of rows) {
+      if (r.fileBefore == null || r.fileAfter == null) continue;
+      before += r.fileBefore;
+      after += r.fileAfter;
+      counted += 1;
+    }
+    return { before, after, counted, failed: rows.filter((r) => r.failed).length };
+  }
+
+  function updateSummaryButton() {
+    batchSummaryBtn.disabled = summaryRows().length === 0;
+  }
+
+  batchSummaryBtn.addEventListener('click', () => {
+    if (batchSummaryBtn.disabled) return;
+    renderSummaryWindow();
+    showWindow(summaryWindow);
+  });
+
+  function renderSummaryWindow() {
+    const rows = summaryRows();
+    summaryBody.innerHTML = '';
+    if (!rows.length) {
+      const p = document.createElement('p');
+      p.className = 'summary-empty';
+      setText(p, 'summary.empty');
+      summaryBody.appendChild(p);
+      return;
+    }
+
+    const table = document.createElement('table');
+    table.className = 'summary-table';
+    const head = document.createElement('tr');
+    for (const key of ['summary.col.model', 'summary.col.before', 'summary.col.after',
+      'summary.col.pct', 'summary.col.vram', 'summary.col.tris', 'summary.col.budget']) {
+      const th = document.createElement('th');
+      setText(th, key);
+      head.appendChild(th);
+    }
+    table.appendChild(head);
+
+    for (const r of rows) {
+      const tr = document.createElement('tr');
+      if (r.failed) tr.className = 'is-failed';
+      const cell = (text: string, cls?: string) => {
+        const td = document.createElement('td');
+        td.textContent = text;
+        if (cls) td.className = cls;
+        tr.appendChild(td);
+        return td;
+      };
+      cell(r.name, 'summary-name').title = r.name;
+      if (r.failed) {
+        const td = document.createElement('td');
+        td.colSpan = 6;
+        setText(td, 'summary.failed');
+        tr.appendChild(td);
+        table.appendChild(tr);
+        continue;
+      }
+      cell(r.fileBefore != null ? fmtBytes(r.fileBefore) : '—');
+      cell(r.fileAfter != null ? fmtBytes(r.fileAfter) : '—');
+      cell(r.fileBefore && r.fileAfter ? pctText(r.fileBefore, r.fileAfter) : '—', 'summary-pct');
+      cell(r.vramBefore != null && r.vramAfter != null
+        ? `${fmtBytes(r.vramBefore)} → ${fmtBytes(r.vramAfter)}` : '—');
+      cell(r.triangles != null ? fmtInt(r.triangles) : '—');
+      const budget = cell('', `summary-budget is-${r.budget}`);
+      setText(budget, `summary.budget.${r.budget}`);
+      table.appendChild(tr);
+    }
+    summaryBody.appendChild(table);
+
+    const total = summaryTotal(rows);
+    const foot = document.createElement('p');
+    foot.className = 'summary-total';
+    setText(foot, 'summary.total', {
+      n: total.counted,
+      before: fmtBytes(total.before),
+      after: fmtBytes(total.after),
+      pct: total.before ? pctText(total.before, total.after) : '—',
+    });
+    summaryBody.appendChild(foot);
+
+    if (total.failed) {
+      const bad = document.createElement('p');
+      bad.className = 'summary-total is-failed';
+      setText(bad, 'summary.totalFailed', { n: total.failed });
+      summaryBody.appendChild(bad);
+    }
+  }
+
+  // CSV, а не Markdown: пятьдесят строк человек будет сортировать и фильтровать, а это
+  // умеет таблица, а не текст. BOM — чтобы Excel не принял UTF-8 за кодировку системы
+  // и не показал кириллицу кракозябрами.
+  summarySaveBtn.addEventListener('click', () => {
+    const rows = summaryRows();
+    if (!rows.length) return;
+    const esc = (v: string) => `"${String(v).split('"').join('""')}"`;
+    const lines = [[
+      t('summary.col.model'), t('summary.col.before'), t('summary.col.after'),
+      t('summary.col.pct'), t('summary.col.vram'), t('summary.col.tris'),
+      t('summary.col.budget'),
+    ].map(esc).join(';')];
+    for (const r of rows) {
+      lines.push([
+        r.name,
+        r.fileBefore != null ? String(r.fileBefore) : '',
+        r.fileAfter != null ? String(r.fileAfter) : '',
+        r.fileBefore && r.fileAfter ? pctText(r.fileBefore, r.fileAfter) : '',
+        r.vramBefore != null ? String(r.vramBefore) : '',
+        r.triangles != null ? String(r.triangles) : '',
+        r.failed ? t('summary.failed') : t(`summary.budget.${r.budget}`),
+      ].map(esc).join(';'));
+    }
+    const blob = new Blob([`﻿${lines.join('\r\n')}\r\n`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = t('summary.fileName');
+    a.click();
+    // Отпускаем не сразу: часть браузеров начинает скачивание асинхронно, и ссылка,
+    // отозванная в тот же тик, даёт пустой файл.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    logMessage('info', t('log.summarySaved', { n: rows.length }));
+  });
 
   // -----------------------------------------------------------------------
   // Добавление, выбор и удаление моделей
@@ -2094,7 +2401,11 @@
 
   function addModel(file: File) {
     captureActiveModel();          // не потерять состояние той, что сейчас на экране
-    const rec = { id: `m${++modelSeq}`, file, state: {} };
+    // Новая модель отмечена. Человек принёс файл, чтобы его обработать, — снять
+    // галочку у лишних дешевле, чем поставить у нужных: бросили пятьдесят, собрать
+    // хотят сорок восемь. Обратный умолчание («ничего не отмечено») заставляло бы
+    // щёлкать пятьдесят раз в самом частом случае.
+    const rec = { id: `m${++modelSeq}`, file, state: {}, picked: true };
     models.push(rec);
     activeModelId = rec.id;
     applyModelState(null);          // новая модель начинает с чистого состояния
@@ -2109,6 +2420,20 @@
     captureActiveModel();
     activeModelId = id;
     applyModelState(rec.state);
+    // Файл берём из ЗАПИСИ, а не из снимка состояния. Снимок может быть пуст: он
+    // заполняется в captureActiveModel, то есть при уходе С модели, — а у той, с
+    // которой ещё не уходили, он `{}`, и applyModelState обнулял бы selectedFile.
+    //
+    // Ловится это только пакетом. При загрузке по одному незаполненный снимок всегда
+    // принадлежит АКТИВНОЙ модели, а selectModel на активную не переключается вовсе.
+    // Бросок пачки заводит N записей разом и возвращается на первую — снимок последней
+    // так и остаётся пустым, и её сборка тихо не делала ничего: `runOptimize` выходит
+    // на первой строке, если `selectedFile` пуст. Найдено проверкой в браузере
+    // 2026-08-18: три модели, два запроса на сервер.
+    //
+    // Правильный источник правды — запись: `file` лежит в ней с момента добавления и
+    // не меняется никогда.
+    selectedFile = rec.file;
     renderModelList();
     await showActiveModel();
   }
@@ -2224,7 +2549,7 @@
   }
 
   // -----------------------------------------------------------------------
-  // Своя площадка: форма вместо JSON руками (ROADMAP.md §5i, шаг 2)
+  // Своя площадка: форма вместо JSON руками (решение 2026-08-12)
   //
   // Спрашиваем ровно три вещи: как площадка называется, каким движком её читают и
   // какие у неё пороги. Список опций, их слова и базовый план обработки принадлежат
@@ -2730,7 +3055,13 @@
   }
 
   chooseFileBtn.addEventListener('click', () => fileInput.click());
-  fileInput.addEventListener('change', (e) => handleFile((e.target as HTMLInputElement).files![0]!));
+  fileInput.addEventListener('change', (e) => {
+    const input = e.target as HTMLInputElement;
+    handleFiles(input.files!);
+    // Значение сбрасываем: иначе повторный выбор ТОГО ЖЕ файла не вызовет change,
+    // и человек, добавляющий модель второй раз, решит, что кнопка сломалась.
+    input.value = '';
+  });
 
   dropzone.addEventListener('click', () => fileInput.click());
 
@@ -2791,9 +3122,61 @@
     dragDepth = 0;
     showDropOverlay(false);
     if (!isFileDrag(e)) return;
-    const file = e.dataTransfer!.files && e.dataTransfer!.files[0];
-    handleFile(file!);
+    const dt = e.dataTransfer!;
+    // Записи файловой системы снимаем СИНХРОННО, до первого await: после возврата из
+    // обработчика DataTransfer недействителен, и `items` отдаёт пустоту. Первый заход
+    // читал их после await — папка молча приходила пустой.
+    const entries: any[] = [];
+    if (dt.items && (dt.items as any)[0] && typeof (dt.items as any)[0].webkitGetAsEntry === 'function') {
+      for (const item of Array.from(dt.items)) {
+        const entry = (item as any).webkitGetAsEntry();
+        if (entry) entries.push(entry);
+      }
+    }
+    const plain = Array.from(dt.files || []);
+    (async () => {
+      const fromEntries = entries.length ? await filesFromEntries(entries) : [];
+      // Папка приходит и в files — одной записью без расширения, которую всё равно не
+      // прочитать. Когда записи файловой системы доступны, они и есть источник правды.
+      handleFiles(fromEntries.length || entries.length ? fromEntries : plain);
+    })();
   });
+
+  /**
+   * Развернуть брошенные папки в список файлов. Бросок папки даёт в `dataTransfer.files`
+   * одну запись без содержимого — прочитать её нельзя, и без этого обхода бросок папки
+   * выглядел бы как бросок нечитаемого файла.
+   *
+   * Вглубь ходим рекурсивно и без ограничения на уровень: раскладка папок — дело
+   * человека, а не наше. Ограничение одно — расширение, и оно ставится позже, в
+   * `handleFiles`, чтобы отказ считался один раз и одной строкой.
+   */
+  async function filesFromEntries(entries: any[]): Promise<File[]> {
+    const out: File[] = [];
+    const walk = async (entry: any): Promise<void> => {
+      if (!entry) return;
+      if (entry.isFile) {
+        const file = await new Promise<File | null>((resolve) => {
+          entry.file((f: File) => resolve(f), () => resolve(null));
+        });
+        if (file) out.push(file);
+        return;
+      }
+      if (!entry.isDirectory) return;
+      const reader = entry.createReader();
+      // readEntries отдаёт порцию, а не всё сразу: у больших папок остальное приходит
+      // следующими вызовами, и цикл обязателен. Пустой ответ означает конец.
+      for (;;) {
+        const batch: any[] = await new Promise((resolve) => {
+          reader.readEntries((items: any[]) => resolve(items || []), () => resolve([]));
+        });
+        if (!batch.length) return;
+        for (const child of batch) await walk(child);
+      }
+    };
+    for (const entry of entries) await walk(entry);
+    return out;
+  }
 
   // ---------------------------------------------------------------
   // Статус-бар
@@ -2823,7 +3206,59 @@
   // Запуск обработки
   // ---------------------------------------------------------------
 
-  runBtn.addEventListener('click', runOptimize);
+  runBtn.addEventListener('click', onRunClick);
+
+  async function onRunClick() {
+    // Кнопка во время пакета — «Остановить». Отдельной кнопки нет намеренно: она была
+    // бы видна всегда и ничего не делала бы в девяноста случаях из ста (Правило 12).
+    if (batchInFlight) {
+      batchCancel = true;
+      setText(runBtn, 'btn.stopping');
+      runBtn.disabled = true;
+      return;
+    }
+    const picked = pickedModels();
+    if (batchMode() && picked.length > 1) return runBatch(picked);
+    return runOptimize();
+  }
+
+  async function runBatch(list: ModelEntry[]) {
+    batchInFlight = true;
+    batchCancel = false;
+    let ok = 0;
+    let failed = 0;
+    let left = list.length;
+    logMessage('info', t('log.batchStarted', { n: list.length }));
+    try {
+      for (let i = 0; i < list.length; i++) {
+        if (batchCancel) break;
+        const rec = list[i]!;
+        // Модель может исчезнуть из списка, пока пакет идёт: человек вправе убрать её
+        // крестиком. Проверяем по живому списку, а не по снимку.
+        if (!models.includes(rec)) { left -= 1; continue; }
+        await selectModel(rec.id);
+        updateRunButtonState();
+        setPhase('status.batch', 'busy', { i: i + 1, total: list.length, name: rec.file.name });
+        await runOptimize();
+        if (lastResult && lastResult.status !== 'fail') ok += 1; else failed += 1;
+        left -= 1;
+      }
+    } finally {
+      const stopped = batchCancel;
+      batchInFlight = false;
+      batchCancel = false;
+      // Одна строка на весь пакет, а не строка на модель (Правило 9): пятьдесят
+      // «собрано» подряд — это не подробность, а шум. Про каждую модель и так
+      // рассказывает её собственная запись в списке и её отчёт.
+      logMessage(failed ? 'warn' : 'info', stopped
+        ? t('log.batchStopped', { ok, failed, left })
+        : t('log.batchDone', { ok, failed }));
+      setPhase(stopped ? 'status.batchStopped' : 'status.batchDone', failed ? 'fail' : null,
+        { ok, failed });
+      updateRunButtonState();
+      renderModelList();
+    }
+  }
 
   function buildOptimizeUrl(jobId: string, useSource: boolean) {
     const platformId = platformSelect.value;
@@ -2887,8 +3322,10 @@
     // Снимок настроек на момент запуска — см. renderResult.
     startedSignature = currentSettingsSignature();
     freezeSettings(true);
-    runBtn.disabled = true;
-    setPhase(currentSourceId ? 'status.optimizing' : 'status.uploading', 'busy');
+    // Внутри пакета кнопка — «Остановить», и гасить её нельзя: иначе остановиться можно
+    // было бы только в короткую щель между моделями, то есть практически никогда.
+    if (!batchInFlight) runBtn.disabled = true;
+    if (!batchInFlight) setPhase(currentSourceId ? 'status.optimizing' : 'status.uploading', 'busy');
     setBusy('preview-optimized', currentSourceId ? 'busy.optimizing' : 'busy.uploading');
     const feats = getSelectedFeatures();
     logMessage('info', t('log.buildStarted', {
@@ -3390,7 +3827,7 @@
       // «ваш» — если названо, ЧЬЁ это решение. Показываем ОБА, когда есть оба: ссылка
       // отвечает на вопрос «откуда число», пометка — «чьё оно». Пока пометку вытесняла
       // ссылка, придуманный порог с адресом чьего-то сайта выглядел точно так же, как
-      // выверенный по документу площадки (ROADMAP.md §5i).
+      // выверенный по документу площадки (решение 2026-08-12).
       if (b.source) {
         // Источник своей площадки человек пишет словами, и это может быть не адрес
         // («из письма менеджера»). Ссылку делаем только из настоящего адреса —
@@ -4498,6 +4935,9 @@
     await reexplainLastResult();
     if (!validationWindow.classList.contains('hidden')) renderValidationWindow();
     if (!metadataWindow.classList.contains('hidden')) renderMetadataWindow();
+    // Сводка собрана из готовых чисел, но подписи в ней — наши: заголовки колонок,
+    // вердикт бюджета, итоговая строка. Перерисовываем, а не пересобираем пакет.
+    if (!summaryWindow.classList.contains('hidden')) renderSummaryWindow();
     // Форма своей площадки открыта — подписи полей приходят с сервера, значит их надо
     // перезапросить. Введённые числа при этом остаются: смена языка — перерисовка,
     // а не сброс (Правило 8).

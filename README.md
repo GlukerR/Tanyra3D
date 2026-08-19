@@ -443,7 +443,14 @@ The honest list of what the tool doesn't do, or doesn't do fully.
   an ADDRESS a model is sent to, not a class of device: the "mobile" and "Quest"
   profiles were deleted on 2026-08-18 because a phone browser and a headset browser are
   the same three.js, and their numbers were never confirmed by a primary source.
-- **Batch processing is command-line only**; the web interface takes one model at a time.
+- **Batches are built one model at a time, in sequence.** Drop a folder or fifty files,
+  tick the ones you want, press build: the models are processed one after another, and
+  the viewport shows whichever is being worked on. Nothing runs in parallel — one
+  ABeautifulGame costs 704 MB of video memory, and fifty at once would take the tab down.
+  When the batch is done, one table answers what fifty separate reports cannot: what each
+  model weighed before and after, which ones sit over the target's limit, which failed.
+  It computes nothing of its own — every number is read back from the per-model reports —
+  and saves as CSV.
 
 ---
 
@@ -487,9 +494,17 @@ stays at 2: it is reserved for the second engine (Babylon.js).
 language, not of features. The test suite is green on Node 20, 22 and 24. The desktop
 application installs like any other program — no terminal needed. The API may still change.
 
-Installed and used on Windows. The macOS and Linux packages are built by CI from the same
-source and pass the same checks, but nobody has run them on real hardware yet — if you do,
-[say how it went](https://github.com/GlukerR/Tanyra3D/issues).
+**Developed and tested on Windows — only there, and that is not going to change.** The
+author has no access to a Mac or a Linux desktop, so every release you see was installed,
+opened and looked at on Windows and nowhere else.
+
+The macOS and Linux packages are still built, by CI, from the same commit: they compile
+the same sources and pass the same test suite on Node 20, 22 and 24. What no one has done
+is run the resulting installer on real hardware. That gap is not a to-do item waiting to
+be closed — it is a standing property of a one-person project, stated here so nobody has
+to guess. If you install one of those builds,
+[say how it went](https://github.com/GlukerR/Tanyra3D/issues); a single report from
+someone who actually ran it is worth more than any promise made here.
 
 The browser is the current shape, not the intent. The people this is built for shouldn't
 have to work through a hundred checkboxes or launch anything from a terminal: install in

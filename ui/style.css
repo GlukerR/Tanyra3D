@@ -289,6 +289,57 @@ body {
   color: var(--on-surface);
 }
 
+/* Полоса выбора моделей для пакетной сборки. */
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px 6px;
+  font-size: 11px;
+  color: var(--on-surface-variant);
+}
+.batch-count { flex: 1; min-width: 0; }
+.batch-pick {
+  padding: 2px 7px;
+  background: transparent;
+  border: 1px solid var(--outline);
+  border-radius: 4px;
+  color: var(--on-surface-variant);
+  font-size: 11px;
+  cursor: pointer;
+}
+.batch-pick:hover { background: var(--surface-container-high); color: var(--on-surface); }
+
+/* Галочка выбора. Появляется только в пакетном режиме (моделей больше одной):
+   при единственной модели выбирать не из чего, и квадратик рядом с ней сбивал бы
+   с толку — его приняли бы за настройку самой модели. */
+.model-pick { flex-shrink: 0; margin: 0; cursor: pointer; accent-color: var(--primary-container); }
+
+/* Сводка по пакету. Таблица, а не карточки: пятьдесят строк читают глазами сверху
+   вниз по одной колонке — «кто вырос», «кто сверх предела», — а карточки заставляют
+   собирать это по всему экрану. */
+.summary-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.summary-table th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--outline);
+  color: var(--on-surface-variant);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.summary-table td { padding: 5px 8px; border-bottom: 1px solid var(--surface-container-high); }
+.summary-name { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.summary-pct { font-family: var(--font-mono); }
+.summary-table tr.is-failed td { color: var(--error, #e0685f); }
+/* Цвет только там, где он что-то значит: жёлтый — совет площадки, красный — её отказ.
+   «В пределах» остаётся нейтральным: зелёная строка у каждой второй модели превращает
+   таблицу в ёлку и перестаёт читаться. */
+.summary-budget.is-warn { color: var(--warning, #d8a657); }
+.summary-budget.is-over { color: var(--error, #e0685f); }
+.summary-total { margin: 10px 8px 0; font-size: 12px; color: var(--on-surface-variant); }
+.summary-total.is-failed { color: var(--error, #e0685f); }
+.summary-empty { margin: 12px 8px; font-size: 12px; color: var(--on-surface-variant); }
+
 .model-icon { color: var(--primary-container); flex-shrink: 0; }
 .model-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .model-size { font-family: var(--font-mono); font-size: 10px; color: var(--outline); flex-shrink: 0; }

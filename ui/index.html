@@ -111,12 +111,21 @@
     </div>
     <div class="outliner-body">
       <div id="dropzone" class="dropzone">
-        <input type="file" id="file-input" accept=".glb" hidden>
+        <input type="file" id="file-input" accept=".glb" multiple hidden>
         <div class="dropzone-icon">⤓</div>
         <p class="dropzone-title" data-i18n="dropzone.title">Drop a 3D model here</p>
         <p class="dropzone-sub" data-i18n="dropzone.sub">or click + · .glb for now</p>
       </div>
       <p id="chosen-file" class="chosen-file"></p>
+      <!-- Полоса выбора для пакета. Показывается только когда моделей больше одной:
+           при единственной модели галочка и «все / ничего» — лишние кнопки над
+           единственной строкой. -->
+      <div id="batch-bar" class="batch-bar hidden">
+        <span id="batch-count" class="batch-count"></span>
+        <button id="batch-all" class="batch-pick" type="button" data-i18n="batch.all">All</button>
+        <button id="batch-none" class="batch-pick" type="button" data-i18n="batch.none">None</button>
+        <button id="batch-summary" class="batch-pick" type="button" data-window-trigger disabled data-i18n="batch.summary">Summary</button>
+      </div>
       <ul id="model-list" class="model-list"></ul>
     </div>
     <!-- Логи внизу сайдбара: ошибки уходят сюда; клик разворачивает окно логов -->
@@ -318,6 +327,19 @@
       <div class="window-body window-scroll" id="logs-body"></div>
     </div>
 
+    <!-- Сводка по пакету. Двадцать моделей дают двадцать отдельных отчётов и ни одного
+         общего — а спросить хочется простое: сколько всего сэкономили, кто не уложился
+         в порог площадки, где сборка не прошла. Ни одной новой цифры здесь не считается:
+         всё берётся из уже готовых отчётов моделей, иначе сводка разошлась бы с ними. -->
+    <div id="summary-window" class="window window--wide window--glass hidden" role="dialog" aria-label="Batch summary">
+      <div class="window-titlebar">
+        <span class="window-title" data-i18n="win.summary">Batch summary</span>
+        <button type="button" id="summary-save" class="window-action" data-i18n="summary.save">Save as CSV</button>
+        <button type="button" class="window-close" data-i18n-aria="win.close" aria-label="Close">×</button>
+      </div>
+      <div class="window-body window-scroll" id="summary-body"></div>
+    </div>
+
     <!-- Единое окно экспорта (одна кнопка Download Result → выбор формата и имени).
          Новые экспортёры добавляются пунктами радио, интерфейс не меняется. -->
     <div id="export-window" class="window window--glass hidden" role="dialog" aria-label="Export result">
@@ -366,7 +388,7 @@
       </div>
     </div>
 
-    <!-- Своя площадка (ROADMAP.md §5i, шаг 2). Форма спрашивает ровно то, чего вывести
+    <!-- Своя площадка (решение 2026-08-12). Форма спрашивает ровно то, чего вывести
          неоткуда: как площадка называется, каким движком её читают и какие у неё
          пороги. Список опций, их слова и базовый план обработки принадлежат движку и
          подставляются сами — заполнять двадцать галочек человека не заставляем
@@ -421,7 +443,7 @@
           <button type="button" id="profile-save" class="btn-primary" data-i18n="profile.save">Save</button>
           <button type="button" id="profile-delete" class="window-action hidden" data-i18n="profile.delete">Delete</button>
         </div>
-        <!-- Обмен площадками (ROADMAP.md §5i, шаг 3). Профиль — один .json, поэтому
+        <!-- Обмен площадками (решение 2026-08-12). Профиль — один .json, поэтому
              «поделиться» это «отправить файл»; архива для одного файла не заводим.
              Ходит сырой файл, а не поля формы: написанный руками профиль несёт то,
              чего форма не спрашивает — жёсткий предел, ссылку на документ площадки,

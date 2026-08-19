@@ -119,7 +119,7 @@ window.I18N_CATALOGS.en = {
 
   // --- своя площадка (окно настроек) ---
   // Форма спрашивает имя, движок и несколько чисел. Всё остальное подставляется само:
-  // список опций и их слова принадлежат движку (ROADMAP.md §5i, Правило 10б).
+  // список опций и их слова принадлежат движку (Правило 10б).
   'win.profile': 'Your own platform',
   'profile.pick': 'Platform',
   'profile.new': 'New platform',
@@ -251,6 +251,50 @@ window.I18N_CATALOGS.en = {
   'issue.unreadable': ({ detail }) => `This file cannot be read as a GLB${detail ? ` — ${detail}` : ''}. It looks truncated or corrupted: re-export it or download it again.`,
   'issue.validation': ({ n }) => `The model breaks the glTF standard: ${n} error(s). It opened and renders here, but another engine may refuse to show it. This came with the file — see "Validation".`,
   'models.built': 'Already built',
+
+  // --- batch build ---
+  'batch.count': ({ n, total }) => `${n} of ${total} selected`,
+  'batch.all': 'all',
+  'batch.none': 'none',
+  'batch.pick': 'Include in the batch',
+  'btn.buildPicked': ({ n }) => `Build selected (${n})`,
+  'btn.stop': 'Stop',
+  'btn.stopping': 'Stopping…',
+  'btn.nothingPicked': 'Select at least one model',
+  'status.batch': ({ i, total, name }) => `Model ${i} of ${total}: ${name}`,
+  'status.batchDone': ({ ok, failed }) => (failed
+    ? `Done: ${ok} built, ${failed} failed`
+    : `Done: ${ok} built`),
+  'status.batchStopped': ({ ok, failed }) => (failed
+    ? `Stopped: ${ok} built, ${failed} failed`
+    : `Stopped: ${ok} built`),
+  'log.loadedMany': ({ n }) => `Models added: ${n}`,
+  'log.rejectedMany': ({ n }) => `Skipped non-.glb files: ${n}`,
+  'log.batchStarted': ({ n }) => `Batch build: ${n} model(s) queued`,
+  'log.batchDone': ({ ok, failed }) => `Batch build finished: ${ok} built, ${failed} failed`,
+  'log.batchStopped': ({ ok, failed, left }) => `Batch build stopped: ${ok} built, ${failed} failed, ${left} left`,
+
+  // --- batch summary ---
+  'batch.summary': 'Summary',
+  'win.summary': 'Batch summary',
+  'summary.save': 'Save as CSV',
+  'summary.fileName': 'tanyra3d-summary.csv',
+  'summary.empty': 'Nothing to show yet: no model has been built.',
+  'summary.col.model': 'Model',
+  'summary.col.before': 'Before',
+  'summary.col.after': 'After',
+  'summary.col.pct': 'Change',
+  'summary.col.vram': 'Video memory',
+  'summary.col.tris': 'Triangles',
+  'summary.col.budget': 'Target budget',
+  'summary.failed': 'build failed',
+  'summary.budget.none': '—',
+  'summary.budget.ok': 'within budget',
+  'summary.budget.warn': 'above the recommendation',
+  'summary.budget.over': 'over the limit',
+  'summary.total': ({ n, before, after, pct }) => `Models: ${n}. Before ${before}, after ${after} (${pct}).`,
+  'summary.totalFailed': ({ n }) => `Failed: ${n}. The reason is in each of those models' own report.`,
+  'log.summarySaved': ({ n }) => `Summary saved, rows: ${n}`,
 
   // --- полноэкранная подсветка при перетаскивании ---
   'dropOverlay.title': 'Drop the model anywhere',
