@@ -493,19 +493,87 @@ async function serveStatic(req: http.IncomingMessage, res: http.ServerResponse, 
 // 1 ГБ — щедрый предел для локального инструмента. Самая тяжёлая модель в наборе
 // проверок — около 600 МБ, так что предел не мешает работе.
 //
-// Отдельно от предела остаётся то, что тело копится в памяти целиком: chunk-буферы ещё
-// живы в момент Buffer.concat, и на гигабайтном файле пик заметно выше гигабайта.
-// Лечится не числом, а потоковой записью на диск — это переделка приёма файла, и она не
-// сделана. Прежняя ссылка вела в `docs/ПЛАН_исправлений.md`; документ удалён 2026-08-18,
-// когда его собственная шапка объявила все пятнадцать пунктов закрытыми, — а вот ЭТОТ
-// пункт закрыт не был. Записано здесь, рядом с кодом, чтобы больше не потеряться.
-const MAX_BODY = 1024 * 1024 * 1024;
+// ЗАКРЫТО 2026-08-19: модель больше не копится в памяти. Раньше тело собиралось в массив
+// кусков и склеивалось `Buffer.concat` — на гигабайтном файле пик выходил заметно выше
+// гигабайта, потому что в момент склейки живы и куски, и результат. Теперь файл течёт
+// сразу на диск (`streamBodyToFile`), и в памяти одновременно лежит один кусок сети.
+// Переменная окружения — ради проверок: предел в гигабайт не прогнать тестом, а поведение
+// на границе (отказ 413, обрывок не остаётся на диске) проверять надо. Тот же приём, что
+// у TANYRA_WORK_LIMIT_BYTES выше.
+const MAX_BODY = (() => {
+  const n = Number(process.env.TANYRA_MAX_BODY_BYTES);
+  return Number.isFinite(n) && n > 0 ? n : 1024 * 1024 * 1024;
+})();
 
-function readBody(req: http.IncomingMessage): Promise<Buffer> {
+// Тело, которое разбирается как JSON, гигабайтным не бывает: это настройки прогона либо
+// профиль площадки. Отдельный предел, потому что такие тела всё ещё читаются В ПАМЯТЬ, и
+// общий гигабайт означал бы, что любой запрос к /api/optimize с чужим Content-Type
+// по-прежнему может её занять.
+const MAX_JSON_BODY = 4 * 1024 * 1024;
+
+/**
+ * Принять тело запроса ПОТОКОМ, сразу на диск.
+ *
+ * Возвращает число записанных байт; ноль означает, что тела не было — у вызывающего это
+ * законный случай (клиент просил повторить прогон по уже загруженному исходнику).
+ *
+ * Файл создаётся до того, как приедет первый байт, поэтому при отказе его надо убрать —
+ * это делает сама функция, чтобы обрывок не остался лежать в рабочей папке и не попал в
+ * счёт занятого места.
+ */
+function streamBodyToFile(req: http.IncomingMessage, dest: string, max = MAX_BODY): Promise<number> {
+  return new Promise((resolve, reject) => {
+    // Заявленный размер отвергаем ДО приёма: иначе гигабайт сначала приедет по сети и
+    // ляжет на диск, и только потом выяснится, что он не нужен.
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > max) {
+      req.destroy();
+      reject(new Error('File too large'));
+      return;
+    }
+
+    const out = fs.createWriteStream(dest);
+    let size = 0;
+    let failed: Error | null = null;
+
+    const fail = (err: Error) => {
+      if (failed) return;
+      failed = err;
+      req.destroy();
+      out.destroy();
+      // Обрывок убираем молча: его отсутствие — не новость для вызывающего, а ошибка
+      // удаления не должна подменять настоящую причину отказа.
+      fs.rm(dest, { force: true }, () => reject(err));
+    };
+
+    req.on('data', (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > max) { fail(new Error('File too large')); return; }
+      // Уважаем противодавление: на медленном диске без этого куски копятся в памяти
+      // внутри потока записи — то самое, от чего мы уходим.
+      if (!out.write(chunk)) req.pause();
+    });
+    out.on('drain', () => req.resume());
+    req.on('error', fail);
+    out.on('error', fail);
+    req.on('end', () => { if (!failed) out.end(); });
+    out.on('close', () => { if (!failed) resolve(size); });
+  });
+}
+
+/**
+ * Тело В ПАМЯТЬ. Остаётся только для JSON: настройки прогона и профиль площадки —
+ * килобайты, и разбирать их всё равно приходится целиком.
+ *
+ * Модели сюда больше не попадают: для них есть `streamBodyToFile`. Предел по умолчанию
+ * тоже свой и маленький — иначе любой запрос с чужим Content-Type мог бы занять гигабайт
+ * оперативной памяти, ради которого и затевалась потоковая запись.
+ */
+function readBody(req: http.IncomingMessage, max = MAX_JSON_BODY): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
-    const MAX = MAX_BODY;
+    const MAX = max;
     // Заявленный размер отвергаем ДО приёма: иначе гигабайт сначала приедет по сети
     // и осядет в памяти, и только потом выяснится, что он не нужен.
     const declared = Number(req.headers['content-length']);
@@ -974,16 +1042,24 @@ const server = http.createServer(async (req, res) => {
         sendJSON(res, 400, { error: 'Expected a .glb file' });
         return;
       }
-      const bytes = await readBody(req);
-      if (!bytes.length) {
-        sendJSON(res, 400, { error: 'Empty request body — no file received' });
-        return;
-      }
+      // Папка заводится ДО приёма: файл теперь течёт на диск, а не собирается в памяти.
       const sourceId = randomUUID();
       const srcDir = path.join(UPLOADS_DIR, sourceId);
       await fsp.mkdir(srcDir, { recursive: true });
       const uploadPath = path.join(srcDir, fileName);
-      await fsp.writeFile(uploadPath, bytes);
+      let received;
+      try {
+        received = await streamBodyToFile(req, uploadPath);
+      } catch (e: any) {
+        await fsp.rm(srcDir, { recursive: true, force: true });
+        sendJSON(res, e.message === 'File too large' ? 413 : 400, { error: e.message });
+        return;
+      }
+      if (!received) {
+        await fsp.rm(srcDir, { recursive: true, force: true });
+        sendJSON(res, 400, { error: 'Empty request body — no file received' });
+        return;
+      }
       sourceUploads.set(sourceId, { uploadPath, name: fileName, seq: ++uploadSeq });
       await purgeBeyondLimit();
 
@@ -1049,8 +1125,15 @@ const server = http.createServer(async (req, res) => {
         sourceId = sourceParam;
         uploadPath = cached.uploadPath;
         fileName = cached.name;
-        // тело не ожидается — на всякий случай выкачиваем и игнорируем
-        await readBody(req).catch(() => {});
+        // Тело не ожидается. Всё равно выкачиваем: недочитанный запрос держит соединение
+        // и следующий на нём не пойдёт. Именно ВЫКАЧИВАЕМ, а не читаем в память — если
+        // клиент всё-таки прислал гигабайтную модель, класть её в оперативную память,
+        // чтобы тут же выбросить, незачем.
+        await new Promise<void>((done) => {
+          req.on('data', () => { /* в никуда */ });
+          req.on('end', () => done());
+          req.on('error', () => done());
+        });
       } else {
         const rawName = (req.headers['x-filename'] as string) || 'model.glb';
         let decodedName;
@@ -1065,8 +1148,20 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
-        const bytes = await readBody(req);
-        if (!bytes.length) {
+        sourceId = randomUUID();
+        const srcDir = path.join(UPLOADS_DIR, sourceId);
+        await fsp.mkdir(srcDir, { recursive: true });
+        uploadPath = path.join(srcDir, fileName);
+        let received;
+        try {
+          received = await streamBodyToFile(req, uploadPath);
+        } catch (e: any) {
+          await fsp.rm(srcDir, { recursive: true, force: true });
+          sendJSON(res, e.message === 'File too large' ? 413 : 400, { error: e.message });
+          return;
+        }
+        if (!received) {
+          await fsp.rm(srcDir, { recursive: true, force: true });
           // Клиент просил повторить по sourceId, но исходник не найден (например, сервер
           // перезапускался) — просим перезалить файл. Клиент повторит запрос с телом.
           if (sourceParam) {
@@ -1077,11 +1172,6 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
-        sourceId = randomUUID();
-        const srcDir = path.join(UPLOADS_DIR, sourceId);
-        await fsp.mkdir(srcDir, { recursive: true });
-        uploadPath = path.join(srcDir, fileName);
-        await fsp.writeFile(uploadPath, bytes);
         sourceUploads.set(sourceId, { uploadPath, name: fileName, seq: ++uploadSeq });
         // новая модель → стереть данные предыдущих (не копим лишнее)
         await purgeBeyondLimit();
