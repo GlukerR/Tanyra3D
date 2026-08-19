@@ -64,11 +64,36 @@ jobs:
       - name: Bundle the KTX2 encoder
         run: node scripts/bundle-ktx.mjs
 
+      # Браузеры Playwright — в кэш. Скачивание Chromium дважды вешало прогон целиком:
+      # 2026-08-18 задание провисело шесть часов, 2026-08-19 — два, оба раза на Node 20
+      # и 22, тогда как 24 тот же шаг проходил за минуту. Ни то ни другое не про наш код:
+      # у шага не было ни кэша, ни предела времени, поэтому зависшая загрузка не падала,
+      # а держала выпуск. Кэш убирает саму причину — скачивать нечего, если уже лежит.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
       # Браузерные тесты (viewer-regression.browser.test.mjs) требуют Chromium
       # через @vitest/browser + playwright. --with-deps ставит системные библиотеки
-      # для отрисовки (libGL, libEGL и т.д.) на ubuntu-latest.
+      # для отрисовки (libGL, libEGL и т.д.) на ubuntu-latest; при попадании в кэш
+      # скачивать остаётся нечего, но системные библиотеки ставятся всё равно.
+      #
+      # Три попытки с пределом в пять минут КАЖДАЯ. Предел на шаге целиком тут не
+      # помог бы: зависшая загрузка не возвращает ошибку, поэтому обычный повтор её
+      # не догоняет — повторять надо по таймауту, а не по коду выхода.
       - name: Install Playwright Chromium
-        run: npx playwright install chromium --with-deps
+        timeout-minutes: 20
+        run: |
+          for attempt in 1 2 3; do
+            if timeout 300 npx playwright install chromium --with-deps; then
+              exit 0
+            fi
+            echo "::warning::Playwright install attempt $attempt failed or hung; retrying"
+          done
+          echo "::error::Playwright Chromium could not be installed after three attempts"
+          exit 1
 
       # Весь набор, а не один файл. tests/optimize.test.mjs обёрнут в
       # describeIfModels(['CarConcept.glb']), а CarConcept — модель Khronos, в
