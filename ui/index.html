@@ -111,12 +111,20 @@
     </div>
     <div class="outliner-body">
       <div id="dropzone" class="dropzone">
-        <input type="file" id="file-input" accept=".glb" hidden>
+        <input type="file" id="file-input" accept=".glb" multiple hidden>
         <div class="dropzone-icon">⤓</div>
         <p class="dropzone-title" data-i18n="dropzone.title">Drop a 3D model here</p>
         <p class="dropzone-sub" data-i18n="dropzone.sub">or click + · .glb for now</p>
       </div>
       <p id="chosen-file" class="chosen-file"></p>
+      <!-- Полоса выбора для пакета. Показывается только когда моделей больше одной:
+           при единственной модели галочка и «все / ничего» — лишние кнопки над
+           единственной строкой. -->
+      <div id="batch-bar" class="batch-bar hidden">
+        <span id="batch-count" class="batch-count"></span>
+        <button id="batch-all" class="batch-pick" type="button" data-i18n="batch.all">All</button>
+        <button id="batch-none" class="batch-pick" type="button" data-i18n="batch.none">None</button>
+      </div>
       <ul id="model-list" class="model-list"></ul>
     </div>
     <!-- Логи внизу сайдбара: ошибки уходят сюда; клик разворачивает окно логов -->

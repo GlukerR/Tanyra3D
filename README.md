@@ -443,7 +443,10 @@ The honest list of what the tool doesn't do, or doesn't do fully.
   an ADDRESS a model is sent to, not a class of device: the "mobile" and "Quest"
   profiles were deleted on 2026-08-18 because a phone browser and a headset browser are
   the same three.js, and their numbers were never confirmed by a primary source.
-- **Batch processing is command-line only**; the web interface takes one model at a time.
+- **Batches are built one model at a time, in sequence.** Drop a folder or fifty files,
+  tick the ones you want, press build: the models are processed one after another, and
+  the viewport shows whichever is being worked on. Nothing runs in parallel — one
+  ABeautifulGame costs 704 MB of video memory, and fifty at once would take the tab down.
 
 ---
 
