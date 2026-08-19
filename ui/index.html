@@ -124,6 +124,7 @@
         <span id="batch-count" class="batch-count"></span>
         <button id="batch-all" class="batch-pick" type="button" data-i18n="batch.all">All</button>
         <button id="batch-none" class="batch-pick" type="button" data-i18n="batch.none">None</button>
+        <button id="batch-summary" class="batch-pick" type="button" data-window-trigger disabled data-i18n="batch.summary">Summary</button>
       </div>
       <ul id="model-list" class="model-list"></ul>
     </div>
@@ -324,6 +325,19 @@
         <button type="button" class="window-close" data-i18n-aria="win.close" aria-label="Close">×</button>
       </div>
       <div class="window-body window-scroll" id="logs-body"></div>
+    </div>
+
+    <!-- Сводка по пакету. Двадцать моделей дают двадцать отдельных отчётов и ни одного
+         общего — а спросить хочется простое: сколько всего сэкономили, кто не уложился
+         в порог площадки, где сборка не прошла. Ни одной новой цифры здесь не считается:
+         всё берётся из уже готовых отчётов моделей, иначе сводка разошлась бы с ними. -->
+    <div id="summary-window" class="window window--wide window--glass hidden" role="dialog" aria-label="Batch summary">
+      <div class="window-titlebar">
+        <span class="window-title" data-i18n="win.summary">Batch summary</span>
+        <button type="button" id="summary-save" class="window-action" data-i18n="summary.save">Save as CSV</button>
+        <button type="button" class="window-close" data-i18n-aria="win.close" aria-label="Close">×</button>
+      </div>
+      <div class="window-body window-scroll" id="summary-body"></div>
     </div>
 
     <!-- Единое окно экспорта (одна кнопка Download Result → выбор формата и имени).

@@ -274,6 +274,28 @@ window.I18N_CATALOGS.en = {
   'log.batchDone': ({ ok, failed }) => `Batch build finished: ${ok} built, ${failed} failed`,
   'log.batchStopped': ({ ok, failed, left }) => `Batch build stopped: ${ok} built, ${failed} failed, ${left} left`,
 
+  // --- batch summary ---
+  'batch.summary': 'Summary',
+  'win.summary': 'Batch summary',
+  'summary.save': 'Save as CSV',
+  'summary.fileName': 'tanyra3d-summary.csv',
+  'summary.empty': 'Nothing to show yet: no model has been built.',
+  'summary.col.model': 'Model',
+  'summary.col.before': 'Before',
+  'summary.col.after': 'After',
+  'summary.col.pct': 'Change',
+  'summary.col.vram': 'Video memory',
+  'summary.col.tris': 'Triangles',
+  'summary.col.budget': 'Target budget',
+  'summary.failed': 'build failed',
+  'summary.budget.none': '—',
+  'summary.budget.ok': 'within budget',
+  'summary.budget.warn': 'above the recommendation',
+  'summary.budget.over': 'over the limit',
+  'summary.total': ({ n, before, after, pct }) => `Models: ${n}. Before ${before}, after ${after} (${pct}).`,
+  'summary.totalFailed': ({ n }) => `Failed: ${n}. The reason is in each of those models' own report.`,
+  'log.summarySaved': ({ n }) => `Summary saved, rows: ${n}`,
+
   // --- полноэкранная подсветка при перетаскивании ---
   'dropOverlay.title': 'Drop the model anywhere',
   'dropOverlay.sub': '.glb',

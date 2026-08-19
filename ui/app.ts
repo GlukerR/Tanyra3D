@@ -34,6 +34,10 @@
   const batchCount = $('batch-count');
   const batchAllBtn = $('batch-all') as HTMLButtonElement;
   const batchNoneBtn = $('batch-none') as HTMLButtonElement;
+  const batchSummaryBtn = $('batch-summary') as HTMLButtonElement;
+  const summaryWindow = $('summary-window');
+  const summaryBody = $('summary-body');
+  const summarySaveBtn = $('summary-save') as HTMLButtonElement;
   const stageHint = $('stage-hint');
 
   const btnMetadata = $('btn-metadata') as HTMLButtonElement;
@@ -2197,6 +2201,10 @@
       modelList.appendChild(li);
     }
     renderBatchBar();
+    updateSummaryButton();
+    // Сводка открыта, а список изменился (собралась ещё одна модель, убрали строку) —
+    // перерисовываем. Иначе окно показывает вчерашний состав пакета.
+    if (!summaryWindow.classList.contains('hidden')) renderSummaryWindow();
     syncDropzone();
   }
 
@@ -2211,6 +2219,181 @@
     renderModelList();
     updateRunButtonState();
   }
+
+  // -----------------------------------------------------------------------
+  // Сводка по пакету
+  //
+  // Двадцать моделей дают двадцать отчётов и ни одного общего. Спросить хочется
+  // простое: сколько всего сэкономили, кто не уложился в порог площадки, где сборка
+  // не прошла. Здесь НЕ СЧИТАЕТСЯ ни одной новой цифры — всё берётся из готовых
+  // отчётов моделей. Считать заново значило бы завести второй источник правды,
+  // который однажды разойдётся с первым (тот же довод, что у `selectedFile`).
+  // -----------------------------------------------------------------------
+
+  /** Строки сводки: по одной на модель, у которой есть результат. */
+  function summaryRows() {
+    const rows = [];
+    for (const rec of models) {
+      // У активной модели результат живёт в переменных, в записи он появляется
+      // только после captureActiveModel().
+      const live = rec.id === activeModelId;
+      const res = live ? lastResult : rec.state.lastResult;
+      const explain = live ? lastExplain : rec.state.lastExplain;
+      if (!res) continue;
+      const before = (res.metrics && res.metrics.before) || null;
+      const after = (res.metrics && res.metrics.after) || null;
+      // Уровень бюджета берём худший из проверок: человеку важно «есть ли повод
+      // смотреть», а подробности он прочтёт в отчёте самой модели.
+      let budget = 'none';
+      for (const c of (explain && explain.budgetChecks) || []) {
+        if (c.level === 'over') { budget = 'over'; break; }
+        if (c.level === 'warn') budget = 'warn';
+        else if (c.level === 'ok' && budget === 'none') budget = 'ok';
+      }
+      rows.push({
+        name: rec.file.name,
+        failed: res.status === 'fail',
+        fileBefore: before ? before.fileBytes : null,
+        fileAfter: after ? after.fileBytes : null,
+        vramBefore: before ? before.gpuBytes : null,
+        vramAfter: after ? after.gpuBytes : null,
+        triangles: after ? after.triangles : null,
+        budget,
+      });
+    }
+    return rows;
+  }
+
+  /** Итоговая строка: суммы «было» и «стало» по тем моделям, где числа есть. */
+  function summaryTotal(rows: ReturnType<typeof summaryRows>) {
+    let before = 0;
+    let after = 0;
+    let counted = 0;
+    for (const r of rows) {
+      if (r.fileBefore == null || r.fileAfter == null) continue;
+      before += r.fileBefore;
+      after += r.fileAfter;
+      counted += 1;
+    }
+    return { before, after, counted, failed: rows.filter((r) => r.failed).length };
+  }
+
+  function updateSummaryButton() {
+    batchSummaryBtn.disabled = summaryRows().length === 0;
+  }
+
+  batchSummaryBtn.addEventListener('click', () => {
+    if (batchSummaryBtn.disabled) return;
+    renderSummaryWindow();
+    showWindow(summaryWindow);
+  });
+
+  function renderSummaryWindow() {
+    const rows = summaryRows();
+    summaryBody.innerHTML = '';
+    if (!rows.length) {
+      const p = document.createElement('p');
+      p.className = 'summary-empty';
+      setText(p, 'summary.empty');
+      summaryBody.appendChild(p);
+      return;
+    }
+
+    const table = document.createElement('table');
+    table.className = 'summary-table';
+    const head = document.createElement('tr');
+    for (const key of ['summary.col.model', 'summary.col.before', 'summary.col.after',
+      'summary.col.pct', 'summary.col.vram', 'summary.col.tris', 'summary.col.budget']) {
+      const th = document.createElement('th');
+      setText(th, key);
+      head.appendChild(th);
+    }
+    table.appendChild(head);
+
+    for (const r of rows) {
+      const tr = document.createElement('tr');
+      if (r.failed) tr.className = 'is-failed';
+      const cell = (text: string, cls?: string) => {
+        const td = document.createElement('td');
+        td.textContent = text;
+        if (cls) td.className = cls;
+        tr.appendChild(td);
+        return td;
+      };
+      cell(r.name, 'summary-name').title = r.name;
+      if (r.failed) {
+        const td = document.createElement('td');
+        td.colSpan = 6;
+        setText(td, 'summary.failed');
+        tr.appendChild(td);
+        table.appendChild(tr);
+        continue;
+      }
+      cell(r.fileBefore != null ? fmtBytes(r.fileBefore) : '—');
+      cell(r.fileAfter != null ? fmtBytes(r.fileAfter) : '—');
+      cell(r.fileBefore && r.fileAfter ? pctText(r.fileBefore, r.fileAfter) : '—', 'summary-pct');
+      cell(r.vramBefore != null && r.vramAfter != null
+        ? `${fmtBytes(r.vramBefore)} → ${fmtBytes(r.vramAfter)}` : '—');
+      cell(r.triangles != null ? fmtInt(r.triangles) : '—');
+      const budget = cell('', `summary-budget is-${r.budget}`);
+      setText(budget, `summary.budget.${r.budget}`);
+      table.appendChild(tr);
+    }
+    summaryBody.appendChild(table);
+
+    const total = summaryTotal(rows);
+    const foot = document.createElement('p');
+    foot.className = 'summary-total';
+    setText(foot, 'summary.total', {
+      n: total.counted,
+      before: fmtBytes(total.before),
+      after: fmtBytes(total.after),
+      pct: total.before ? pctText(total.before, total.after) : '—',
+    });
+    summaryBody.appendChild(foot);
+
+    if (total.failed) {
+      const bad = document.createElement('p');
+      bad.className = 'summary-total is-failed';
+      setText(bad, 'summary.totalFailed', { n: total.failed });
+      summaryBody.appendChild(bad);
+    }
+  }
+
+  // CSV, а не Markdown: пятьдесят строк человек будет сортировать и фильтровать, а это
+  // умеет таблица, а не текст. BOM — чтобы Excel не принял UTF-8 за кодировку системы
+  // и не показал кириллицу кракозябрами.
+  summarySaveBtn.addEventListener('click', () => {
+    const rows = summaryRows();
+    if (!rows.length) return;
+    const esc = (v: string) => `"${String(v).split('"').join('""')}"`;
+    const lines = [[
+      t('summary.col.model'), t('summary.col.before'), t('summary.col.after'),
+      t('summary.col.pct'), t('summary.col.vram'), t('summary.col.tris'),
+      t('summary.col.budget'),
+    ].map(esc).join(';')];
+    for (const r of rows) {
+      lines.push([
+        r.name,
+        r.fileBefore != null ? String(r.fileBefore) : '',
+        r.fileAfter != null ? String(r.fileAfter) : '',
+        r.fileBefore && r.fileAfter ? pctText(r.fileBefore, r.fileAfter) : '',
+        r.vramBefore != null ? String(r.vramBefore) : '',
+        r.triangles != null ? String(r.triangles) : '',
+        r.failed ? t('summary.failed') : t(`summary.budget.${r.budget}`),
+      ].map(esc).join(';'));
+    }
+    const blob = new Blob([`﻿${lines.join('\r\n')}\r\n`], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = t('summary.fileName');
+    a.click();
+    // Отпускаем не сразу: часть браузеров начинает скачивание асинхронно, и ссылка,
+    // отозванная в тот же тик, даёт пустой файл.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    logMessage('info', t('log.summarySaved', { n: rows.length }));
+  });
 
   // -----------------------------------------------------------------------
   // Добавление, выбор и удаление моделей
@@ -4752,6 +4935,9 @@
     await reexplainLastResult();
     if (!validationWindow.classList.contains('hidden')) renderValidationWindow();
     if (!metadataWindow.classList.contains('hidden')) renderMetadataWindow();
+    // Сводка собрана из готовых чисел, но подписи в ней — наши: заголовки колонок,
+    // вердикт бюджета, итоговая строка. Перерисовываем, а не пересобираем пакет.
+    if (!summaryWindow.classList.contains('hidden')) renderSummaryWindow();
     // Форма своей площадки открыта — подписи полей приходят с сервера, значит их надо
     // перезапросить. Введённые числа при этом остаются: смена языка — перерисовка,
     // а не сброс (Правило 8).

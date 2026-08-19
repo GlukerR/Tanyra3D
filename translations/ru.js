@@ -235,6 +235,30 @@ window.I18N_CATALOGS.ru = {
   'log.batchDone': ({ ok, failed }) => `Пакетная сборка закончена: собрано ${ok}, не вышло ${failed}`,
   'log.batchStopped': ({ ok, failed, left }) => `Пакетная сборка остановлена: собрано ${ok}, не вышло ${failed}, осталось ${left}`,
 
+  // --- сводка по пакету ---
+  'batch.summary': 'Сводка',
+  'win.summary': 'Сводка по пакету',
+  'summary.save': 'Сохранить в CSV',
+  'summary.fileName': 'tanyra3d-сводка.csv',
+  'summary.empty': 'Пока нечего показывать: ни одна модель не собрана.',
+  'summary.col.model': 'Модель',
+  'summary.col.before': 'Было',
+  'summary.col.after': 'Стало',
+  'summary.col.pct': 'Разница',
+  'summary.col.vram': 'Видеопамять',
+  'summary.col.tris': 'Треугольники',
+  'summary.col.budget': 'Бюджет площадки',
+  'summary.failed': 'сборка не прошла',
+  // Вердикт бюджета — худший из порогов этой модели. Подробности человек читает в
+  // отчёте самой модели; здесь ответ на один вопрос: есть ли повод туда заглянуть.
+  'summary.budget.none': '—',
+  'summary.budget.ok': 'в пределах',
+  'summary.budget.warn': 'выше рекомендации',
+  'summary.budget.over': 'сверх предела',
+  'summary.total': ({ n, before, after, pct }) => `Всего моделей: ${n}. Было ${before}, стало ${after} (${pct}).`,
+  'summary.totalFailed': ({ n }) => `Не собралось: ${n}. Причину смотрите в отчёте каждой такой модели.`,
+  'log.summarySaved': ({ n }) => `Сводка сохранена, строк: ${n}`,
+
   // --- полноэкранная подсветка при перетаскивании ---
   'dropOverlay.title': 'Бросайте модель в любое место',
   'dropOverlay.sub': '.glb',

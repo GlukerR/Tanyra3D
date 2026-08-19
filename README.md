@@ -447,6 +447,10 @@ The honest list of what the tool doesn't do, or doesn't do fully.
   tick the ones you want, press build: the models are processed one after another, and
   the viewport shows whichever is being worked on. Nothing runs in parallel — one
   ABeautifulGame costs 704 MB of video memory, and fifty at once would take the tab down.
+  When the batch is done, one table answers what fifty separate reports cannot: what each
+  model weighed before and after, which ones sit over the target's limit, which failed.
+  It computes nothing of its own — every number is read back from the per-model reports —
+  and saves as CSV.
 
 ---
 

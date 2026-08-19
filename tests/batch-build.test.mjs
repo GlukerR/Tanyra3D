@@ -187,6 +187,87 @@ describe('пакетная сборка', () => {
     }
   });
 
+  it('сводка берёт результат активной модели из живых переменных', () => {
+    // Тот же класс дефекта, что у `selectedFile`, и он тут страшнее: снимок состояния
+    // заполняется при УХОДЕ с модели, поэтому у той, что сейчас на экране, свежего
+    // результата в записи ещё нет. Читать только `rec.state.lastResult` значит молча
+    // терять из сводки последнюю собранную модель — а в пакете это как раз та, ради
+    // которой сводку и открыли.
+    const body = bodyOf(APP, 'function summaryRows(');
+    expect(body, 'summaryRows не найдена').toBeTruthy();
+    expect(
+      /rec\.id === activeModelId/.test(body) && /lastResult/.test(body),
+      'сводка обязана различать активную модель: её результат живёт в переменных, '
+        + 'а не в снимке состояния',
+    ).toBe(true);
+  });
+
+  it('итог складывает только те модели, у которых есть оба числа', () => {
+    // Без этой проверки отсутствующее «было» приходит как null, превращается в 0 при
+    // сложении, и итоговая экономия оказывается больше настоящей. Сводку читают как
+    // отчёт — врать в ней нельзя даже на одну модель.
+    const body = bodyOf(APP, 'function summaryTotal(');
+    expect(body, 'summaryTotal не найдена').toBeTruthy();
+    expect(
+      /fileBefore == null \|\| r\.fileAfter == null/.test(body),
+      'итог складывает всё подряд: модель без чисел добавит ноль и завысит экономию',
+    ).toBe(true);
+  });
+
+  it('вердикт бюджета — худший из порогов модели', () => {
+    // Строка сводки отвечает на один вопрос: есть ли повод открыть отчёт этой модели.
+    // Если из трёх порогов один превышен, а два в норме, показать надо превышение.
+    const body = bodyOf(APP, 'function summaryRows(');
+    const over = body.indexOf("=== 'over'");
+    const warn = body.indexOf("=== 'warn'");
+    expect(over, 'уровень over не проверяется').toBeGreaterThan(-1);
+    expect(over < warn, 'предел площадки обязан перебивать рекомендацию').toBe(true);
+    expect(/break/.test(body.slice(over, warn)), 'найдя предел, перебор пора прекращать').toBe(true);
+  });
+
+  it('сводка переводится без пересборки пакета (Правило 8)', () => {
+    // Числа в сводке чужие — они пришли из отчётов. А подписи наши: заголовки колонок,
+    // вердикт, итоговая строка. Смена языка обязана их перерисовать и НЕ трогать
+    // ничего больше: пересобирать двадцать моделей ради перевода слова «Модель» —
+    // ровно то, что Правило 8 запрещает.
+    const onChange = bodyOf(APP, 'window.I18n.onChange(');
+    expect(onChange, 'обработчик смены языка не найден').toBeTruthy();
+    expect(
+      /summaryWindow\.classList\.contains\('hidden'\)[\s\S]{0,40}renderSummaryWindow\(\)/.test(onChange),
+      'при смене языка открытая сводка остаётся на прежнем языке',
+    ).toBe(true);
+  });
+
+  it('CSV несёт BOM — иначе Excel покажет кириллицу кракозябрами', () => {
+    const i = APP.indexOf("summarySaveBtn.addEventListener");
+    expect(i, 'сохранение сводки не найдено').toBeGreaterThan(-1);
+    const body = APP.slice(i, i + 1800);
+    // BOM записан живым символом U+FEFF, а не escape-последовательностью.
+    expect(/new Blob\(\[`﻿/.test(body), 'в начале файла нет BOM').toBe(true);
+    expect(/charset=utf-8/.test(body), 'кодировка не объявлена').toBe(true);
+  });
+
+  it('кнопка сводки выключена, пока показывать нечего (Правило 12)', () => {
+    const body = bodyOf(APP, 'function updateSummaryButton(');
+    expect(body, 'updateSummaryButton не найдена').toBeTruthy();
+    expect(
+      /batchSummaryBtn\.disabled = summaryRows\(\)\.length === 0/.test(body),
+      'кнопка сводки живёт своей жизнью: нажатие на пустоте покажет пустое окно',
+    ).toBe(true);
+  });
+
+  it('все строки сводки есть в обоих каталогах', () => {
+    // Ключ — только с точкой внутри либо из явного списка. Без этого в улов попадал
+    // `document.createElement('summary')`: тег HTML, а не строка каталога.
+    const used = [...APP.matchAll(/'((?:summary\.[\w.]+|win\.summary|batch\.summary|log\.summarySaved))'/g)]
+      .map((m) => m[1]);
+    expect(used.length, 'ключей сводки в коде не нашлось').toBeGreaterThan(8);
+    for (const key of new Set(used)) {
+      expect(RU.includes(`'${key}'`), `нет русского перевода: ${key}`).toBe(true);
+      expect(EN.includes(`'${key}'`), `нет английского перевода: ${key}`).toBe(true);
+    }
+  });
+
   it('полоса выбора появляется только со второй моделью', () => {
     // Правило 10: простота для новичка. Над единственной строкой «все / ничего» —
     // две кнопки, которые нечего выбирать.
