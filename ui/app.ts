@@ -2383,7 +2383,9 @@
         r.failed ? t('summary.failed') : t(`summary.budget.${r.budget}`),
       ].map(esc).join(';'));
     }
-    const blob = new Blob([`﻿${lines.join('\r\n')}\r\n`], { type: 'text/csv;charset=utf-8' });
+    // \uFEFF записан escape-последовательностью, а не живым символом: BOM невидим в
+    // редакторе, и следующий человек увидит здесь необъяснимый пробел перед `${`.
+    const blob = new Blob([`\uFEFF${lines.join('\r\n')}\r\n`], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

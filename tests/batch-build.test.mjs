@@ -242,8 +242,10 @@ describe('пакетная сборка', () => {
     const i = APP.indexOf("summarySaveBtn.addEventListener");
     expect(i, 'сохранение сводки не найдено').toBeGreaterThan(-1);
     const body = APP.slice(i, i + 1800);
-    // BOM записан живым символом U+FEFF, а не escape-последовательностью.
-    expect(/new Blob\(\[`﻿/.test(body), 'в начале файла нет BOM').toBe(true);
+    // Ищем escape-последовательность \uFEFF, а не живой символ. Живой символ в этом
+    // файле стоил красного CI на всех трёх версиях Node: eslint запрещает «неправильные
+    // пробелы» внутри регулярных выражений (no-irregular-whitespace), а BOM — из них.
+    expect(/new Blob\(\[`\\uFEFF/.test(body), 'в начале файла нет BOM').toBe(true);
     expect(/charset=utf-8/.test(body), 'кодировка не объявлена').toBe(true);
   });
 
