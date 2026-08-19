@@ -494,9 +494,17 @@ stays at 2: it is reserved for the second engine (Babylon.js).
 language, not of features. The test suite is green on Node 20, 22 and 24. The desktop
 application installs like any other program — no terminal needed. The API may still change.
 
-Installed and used on Windows. The macOS and Linux packages are built by CI from the same
-source and pass the same checks, but nobody has run them on real hardware yet — if you do,
-[say how it went](https://github.com/GlukerR/Tanyra3D/issues).
+**Developed and tested on Windows — only there, and that is not going to change.** The
+author has no access to a Mac or a Linux desktop, so every release you see was installed,
+opened and looked at on Windows and nowhere else.
+
+The macOS and Linux packages are still built, by CI, from the same commit: they compile
+the same sources and pass the same test suite on Node 20, 22 and 24. What no one has done
+is run the resulting installer on real hardware. That gap is not a to-do item waiting to
+be closed — it is a standing property of a one-person project, stated here so nobody has
+to guess. If you install one of those builds,
+[say how it went](https://github.com/GlukerR/Tanyra3D/issues); a single report from
+someone who actually ran it is worth more than any promise made here.
 
 The browser is the current shape, not the intent. The people this is built for shouldn't
 have to work through a hundred checkboxes or launch anything from a terminal: install in
