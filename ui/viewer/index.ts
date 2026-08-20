@@ -14,7 +14,7 @@
 // запись понимает и не переписывает — см. tsconfig.ui.json.
 
 import { Viewer } from "./viewer.js";
-import type { CameraState, ViewerLike } from "./contract.js";
+import type { CameraState, PackEntry, ViewerLike } from "./contract.js";
 
 /**
  * Реализации движка просмотра, которые приложение действительно везёт с собой.
@@ -69,6 +69,28 @@ function median(arr: ArrayLike<number>) {
 }
 
 /**
+ * Привести адрес соседнего файла к одному виду, чтобы написанное в `.gltf` совпало с
+ * тем, что человек бросил.
+ *
+ * Три расхождения, каждое из которых встречается в настоящих файлах:
+ *   - косая черта задом наперёд (`textures\wood.png`) — так пишет часть экспортёров;
+ *   - `./` в начале — законно и ничего не значит;
+ *   - проценты (`w%20ood.png`) — по стандарту адрес в glTF закодирован, а имя файла на
+ *     диске нет.
+ *
+ * Регистр приводим к нижнему. Причина не в лени: файл с именем `Wood.PNG` и ссылка на
+ * `wood.png` — обычное дело, потому что автор собирал модель на Windows, где это ОДИН
+ * файл. Двух файлов, различающихся только регистром, там существовать не может, значит
+ * склеить разные под одним ключом мы не рискуем.
+ */
+function normalizeAssetPath(raw: string) {
+  let s = String(raw || "").split("\\").join("/");
+  try { s = decodeURIComponent(s); } catch { /* адрес закодирован не по правилам — берём как есть */ }
+  s = s.replace(/^\.\//, "").replace(/^\/+/, "");
+  return s.toLowerCase();
+}
+
+/**
  * Один слот сравнения: панель `.vp-pane` с <canvas> и строкой статуса.
  * Лениво создаёт движок при первой загрузке (когда контейнер уже виден и имеет размер).
  */
@@ -82,6 +104,8 @@ class ViewportSlot {
   declare statusEl: HTMLElement | null;
   declare viewer: ViewerLike | null;
   declare _blobUrl: string | null;
+  /** Адреса соседних файлов пачки. Живут ровно одну загрузку — см. _revokePack. */
+  declare _packUrls: string[];
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -89,6 +113,7 @@ class ViewportSlot {
     this.statusEl = container.querySelector<HTMLElement>(".viewer-status");
     this.viewer = null;
     this._blobUrl = null;
+    this._packUrls = [];
   }
 
   _ensureViewer() {
@@ -136,9 +161,64 @@ class ViewportSlot {
     }
   }
 
+  _revokePack() {
+    for (const u of this._packUrls) URL.revokeObjectURL(u);
+    this._packUrls = [];
+    this.viewer?.setAssetResolver?.(null);
+  }
+
+  /**
+   * Подставить движку соседние файлы модели вместо адресов, по которым идти некуда.
+   *
+   * Как загрузчик считает адрес соседа: берёт адрес самой модели, отрезает всё после
+   * последней косой черты и приклеивает то, что написано в `.gltf`. У blob-адреса
+   * (`blob:http://host/8d1f-…`) отрезание даёт `blob:http://host/`, и сосед превращается
+   * в `blob:http://host/textures/wood.png` — адрес, за которым НЕТ ничего и никогда не
+   * будет. Поэтому подмена ловит всё, что начинается с этой основы, и отдаёт blob того
+   * файла, который человек бросил.
+   *
+   * Заодно это и есть защита от сети: несуществующий blob-адрес наружу не ходит, а
+   * подменённый — тем более. Ни одного запроса за пределы вкладки (Правило: приложение
+   * работает без интернета).
+   *
+   * Возвращает множество НЕНАЙДЕННЫХ адресов: модель ссылается, а файла в пачке нет.
+   * Молчать об этом нельзя — человек увидел бы пустой вьюпорт без единого слова о причине.
+   */
+  _installPack(viewer: ViewerLike, modelUrl: string, pack?: PackEntry[] | null) {
+    this._revokePack();
+    const missing = new Set<string>();
+    if (!pack || !pack.length) return missing;
+    if (typeof viewer.setAssetResolver !== "function") {
+      // Движок без подмены адресов покажет пачку без текстур. Это не отказ показать
+      // модель, но и не то, что человек бросил, — значит говорим вслух.
+      console.warn("[viewer] Движок не умеет брать соседние файлы модели — пачка будет показана без них.");
+      return missing;
+    }
+
+    const base = modelUrl.slice(0, modelUrl.lastIndexOf("/") + 1);
+    const byPath = new Map<string, string>();
+    for (const item of pack) {
+      if (!item || !item.file) continue;
+      const blobUrl = URL.createObjectURL(item.file);
+      this._packUrls.push(blobUrl);
+      byPath.set(normalizeAssetPath(item.path), blobUrl);
+    }
+
+    viewer.setAssetResolver((requested: string) => {
+      if (requested === modelUrl || !base || !requested.startsWith(base)) return null;
+      const rel = normalizeAssetPath(requested.slice(base.length));
+      const hit = byPath.get(rel);
+      if (hit) return hit;
+      missing.add(rel);
+      return null;
+    });
+    return missing;
+  }
+
   /** Загрузить модель из URL (строка) или File (создаётся blob URL).
-   *  opts.camera — ракурс, который надо сохранить вместо авто-кадрирования (сборка/ребилд). */
-  async load(source: string | File | Blob, opts: { camera?: CameraState | null } = {}) {
+   *  opts.camera — ракурс, который надо сохранить вместо авто-кадрирования (сборка/ребилд).
+   *  opts.pack — соседние файлы (.bin, текстуры) для `.gltf`, брошенного вместе с ними. */
+  async load(source: string | File | Blob, opts: { camera?: CameraState | null; pack?: PackEntry[] | null } = {}) {
     const viewer = this._ensureViewer();
     this._setStatus("viewer.status.loading");
 
@@ -148,6 +228,7 @@ class ViewportSlot {
       url = this._blobUrl = URL.createObjectURL(source);
     }
 
+    const missing = this._installPack(viewer, url, opts.pack);
     try {
       await viewer.load(url, {
         camera: opts.camera || null,
@@ -162,9 +243,20 @@ class ViewportSlot {
       console.error("Viewer failed to load model:", err);
       this._setStatus("viewer.status.unavailable");
       this._revokeBlob();
+      if (missing.size) console.warn('[viewer] Пачка не дала файлов, которые запросил загрузчик:', [...missing].join(', '));
       return null;
+    } finally {
+      // Соседи нужны ровно на время разбора: дальше картинки живут в видеопамяти, а
+      // blob-адреса держали бы файлы в памяти вкладки до перезагрузки страницы.
+      this._revokePack();
     }
     this._revokeBlob();
+    // Загрузчик спросил файл, которого в пачке нет. Человеку об этом говорит НЕ здесь:
+    // приложение сверяет пачку со списком ссылок внутри `.gltf` ещё до загрузки и
+    // называет нехватку одной строкой (там же видны файлы-сироты, за которыми
+    // загрузчик и не пойдёт). Эта же запись — про НАС: если тут что-то есть, а сверка
+    // промолчала, значит адреса разошлись при приведении к общему виду.
+    if (missing.size) console.warn('[viewer] Пачка не дала файлов, которые запросил загрузчик:', [...missing].join(', '));
     return { stats: viewer.getStats(), detected: viewer.getDetection() };
   }
 
@@ -193,6 +285,7 @@ class ViewportSlot {
    */
   reset() {
     this._revokeBlob();
+    this._revokePack();
     if (this.viewer) {
       this.viewer.dispose();
       this.viewer = null;
@@ -224,6 +317,8 @@ class DualViewport {
   /** Чей свет показываем. Тоже переживает сборку, но не смену модели. */
   declare _lightMode: 'studio' | 'file';
   declare _exposure: number;
+  /** Материал показа, один на оба окна. См. setDisplayMaterial. */
+  declare _display: 'file' | 'clay';
   declare _perf: { left: Float64Array; right: Float64Array; frame: Float64Array; i: number };
   // Эти два появляются позже конструктора и до тех пор отсутствуют — отсюда `?`:
   // снятие подписки заводится при связывании камер, слушатель загрузки — из UI.
@@ -566,6 +661,43 @@ class DualViewport {
     this.right?.viewer?.setExposure?.(v);
   }
 
+  /**
+   * Материал показа — ОДИН на оба окна, по той же причине, по которой один вариант
+   * материала и один уровень детализации: сравнивают тут «до» и «после», и разъехавшийся
+   * показ превратил бы сравнение оптимизации в сравнение способов рисовать.
+   */
+  setDisplayMaterial(mode: 'file' | 'clay') {
+    this._display = mode === 'clay' ? 'clay' : 'file';
+    this._applyDisplayMaterial();
+  }
+
+  getDisplayMaterial() {
+    return this._display || 'file';
+  }
+
+  _applyDisplayMaterial() {
+    const mode = this._display || 'file';
+    this.left?.viewer?.setDisplayMaterial?.(mode);
+    this.right?.viewer?.setDisplayMaterial?.(mode);
+  }
+
+  /**
+   * Показать глину сразу, если у модели НЕТ НИ ОДНОЙ текстуры.
+   *
+   * Не своеволие: у такой модели нет ни картинок, ни, как правило, цвета — экспортёр
+   * оставил белый материал по умолчанию, и подменять там нечего. Белое же под ровным
+   * светом читается силуэтом без формы, ради чего глина и заведена.
+   *
+   * Ровно одно условие и никаких догадок: есть хоть одна текстура — не трогаем. И
+   * человек в любой момент возвращает родные материалы одним выбором.
+   */
+  _autoDisplayMaterial() {
+    const viewer = this.left?.viewer;
+    if (!viewer || typeof viewer.hasTextures !== 'function') return;
+    this._display = viewer.hasTextures() ? 'file' : 'clay';
+    this._applyDisplayMaterial();
+  }
+
   _stopLoop() {
     if (this._rafId != null) {
       cancelAnimationFrame(this._rafId);
@@ -575,7 +707,7 @@ class DualViewport {
 
   /** Загрузить оригинал (File) в левый вьюпорт. Правый сбрасывается — прежний
    *  оптимизированный результат больше не соответствует новой исходной модели. */
-  async loadOriginal(originalFile: File | null) {
+  async loadOriginal(originalFile: File | null, pack?: PackEntry[] | null) {
     if (!this._init()) return null;
     // ДРУГАЯ модель — ракурс автора и свет из файла забываем. Клип и вариант так не
     // делают намеренно (человек сравнивает модели в одном виде), а здесь наоборот:
@@ -590,7 +722,10 @@ class DualViewport {
     this.right!.reset();
     this.right!.showHint("viewer.hint.compare");
     let info = null;
-    if (originalFile) info = await this.left!.load(originalFile);
+    if (originalFile) info = await this.left!.load(originalFile, { pack: pack || null });
+    // ДРУГАЯ модель — заново решаем, показывать ли глиной: у прошлой текстуры могли быть,
+    // у этой нет. Сборка той же модели (loadOptimized) сюда не попадает и выбор не трогает.
+    this._autoDisplayMaterial();
     this._afterLoad();
     return info; // { stats, detected } — метрики модели + что уже сжато в исходнике
   }
@@ -619,6 +754,7 @@ class DualViewport {
     this._applyCameraSelection();
     this._applyLightSelection();
     this._applyExposure();
+    this._applyDisplayMaterial();
     this._startLoop();
     // Состав модели изменился — панели управления надо перестроить СЕЙЧАС, а не
     // когда до них дойдёт очередь кадра. Сначала это делалось опросом в цикле
@@ -774,7 +910,12 @@ window.OptiViewer = {
   implementations: () => Object.keys(VIEWERS),
   useViewer: (id) => useViewer(id),
   currentViewer: () => wantedViewer,
-  loadOriginal: (file) => dual.loadOriginal(file),
+  loadOriginal: (file, pack) => dual.loadOriginal(file, pack as PackEntry[] | null),
+  // Приведение адреса соседа к общему виду. Наружу отдано НЕ для красоты: приложение
+  // сверяет ссылки внутри `.gltf` с брошенными файлами, и считать ключи оно обязано тем
+  // же кодом, что и подмена адресов при показе. Две копии этого правила разошлись бы на
+  // первом же файле с пробелом в имени — и разошлись бы молча.
+  assetKey: (p) => normalizeAssetPath(p),
   loadOptimized: (url) => dual.loadOptimized(url),
   resetView: () => dual.resetView(),
   setLinked: (on) => dual.setLinked(on),
@@ -800,6 +941,9 @@ window.OptiViewer = {
   selectCamera: (index) => dual.selectCamera(index),
   // Экспозиция — одна на оба вьюпорта, см. _applyExposure.
   setExposure: (v) => dual.setExposure(v),
+  // Материал показа: 'file' — как в файле, 'clay' — наша глина для безтекстурных моделей.
+  setDisplayMaterial: (mode) => dual.setDisplayMaterial(mode),
+  getDisplayMaterial: () => dual.getDisplayMaterial(),
   getExposure: () => dual.getExposure(),
   // Нагрузка на отрисовку: { leftMs, rightMs, fps } либо null, пока окно замера
   // не набралось. Почему не «FPS слева / FPS справа» — см. DualViewport._pushPerf.

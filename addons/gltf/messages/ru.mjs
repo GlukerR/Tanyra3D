@@ -301,6 +301,9 @@ export default {
   'quantize.skipped.already': () => 'Геометрия уже квантована — второй проход только добавил бы потерь',
   'quantize.skipped.compressed': ({ codec }) => `Геометрия уже упакована (${codec}) — этот способ поверх неё ничего не даёт`,
 
+  // --- чтение файла ---
+  'io.missingResources': ({ names }) => `Не хватает файлов, на которые ссылается этот .gltf: ${names}. Бросьте папку целиком, а не один .gltf.`,
+
   // --- integrity checks (validate) ---
   'check.geometryEmpty': () => 'до и после оптимизации треугольной геометрии нет',
   'check.geometryPresent': () => 'геометрия есть',

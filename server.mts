@@ -89,7 +89,22 @@ const core = await import('./optimize2.mjs');
 const { optimizeFile, inspectFile, exportJson, VERSION, exclusiveGroups } = core;
 // Каталоги сообщений правил регистрирует аддон при импорте ядра выше — поэтому
 // localizeResult здесь умеет пересобрать строки отчёта на любом подключённом языке.
-const { localizeResult } = await import('./core/i18n.mjs');
+const { localizeResult, render } = await import('./core/i18n.mjs');
+
+/**
+ * Объяснение ошибки НА ЯЗЫКЕ ЧЕЛОВЕКА, если оно есть.
+ *
+ * Ядро и аддон запроса не видят и языка не знают, поэтому кладут на ошибку рецепт
+ * (`messageId` + подстановки), а собирает строку тот, кто знает, — сервер. Без рецепта
+ * остаётся техническое сообщение: оно английское и обращено к разработчику, но это
+ * честнее выдуманного перевода.
+ */
+function explainError(e: any, lang: string): string {
+  if (e && e.i18n && e.i18n.messageId) {
+    try { return render(e.i18n.messageId, e.i18n.data || {}, lang); } catch { /* ключа нет — ниже */ }
+  }
+  return e && e.message ? e.message : String(e);
+}
 
 /**
  * Ассистент подключается по-настоящему динамически: его может не быть (graceful-фолбэк
@@ -243,6 +258,38 @@ const sourceUploads = new Map();
 // в гонку: при двух одновременных загрузках каждая видела в Map чужую запись и удаляла её,
 // так что обе вкладки теряли исходник. Теперь чистится только то, что СТАРШЕ текущей.
 let uploadSeq = 0;
+
+/**
+ * Наш ли это номер исходника. Проверка обязательна ВЕЗДЕ, где `source` из запроса
+ * подставляется в путь: номер приходит снаружи, и «../..» в нём уводит запись куда
+ * угодно за пределы рабочей папки.
+ *
+ * Пропускаем только формат, который сами же и выдаём (`randomUUID`). Точка, косая черта
+ * и обратная косая под него не подходят по определению — значит перебирать опасные
+ * сочетания не нужно, достаточно узнать своё.
+ *
+ * Сторож существовал у `DELETE /api/source/<id>` с самого начала, а у пачек его не было:
+ * `/api/asset` и `/api/inspect?source=` брали номер на веру. Найдено 2026-08-20 при
+ * разборе собственного коммита — не проверкой и не отчётом, а перечитыванием.
+ */
+function isSourceId(id: string) {
+  return /^[0-9a-f-]{36}$/i.test(id);
+}
+
+/**
+ * Папка пачки, заведённая через `/api/asset`: соседние файлы уже лежат, а самой модели
+ * ещё нет. Возвращает путь либо null — «такой пачки нет, заводи новую».
+ *
+ * Отдельная функция, потому что спрашивают об этом трое: инспекция, сборка и приём
+ * следующего соседа. Разъехавшись, они дали бы самый неприятный вид дефекта — модель
+ * ложится ОТДЕЛЬНО от своих текстур и открывается пустой.
+ */
+function packDirOf(sourceParam: string): string | null {
+  if (!sourceParam || !isSourceId(sourceParam)) return null;
+  if (sourceUploads.has(sourceParam)) return null;   // там уже есть модель — не пустая пачка
+  const dir = path.join(UPLOADS_DIR, sourceParam);
+  return fs.existsSync(dir) ? dir : null;
+}
 
 // Сколько исходников держим на диске одновременно.
 //
@@ -817,7 +864,9 @@ const server = http.createServer(async (req, res) => {
       const id = decodeURIComponent(pathname.slice('/api/source/'.length));
       // id приходит снаружи и подставляется в путь. Пропускаем только формат UUID,
       // который сами и выдали: без этого «../..» в id увёл бы rm куда угодно.
-      if (!/^[0-9a-f-]{36}$/i.test(id)) {
+      // Проверка общая с пачками (isSourceId) — двух копий одного сторожа тут быть не
+      // должно ровно по той же причине, по которой её не должно быть у списка форматов.
+      if (!isSourceId(id)) {
         sendJSON(res, 400, { error: 'bad source id' });
         return;
       }
@@ -1103,12 +1152,15 @@ const server = http.createServer(async (req, res) => {
       // Пачка живёт в папке исходника. Нет исходника — заводим: соседи могут приехать
       // раньше модели, и это законный порядок (см. выше).
       let sourceId = sourceParam;
-      let srcDir;
-      if (sourceId && sourceUploads.has(sourceId)) {
-        srcDir = path.dirname(sourceUploads.get(sourceId).uploadPath);
-      } else if (sourceId && fs.existsSync(path.join(UPLOADS_DIR, sourceId))) {
-        srcDir = path.join(UPLOADS_DIR, sourceId);
-      } else {
+      let srcDir: string | null = null;
+      if (isSourceId(sourceId)) {
+        const known = sourceUploads.get(sourceId);
+        srcDir = known ? path.dirname(known.uploadPath) : packDirOf(sourceId);
+      }
+      if (!srcDir) {
+        // Незнакомый или неправильный номер — это НОВАЯ пачка, а не повод лезть по
+        // присланному пути. Клиент узнает выданный номер из ответа и пришлёт с ним
+        // остальных соседей.
         sourceId = randomUUID();
         srcDir = path.join(UPLOADS_DIR, sourceId);
         await fsp.mkdir(srcDir, { recursive: true });
@@ -1157,9 +1209,9 @@ const server = http.createServer(async (req, res) => {
       // Модель приезжает В УЖЕ ЗАВЕДЁННУЮ папку, если соседи приехали раньше. Иначе
       // .gltf лёг бы отдельно от своего .bin и не прочитался.
       const packParam = url.searchParams.get('source') || '';
-      if (packParam && !MODEL_EXT.test(packParam) && fs.existsSync(path.join(UPLOADS_DIR, packParam))) {
-        const srcDir = path.join(UPLOADS_DIR, packParam);
-        const uploadPath = path.join(srcDir, fileName);
+      const packDir = packDirOf(packParam);
+      if (packDir) {
+        const uploadPath = path.join(packDir, fileName);
         let received;
         try {
           received = await streamBodyToFile(req, uploadPath);
@@ -1178,7 +1230,7 @@ const server = http.createServer(async (req, res) => {
           packData = await inspectFile(uploadPath);
         } catch (e: any) {
           console.error('[inspect] failed:', e);
-          sendJSON(res, 500, { error: 'Inspection failed: ' + e.message });
+          sendJSON(res, 500, { error: explainError(e, langOf(url)) });
           return;
         }
         sendJSON(res, 200, { sourceId: packParam, ...packData });
@@ -1210,7 +1262,7 @@ const server = http.createServer(async (req, res) => {
         data = await inspectFile(uploadPath);
       } catch (e: any) {
         console.error('[inspect] failed:', e);
-        sendJSON(res, 500, { error: 'Inspection failed: ' + e.message });
+        sendJSON(res, 500, { error: explainError(e, langOf(url)) });
         return;
       }
       sendJSON(res, 200, { sourceId, ...data });
@@ -1290,20 +1342,35 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
-        sourceId = randomUUID();
-        const srcDir = path.join(UPLOADS_DIR, sourceId);
-        await fsp.mkdir(srcDir, { recursive: true });
+        // Модель ложится В ПАПКУ ПАЧКИ, если соседи приехали раньше (клиент прислал их
+        // номер). Иначе `.gltf` оказался бы отдельно от своего `.bin` и не прочитался —
+        // причём именно в пакетном прогоне, где инспекции не было и заметить это некому.
+        //
+        // Своей папки такая пачка не теряет: чистится она по тому же номеру, что и
+        // обычный исходник.
+        const packDir = packDirOf(sourceParam);
+        let srcDir;
+        if (packDir) {
+          sourceId = sourceParam;
+          srcDir = packDir;
+        } else {
+          sourceId = randomUUID();
+          srcDir = path.join(UPLOADS_DIR, sourceId);
+          await fsp.mkdir(srcDir, { recursive: true });
+        }
         uploadPath = path.join(srcDir, fileName);
         let received;
         try {
           received = await streamBodyToFile(req, uploadPath);
         } catch (e: any) {
-          await fsp.rm(srcDir, { recursive: true, force: true });
+          // Папку пачки не сносим: в ней лежат соседи, которых клиент уже прислал, и
+          // повторная отправка одной модели должна их застать на месте.
+          if (!packDir) await fsp.rm(srcDir, { recursive: true, force: true });
           sendJSON(res, e.message === 'File too large' ? 413 : 400, { error: e.message });
           return;
         }
         if (!received) {
-          await fsp.rm(srcDir, { recursive: true, force: true });
+          if (!packDir) await fsp.rm(srcDir, { recursive: true, force: true });
           // Клиент просил повторить по sourceId, но исходник не найден (например, сервер
           // перезапускался) — просим перезалить файл. Клиент повторит запрос с телом.
           if (sourceParam) {

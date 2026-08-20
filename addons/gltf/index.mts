@@ -704,7 +704,7 @@ function restoreCarried(json: Record<string, unknown>, carried: Carried | undefi
 // и клались в реестр по объекту документа — и терялись, как только правило подменяло
 // документ (KTX2, круг через временный файл). Теперь ответ берётся из исходного файла в
 // момент записи, и промежуточные состояния на него не влияют. См. writeBytes.
-const load = (io: NodeIOType, src: string) => io.read(src);
+const load = (io: NodeIOType, src: string) => readOrExplain(io, src);
 
 const readBytes = (io: NodeIOType, bytes: Uint8Array) => io.readBinary(bytes);
 
@@ -1133,6 +1133,106 @@ function groupValidation(messages: ExplainedMessage[], examples: number = VALIDA
   return [...groups.values()];
 }
 
+/**
+ * Сколько весит ИСХОДНАЯ модель целиком.
+ *
+ * У `.glb` это размер файла — там всё внутри. У `.gltf` файл сам по себе почти ничего не
+ * весит: это оглавление, а геометрия и картинки лежат рядом отдельными файлами. Считать
+ * весом только оглавление — врать в самом заметном месте отчёта: сборка пачки на 64 КБ,
+ * давшая 11 КБ, показывала «8.9 КБ → 10.7 КБ, +20 %», то есть рост вместо шестикратного
+ * уменьшения (найдено 2026-08-20 живой проверкой в браузере).
+ *
+ * Считаем то, что модель ДЕЙСТВИТЕЛЬНО читает, — файлы по ссылкам из `buffers` и
+ * `images`, а не всё, что валяется в папке: рядом могут лежать исходники, readme и
+ * чужие модели, к нашему весу отношения не имеющие.
+ *
+ * Ссылку, ведущую выше папки модели, тоже считаем. Она законна (общая папка текстур на
+ * несколько моделей — обычная раскладка), и раз движок такой файл читает, то отказаться
+ * его взвесить значило бы разойтись с собственной работой. Берём при этом только размер.
+ *
+ * Один файл по двум ссылкам весит один раз — иначе общая карта нормалей у пяти
+ * материалов раздула бы «до» впятеро.
+ *
+ * Живёт в АДДОНЕ, а не в движке: `buffers`, `images` и `data:` — знание про glTF, и
+ * ядро, которое однажды получит второй формат, не должно его нести. Движок спрашивает
+ * через необязательный хук и без него берёт размер файла (core/types.mts).
+ */
+function referencedResources(srcPath: string): { uri: string; full: string }[] {
+  if (!/\.gltf$/i.test(srcPath)) return [];
+  let json: any;
+  try {
+    json = JSON.parse(fs.readFileSync(srcPath, 'utf8'));
+  } catch {
+    return [];   // не JSON — пусть об этом скажет разбор, а не обход ссылок
+  }
+  const dir = path.dirname(srcPath);
+  const seen = new Set<string>();
+  const out: { uri: string; full: string }[] = [];
+  for (const item of [...(json.buffers || []), ...(json.images || [])]) {
+    const uri = item && item.uri;
+    // Встроенное (`data:`) отдельным файлом не лежит — ни весить, ни теряться не может.
+    if (!uri || typeof uri !== 'string' || /^data:/i.test(uri)) continue;
+    let rel = uri;
+    try { rel = decodeURIComponent(uri); } catch { /* адрес закодирован не по правилам */ }
+    const full = path.resolve(dir, rel);
+    if (seen.has(full)) continue;   // один файл по двум ссылкам — одна запись
+    seen.add(full);
+    out.push({ uri, full });
+  }
+  return out;
+}
+
+function sourceBytes(srcPath: string): number {
+  const own = fs.statSync(srcPath).size;
+  let extra = 0;
+  for (const r of referencedResources(srcPath)) {
+    try { extra += fs.statSync(r.full).size; } catch { /* файла нет — весит ноль */ }
+  }
+  return own + extra;
+}
+
+/**
+ * На кого модель ссылается, а его нет на диске.
+ *
+ * Нужно ради одной строки в ответе. `.gltf` без единого соседнего файла не читается
+ * вовсе, и разбор падает изнутри библиотеки сообщением про ENOENT по временному пути —
+ * человек (и командная строка) видели «Inspection failed (500)» и гадали. Причина же
+ * всегда одна и та же: бросили файл, а не папку.
+ *
+ * Особо коварен файл-СИРОТА: картинка, которую не использует ни один материал. Показу
+ * она не мешает (загрузчик её и не спросит), а разбору мешает — читаются все.
+ */
+function missingResources(srcPath: string): string[] {
+  return referencedResources(srcPath).filter((r) => !fs.existsSync(r.full)).map((r) => r.uri);
+}
+
+/**
+ * Прочитать модель, а при неудаче объяснить причину, если она известна.
+ *
+ * Исходную ошибку не прячем — она уходит следом за нашей: у пачки бывает и вторая беда
+ * помимо нехватки файлов, и подменять один диагноз другим значит терять второй.
+ */
+async function readOrExplain(io: NodeIOType, srcPath: string) {
+  try {
+    return await io.read(srcPath);
+  } catch (e: any) {
+    const gone = missingResources(srcPath);
+    if (!gone.length) throw e;
+    // Строка берётся ИЗ КАТАЛОГА, а не пишется здесь (Правило 8: ни одной готовой
+    // пользовательской фразы в коде движка). Первая редакция собирала её на месте, и
+    // сторож `tests/i18n-discipline` совершенно правильно на этом покраснел.
+    //
+    // `i18n` на ошибке — рецепт для тех, кто знает язык человека: сервер пересобирает
+    // строку на его языке (сам аддон запроса не видит и языка не знает). `message`
+    // остаётся английским: его читают командная строка и журнал сервера.
+    const err: Error & { i18n?: { messageId: string; data: Record<string, unknown> } } =
+      new Error(render('io.missingResources', { names: gone.join(', ') }));
+    err.i18n = { messageId: 'io.missingResources', data: { names: gone.join(', ') } };
+    err.cause = e;
+    throw err;
+  }
+}
+
 // -------- Инспекция ассета (Metadata + Validation, как на gltf.report) --------
 // Формат-специфично: метаданные из fns.inspect (те же таблицы, что у gltf.report) +
 // issues от Khronos gltf-validator. Ядро отдаёт это через inspectFile() формат-агностично;
@@ -1140,7 +1240,7 @@ function groupValidation(messages: ExplainedMessage[], examples: number = VALIDA
 async function inspect(srcPath: string): Promise<Record<string, unknown>> {
   const io = await createIO();
   const bytes = fs.readFileSync(srcPath);
-  const doc = await io.read(srcPath);
+  const doc = await readOrExplain(io, srcPath);
   const asset = doc.getRoot().getAsset() || {};
   const extensions = doc.getRoot().listExtensionsUsed().map((e: { extensionName: string }) => e.extensionName);
 
@@ -1174,7 +1274,9 @@ async function inspect(srcPath: string): Promise<Record<string, unknown>> {
   // Обходится это даром: документ уже прочитан выше ради metadata, второго чтения
   // файла не происходит.
   let metrics = null;
-  try { metrics = collectMetrics(doc, bytes.length); } catch { /* экзотика — цифр не будет, таблицы останутся */ }
+  // Вес — через sourceBytes, а не bytes.length: у `.gltf` сам файл почти ничего не весит,
+  // и панель «Метаданные» показывала бы килобайты у модели на шестьдесят мегабайт.
+  try { metrics = collectMetrics(doc, sourceBytes(srcPath)); } catch { /* экзотика — цифр не будет, таблицы останутся */ }
 
   return {
     format: 'gltf',
@@ -1198,7 +1300,7 @@ function mimeFromUri(uri: string): string {
 
 async function toJSON(srcPath: string): Promise<Record<string, unknown>> {
   const io = await createIO();
-  const doc = await io.read(srcPath);
+  const doc = await readOrExplain(io, srcPath);
   const { json, resources } = await io.writeJSON(doc, {});
   const inline = (uri: string, mime: string) => {
     const bytes = resources && resources[uri];
@@ -1231,6 +1333,7 @@ const gltfAddon = {
   writeBytes,
   readBytes,
   collectMetrics,
+  sourceBytes,
   baselineMetrics: baselineSnapshot,
   stripInputCompression,
   validate,

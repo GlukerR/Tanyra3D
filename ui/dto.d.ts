@@ -128,7 +128,7 @@ interface Detection {
  * выбирает модель, а не там, где он читает отчёт о сборке.
  */
 interface ModelIssue {
-  kind: 'unreadable' | 'validation';
+  kind: 'unreadable' | 'incomplete' | 'validation';
   count?: number;
   detail?: string;
   [key: string]: any;
@@ -148,6 +148,23 @@ interface UiSelection {
 }
 
 /**
+ * Файл ровно так, как его бросили: сам файл и его путь внутри броска
+ * (`Chair/textures/wood.png`). Путь нужен, чтобы связать ссылку внутри `.gltf` с
+ * брошенным файлом; по одному имени это сделать нельзя — картинок с именем
+ * `basecolor.png` в модели бывает много.
+ */
+interface DroppedFile {
+  file: File;
+  path: string;
+}
+
+/** Сосед модели: адрес ОТ САМОЙ МОДЕЛИ, как написано внутри `.gltf`. */
+interface PackFile {
+  path: string;
+  file: File;
+}
+
+/**
  * Строка списка моделей слева. Порядок массива = порядок загрузки.
  * `state` — снимок состояния приложения для ЭТОЙ модели (PER_MODEL_STATE): при
  * переключении между моделями настройки и результат не теряются.
@@ -155,6 +172,20 @@ interface UiSelection {
 interface ModelEntry {
   id: string;
   file: File;
+  /**
+   * Соседние файлы `.gltf`: `.bin` с геометрией и картинки текстур. У `.glb` пуста
+   * всегда — он самодостаточен, и прикладывать к нему брошенное рядом значило бы
+   * править модель за человека (Правило 11).
+   */
+  pack: PackFile[];
+  /** Номер папки пачки на сервере; null — соседей ещё не возили либо их нет. */
+  packSourceId: string | null;
+  /** Сверяли ли пачку со ссылками внутри `.gltf`. Одна модель — одно предупреждение. */
+  packChecked: boolean;
+  /** Скольких файлов пачке не хватило; 0 — все на месте. */
+  packMissing: number;
+  /** Сказали ли уже, что модель тяжелее расчётной. Одна модель — одна строка. */
+  heavyWarned: boolean;
   state: Record<string, any>;
   /**
    * Отмечена ли модель для пакетной сборки. Отдельно от `activeModelId`: показывается

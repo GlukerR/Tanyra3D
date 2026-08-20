@@ -50,10 +50,26 @@ function stripComments(src) {
   return out;
 }
 
-/** Группы свойств модели: появляются только у той модели, где это есть. */
+/**
+ * Группы СВОЙСТВ МОДЕЛИ: появляются только у той модели, где это свойство есть. У модели
+ * без своих камер значка камер быть не должно — «камера автора» без камер бессмысленна.
+ */
 const GROUP_IDS = [
   'lod-controls', 'variant-controls', 'camera-controls', 'light-controls', 'anim-controls',
 ];
+
+/**
+ * Группы, которые стоят ВСЕГДА. Это другой род, и разделение здесь появилось не для
+ * удобства счёта: у такой группы нет условия «есть ли это в модели», потому что она про
+ * СПОСОБ ПОКАЗА, а не про содержимое файла.
+ *
+ * Пока такая одна — «Поверхность» (материалы модели или наша глина, 2026-08-20).
+ * Показать глиной можно любую модель, включая текстурированную: иногда именно так и
+ * смотрят геометрию.
+ */
+const ALWAYS_GROUP_IDS = ['display-controls'];
+
+const ALL_GROUP_IDS = [...GROUP_IDS, ...ALWAYS_GROUP_IDS];
 
 describe('панели вьюпорта — устройство', () => {
   it('верхняя панель держит только общее: групп свойств модели в ней нет', () => {
@@ -74,15 +90,31 @@ describe('панели вьюпорта — устройство', () => {
   it('каждая группа живёт на полке значков', () => {
     const rail = html.indexOf('class="vp-rail"');
     const tail = html.slice(rail);
-    for (const id of GROUP_IDS) {
+    for (const id of ALL_GROUP_IDS) {
       expect(tail.includes(`id="${id}"`), `${id} не на полке значков`).toBe(true);
+    }
+  });
+
+  it('условные группы спрятаны в разметке, а постоянные — нет', () => {
+    // Разница видна ровно здесь. Группа свойства модели обязана стартовать скрытой:
+    // до загрузки модели неизвестно, есть ли у неё это свойство, а показанный пустой
+    // значок обещал бы то, чего нет (Правило 12). Постоянная группа, наоборот, скрытой
+    // быть не должна — иначе способ показа стал бы недоступен на пустом экране.
+    for (const id of GROUP_IDS) {
+      const tag = html.slice(html.indexOf(`id="${id}"`));
+      expect(tag.slice(0, 120).includes('hidden'), `${id} не скрыт до загрузки модели`).toBe(true);
+    }
+    for (const id of ALWAYS_GROUP_IDS) {
+      const start = html.indexOf(`id="${id}"`);
+      const tag = html.slice(start, html.indexOf('>', start));
+      expect(tag.includes('hidden'), `${id} спрятан, хотя должен стоять всегда`).toBe(false);
     }
   });
 
   it('у каждой группы есть свой значок с подписью из каталога', () => {
     const rail = html.slice(html.indexOf('class="vp-rail"'));
     const buttons = [...rail.matchAll(/<button[^>]*vp-group-btn[^>]*>/g)].map((m) => m[0]);
-    expect(buttons.length, 'значков на полке меньше, чем групп').toBe(GROUP_IDS.length);
+    expect(buttons.length, 'значков на полке не столько, сколько групп').toBe(ALL_GROUP_IDS.length);
     for (const btn of buttons) {
       // Правило 8: у значка нет текста, подпись берётся по ключу — иначе он немой.
       expect(/data-i18n-title="/.test(btn), `значок без data-i18n-title: ${btn}`).toBe(true);

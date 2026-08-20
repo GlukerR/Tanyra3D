@@ -55,6 +55,11 @@ window.I18N_CATALOGS.en = {
   'vp.lod.guess': 'Looks like detail levels',
   // Полка значков справа внизу: свойства этой модели, каждое со своей полочкой.
   'vp.rail': 'This model’s controls',
+  // Чем показывать модель. «Clay» — слово из трёхмерных редакторов, художник его знает;
+  // объяснять, что это matcap, ему незачем (Правило 10).
+  'vp.display': 'Surface',
+  'viewer.display.file': 'Materials from the file',
+  'viewer.display.clay': 'Clay',
   // Свет. Появляется только у моделей, которые несут свои источники.
   'vp.light': 'Lighting',
   'viewer.light.studio': 'Studio',
@@ -247,7 +252,10 @@ window.I18N_CATALOGS.en = {
 
   // --- список моделей ---
   'models.remove': 'Remove from list',
+  'models.tooHeavy': ({ limit }) => `Heavier than what this program is built for (up to ${limit}). It works, but slowly.`,
+  'models.packSize': ({ n }) => `Total weight of the model and the ${n} file(s) beside it`,
   // Беда с самой моделью, а не с нашей работой (красный круг с «!»).
+  'issue.incomplete': ({ n }) => `The model refers to ${n} file(s) that were not dropped. The file itself is fine — drop the whole folder, not just the .gltf.`,
   'issue.unreadable': ({ detail }) => `This file cannot be read as a GLB${detail ? ` — ${detail}` : ''}. It looks truncated or corrupted: re-export it or download it again.`,
   'issue.validation': ({ n }) => `The model breaks the glTF standard: ${n} error(s). It opened and renders here, but another engine may refuse to show it. This came with the file — see "Validation".`,
   'models.built': 'Already built',
@@ -269,6 +277,13 @@ window.I18N_CATALOGS.en = {
     ? `Stopped: ${ok} built, ${failed} failed`
     : `Stopped: ${ok} built`),
   'log.loadedMany': ({ n }) => `Models added: ${n}`,
+  // Вес, на который программа рассчитана, назван Александром 2026-08-20 после проверки
+  // на файле в 330 МБ. Говорим ЗАРАНЕЕ и цифрами: и сколько весит, и на что рассчитано.
+  'log.tooHeavy': ({ size, limit }) => `The model weighs ${size}, and this program is built for models up to ${limit}. It will open and build, but the preview will be sluggish and the build may take a very long time.`,
+  'log.packAssets': ({ n }) => `Files alongside the models: ${n} — loaded together with them`,
+  'log.packMissing': ({ name }) => `The model refers to "${name}", but that file was not dropped`,
+  'log.packMissingMany': ({ n }) => `Files the model refers to but that were not dropped: ${n}`,
+  'log.packUploadFailed': ({ name, error }) => `Failed to send "${name}" to the server: ${error}`,
   'log.rejectedMany': ({ n }) => `Skipped files: ${n} — .glb and .gltf are accepted`,
   'log.batchStarted': ({ n }) => `Batch build: ${n} model(s) queued`,
   'log.batchDone': ({ ok, failed }) => `Batch build finished: ${ok} built, ${failed} failed`,

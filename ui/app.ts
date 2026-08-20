@@ -74,6 +74,7 @@
   const lodSel = $('lod-select') as HTMLSelectElement;
   const variantControls = $('variant-controls');
   const variantSel = $('variant-select') as HTMLSelectElement;
+  const displaySel = $('display-select') as HTMLSelectElement;
   const lightControls = $('light-controls');
   const lightSel = $('light-select') as HTMLSelectElement;
   const cameraControls = $('camera-controls');
@@ -270,6 +271,28 @@
     }
     host.appendChild(row);
   }
+
+  // Какие файлы интерфейс считает моделью. Ровно тот же список, что MODEL_EXT на
+  // сервере, и это сверяется проверкой: разойдутся — человек увидит файл в списке, а
+  // сборка его отвергнет.
+  const MODEL_RE = /\.(glb|gltf)$/i;
+
+  /**
+   * Вес, на который программа РАССЧИТАНА. Не запрет и не предел приёма — предел стоит
+   * на гигабайте и живёт на сервере, он про защиту, а не про смысл.
+   *
+   * Число названо Александром 2026-08-20 по итогу собственной проверки: «Проверил глб
+   * файл на 330 мб. загрузился и почти не поворачивался во вьюпорте. А оптимизация даже
+   * за 10 минут не прошла. То есть в целом наше приложение тут не подходит. Слишком
+   * сложно и долго. надо расчитывать сразу на модели до 100мб тогда в приложении будет
+   * смысл хоть какой-то».
+   *
+   * Что мы с этим делаем: ГОВОРИМ, а не запрещаем. Модель тяжелее ста мегабайт
+   * открывается и собирается по-прежнему — просто человеку сказано заранее, чем он
+   * заплатит, вместо десяти минут ожидания вслепую. Решать, ждать ли, ему (Правило 11);
+   * наше дело — не молчать (Правило 12 про то же с другой стороны).
+   */
+  const COMFORT_BYTES = 100 * 1024 * 1024;
 
   let selectedFile: File | null = null;
   // Идентификатор загруженного исходника на сервере: пока он есть, повторная
@@ -1601,9 +1624,51 @@
    * одновременных разборов положили бы вкладку (одна ABeautifulGame — 704 МБ
    * видеопамяти), а показать всё равно можно только одну.
    */
-  async function handleFiles(list: ArrayLike<File>) {
-    const files = Array.from(list || []);
-    if (!files.length) return;
+  /** Папка, в которой лежит файл, — с косой чертой на конце или пустая строка у корня. */
+  function dirOf(p: string) {
+    const i = p.lastIndexOf('/');
+    return i === -1 ? '' : p.slice(0, i + 1);
+  }
+
+  /**
+   * Разобрать брошенное на пачки: у каждой модели — свои соседние файлы.
+   *
+   * Правило соседства одно: сосед лежит в папке модели или ГЛУБЖЕ неё. Так написан и
+   * сам `.gltf` — ссылки в нём считаются от того места, где он лежит, и вверх («../»)
+   * почти никогда не ведут. Адрес соседа считаем от модели: бросили папку `Chair` с
+   * файлом `Chair/textures/wood.png`, модель `Chair/scene.gltf` — сосед зовётся
+   * `textures/wood.png`, ровно как написано внутри.
+   *
+   * `.glb` соседей не получает, и это не упущение. Он самодостаточен по устройству:
+   * геометрия и картинки лежат внутри одного файла. Приложить к нему брошенные рядом
+   * картинки значило бы решить за человека, что он хотел заменить материал, — а это
+   * правка модели, чего мы не делаем (Правило 11).
+   *
+   * Соседи, под которыми нет ни одной модели, никому не достаются молча — про них
+   * говорит одна строка в журнале, а не строка на файл (Правило 9).
+   */
+  function groupPacks(items: DroppedFile[]) {
+    const models = items.filter((it) => MODEL_RE.test(it.path));
+    const assets = items.filter((it) => !MODEL_RE.test(it.path));
+    const claimed = new Set<DroppedFile>();
+    const packs = models.map((m) => {
+      if (!/\.gltf$/i.test(m.path)) return { file: m.file, pack: [] as PackFile[] };
+      const dir = dirOf(m.path);
+      const pack: PackFile[] = [];
+      for (const a of assets) {
+        if (!a.path.startsWith(dir)) continue;
+        claimed.add(a);
+        pack.push({ path: a.path.slice(dir.length), file: a.file });
+      }
+      return { file: m.file, pack };
+    });
+    return { packs, orphans: assets.filter((a) => !claimed.has(a)) };
+  }
+
+  async function handleFiles(list: DroppedFile[]) {
+    const items = Array.from(list || []);
+    if (!items.length) return;
+    const files = items.map((it) => it.file);
 
     // `.gltf` наравне с `.glb`, и это не расширение возможностей, а починка круга:
     // мы САМИ отдаём «самодостаточный .gltf со встроенными данными» в окне выгрузки —
@@ -1611,11 +1676,11 @@
     // всегда (командная строка берёт `.gltf` с первого дня), меньше умел только
     // интерфейс.
     //
-    // Про `.gltf` с ОТДЕЛЬНЫМИ файлами рядом (`.bin`, папка текстур) — следующий шаг,
-    // пачки. Такой файл сейчас загрузится, но покажется без того, чего нет рядом, и
-    // об этом надо сказать, а не молчать: см. проверку ниже.
-    const good = files.filter((f) => /\.(glb|gltf)$/i.test(f.name));
-    const badCount = files.length - good.length;
+    // `.gltf` с ОТДЕЛЬНЫМИ файлами рядом (`.bin`, папка текстур) — это ПАЧКА, а не
+    // модель плюс мусор. Соседи не отвергаются: они едут вместе с моделью и на сервер,
+    // и во вьюпорт (groupPacks выше).
+    const { packs, orphans } = groupPacks(items);
+    const badCount = orphans.length;
     // Одна строка на класс случаев, а не строка на файл (Правило 9): бросили папку с
     // сотней картинок — человек получит одно сообщение, а не сотню.
     if (badCount) {
@@ -1624,7 +1689,7 @@
         ? t('log.rejected', { name: files[0]!.name })
         : t('log.rejectedMany', { n: badCount }));
     }
-    if (!good.length) {
+    if (!packs.length) {
       if (!models.length) { selectedFile = null; runBtn.disabled = true; }
       return;
     }
@@ -1632,7 +1697,7 @@
     // Порядок важен: сначала заводим ВСЕ записи, потом занимаемся первой. Иначе
     // тяжёлый разбор первой модели идёт, пока остальных ещё нет в списке, и человек
     // минуту смотрит на одну строку вместо пятидесяти.
-    const added = good.map((f) => addModel(f));
+    const added = packs.map((p) => addModel(p.file, p.pack));
     // addModel делает активной КАЖДУЮ по очереди, поэтому активной осталась последняя.
     // Возвращаем на первую: человек, бросивший пачку, ждёт увидеть её начало.
     const first = added[0]!;
@@ -1640,8 +1705,13 @@
     applyModelState(first.state);
     selectedFile = first.file;
     renderModelList();
-    if (good.length > 1) logMessage('info', t('log.loadedMany', { n: good.length }));
-    await loadActive(first.file);
+    if (packs.length > 1) logMessage('info', t('log.loadedMany', { n: packs.length }));
+    // Сколько соседних файлов приехало вместе с моделями — одной строкой на весь бросок.
+    // Это ответ на вопрос «а текстуры-то подхватились?», который иначе задаёт себе
+    // каждый, кто бросил папку.
+    const packTotal = packs.reduce((sum, p) => sum + p.pack.length, 0);
+    if (packTotal) logMessage('info', t('log.packAssets', { n: packTotal }));
+    await loadActive(first);
   }
 
   /**
@@ -1649,10 +1719,13 @@
    * инспекцию. Вынесена из приёма файлов, потому что при пачке записи заводятся всем,
    * а это — только одной.
    */
-  async function loadActive(file: File) {
+  async function loadActive(rec: ModelEntry) {
+    const file = rec.file;
     chosenFileLabel.textContent = '';
     runBtn.disabled = false;
-    logMessage('info', t('log.loaded', { name: file.name, size: fmtBytes(file.size) }));
+    await checkPackComplete(rec);
+    warnIfHeavy(rec);
+    logMessage('info', t('log.loaded', { name: file.name, size: fmtBytes(sourceBytesOf(rec)) }));
     if (stageHint) stageHint.classList.add('hidden');
     // Новый файл → сбросить прежний результат и серверный исходник (будет перезалит).
     clearResults();
@@ -1660,12 +1733,12 @@
     if (window.OptiViewer) {
       setBusy('preview-original', 'busy.loading');
       try {
-        const info = await window.OptiViewer.loadOriginal(file);
+        const info = await window.OptiViewer.loadOriginal(file, rec.pack);
         // Пока разбирался файл, человек мог бросить следующий: тогда эти данные уже
         // не про ту модель, что на экране, и записывать их в общие переменные нельзя.
         if (selectedFile !== file) return;
         originalStats = ((info as any) && (info as any).stats) || null;
-        renderSourceStats(file.size);
+        renderSourceStats(sourceBytesOf(rec));
         // Определяем, что уже сжато в исходнике → авто-включаем флажки с бейджем [Source].
         lastDetection = ((info as any) && (info as any).detected) || null;
         const found = Object.keys(lastDetection || {}).filter((k) => lastDetection![k]);
@@ -1682,6 +1755,111 @@
     inspectModel(file);
   }
 
+  /**
+   * Сверить, всё ли, на что ссылается `.gltf`, человек действительно бросил.
+   *
+   * Смотрим В САМ ФАЙЛ — на список `buffers` и `images`, — а не на то, что спросит
+   * загрузчик. Разница решающая, и она стоила мне ложного «всё в порядке»: картинка,
+   * которую не использует ни один материал (файл-СИРОТА), загрузчику не нужна, он за ней
+   * не пойдёт, и по запросам её пропажу не заметить. А разбору на сервере она нужна —
+   * читаются все, и `.gltf` без неё не открывается вовсе. Проверка по запросам молчала,
+   * человек получал «Inspection failed (500)».
+   *
+   * Заодно это происходит ДО отправки: незачем возить пачку на сервер, чтобы узнать, что
+   * она неполная.
+   *
+   * Одна строка на весь класс, имён не перечисляем (Правило 9) — кроме случая, когда
+   * файл ровно один: тогда его имя И ЕСТЬ ответ, что делать дальше.
+   */
+  /**
+   * Сказать заранее, что модель тяжелее, чем то, на что программа рассчитана.
+   *
+   * Момент выбран не случайно: сказать надо ДО того, как человек нажмёт «Собрать» и
+   * уйдёт ждать. Александр 2026-08-20 ждал на файле в 330 МБ десять минут и не дождался
+   * — вот эта строка и есть то, чего ему не хватило.
+   *
+   * Не отказ. Файл откроется и соберётся; мы называем цену, а платить или нет — решение
+   * человека (Правило 11). Один раз на модель: строка на каждое переключение между
+   * моделями превратилась бы в шум.
+   */
+  function warnIfHeavy(rec: ModelEntry | null) {
+    if (!rec || rec.heavyWarned) return;
+    const bytes = sourceBytesOf(rec);
+    if (bytes <= COMFORT_BYTES) return;
+    rec.heavyWarned = true;
+    logMessage('warn', t('log.tooHeavy', { size: fmtBytes(bytes), limit: fmtBytes(COMFORT_BYTES) }));
+  }
+
+  async function checkPackComplete(rec: ModelEntry | null) {
+    if (!rec || rec.packChecked || !/\.gltf$/i.test(rec.file.name)) return;
+    rec.packChecked = true;
+    let json: any;
+    try {
+      json = JSON.parse(await rec.file.text());
+    } catch (e) {
+      return;   // не JSON — об этом скажет разбор, а не сверка соседей
+    }
+    // Ключи считает просмотрщик — тем же кодом, каким подменяет адреса при показе.
+    // Своя копия правила разошлась бы с ним на первом же имени с пробелом.
+    const key = (p: string) => (window.OptiViewer ? window.OptiViewer.assetKey(p) : String(p).toLowerCase());
+    const have = new Set(rec.pack.map((a) => key(a.path)));
+    const missing: string[] = [];
+    for (const item of [...(json.buffers || []), ...(json.images || [])]) {
+      const uri = item && item.uri;
+      // Встроенное (`data:`) отдельным файлом не лежит и потеряться не может.
+      if (!uri || typeof uri !== 'string' || /^data:/i.test(uri)) continue;
+      const k = key(uri);
+      if (!have.has(k) && !missing.includes(uri)) missing.push(uri);
+    }
+    if (!missing.length) return;
+    // Помним на записи: разбор на сервере упадёт следом, и там надо будет назвать
+    // ПРИЧИНУ, а не списать всё на повреждённый файл.
+    rec.packMissing = missing.length;
+    logMessage('warn', missing.length === 1
+      ? t('log.packMissing', { name: missing[0]! })
+      : t('log.packMissingMany', { n: missing.length }));
+  }
+
+  /**
+   * Отправить соседние файлы модели на сервер и вернуть номер их папки.
+   *
+   * Порядок именно такой — сперва соседи, потом модель. Наоборот нельзя: разбор `.gltf`
+   * ищет `.bin` и картинки на диске В ТОТ МОМЕНТ, когда его читают, и модель, приехавшая
+   * первой, читалась бы в пустой папке.
+   *
+   * Номер запоминается в записи: пачку из сорока текстур незачем возить второй раз при
+   * повторной инспекции или сборке.
+   *
+   * По одному файлу за раз, а не сорок запросов разом. Причина та же, по которой пакетная
+   * сборка идёт последовательно: сорок одновременных потоков на диск не ускоряют работу,
+   * а отбирают её у самой модели.
+   */
+  async function uploadPack(rec: ModelEntry | null): Promise<string | null> {
+    if (!rec || !rec.pack || !rec.pack.length) return null;
+    if (rec.packSourceId) return rec.packSourceId;
+    let sourceId: string | null = null;
+    for (const item of rec.pack) {
+      const q = sourceId ? `?source=${encodeURIComponent(sourceId)}` : '';
+      const res = await fetch(`/api/asset${q}`, {
+        method: 'POST',
+        headers: { 'X-Filename': encodeURIComponent(item.path), 'Content-Type': 'application/octet-stream' },
+        body: item.file,
+      });
+      if (!res.ok) {
+        // Сосед не доехал. Дальше везти бессмысленно: модель всё равно соберётся не той,
+        // и молчаливо отдать человеку файл без текстуры — худшее, что тут можно сделать.
+        let detail = '';
+        try { detail = ((await res.json()) || {}).error || ''; } catch (e) { /* тело не JSON */ }
+        logMessage('warn', t('log.packUploadFailed', { name: item.path, error: detail || String(res.status) }));
+        break;
+      }
+      const data = await res.json();
+      if (data && data.sourceId) sourceId = data.sourceId;
+    }
+    rec.packSourceId = sourceId;
+    return sourceId;
+  }
+
   async function inspectModel(file: File) {
     modelInspect = null;
     setModelIssue(null);
@@ -1689,7 +1867,12 @@
     btnValidation.disabled = true;
     updateInspectButtons();
     try {
-      const res = await fetch('/api/inspect', {
+      const rec = models.find((m) => m.file === file) || null;
+      const packId = await uploadPack(rec);
+      // Пока ехала пачка, человек мог переключиться на другую модель — тогда эта
+      // инспекция уже не про то, что на экране.
+      if (selectedFile !== file) return;
+      const res = await fetch(`/api/inspect${packId ? `?source=${encodeURIComponent(packId)}` : ''}`, {
         method: 'POST',
         headers: { 'X-Filename': encodeURIComponent(file.name), 'Content-Type': 'application/octet-stream' },
         body: file,
@@ -1703,7 +1886,9 @@
         // заведомо битый файл. Теперь она помечена.
         let detail = '';
         try { detail = ((await res.json()) || {}).error || ''; } catch (e) { /* тело не JSON */ }
-        setModelIssue({ kind: 'unreadable', detail });
+        setModelIssue(rec && rec.packMissing
+          ? { kind: 'incomplete', count: rec.packMissing }
+          : { kind: 'unreadable', detail });
         logMessage('warn', t('log.inspectFailed', { status: res.status }));
         return;
       }
@@ -1713,7 +1898,7 @@
       // Цифры движка приехали — заменяем ими прикидку по отрисованной сцене.
       // Только до первой сборки: после неё в шапке стоят before/after из отчёта
       // (renderComparison), и затирать их односторонним «до» нельзя.
-      if (!lastResult) renderSourceStats(file.size);
+      if (!lastResult) renderSourceStats(sourceBytesOf(rec));
       // Состав размеров текстур зависит от самой модели: увеличивать мы не умеем, значит
       // цели крупнее её текстур предлагать нечестно. Панель уже собрана (она зависит от
       // площадки, а не от файла) — пересобираем её из того же списка, без нового запроса,
@@ -1761,6 +1946,11 @@
 
   function issueTitle(issue: ModelIssue) {
     if (!issue) return '';
+    // Неполная пачка и повреждённый файл выглядят одинаково — разбор падает и там, и
+    // там, — а делать надо ПРОТИВОПОЛОЖНОЕ. «Переэкспортируйте модель» человеку, у
+    // которого файл целый и просто лежит рядом с недостающей текстурой, — это час
+    // работы впустую по нашей подсказке.
+    if (issue.kind === 'incomplete') return t('issue.incomplete', { n: issue.count });
     if (issue.kind === 'unreadable') return t('issue.unreadable', { detail: issue.detail || '' });
     return t('issue.validation', { n: issue.count });
   }
@@ -2061,6 +2251,18 @@
   // Сцена осталась запасным вариантом: она приходит раньше инспекции, и на большой
   // модели эти секунды заметны. Как только инспекция ответит — цифры заменяются
   // движковыми. Обратной замены не бывает: авторитетный источник не уступает запасному.
+  /**
+   * Сколько весит модель ВМЕСТЕ с соседями. У `.gltf` сам файл — оглавление на несколько
+   * килобайт, а вся геометрия и картинки лежат рядом; показать вес оглавления значило бы
+   * сказать про модель на шестьдесят мегабайт «8.9 КБ». Сервер считает то же самое по
+   * ссылкам внутри файла (addons/gltf sourceBytes) и присылает точное число в метриках —
+   * здесь прикидка на те секунды, пока его ещё нет.
+   */
+  function sourceBytesOf(rec: ModelEntry | null) {
+    if (!rec) return 0;
+    return rec.pack.reduce((sum, a) => sum + a.file.size, rec.file.size);
+  }
+
   function renderSourceStats(fileSize: number) {
     statsBefore.innerHTML = '';
     const m = modelInspect && modelInspect.metrics;
@@ -2173,7 +2375,19 @@
       name.title = rec.file.name;
       const size = document.createElement('span');
       size.className = 'model-size';
-      size.textContent = fmtBytes(rec.file.size);
+      // Вес пачки целиком, а не одного оглавления: рядом с `.gltf` человек ищет тот же
+      // размер, что показывает проводник для всей папки.
+      const bytes = sourceBytesOf(rec);
+      size.textContent = fmtBytes(bytes);
+      if (rec.pack.length) size.title = t('models.packSize', { n: rec.pack.length });
+      // Пометка живёт НА ВЕСЕ, а не отдельным значком: тяжесть — свойство размера, и
+      // читать её надо там, где размер написан. Отдельный значок вдобавок спорил бы с
+      // тем, что уже стоит рядом (нарушения стандарта, нечитаемый файл) — а это про
+      // модель, тогда как здесь про время работы.
+      if (bytes > COMFORT_BYTES) {
+        size.classList.add('is-heavy');
+        size.title = t('models.tooHeavy', { limit: fmtBytes(COMFORT_BYTES) });
+      }
 
       const remove = document.createElement('button');
       remove.className = 'model-remove';
@@ -2410,13 +2624,16 @@
   // Добавление, выбор и удаление моделей
   // -----------------------------------------------------------------------
 
-  function addModel(file: File) {
+  function addModel(file: File, pack: PackFile[] = []) {
     captureActiveModel();          // не потерять состояние той, что сейчас на экране
     // Новая модель отмечена. Человек принёс файл, чтобы его обработать, — снять
     // галочку у лишних дешевле, чем поставить у нужных: бросили пятьдесят, собрать
     // хотят сорок восемь. Обратный умолчание («ничего не отмечено») заставляло бы
     // щёлкать пятьдесят раз в самом частом случае.
-    const rec = { id: `m${++modelSeq}`, file, state: {}, picked: true };
+    // Пачка живёт В ЗАПИСИ, а не в снимке состояния: снимок заполняется при уходе с
+    // модели, а соседние файлы нужны при первом же показе. Та же причина, по которой в
+    // записи лежит `file` (см. selectModel).
+    const rec = { id: `m${++modelSeq}`, file, pack, packSourceId: null, packChecked: false, packMissing: 0, heavyWarned: false, state: {}, picked: true };
     models.push(rec);
     activeModelId = rec.id;
     applyModelState(null);          // новая модель начинает с чистого состояния
@@ -2456,7 +2673,13 @@
     // Сервер держит копию исходника на диске. Не сказать ему об удалении — значит
     // оставить файл лежать до перезапуска: у человека на диске молча копятся
     // десятки мегабайт, и он никогда не узнает почему.
-    releaseSource(rec!.state.currentSourceId || (rec!.id === activeModelId ? currentSourceId : null));
+    // `packSourceId` — та же папка, но она заводится РАНЬШЕ инспекции и живёт даже
+    // тогда, когда модель в неё так и не приехала (пакетная сборка инспекцию пропускает).
+    // Без него папка с сорока текстурами оставалась бы на диске до перезапуска.
+    releaseSource(rec!.state.currentSourceId
+      || (rec!.id === activeModelId ? currentSourceId : null)
+      || rec!.packSourceId
+      || null);
 
     if (rec!.id !== activeModelId) { renderModelList(); return; }
 
@@ -2487,15 +2710,16 @@
     if (!rec) return;
 
     clearResultPanels();
+    await checkPackComplete(rec);
     if (window.OptiViewer) {
       setBusy('preview-original', 'busy.loading');
       try {
-        await window.OptiViewer.loadOriginal(rec.file);
+        await window.OptiViewer.loadOriginal(rec.file, rec.pack);
       } finally {
         setBusy('preview-original', null);
       }
     }
-    renderSourceStats(rec.file.size);
+    renderSourceStats(sourceBytesOf(rec));
     applyDetection();
 
     // Модель из пачки ещё не разбирали: записи заводятся ВСЕМ файлам сразу, а инспекция
@@ -3087,7 +3311,10 @@
   chooseFileBtn.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', (e) => {
     const input = e.target as HTMLInputElement;
-    handleFiles(input.files!);
+    // Через диалог выбора приходят одиночные файлы: соседей у них нет, значит путь —
+    // это имя. `webkitRelativePath` заполняется только при выборе ПАПКИ, а такого поля
+    // у нашего input нет; читаем его на случай, если однажды появится.
+    handleFiles(Array.from(input.files!).map((f) => ({ file: f, path: f.webkitRelativePath || f.name })));
     // Значение сбрасываем: иначе повторный выбор ТОГО ЖЕ файла не вызовет change,
     // и человек, добавляющий модель второй раз, решит, что кнопка сломалась.
     input.value = '';
@@ -3163,7 +3390,7 @@
         if (entry) entries.push(entry);
       }
     }
-    const plain = Array.from(dt.files || []);
+    const plain = Array.from(dt.files || []).map((f) => ({ file: f, path: f.name }));
     (async () => {
       const fromEntries = entries.length ? await filesFromEntries(entries) : [];
       // Папка приходит и в files — одной записью без расширения, которую всё равно не
@@ -3180,20 +3407,30 @@
    * Вглубь ходим рекурсивно и без ограничения на уровень: раскладка папок — дело
    * человека, а не наше. Ограничение одно — расширение, и оно ставится позже, в
    * `handleFiles`, чтобы отказ считался один раз и одной строкой.
+   *
+   * Возвращаем не голые файлы, а файл ВМЕСТЕ С ЕГО ПУТЁМ внутри броска. Путь — не
+   * украшение отчёта: `.gltf` ссылается на соседей относительным адресом
+   * (`textures/wood.png`), и без раскладки папок связать ссылку с брошенным файлом
+   * нечем. Имени файла не хватает: две картинки могут зваться `basecolor.png` и лежать
+   * в разных папках, а победила бы последняя.
    */
-  async function filesFromEntries(entries: any[]): Promise<File[]> {
-    const out: File[] = [];
-    const walk = async (entry: any): Promise<void> => {
+  async function filesFromEntries(entries: any[]): Promise<DroppedFile[]> {
+    const out: DroppedFile[] = [];
+    const walk = async (entry: any, prefix: string): Promise<void> => {
       if (!entry) return;
       if (entry.isFile) {
         const file = await new Promise<File | null>((resolve) => {
           entry.file((f: File) => resolve(f), () => resolve(null));
         });
-        if (file) out.push(file);
+        // Имя берём у ЗАПИСИ, а не у файла: у File имя своё, и в редких случаях
+        // (переименование во время чтения) они расходятся — а ссылки внутри `.gltf`
+        // написаны про запись.
+        if (file) out.push({ file, path: prefix + (entry.name || file.name) });
         return;
       }
       if (!entry.isDirectory) return;
       const reader = entry.createReader();
+      const inner = prefix + (entry.name || '') + '/';
       // readEntries отдаёт порцию, а не всё сразу: у больших папок остальное приходит
       // следующими вызовами, и цикл обязателен. Пустой ответ означает конец.
       for (;;) {
@@ -3201,10 +3438,10 @@
           reader.readEntries((items: any[]) => resolve(items || []), () => resolve([]));
         });
         if (!batch.length) return;
-        for (const child of batch) await walk(child);
+        for (const child of batch) await walk(child, inner);
       }
     };
-    for (const entry of entries) await walk(entry);
+    for (const entry of entries) await walk(entry, '');
     return out;
   }
 
@@ -3290,11 +3527,11 @@
     }
   }
 
-  function buildOptimizeUrl(jobId: string, useSource: boolean) {
+  function buildOptimizeUrl(jobId: string, sourceId: string | null) {
     const platformId = platformSelect.value;
     const features = getSelectedFeatures();
     const featuresParam = features.length ? `&features=${encodeURIComponent(features.join(','))}` : '';
-    const sourceParam = useSource && currentSourceId ? `&source=${encodeURIComponent(currentSourceId)}` : '';
+    const sourceParam = sourceId ? `&source=${encodeURIComponent(sourceId)}` : '';
     // режим KTX2 (UASTC/ETC1S) → texMode; актуален только когда выбран флажок ktx2
     const texParam = features.includes('ktx2') ? `&texMode=${encodeURIComponent(ktx2Mode)}` : '';
     // качество WebP → webpQuality; актуально только когда выбран флажок webp
@@ -3306,22 +3543,34 @@
   }
 
   // Повтор по sourceId — без тела (модель уже на сервере); первый прогон — с телом файла.
+  //
+  // Третий случай — пачка, которую ещё не инспектировали (пакетная сборка инспекцию
+  // пропускает). Соседи на сервере уже лежат, а модели там нет: значит тело ОБЯЗАТЕЛЬНО,
+  // но и номер папки тоже — иначе `.gltf` ляжет в новую пустую папку отдельно от своего
+  // `.bin` и не прочитается. Именно так и было до 2026-08-20.
   async function sendOptimize(jobId: string) {
-    const doFetch = (withSource: boolean) => fetch(buildOptimizeUrl(jobId, withSource), {
+    const doFetch = (sourceId: string | null, withBody: boolean) => fetch(buildOptimizeUrl(jobId, sourceId), {
       method: 'POST',
       headers: {
         'X-Filename': encodeURIComponent(selectedFile!.name),
         'Content-Type': 'application/octet-stream',
       },
-      body: withSource ? null : selectedFile,
+      body: withBody ? selectedFile : null,
     });
 
+    const rec = models.find((m) => m.file === selectedFile) || null;
+    if (!currentSourceId) await uploadPack(rec);
+    const packId = rec ? rec.packSourceId || null : null;
+
     const useSource = !!currentSourceId;
-    let res = await doFetch(useSource);
+    let res = await doFetch(useSource ? currentSourceId : packId, !useSource);
     // Исходник на сервере пропал (например, перезапуск) — перезаливаем файл и повторяем.
     if (res.status === 410 && useSource) {
       currentSourceId = null;
-      res = await doFetch(false);
+      // Вместе с исходником пропала и папка пачки: она та же самая. Значит соседей надо
+      // везти заново, а не ссылаться на номер, которого больше нет.
+      if (rec) rec.packSourceId = null;
+      res = await doFetch(await uploadPack(rec), true);
     }
     return res;
   }
@@ -4713,6 +4962,42 @@
     if (lightSel.value !== info.mode) lightSel.value = info.mode;
   }
 
+  // ---------------------------------------------------------------
+  // Поверхность — материалы модели или наша глина
+  //
+  // Зачем. Модель без единой текстуры приезжает с белым материалом по умолчанию, и белое
+  // читается силуэтом без формы: рёбра и углубления пропадают. Александр 2026-08-20:
+  // «просто белая модель это не хорошо». Глина — картинка шара, по которой цвет берётся
+  // от направления поверхности; форма видна везде и одинаково в обоих окнах.
+  //
+  // Это РЕЖИМ ПОКАЗА, а не правка: родные материалы возвращаются по первому выбору, в
+  // файл не попадает ничего (Правило 11).
+  //
+  // Значок стоит ВСЕГДА, в отличие от соседних. Свет, камеры и уровни появляются только
+  // там, где автор их положил, — а глиной можно посмотреть любую модель, в том числе
+  // текстурированную: иногда именно так и проверяют геометрию.
+  function refreshDisplayUI() {
+    if (!displaySel || !window.OptiViewer || !window.OptiViewer.getDisplayMaterial) return;
+    if (!displaySel.dataset.filled) {
+      displaySel.dataset.filled = '1';
+      for (const mode of ['file', 'clay']) {
+        const opt = document.createElement('option');
+        opt.value = mode;
+        setText(opt, mode === 'file' ? 'viewer.display.file' : 'viewer.display.clay');
+        displaySel.appendChild(opt);
+      }
+    }
+    const now = window.OptiViewer.getDisplayMaterial();
+    if (displaySel.value !== now) displaySel.value = now;
+  }
+
+  if (displaySel) {
+    displaySel.addEventListener('change', () => {
+      if (!window.OptiViewer) return;
+      window.OptiViewer.setDisplayMaterial(displaySel.value === 'clay' ? 'clay' : 'file');
+    });
+  }
+
   if (lightSel) {
     lightSel.addEventListener('change', () => {
       if (!window.OptiViewer) return;
@@ -4887,13 +5172,14 @@
   // и список вариантов появляются и исчезают вместе с моделью, которая их несёт.
   window.onOptiViewerModelLoaded = () => {
     refreshAnimUI(); refreshVariantUI(); refreshLodUI();
-    refreshLightUI(); refreshCameraUI(); closeHiddenGroups();
+    refreshLightUI(); refreshCameraUI(); refreshDisplayUI(); closeHiddenGroups();
   };
   refreshAnimUI();    // стартовое состояние: моделей нет — панелей нет
   refreshVariantUI();
   refreshLodUI();
   refreshLightUI();
   refreshCameraUI();
+  refreshDisplayUI();
   startAnimPolling();
 
   // ---------------------------------------------------------------

@@ -452,6 +452,13 @@ The honest list of what the tool doesn't do, or doesn't do fully.
   model weighed before and after, which ones sit over the target's limit, which failed.
   It computes nothing of its own — every number is read back from the per-model reports —
   and saves as CSV.
+- **Built for models up to 100 MB.** Not a refusal — a boundary stated honestly. Anything
+  heavier still opens and still builds, but the preview turns sluggish and the build takes
+  long enough that it stops being worth waiting for; a 330 MB file barely rotated in the
+  viewport and had not finished building after ten minutes. Such a model is flagged in the
+  list and named in the log BEFORE you press build, so the choice to wait is yours rather
+  than a surprise. The upload ceiling is a separate thing and stays at 1 GB: that one
+  protects the server, not your time.
 
 ---
 

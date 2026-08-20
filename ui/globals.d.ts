@@ -42,7 +42,21 @@ interface OptiViewerApi {
   implementations(): string[];
   useViewer(id: string): void;
   currentViewer(): string;
-  loadOriginal(file: File): Promise<unknown>;
+  /**
+   * Показать исходную модель. `pack` — соседние файлы (.bin, текстуры) для `.gltf`,
+   * брошенного вместе с ними; `path` в каждом — адрес относительно самой модели.
+   *
+   * Тип расписан здесь, а не импортирован из ui/viewer/contract.ts, намеренно: этот файл
+   * ГЛОБАЛЬНЫЙ, и первый же `import` превратил бы его в модуль — тогда `window.OptiViewer`
+   * перестал бы быть виден в app.ts вовсе.
+   */
+  loadOriginal(file: File, pack?: Array<{ path: string; file: File | Blob }> | null): Promise<unknown>;
+  /**
+   * Привести адрес соседнего файла к общему виду. Нужен приложению, чтобы сверять
+   * ссылки внутри `.gltf` с брошенными файлами ТЕМ ЖЕ правилом, каким просмотрщик
+   * подменяет адреса при показе.
+   */
+  assetKey(path: string): string;
   loadOptimized(url: string): Promise<unknown>;
   resetView(): void;
   setLinked(on: boolean): void;
@@ -99,6 +113,13 @@ interface OptiViewerApi {
   selectCamera(index: number | null): void;
   setExposure(v: number): void;
   getExposure(): number;
+  /**
+   * Материал показа: 'file' — материалы модели, 'clay' — наша глина для моделей без
+   * текстур. Выбор ОДИН на оба окна: разъехавшийся показ превратил бы сравнение «до и
+   * после» в сравнение способов рисовать. Файл при этом не меняется никогда.
+   */
+  setDisplayMaterial(mode: 'file' | 'clay'): void;
+  getDisplayMaterial(): 'file' | 'clay';
   /** Нагрузка на отрисовку либо null, пока окно замера не набралось. */
   getPerf(): { leftMs?: number; rightMs?: number; fps?: number } | null;
   setOnLoaded(fn: () => void): void;

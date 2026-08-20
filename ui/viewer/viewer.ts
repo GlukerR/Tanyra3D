@@ -82,6 +82,108 @@ function disposeSubtree(root: THREE.Object3D | null) {
 }
 
 /**
+ * Матовая «глина» для показа моделей без текстур — рисуется КОДОМ, файлом не возится.
+ *
+ * Зачем вообще. Модель без единой текстуры приезжает с белым материалом по умолчанию, и
+ * белое под ровным светом читается как силуэт без формы: рёбра, углубления и толщина
+ * детали пропадают. Александр 2026-08-20: «нам нужно сделать какой-то материал который
+ * очень хорошо будет виден на полностью безтекстурных пустых моделях. Потому что просто
+ * белая модель это не хорошо».
+ *
+ * Почему matcap, а не «настроить свет получше». Matcap — картинка шара, освещённого один
+ * раз навсегда; цвет точки берётся по НАПРАВЛЕНИЮ нормали, а не по расчёту от источников.
+ * Отсюда три свойства, каждое из которых здесь важнее физической правды:
+ *   - форма читается везде одинаково, включая то, что отвернулось от источника;
+ *   - картинка не зависит ни от света модели, ни от экспозиции — значит левое и правое
+ *     окно сравниваются честно, различие в них может быть только от самой геометрии;
+ *   - считается это дешевле обычного материала, а модели тут бывают на два миллиона
+ *     треугольников.
+ *
+ * Почему рисуем сами, а не кладём готовый PNG: приложение работает без интернета и не
+ * должно тащить лишних файлов, а нужный нам шар — это три градиента.
+ *
+ * Тёплый серый, а не белый и не цветной: белое снова слепит, а цвет читался бы как
+ * свойство модели («у меня деталь синяя?»). Серый глиняный — общепринятый язык
+ * трёхмерных редакторов, и человек понимает его без объяснений.
+ */
+function makeClayMatcap() {
+  const SIZE = 256;
+  const R = SIZE / 2;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = SIZE;
+  const ctx = canvas.getContext("2d")!;
+
+  // Шар занимает ВПИСАННУЮ окружность: цвет берётся по адресу `нормаль.xy * 0.5 + 0.5`,
+  // и дальше половины картинки обращений не бывает. Значит и свет, и тень обязаны
+  // уложиться внутрь этого круга. Первая редакция об этом забыла — тёмные остановки
+  // градиента оказались за краем, и шар вышел ровно-светлым: та самая плоская белизна,
+  // от которой всё и затевалось.
+  const lx = SIZE * 0.34;
+  const ly = SIZE * 0.30;
+  const body = ctx.createRadialGradient(lx, ly, SIZE * 0.02, lx, ly, SIZE * 0.80);
+  body.addColorStop(0.00, "#fffdf7");
+  body.addColorStop(0.13, "#f6f0e4");
+  body.addColorStop(0.30, "#ddd3c2");
+  body.addColorStop(0.38, "#b3a897");
+  body.addColorStop(0.52, "#9a8f80");
+  body.addColorStop(0.62, "#6e6459");
+  body.addColorStop(0.80, "#4a443d");
+  body.addColorStop(1.00, "#2b2926");
+  ctx.fillStyle = body;
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  // Световая полоса поперёк — как отражение софтбокса в студии, и здесь она рабочий
+  // инструмент, а не украшение. Александр 2026-08-20: «глину нужно сделать максимально
+  // понятной, чтобы даже плоские объекты были видны на ней».
+  //
+  // Беда плоских деталей вот в чём: цвет берётся ТОЛЬКО по направлению поверхности, и две
+  // грани, повёрнутые почти одинаково, получают почти одинаковый тон — ребро между ними
+  // исчезает. Полоса и сближенные остановки градиента выше создают резкие ступени тона:
+  // грань, отклонённая на пять градусов, пересекает ступень и заметно меняет яркость.
+  //
+  // Замерено на самой картинке: наклон в 5° давал разброс яркости 19 из 255, стал 37;
+  // наклон в 10° — было 38, стало 65. Сторож этих чисел — в tests/import-formats.
+  const band = ctx.createLinearGradient(0, SIZE * 0.12, 0, SIZE * 0.52);
+  band.addColorStop(0.00, "rgba(255,255,255,0)");
+  band.addColorStop(0.42, "rgba(255,255,255,0.26)");
+  band.addColorStop(0.58, "rgba(255,255,255,0.26)");
+  band.addColorStop(1.00, "rgba(255,255,255,0)");
+  ctx.fillStyle = band;
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  // Холодный отсвет снизу-справа — как от пола в студии. Слабый и МАЛЕНЬКИЙ: во второй
+  // редакции он был вдвое шире и ярче и съедал собственную тень, оставляя тот же плоский
+  // шар. Холодный он не для красоты — тёплый свет и холодная тень разводят стороны
+  // детали лучше, чем разница в яркости.
+  const bx = SIZE * 0.72;
+  const by = SIZE * 0.80;
+  const bounce = ctx.createRadialGradient(bx, by, SIZE * 0.01, bx, by, SIZE * 0.32);
+  bounce.addColorStop(0, "rgba(120,144,180,0.50)");
+  bounce.addColorStop(1, "rgba(126,146,178,0)");
+  ctx.fillStyle = bounce;
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  // Ободок по самому краю — то, ради чего это всё: он обводит силуэт и отделяет деталь
+  // от соседней, когда обе одного цвета и стоят вплотную.
+  //
+  // По кругу НЕ обрезаем намеренно. За краем градиент растягивается последним цветом, и
+  // углы выходят светлыми; обрежь — там осталась бы чернота, а на скользящих углах
+  // сглаживание подмешивает соседний пиксель прямо в кромку детали. Светлая примесь на
+  // кромке продолжает ободок, тёмная выглядела бы грязью.
+  const rim = ctx.createRadialGradient(R, R, R * 0.88, R, R, R);
+  rim.addColorStop(0, "rgba(255,252,245,0)");
+  rim.addColorStop(0.50, "rgba(255,252,245,0.34)");
+  rim.addColorStop(1, "rgba(255,252,245,0.92)");
+  ctx.fillStyle = rim;
+  ctx.fillRect(0, 0, SIZE, SIZE);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/**
  * Базовые метрики модели из загруженной сцены (клиентская прикидка до оптимизации):
  * треугольники, вершины, число мешей (draw calls), уникальные материалы/текстуры.
  * После сборки эти цифры заменяются авторитетными метриками ядра (before/after).
@@ -247,6 +349,19 @@ export class Viewer implements ViewerLike {
   declare _draco: DRACOLoader;
   declare _ktx2: KTX2Loader;
   declare _loader: GLTFLoader;
+  declare _manager: THREE.LoadingManager;
+  /** Материал показа: 'file' — как в файле, 'clay' — наша глина. См. setDisplayMaterial. */
+  declare _display: 'file' | 'clay';
+  /** Родные материалы мешей на время показа глиной. Ключ — меш, значение — что было. */
+  declare _origMaterials: Map<THREE.Mesh, THREE.Material | THREE.Material[]>;
+  /** Глина по значению `side`: у двусторонних деталей своя, иначе силуэт врёт. */
+  declare _clay: Map<THREE.Side, THREE.MeshMatcapMaterial>;
+  /** Картинка шара для глины. Рисуется один раз при первом показе. */
+  declare _clayMap?: THREE.Texture | null;
+  /** Габарит модели для глубинного затемнения глины: центр и радиус. */
+  declare _clayBounds?: { center: THREE.Vector3; radius: number } | null;
+  /** Подмена адресов для брошенной пачки; null — обычная загрузка. См. setAssetResolver. */
+  declare _resolveAsset: ((url: string) => string | null) | null;
   // Появляются после первой удачной загрузки — до неё полей нет вовсе, отсюда `?`.
   declare stats?: ReturnType<typeof computeSceneStats>;
   declare detected?: ReturnType<typeof detectSource>;
@@ -336,14 +451,32 @@ export class Viewer implements ViewerLike {
   }
 
   _initLoaders() {
-    this._draco = new DRACOLoader();
+    // ОДИН менеджер на все три загрузчика. Через него проходит каждый адрес, за которым
+    // движок собирается пойти, — и только так `.gltf` из брошенной пачки находит свои
+    // соседние файлы: их нет ни на сервере, ни в сети, они лежат в памяти вкладки.
+    //
+    // Менеджер общий не для красоты. Загрузчики берут адрес из СВОЕГО менеджера: дай
+    // GLTFLoader-у наш, а KTX2Loader-у оставь его собственный — и пачка с текстурами в
+    // KTX2 (а их кладут отдельными файлами именно так) осталась бы без картинок, причём
+    // молча: `.bin` нашёлся, модель показана, текстур нет.
+    //
+    // Свои пути декодеров (`/vendor/three/…`) подмену проходят насквозь: они не
+    // относятся к пачке, и resolveAsset отвечает про них `null`.
+    this._manager = new THREE.LoadingManager();
+    this._resolveAsset = null;
+    this._display = 'file';
+    this._origMaterials = new Map();
+    this._clay = new Map();
+    this._manager.setURLModifier((url: string) => (this._resolveAsset && this._resolveAsset(url)) || url);
+
+    this._draco = new DRACOLoader(this._manager);
     this._draco.setDecoderPath(DRACO_DECODER_PATH);
 
-    this._ktx2 = new KTX2Loader();
+    this._ktx2 = new KTX2Loader(this._manager);
     this._ktx2.setTranscoderPath(KTX2_TRANSCODER_PATH);
     this._ktx2.detectSupport(this.renderer);
 
-    this._loader = new GLTFLoader();
+    this._loader = new GLTFLoader(this._manager);
     this._loader.setDRACOLoader(this._draco);
     this._loader.setKTX2Loader(this._ktx2);
     this._loader.setMeshoptDecoder(MeshoptDecoder);
@@ -437,7 +570,111 @@ export class Viewer implements ViewerLike {
     else this.frame();
     this.stats = computeSceneStats(this.model);
     this.detected = detectSource(gltf);
+    // Режим показа переживает смену модели: человек выбрал его для сравнения, и
+    // самовольно возвращаться к родным материалам на следующей модели нельзя.
+    this._applyDisplayMaterial();
     return gltf;
+  }
+
+  /**
+   * Чем показывать модель: её собственными материалами или нашей глиной.
+   *
+   * Это РЕЖИМ ПОКАЗА, а не правка. Родные материалы сохраняются целиком и возвращаются на
+   * место по первому же переключению и перед выгрузкой модели; в файл не попадает ничего,
+   * выгрузка отдаёт ровно то, что человек принёс (Правило 11: мы оптимизатор, не редактор).
+   *
+   * `side` берём у родного материала: двусторонняя деталь, показанная односторонней,
+   * теряет половину поверхности — а именно ради формы всё и затевалось. Прозрачность
+   * НАМЕРЕННО не переносим: сквозь глину и должно быть непрозрачно, иначе внутренние
+   * стенки просвечивают и форма читается хуже, чем у белой модели.
+   */
+  setDisplayMaterial(mode: 'file' | 'clay') {
+    const want = mode === 'clay' ? 'clay' : 'file';
+    this._display = want;
+    this._applyDisplayMaterial();
+    return true;
+  }
+
+  getDisplayMaterial(): 'file' | 'clay' {
+    return this._display;
+  }
+
+  _clayFor(side: THREE.Side) {
+    let mat = this._clay.get(side);
+    if (!mat) {
+      // Картинка шара одна на все материалы: она не зависит ни от чего, кроме себя.
+      if (!this._clayMap) this._clayMap = makeClayMatcap();
+      mat = new THREE.MeshMatcapMaterial({ matcap: this._clayMap, side });
+      this._clay.set(side, mat);
+    }
+    return mat;
+  }
+
+  /**
+   * Затемнение по глубине — вторая половина ответа на «плоские детали не видно».
+   *
+   * Тональные ступени в самой глине разводят грани, повёрнутые по-разному. Но две
+   * ПАРАЛЛЕЛЬНЫЕ пластины, одна за другой, повёрнуты одинаково — значит и тон у них
+   * одинаковый, и сливаются они намертво. Различить их может только расстояние до
+   * камеры, и вот оно.
+   *
+   * Границы считаются от габарита модели и текущего положения камеры, а не задаются
+   * числом: у одной модели десять сантиметров, у другой сто метров, и постоянная
+   * величина означала бы «на одной ничего не видно, вторая утонула целиком».
+   *
+   * Цвет — тень самой глины, а не фон. Дальнее должно ТЕМНЕТЬ, а не растворяться:
+   * растворившаяся деталь пропадает вместе со своим силуэтом, и лечение вышло бы хуже
+   * болезни.
+   *
+   * В режиме «Материалы из файла» тумана нет вовсе: там показывается модель, какая она
+   * есть, и подкрашивать её нельзя.
+   */
+  _updateClayDepth() {
+    if (this._display !== 'clay' || !this.model) {
+      this.scene.fog = null;
+      return;
+    }
+    if (!this._clayBounds) {
+      const box = new THREE.Box3().setFromObject(this.model);
+      if (box.isEmpty()) { this.scene.fog = null; return; }
+      const sphere = box.getBoundingSphere(new THREE.Sphere());
+      this._clayBounds = { center: sphere.center.clone(), radius: sphere.radius || 1 };
+    }
+    const { center, radius } = this._clayBounds;
+    const dist = this._activeCamera().position.distanceTo(center);
+    if (!this.scene.fog) this.scene.fog = new THREE.Fog(0x2b2926, 1, 2);
+    const fog = this.scene.fog as THREE.Fog;
+    // Ближняя граница — передний край модели, дальняя — чуть за задним. Затемнение
+    // ложится ровно на её глубину и не зависит от того, насколько человек отъехал.
+    fog.near = Math.max(0.01, dist - radius * 0.85);
+    fog.far = dist + radius * 1.15;
+  }
+
+  _applyDisplayMaterial() {
+    if (!this.model) return;
+    if (this._display === 'clay') {
+      this.model.traverse((o: MaybeMesh) => {
+        if (!o.isMesh || !o.material) return;
+        const mesh = o as unknown as THREE.Mesh;
+        if (!this._origMaterials.has(mesh)) this._origMaterials.set(mesh, o.material!);
+        const first = Array.isArray(o.material) ? o.material[0] : o.material;
+        o.material = this._clayFor(first ? first.side : THREE.FrontSide);
+      });
+      this._updateClayDepth();
+      return;
+    }
+    for (const [mesh, mat] of this._origMaterials) mesh.material = mat;
+    this._origMaterials.clear();
+    this._updateClayDepth();
+  }
+
+  /**
+   * Есть ли у модели хоть одна текстура. По этому вопросу обвязка решает, предлагать ли
+   * глину сразу: у модели, где текстур нет вовсе, подменять нечего — родной материал не
+   * несёт ни картинки, ни цвета, только белое по умолчанию.
+   */
+  hasTextures() {
+    return !!(this.stats && this.stats.textures > 0);
   }
 
   /** Базовая статистика загруженной модели (для HUD ещё до оптимизации). */
@@ -544,6 +781,16 @@ export class Viewer implements ViewerLike {
   setExposure(value: number) {
     const v = Number(value);
     this.renderer.toneMappingExposure = Number.isFinite(v) ? v : 1;
+  }
+
+  /**
+   * Где брать соседние файлы модели. Ставится ПЕРЕД загрузкой пачки и снимается после
+   * неё: подмена принадлежит одной конкретной загрузке, а не движку навсегда.
+   *
+   * Функция отвечает `null` на всё, что её не касается, — тогда адрес идёт как был.
+   */
+  setAssetResolver(resolve: ((url: string) => string | null) | null) {
+    this._resolveAsset = typeof resolve === 'function' ? resolve : null;
   }
 
   // ── Варианты материала ─────────────────────────────────────────────────────
@@ -817,6 +1064,9 @@ export class Viewer implements ViewerLike {
     // Через камеру автора орбита не работает: она увела бы её с места, куда автор
     // поставил. update() зовём только когда смотрим своей.
     if (this.controls.enabled) this.controls.update();
+    // Затемнение считается от расстояния до камеры, а она двигается: пересчёт каждый
+    // кадр — это вычитание двух чисел, дешевле любой попытки поймать момент сдвига.
+    if (this._display === 'clay') this._updateClayDepth();
     this.renderer.render(this.scene, this._activeCamera());
   }
 
@@ -886,7 +1136,17 @@ export class Viewer implements ViewerLike {
     // тоже обязаны, иначе следующая модель откроется через чужой мёртвый ракурс.
     this._fileCameras = [];
     this._cameraIndex = null;
+    // Габарит принадлежит ЭТОЙ модели: у следующей он другой, и оставленный старый
+    // положил бы затемнение мимо неё.
+    this._clayBounds = null;
+    this.scene.fog = null;
     this.controls.enabled = true;
+    // Родные материалы возвращаем НА МЕСТО перед выгрузкой. Иначе они остались бы
+    // висеть только в нашей карте: обход освобождения ходит по мешам и до снятых
+    // материалов (а с ними до их текстур) не добрался бы — молчаливая утечка на
+    // каждой смене модели.
+    for (const [mesh, mat] of this._origMaterials) mesh.material = mat;
+    this._origMaterials.clear();
     this.scene.remove(this.model);
     disposeSubtree(this.model);
     this.model = null;
@@ -895,6 +1155,11 @@ export class Viewer implements ViewerLike {
   /** Полностью освободить ресурсы просмотрщика. */
   dispose() {
     this._disposeModel();
+    // Глина принадлежит просмотрщику, а не модели: она общая на все загрузки,
+    // поэтому _disposeModel её не трогает, а здесь освободить обязаны.
+    for (const mat of this._clay.values()) mat.dispose();
+    this._clay.clear();
+    if (this._clayMap) { this._clayMap.dispose(); this._clayMap = null; }
     this._resizeObserver.disconnect();
     this.controls.dispose();
     this._draco.dispose();

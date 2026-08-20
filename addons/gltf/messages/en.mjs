@@ -275,6 +275,13 @@ export default {
   'quantize.skipped.already': () => 'Geometry is already quantized — a second pass would only add loss',
   'quantize.skipped.compressed': ({ codec }) => `Geometry is already packed (${codec}) — this method adds nothing on top of it`,
 
+  // --- чтение файла ---
+  // `.gltf` — не один файл: геометрия и картинки лежат рядом отдельными файлами. Нет
+  // хотя бы одного — читать нечего, и сказать об этом надо ИМЕНАМИ, а не кодом ошибки
+  // из недр библиотеки. Одна строка на весь класс: имена перечисляются потому, что
+  // список тут и есть суть находки — по нему человек понимает, чего именно не хватило.
+  'io.missingResources': ({ names }) => `Missing files this .gltf refers to: ${names}. Drop the whole folder, not just the .gltf.`,
+
   // --- integrity checks (validate) ---
   'check.geometryEmpty': () => 'no triangle geometry before or after',
   'check.geometryPresent': () => 'geometry is present',

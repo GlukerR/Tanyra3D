@@ -326,7 +326,9 @@ async function runFile(
     cache: new Map(),
     log,
   };
-  const before = addon.collectMetrics(ctx.document, fs.statSync(src).size);
+  const before = addon.collectMetrics(ctx.document, addon.sourceBytes
+    ? addon.sourceBytes(src)
+    : fs.statSync(src).size);
 
   // До правил: проигравшая фича не должна зависеть от наличия геометрии или от
   // того, вернуло ли правило свою запись. Сам конфликт уже произошёл на входе.
