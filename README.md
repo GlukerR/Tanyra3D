@@ -452,6 +452,12 @@ The honest list of what the tool doesn't do, or doesn't do fully.
   model weighed before and after, which ones sit over the target's limit, which failed.
   It computes nothing of its own — every number is read back from the per-model reports —
   and saves as CSV.
+- **STL and PLY come in, glTF goes out.** Both are read on the server and turned into
+  a glTF document by the same code the CLI uses, so the command line gains the formats
+  for free. Neither format carries materials or textures, and none are invented: the
+  report shows zero because that is the truth about the file. PLY vertex colours are
+  carried across as authored, and STL faceting survives welding — only vertices that
+  match in normal as well as position are merged.
 - **Built for models up to 100 MB.** Not a refusal — a boundary stated honestly. Anything
   heavier still opens and still builds, but the preview turns sluggish and the build takes
   long enough that it stops being worth waiting for; a 330 MB file barely rotated in the

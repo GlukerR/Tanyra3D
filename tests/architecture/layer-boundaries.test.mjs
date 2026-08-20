@@ -6,7 +6,9 @@
 //   addons/gltf/* → node:*, @gltf-transform/*, draco3dgltf, meshoptimizer,
 //                   ../../core/*, ./ (свои). Запрещено: ui/, optimize2.mjs,
 //                   server.mjs, assistant.mjs. (+ пакеты gltf-validator, sharp —
-//                   ленивые динамические импорты аддона, оба в dependencies).
+//                   ленивые динамические импорты аддона, оба в dependencies;
+//                   + ДВА КОНКРЕТНЫХ модуля three — разборщики STL и PLY, именно
+//                   модуля, а не пакет целиком: см. ALLOWED_PACKAGES ниже).
 //   optimize2.mjs → core + addons (composition root).
 //   server.mjs    → верхний шов: node:*, ./optimize2.mjs, ./core/i18n.mjs,
 //                   ./assistant.mjs (динамически).
@@ -30,6 +32,24 @@ const ALLOWED_PACKAGES = {
   addons: new Set([
     '@gltf-transform/core', '@gltf-transform/functions', '@gltf-transform/extensions',
     'draco3dgltf', 'meshoptimizer', 'gltf-validator', 'sharp',
+    // Разборщики чужих форматов из three.js — добавлены 2026-08-20 вместе с приёмом
+    // STL и PLY (addons/gltf/importers.mts). Пускаются ОСОЗНАННО и по узкому признаку.
+    //
+    // Что именно берётся: две функции `parse(ArrayBuffer) → геометрия`. Ни рендерера, ни
+    // сцены, ни браузера — чистый разбор двоичных данных, который работает в Node
+    // (проверено пробой; это же и причина делать STL/PLY на СЕРВЕРЕ, а не в браузере).
+    //
+    // Почему это не размывает границу. Слой аддонов отвечает на вопрос «как получить
+    // документ glTF из файла», и для `.stl` разборщик — такой же инструмент, как
+    // draco3dgltf для сжатой геометрии. Своего разборщика PLY мы писать не будем:
+    // формат с переменной схемой свойств, и собственная его редакция была бы хуже
+    // готовой, а не независимее.
+    //
+    // Проверка границы прежняя: убери пакет — что перестанет работать? Здесь перестанет
+    // ЧИТАТЬСЯ вход, а не изменится выход. Обратного импорта (ui → addons) это не
+    // касается, он по-прежнему запрещён без исключений.
+    'three/examples/jsm/loaders/STLLoader.js',
+    'three/examples/jsm/loaders/PLYLoader.js',
   ]),
   // three и three/addons/*, плюс плагины к загрузчику three.js.
   //
@@ -100,7 +120,15 @@ describe('layer-boundaries — границы слоёв (таблица §2.4)'
 
         if (kind === 'package') {
           const allowed = ALLOWED_PACKAGES[sourceLayer];
-          if (!allowed || !allowed.has(packageName(specifier))) {
+          // Разрешение бывает двух видов, и разница существенная:
+          //   'three'                       — весь пакет, любой его модуль;
+          //   'three/examples/.../STL.js'   — РОВНО этот модуль и ничего больше.
+          //
+          // Точечный вид заведён 2026-08-20 под разборщики STL и PLY в слое аддонов.
+          // Разреши там весь `three` — и завтра туда же приедет рендерер, а сторож
+          // промолчит: он сводит адрес к имени пакета и разницы не увидит. Узкая запись
+          // оставляет границу проверяемой, а не оговорённой в комментарии.
+          if (!allowed || !(allowed.has(specifier) || allowed.has(packageName(specifier)))) {
             violations.push(`${rel}: пакет '${specifier}' запрещён для слоя ${sourceLayer}`);
           }
           continue;

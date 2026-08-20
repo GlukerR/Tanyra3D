@@ -25,8 +25,8 @@ window.I18N_CATALOGS.en = {
   'outliner.validation.count': '✓ Validation ({n})',
   'outliner.validation.range': '✓ Validation ({from} → {to})',
   'dropzone.title': 'Drop a 3D model here',
-  'dropzone.sub': 'or click + · .glb and .gltf',
-  'dropzone.rejected': 'Only .glb and .gltf are accepted for now',
+  'dropzone.sub': 'or click + · GLB, glTF, STL, PLY',
+  'dropzone.rejected': 'Accepted: .glb, .gltf, .stl, .ply',
 
   // --- журнал ---
   'logs.label': 'Logs',
@@ -284,7 +284,7 @@ window.I18N_CATALOGS.en = {
   'log.packMissing': ({ name }) => `The model refers to "${name}", but that file was not dropped`,
   'log.packMissingMany': ({ n }) => `Files the model refers to but that were not dropped: ${n}`,
   'log.packUploadFailed': ({ name, error }) => `Failed to send "${name}" to the server: ${error}`,
-  'log.rejectedMany': ({ n }) => `Skipped files: ${n} — .glb and .gltf are accepted`,
+  'log.rejectedMany': ({ n }) => `Skipped files: ${n} — accepted: .glb, .gltf, .stl, .ply`,
   'log.batchStarted': ({ n }) => `Batch build: ${n} model(s) queued`,
   'log.batchDone': ({ ok, failed }) => `Batch build finished: ${ok} built, ${failed} failed`,
   'log.batchStopped': ({ ok, failed, left }) => `Batch build stopped: ${ok} built, ${failed} failed, ${left} left`,
@@ -420,7 +420,7 @@ window.I18N_CATALOGS.en = {
   'log.platform': ({ id }) => `Target platform: ${id}`,
   'log.engine': ({ id }) => `Engine: ${id}`,
   'log.platform.reset': ({ platform }) => `${platform} does not run on this engine — platform cleared`,
-  'log.rejected': ({ name }) => `Rejected "${name}" — .glb and .gltf are accepted`,
+  'log.rejected': ({ name }) => `Rejected "${name}" — accepted: .glb, .gltf, .stl, .ply`,
   'log.loaded': ({ name, size }) => `Model loaded: ${name} (${size})`,
   'log.foundCompression': ({ list }) => `Compression found in source: ${list}`,
   'log.inspectFailed': ({ status }) => `Inspection failed (${status}) — Metadata and Validation are unavailable`,

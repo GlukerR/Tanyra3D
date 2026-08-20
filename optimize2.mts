@@ -29,7 +29,8 @@
 //   node optimize2.mjs --no-ktx               устарел: KTX2 и так выключен по умолчанию
 //   node optimize2.mjs --dry-run              полный анализ и отчёт, но без записи .glb
 //
-// Вход: input/*.glb и input/*.gltf  →  Выход: output/*.glb + output/*.report.md
+// Вход: input/*.glb, *.gltf, *.stl, *.ply  →  Выход: output/*.glb + output/*.report.md
+// Список расширений один на всё приложение и живёт в аддоне (addons/gltf, поле formats).
 //
 // Программный API (контракт: docs/ARCHITECTURE.md §4b, раздел Б):
 //   import { optimizeFile, listRules, VERSION } from './optimize2.mjs';
@@ -230,9 +231,14 @@ async function main() {
   fs.mkdirSync(INPUT_DIR, { recursive: true });
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
-  const files = fs.readdirSync(INPUT_DIR).filter((f) => /\.(glb|gltf)$/i.test(f)).sort();
+  // Список расширений берём У АДДОНА, а не пишем здесь заново. Своя копия разошлась бы с
+  // интерфейсом при первом же новом формате, и разошлась бы МОЛЧА: командная строка не
+  // заметила бы файл, лежащий в input/, и сказала бы «моделей нет».
+  const accept = new RegExp(`\\.(${gltfAddon.formats.join('|')})$`, 'i');
+  const files = fs.readdirSync(INPUT_DIR).filter((f) => accept.test(f)).sort();
   if (!files.length) {
-    console.log(`No .glb/.gltf files in input/. Put models here:\n  ${INPUT_DIR}`);
+    const list = gltfAddon.formats.map((e) => `.${e}`).join(', ');
+    console.log(`No model files in input/ (${list}). Put models here:\n  ${INPUT_DIR}`);
     return;
   }
 

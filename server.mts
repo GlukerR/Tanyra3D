@@ -663,7 +663,15 @@ function sendJSON(res: http.ServerResponse, status: number, obj: unknown) {
  * Список один на оба места приёма (`/api/inspect` и `/api/optimize`). Двумя копиями он
  * уже был и разъехался бы при первом же добавлении формата.
  */
-const MODEL_EXT = /\.(glb|gltf)$/i;
+const MODEL_EXT = /\.(glb|gltf|stl|ply)$/i;
+
+/**
+ * Тот же список словами — для отказа, который человек прочтёт. Считается ИЗ самого
+ * MODEL_EXT: отдельная копия разошлась бы с проверкой, и отказ называл бы не те форматы,
+ * которые принимаются на самом деле. Ровно эта беда уже была с двумя копиями `.glb`.
+ */
+const MODEL_EXT_WORDS = (MODEL_EXT.source.match(/\(([^)]+)\)/)?.[1] || '')
+  .split('|').map((e) => `.${e}`).join(', ');
 
 // Зарезервированные Windows имена устройств. Резервируются в ЛЮБОЙ папке и вместе с
 // расширением: запись в `uploads/<id>/con.glb` уходит в консоль, а не в файл, и модель
@@ -1203,7 +1211,7 @@ const server = http.createServer(async (req, res) => {
       try { decodedName = decodeURIComponent(rawName); } catch (e) { decodedName = rawName; }
       const fileName = sanitizeFileName(decodedName);
       if (!MODEL_EXT.test(fileName)) {
-        sendJSON(res, 400, { error: 'Expected a .glb or .gltf file' });
+        sendJSON(res, 400, { error: `Expected one of: ${MODEL_EXT_WORDS}` });
         return;
       }
       // Модель приезжает В УЖЕ ЗАВЕДЁННУЮ папку, если соседи приехали раньше. Иначе
@@ -1338,7 +1346,7 @@ const server = http.createServer(async (req, res) => {
         }
         fileName = sanitizeFileName(decodedName);
         if (!MODEL_EXT.test(fileName)) {
-          sendJSON(res, 400, { error: 'Expected a .glb or .gltf file' });
+          sendJSON(res, 400, { error: `Expected one of: ${MODEL_EXT_WORDS}` });
           return;
         }
 

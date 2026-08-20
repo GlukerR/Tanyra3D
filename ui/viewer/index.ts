@@ -219,6 +219,11 @@ class ViewportSlot {
    *  opts.camera — ракурс, который надо сохранить вместо авто-кадрирования (сборка/ребилд).
    *  opts.pack — соседние файлы (.bin, текстуры) для `.gltf`, брошенного вместе с ними. */
   async load(source: string | File | Blob, opts: { camera?: CameraState | null; pack?: PackEntry[] | null } = {}) {
+    // Формат берём У ФАЙЛА, пока имя ещё есть: дальше модель живёт blob-адресом, а в нём
+    // расширения нет вовсе, и узнать по адресу, что это STL, невозможно.
+    const format = source instanceof File
+      ? (source.name.split('.').pop() || '').toLowerCase()
+      : null;
     const viewer = this._ensureViewer();
     this._setStatus("viewer.status.loading");
 
@@ -231,6 +236,7 @@ class ViewportSlot {
     const missing = this._installPack(viewer, url, opts.pack);
     try {
       await viewer.load(url, {
+        format,
         camera: opts.camera || null,
         onProgress: (e: ProgressEvent) => {
           if (e && e.lengthComputable) {

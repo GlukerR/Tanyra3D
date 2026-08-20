@@ -47,6 +47,13 @@ export interface CameraState {
 export interface LoadOptions {
   onProgress?: ((event: ProgressEvent) => void) | undefined;
   camera?: CameraState | null;
+  /**
+   * Расширение исходного файла без точки — 'stl', 'ply' и так далее.
+   *
+   * Нужно потому, что модель приходит blob-адресом, а в нём расширения НЕТ: узнать формат
+   * по адресу нельзя. Пусто или 'glb'/'gltf' — обычный путь.
+   */
+  format?: string | null;
 }
 
 /**

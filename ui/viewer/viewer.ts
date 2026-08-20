@@ -16,6 +16,8 @@ import { KTX2Loader } from "three/addons/loaders/KTX2Loader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { GLTFAnimationPointerExtension } from "@needle-tools/three-animation-pointer";
 import GLTFMaterialsVariantsExtension from "three-gltf-extensions/loaders/KHR_materials_variants/KHR_materials_variants.js";
+import { STLLoader } from "three/addons/loaders/STLLoader.js";
+import { PLYLoader } from "three/addons/loaders/PLYLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 // Контракт движка просмотра. Импорт типов, а не кода: в собранный файл он не попадает.
@@ -26,6 +28,9 @@ import { detectLods, showLod, type LodSet } from "./lod.js";
 // Пути к декодерам — тоже из node_modules/three через /vendor-роут сервера (server.mjs).
 const DRACO_DECODER_PATH = "/vendor/three/examples/jsm/libs/draco/gltf/";
 const KTX2_TRANSCODER_PATH = "/vendor/three/examples/jsm/libs/basis/";
+
+/** Форматы, которые открывает не glTF-загрузчик, а свой. См. Viewer._loadForeign. */
+const FOREIGN_FORMATS = ["stl", "ply"];
 
 /**
  * Узел при обходе сцены. Обход отдаёт узлы ЛЮБОГО вида — свет, кости, пустышки, —
@@ -523,7 +528,7 @@ export class Viewer implements ViewerLike {
    * Загрузить модель по URL. Предыдущая модель выгружается (dispose) — просмотрщик
    * переиспользуется для перезагрузки (оригинал → оптимизированный и т.п.).
    */
-  async load(url: string, { onProgress, camera = null }: LoadOptions = {}) {
+  async load(url: string, { onProgress, camera = null, format = null }: LoadOptions = {}) {
     // Метка этой загрузки. Разбор GLB — это секунды, и за них человек успевает нажать
     // «Пересобрать» или переключить модель. Раньше это кончалось так: обе загрузки
     // проходили _disposeModel() по ЕЩЁ ПУСТОЙ сцене, а потом обе добавляли свою модель.
@@ -534,7 +539,9 @@ export class Viewer implements ViewerLike {
     const token = ++this._loadToken;
     this._disposeModel();
 
-    const gltf = await this._loader.loadAsync(url, onProgress);
+    const gltf = FOREIGN_FORMATS.includes(String(format || '').toLowerCase())
+      ? await this._loadForeign(url, String(format).toLowerCase())
+      : await this._loader.loadAsync(url, onProgress);
     // Пока разбирали файл, началась следующая загрузка — эта устарела. Свою модель
     // освобождаем сами: в сцену она не попала, и _disposeModel() до неё не доберётся.
     if (token !== this._loadToken) {
@@ -675,6 +682,39 @@ export class Viewer implements ViewerLike {
    */
   hasTextures() {
     return !!(this.stats && this.stats.textures > 0);
+  }
+
+  /**
+   * Показать формат, который glTF-загрузчик не откроет: STL, PLY.
+   *
+   * Принимать формат и не уметь его ПОКАЗАТЬ нельзя (Правило 12): человек бросил файл,
+   * сервер его принял и собрал, а левое окно написало бы «не удалось показать модель» —
+   * то есть возможность есть на словах и нет на деле.
+   *
+   * Отдаём наружу ту же форму, что и загрузчик glTF: обвязка после этого места не должна
+   * знать, откуда приехала модель. Анимаций, вариантов и расширений у этих форматов не
+   * бывает — пустые списки здесь не заглушка, а факт о формате.
+   *
+   * Материал приходится создать: рисовать три.js без материала не умеет. Это решение
+   * ПОКАЗА и в файл не попадает — сервер собирает модель сам и материала ей не выдумывает
+   * (addons/gltf/importers.mts). Раскраску вершин включаем, только если она в файле есть,
+   * иначе цвет вершин молча перекрасил бы модель в чёрный.
+   */
+  async _loadForeign(url: string, format: string) {
+    const buf = await (await fetch(url)).arrayBuffer();
+    const geom = format === 'ply' ? new PLYLoader().parse(buf) : new STLLoader().parse(buf);
+    // У STL нормали свои, у PLY их может не быть вовсе — тогда считаем по граням, иначе
+    // модель выйдет плоско-чёрной.
+    if (!geom.attributes.normal) geom.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      metalness: 0,
+      roughness: 0.7,
+      vertexColors: !!geom.attributes.color,
+    });
+    const scene = new THREE.Group();
+    scene.add(new THREE.Mesh(geom, mat));
+    return { scene, animations: [], parser: { json: {} }, userData: {} } as unknown as GLTF;
   }
 
   /** Базовая статистика загруженной модели (для HUD ещё до оптимизации). */

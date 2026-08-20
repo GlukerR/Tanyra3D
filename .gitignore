@@ -130,6 +130,8 @@ addons/gltf/types.mjs
 addons/gltf/types.d.mts
 addons/gltf/index.mjs
 addons/gltf/index.d.mts
+addons/gltf/importers.mjs
+addons/gltf/importers.d.mts
 addons/gltf/ktx2-decode.mjs
 addons/gltf/ktx2-decode.d.mts
 addons/gltf/source-quality.mjs

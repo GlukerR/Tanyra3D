@@ -27,6 +27,7 @@ import {
 } from './metrics.mjs';
 import enMessages from './messages/en.mjs';
 import ruMessages from './messages/ru.mjs';
+import { importForeign, isImportFormat, IMPORT_FORMATS } from './importers.mjs';
 import { RULES } from './rules.mjs';
 import { TOKTX } from './tools.mjs';
 
@@ -406,7 +407,10 @@ function normalizeOpts(opts: RawOpts = {}): GltfOpts {
 }
 
 function outputName(src: string): string {
-  return path.basename(src).replace(/\.gltf$/i, '.glb');
+  // Выход у нас всегда glTF, каким бы ни был вход: `.gltf` и `.stl` одинаково становятся
+  // `.glb`. Без чужих расширений здесь `модель.stl` дала бы файл `модель.stl` с двоичным
+  // glTF внутри — имя, которое врёт про содержимое.
+  return path.basename(src).replace(/\.(gltf|stl|ply)$/i, '.glb');
 }
 
 // ---------------------------------------------------------------------------
@@ -704,7 +708,9 @@ function restoreCarried(json: Record<string, unknown>, carried: Carried | undefi
 // и клались в реестр по объекту документа — и терялись, как только правило подменяло
 // документ (KTX2, круг через временный файл). Теперь ответ берётся из исходного файла в
 // момент записи, и промежуточные состояния на него не влияют. См. writeBytes.
-const load = (io: NodeIOType, src: string) => readOrExplain(io, src);
+const load = (io: NodeIOType, src: string) => (
+  isImportFormat(src) ? Promise.resolve(importForeign(src)) : readOrExplain(io, src)
+);
 
 const readBytes = (io: NodeIOType, bytes: Uint8Array) => io.readBinary(bytes);
 
@@ -1240,7 +1246,10 @@ async function readOrExplain(io: NodeIOType, srcPath: string) {
 async function inspect(srcPath: string): Promise<Record<string, unknown>> {
   const io = await createIO();
   const bytes = fs.readFileSync(srcPath);
-  const doc = await readOrExplain(io, srcPath);
+  // Чужой формат читается переходником — тем же, каким его читает сборка. Разойдись эти
+  // два пути, человек увидел бы в метаданных одно, а собрал бы другое.
+  const foreign = isImportFormat(srcPath);
+  const doc = foreign ? importForeign(srcPath) : await readOrExplain(io, srcPath);
   const asset = doc.getRoot().getAsset() || {};
   const extensions = doc.getRoot().listExtensionsUsed().map((e: { extensionName: string }) => e.extensionName);
 
@@ -1256,6 +1265,11 @@ async function inspect(srcPath: string): Promise<Record<string, unknown>> {
   try { metadata = fns.inspect(doc); } catch { /* экзотика — отдаём пустые таблицы */ }
 
   let validation: ExplainedMessage[] = [];
+  // Валидатор Khronos проверяет glTF. У STL и PLY проверять по стандарту glTF нечего:
+  // это не glTF и не притворяется им. Прогнать валидатор по НАШЕЙ конверсии было бы
+  // подменой — человек читал бы отчёт о своём файле, а получил бы отчёт о нашей работе.
+  // Поэтому пусто, и это честное «замечаний нет», а не спрятанные замечания.
+  if (foreign) return foreignInspect(doc, srcPath);
   try {
     const validator = await import('gltf-validator');
     const res = await validator.validateBytes(new Uint8Array(bytes));
@@ -1288,6 +1302,34 @@ async function inspect(srcPath: string): Promise<Record<string, unknown>> {
   };
 }
 
+/**
+ * Инспекция ЧУЖОГО формата: те же таблицы и те же метрики, но без отчёта валидатора.
+ *
+ * Отдельной функцией, а не набором «если» внутри общей: у чужого формата не бывает ни
+ * расширений стандарта, ни генератора в файле, и полтора десятка ветвлений по этому
+ * поводу превратили бы общий путь в лабиринт. Здесь же видно и главное — ЧТО отдаётся
+ * пустым и почему.
+ */
+function foreignInspect(doc: Document, srcPath: string): Record<string, unknown> {
+  let metadata: InspectLike = { scenes: { properties: [] }, meshes: { properties: [] }, materials: { properties: [] }, textures: { properties: [] }, animations: { properties: [] } };
+  try { metadata = fns.inspect(doc); } catch { /* экзотика — отдаём пустые таблицы */ }
+  let metrics = null;
+  try { metrics = collectMetrics(doc, fs.statSync(srcPath).size); } catch { /* цифр не будет, таблицы останутся */ }
+  return {
+    format: 'gltf',
+    // Откуда модель ПРИШЛА. Интерфейс говорит об этом одной строкой: человек бросил .stl,
+    // а получит .glb, и знать про это он должен от нас, а не догадываться по имени файла.
+    sourceFormat: path.extname(srcPath).toLowerCase().replace(/^\./, ''),
+    // Ни версии стандарта, ни генератора в этих форматах нет. Пусто — это факт о файле,
+    // а не пробел в нашей работе; подставлять сюда своё имя было бы враньём.
+    asset: { version: '', generator: '' },
+    extensions: [],
+    metadata,
+    metrics,
+    validation: [],
+  };
+}
+
 // -------- Экспорт glTF как самодостаточного JSON (как «Export → JSON» на gltf.report) --------
 // Буферы/изображения инлайнятся data-URI, чтобы получился один JSON без внешних файлов.
 function mimeFromUri(uri: string): string {
@@ -1300,7 +1342,7 @@ function mimeFromUri(uri: string): string {
 
 async function toJSON(srcPath: string): Promise<Record<string, unknown>> {
   const io = await createIO();
-  const doc = await readOrExplain(io, srcPath);
+  const doc = isImportFormat(srcPath) ? importForeign(srcPath) : await readOrExplain(io, srcPath);
   const { json, resources } = await io.writeJSON(doc, {});
   const inline = (uri: string, mime: string) => {
     const bytes = resources && resources[uri];
@@ -1320,7 +1362,10 @@ async function toJSON(srcPath: string): Promise<Record<string, unknown>> {
 // точке сборки: `gltfAddon as unknown as Addon` в optimize2.mts, там же объяснено,
 // почему прямое соответствие невозможно (правила аддона сужают контекст ядра).
 const gltfAddon = {
-  formats: ['glb', 'gltf'],
+  // Принимаем больше, чем отдаём: STL и PLY приходят на вход, а выход всегда glTF
+  // (см. importers.mts). Реестр ядра выбирает аддон по расширению — значит и командная
+  // строка получает эти форматы тем же движением.
+  formats: ['glb', 'gltf', ...IMPORT_FORMATS],
   rules: RULES,
   BASELINE_METRICS,
   ADVANCED_FEATURES,
