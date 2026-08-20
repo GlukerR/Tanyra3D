@@ -24,11 +24,35 @@
 import { defineConfig } from 'vitest/config'
 import { playwright } from '@vitest/browser-playwright'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const threeRoot = path.resolve(__dirname, 'node_modules/three')
+
+// Сколько воркеров поднимать. Введено 2026-08-20 по прямому слову Александра:
+// «ты каждый раз при прогоне просто жёстко перегружаешь мой комп. 100% использования
+// процессора встаёт и у меня всё падает в работе. я не могу сам работать когда ты
+// что-то делаешь».
+//
+// Умолчание vitest — почти все ядра (на его машине 23 из 24), и каждый воркер здесь не
+// «прогоняет юнит-тест», а разбирает НАСТОЯЩИЕ модели и запускает ВНЕШНИЙ `toktx`
+// отдельным процессом. То есть двадцать три тяжёлых процесса разом — машина встаёт.
+//
+// Это НЕ ускорение прогона любой ценой: набор идёт в фоне, пока человек работает, и
+// прогон, который отнимает у него машину, стоит дороже сэкономленных минут.
+//
+// На CI ограничение снимается: там машина одноразовая и ничья, отбирать не у кого.
+// Живую цифру можно задать через TANYRA_TEST_WORKERS — например перед выпуском, когда
+// ждать всё равно нечего.
+const CORES = os.cpus().length || 4
+const asked = Number(process.env.TANYRA_TEST_WORKERS)
+const maxWorkers = Number.isFinite(asked) && asked > 0
+  ? asked
+  : process.env.CI
+    ? undefined
+    : Math.max(2, Math.floor(CORES / 3))
 
 // Плагин Vite для раздачи файлов декодеров Three.js по /vendor/three/.
 // В production сервер (server.mjs) отдаёт их через express.static, но в тестовом
@@ -98,6 +122,7 @@ export default defineConfig({
           setupFiles: ['tests/isolate-profiles.setup.mjs'],
           testTimeout: 120_000,
           hookTimeout: 120_000,
+          ...(maxWorkers ? { maxWorkers } : {}),
         },
       },
       {
@@ -122,6 +147,7 @@ export default defineConfig({
           ],
           testTimeout: 120_000,
           hookTimeout: 120_000,
+          ...(maxWorkers ? { maxWorkers } : {}),
           browser: {
             enabled: true,
             provider: playwright(),
