@@ -25,8 +25,8 @@ window.I18N_CATALOGS.ru = {
   'outliner.validation.count': '✓ Проверка ({n})',
   'outliner.validation.range': '✓ Проверка ({from} → {to})',
   'dropzone.title': 'Перетащите сюда 3D-модель',
-  'dropzone.sub': 'или нажмите + · пока только .glb',
-  'dropzone.rejected': 'Пока поддерживается только .glb',
+  'dropzone.sub': 'или нажмите + · .glb и .gltf',
+  'dropzone.rejected': 'Пока принимаются только .glb и .gltf',
 
   // --- журнал ---
   'logs.label': 'Журнал',
@@ -56,7 +56,7 @@ window.I18N_CATALOGS.ru = {
   'vp.camera': 'Камера',
   'viewer.camera.free': 'Свободная',
   'viewer.camera.unnamed': ({ n }) => `Камера ${n}`,
-  'stage.hint': 'Загрузите .glb на левой панели — модель появится здесь',
+  'stage.hint': 'Загрузите модель на левой панели — она появится здесь',
 
   // Подписи посреди панелей просмотра (ui/viewer/index.js). Ставятся из кода через
   // I18n.setText, поэтому переживают смену языка без перезагрузки модели.
@@ -230,7 +230,7 @@ window.I18N_CATALOGS.ru = {
     ? `Остановлено: собрано ${ok}, не вышло ${failed}`
     : `Остановлено: собрано ${ok}`),
   'log.loadedMany': ({ n }) => `Добавлено моделей: ${n}`,
-  'log.rejectedMany': ({ n }) => `Пропущено файлов не .glb: ${n}`,
+  'log.rejectedMany': ({ n }) => `Пропущено файлов: ${n} — принимаются .glb и .gltf`,
   'log.batchStarted': ({ n }) => `Пакетная сборка: моделей в очереди — ${n}`,
   'log.batchDone': ({ ok, failed }) => `Пакетная сборка закончена: собрано ${ok}, не вышло ${failed}`,
   'log.batchStopped': ({ ok, failed, left }) => `Пакетная сборка остановлена: собрано ${ok}, не вышло ${failed}, осталось ${left}`,
@@ -261,7 +261,7 @@ window.I18N_CATALOGS.ru = {
 
   // --- полноэкранная подсветка при перетаскивании ---
   'dropOverlay.title': 'Бросайте модель в любое место',
-  'dropOverlay.sub': '.glb',
+  'dropOverlay.sub': '.glb · .gltf',
 
   'perf.draw': 'КАДР',
   'perf.ms': 'мс',
@@ -361,7 +361,7 @@ window.I18N_CATALOGS.ru = {
   'log.platform': ({ id }) => `Целевая платформа: ${id}`,
   'log.engine': ({ id }) => `Движок: ${id}`,
   'log.platform.reset': ({ platform }) => `${platform} на этом движке не работает — площадка снята`,
-  'log.rejected': ({ name }) => `Файл «${name}» отклонён — пока поддерживается только .glb`,
+  'log.rejected': ({ name }) => `Файл «${name}» отклонён — принимаются .glb и .gltf`,
   'log.loaded': ({ name, size }) => `Модель загружена: ${name} (${size})`,
   'log.foundCompression': ({ list }) => `В исходнике найдено сжатие: ${list}`,
   'log.inspectFailed': ({ status }) => `Инспекция не удалась (${status}) — метаданные и проверка недоступны`,

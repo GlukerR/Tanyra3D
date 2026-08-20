@@ -25,8 +25,8 @@ window.I18N_CATALOGS.en = {
   'outliner.validation.count': '✓ Validation ({n})',
   'outliner.validation.range': '✓ Validation ({from} → {to})',
   'dropzone.title': 'Drop a 3D model here',
-  'dropzone.sub': 'or click + · .glb for now',
-  'dropzone.rejected': 'Only .glb is supported for now',
+  'dropzone.sub': 'or click + · .glb and .gltf',
+  'dropzone.rejected': 'Only .glb and .gltf are accepted for now',
 
   // --- журнал ---
   'logs.label': 'Logs',
@@ -64,7 +64,7 @@ window.I18N_CATALOGS.en = {
   'viewer.camera.free': 'Free orbit',
   // Автор не дал камере имени — подпись придумываем здесь, движок языка не знает.
   'viewer.camera.unnamed': ({ n }) => `Camera ${n}`,
-  'stage.hint': 'Load a .glb from the left panel to preview it here',
+  'stage.hint': 'Load a model from the left panel to preview it here',
 
   // Подписи посреди панелей просмотра (ui/viewer/index.js). Ставятся из кода через
   // I18n.setText, поэтому переживают смену языка без перезагрузки модели.
@@ -269,7 +269,7 @@ window.I18N_CATALOGS.en = {
     ? `Stopped: ${ok} built, ${failed} failed`
     : `Stopped: ${ok} built`),
   'log.loadedMany': ({ n }) => `Models added: ${n}`,
-  'log.rejectedMany': ({ n }) => `Skipped non-.glb files: ${n}`,
+  'log.rejectedMany': ({ n }) => `Skipped files: ${n} — .glb and .gltf are accepted`,
   'log.batchStarted': ({ n }) => `Batch build: ${n} model(s) queued`,
   'log.batchDone': ({ ok, failed }) => `Batch build finished: ${ok} built, ${failed} failed`,
   'log.batchStopped': ({ ok, failed, left }) => `Batch build stopped: ${ok} built, ${failed} failed, ${left} left`,
@@ -298,7 +298,7 @@ window.I18N_CATALOGS.en = {
 
   // --- полноэкранная подсветка при перетаскивании ---
   'dropOverlay.title': 'Drop the model anywhere',
-  'dropOverlay.sub': '.glb',
+  'dropOverlay.sub': '.glb · .gltf',
 
   'perf.draw': 'DRAW',
   'perf.ms': 'ms',
@@ -405,7 +405,7 @@ window.I18N_CATALOGS.en = {
   'log.platform': ({ id }) => `Target platform: ${id}`,
   'log.engine': ({ id }) => `Engine: ${id}`,
   'log.platform.reset': ({ platform }) => `${platform} does not run on this engine — platform cleared`,
-  'log.rejected': ({ name }) => `Rejected "${name}" — only .glb is supported for now`,
+  'log.rejected': ({ name }) => `Rejected "${name}" — .glb and .gltf are accepted`,
   'log.loaded': ({ name, size }) => `Model loaded: ${name} (${size})`,
   'log.foundCompression': ({ list }) => `Compression found in source: ${list}`,
   'log.inspectFailed': ({ status }) => `Inspection failed (${status}) — Metadata and Validation are unavailable`,

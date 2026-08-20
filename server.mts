@@ -605,6 +605,19 @@ function sendJSON(res: http.ServerResponse, status: number, obj: unknown) {
   res.end(body);
 }
 
+/**
+ * Модельные расширения, которые принимает сервер.
+ *
+ * `.gltf` наравне с `.glb` с 2026-08-19, и это починка круга, а не новая возможность:
+ * окно выгрузки САМО отдаёт «самодостаточный .gltf со встроенными данными», движок читает
+ * его с первого дня (командная строка принимала всегда) — не принимал только сервер.
+ * Получалось, что свой же выход нельзя подать себе на вход.
+ *
+ * Список один на оба места приёма (`/api/inspect` и `/api/optimize`). Двумя копиями он
+ * уже был и разъехался бы при первом же добавлении формата.
+ */
+const MODEL_EXT = /\.(glb|gltf)$/i;
+
 // Зарезервированные Windows имена устройств. Резервируются в ЛЮБОЙ папке и вместе с
 // расширением: запись в `uploads/<id>/con.glb` уходит в консоль, а не в файл, и модель
 // пропадает без внятной ошибки. Точку с расширением Windows при сопоставлении отбрасывает.
@@ -621,6 +634,47 @@ function sanitizeFileName(name: string): string {
   if (WINDOWS_RESERVED.test(clean)) clean = '_' + clean;
   return clean || 'model.glb';
 }
+
+/**
+ * Относительный путь СОСЕДНЕГО файла внутри пачки — безопасно.
+ *
+ * Зачем вообще путь, а не имя. В `.gltf` ссылки на буфер и текстуры записаны как
+ * относительные адреса, и подпапки там обычное дело: `textures/wood.jpg`. Свалить всё в
+ * одну папку нельзя — ссылка перестанет находиться.
+ *
+ * Чем это опасно. Имена приходят ОТ КЛИЕНТА, а значит `../../..` в них — вопрос времени,
+ * даже без злого умысла: достаточно бросить папку, лежащую выше модели. Поэтому каждый
+ * кусок чистится отдельно, `..` и корневые слэши отбрасываются, а на выходе путь ещё раз
+ * сверяется с папкой исходника — второй заслон на случай, если первый однажды обойдут.
+ *
+ * Возвращает null, если после чистки не осталось ничего осмысленного.
+ */
+function safeAssetPath(srcDir: string, rel: string): string | null {
+  const raw = String(rel || '');
+  // Выход за папку — ОТКАЗ, а не молчаливое переименование. Первая редакция просто
+  // выбрасывала `..` из пути: наружу ничего не попадало, но `../../имя.txt` тихо
+  // ложился внутрь пачки под именем `имя.txt` — то есть мог перезаписать чужой файл,
+  // и ответ был «принято». Молча сделать не то, о чём просили, нельзя (Правило 12);
+  // здесь вдобавок это скрывало бы настоящую попытку побега.
+  if (/(^|[\\/])\.\.([\\/]|$)/.test(raw) || /^([a-zA-Z]:)?[\\/]/.test(raw)) return null;
+  const parts = raw
+    .split(/[\\/]+/)
+    .filter((p) => p && p !== '.')
+    .map((p) => sanitizeFileName(p));
+  if (!parts.length) return null;
+  const full = path.join(srcDir, ...parts);
+  // path.resolve снимает всё, что могло остаться: символические хвосты, разные записи
+  // одного пути. Сравниваем с разделителем на конце, иначе `/uploads/ab` пройдёт как
+  // «внутри» `/uploads/a`.
+  const root = path.resolve(srcDir) + path.sep;
+  if (!path.resolve(full).startsWith(root)) return null;
+  return full;
+}
+
+// Сколько файлов принимаем в одну пачку. Модель плюс буфер плюс текстуры — это единицы,
+// от силы десятки. Сотня с запасом, и она же защита от брошенной по ошибке папки с
+// тысячами файлов: предел на размер каждого файла от такого не спасает.
+const MAX_PACK_FILES = 100;
 
 // Имя файла для скачивания: если клиент прислал ?name= (окно экспорта), берём его —
 // чистим, снимаем расширение и ставим нужное для выбранного формата; иначе fallback.
@@ -1030,6 +1084,64 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // --- соседний файл пачки: .bin и текстуры рядом с .gltf ---
+    //
+    // Отдельный путь, а не расширение /api/inspect, по одной причине: у соседнего файла
+    // НЕТ требования быть моделью, и смешивать эти две проверки в одном обработчике
+    // значит рано или поздно принять .exe как модель или отвергнуть текстуру как «не тот
+    // формат». Разные правила — разные двери.
+    //
+    // Порядок работы клиента: сперва соседи (по одному), потом сама модель на /api/inspect
+    // с тем же source. Наоборот нельзя: разбор .gltf ищет соседей на диске в тот момент,
+    // когда его читают.
+    if (req.method === 'POST' && pathname === '/api/asset') {
+      const sourceParam = url.searchParams.get('source') || '';
+      const rawName = (req.headers['x-filename'] as string) || '';
+      let decodedName;
+      try { decodedName = decodeURIComponent(rawName); } catch (e) { decodedName = rawName; }
+
+      // Пачка живёт в папке исходника. Нет исходника — заводим: соседи могут приехать
+      // раньше модели, и это законный порядок (см. выше).
+      let sourceId = sourceParam;
+      let srcDir;
+      if (sourceId && sourceUploads.has(sourceId)) {
+        srcDir = path.dirname(sourceUploads.get(sourceId).uploadPath);
+      } else if (sourceId && fs.existsSync(path.join(UPLOADS_DIR, sourceId))) {
+        srcDir = path.join(UPLOADS_DIR, sourceId);
+      } else {
+        sourceId = randomUUID();
+        srcDir = path.join(UPLOADS_DIR, sourceId);
+        await fsp.mkdir(srcDir, { recursive: true });
+      }
+
+      const dest = safeAssetPath(srcDir, decodedName);
+      if (!dest) {
+        sendJSON(res, 400, { error: 'Bad asset name' });
+        return;
+      }
+      // Считаем УЖЕ ЛЕЖАЩИЕ файлы, а не доверяем счётчику клиента.
+      let existing = 0;
+      try {
+        for (const e of await fsp.readdir(srcDir, { withFileTypes: true, recursive: true })) {
+          if (e.isFile()) existing += 1;
+        }
+      } catch { /* папку только что завели */ }
+      if (existing >= MAX_PACK_FILES) {
+        sendJSON(res, 413, { error: `Too many files in one pack (limit ${MAX_PACK_FILES})` });
+        return;
+      }
+
+      await fsp.mkdir(path.dirname(dest), { recursive: true });
+      try {
+        await streamBodyToFile(req, dest);
+      } catch (e: any) {
+        sendJSON(res, e.message === 'File too large' ? 413 : 400, { error: e.message });
+        return;
+      }
+      sendJSON(res, 200, { sourceId });
+      return;
+    }
+
     // --- инспекция модели (Metadata + Validation) + регистрация исходника ---
     // Модель загружается один раз здесь (при импорте); последующая сборка переиспользует
     // тот же sourceId без перезаливки.
@@ -1038,8 +1150,38 @@ const server = http.createServer(async (req, res) => {
       let decodedName;
       try { decodedName = decodeURIComponent(rawName); } catch (e) { decodedName = rawName; }
       const fileName = sanitizeFileName(decodedName);
-      if (!/\.glb$/i.test(fileName)) {
-        sendJSON(res, 400, { error: 'Expected a .glb file' });
+      if (!MODEL_EXT.test(fileName)) {
+        sendJSON(res, 400, { error: 'Expected a .glb or .gltf file' });
+        return;
+      }
+      // Модель приезжает В УЖЕ ЗАВЕДЁННУЮ папку, если соседи приехали раньше. Иначе
+      // .gltf лёг бы отдельно от своего .bin и не прочитался.
+      const packParam = url.searchParams.get('source') || '';
+      if (packParam && !MODEL_EXT.test(packParam) && fs.existsSync(path.join(UPLOADS_DIR, packParam))) {
+        const srcDir = path.join(UPLOADS_DIR, packParam);
+        const uploadPath = path.join(srcDir, fileName);
+        let received;
+        try {
+          received = await streamBodyToFile(req, uploadPath);
+        } catch (e: any) {
+          sendJSON(res, e.message === 'File too large' ? 413 : 400, { error: e.message });
+          return;
+        }
+        if (!received) {
+          sendJSON(res, 400, { error: 'Empty request body — no file received' });
+          return;
+        }
+        sourceUploads.set(packParam, { uploadPath, name: fileName, seq: ++uploadSeq });
+        await purgeBeyondLimit();
+        let packData;
+        try {
+          packData = await inspectFile(uploadPath);
+        } catch (e: any) {
+          console.error('[inspect] failed:', e);
+          sendJSON(res, 500, { error: 'Inspection failed: ' + e.message });
+          return;
+        }
+        sendJSON(res, 200, { sourceId: packParam, ...packData });
         return;
       }
       // Папка заводится ДО приёма: файл теперь течёт на диск, а не собирается в памяти.
@@ -1143,8 +1285,8 @@ const server = http.createServer(async (req, res) => {
           decodedName = rawName;
         }
         fileName = sanitizeFileName(decodedName);
-        if (!/\.glb$/i.test(fileName)) {
-          sendJSON(res, 400, { error: 'Expected a .glb file' });
+        if (!MODEL_EXT.test(fileName)) {
+          sendJSON(res, 400, { error: 'Expected a .glb or .gltf file' });
           return;
         }
 
