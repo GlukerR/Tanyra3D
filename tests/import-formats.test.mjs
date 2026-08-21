@@ -128,6 +128,129 @@ describe('что сервер принимает на вход', () => {
   }, 60_000);
 });
 
+describe('чужие форматы приходят по сети так же, как через командную строку', () => {
+  /** Любой POST на сервер: путь, имя файла, тело. */
+  function post(pathname, name, body) {
+    return new Promise((resolve) => {
+      const req = http.request({
+        host: '127.0.0.1',
+        port,
+        path: pathname,
+        method: 'POST',
+        headers: { 'X-Filename': encodeURIComponent(name), 'Content-Type': 'application/octet-stream' },
+      }, (res) => {
+        let text = '';
+        res.on('data', (c) => { text += c; });
+        res.on('end', () => resolve({ status: res.statusCode, body: text }));
+      });
+      req.on('error', (e) => resolve({ status: 0, body: String(e) }));
+      req.end(body);
+    });
+  }
+
+  function get(pathname) {
+    return new Promise((resolve) => {
+      http.get({ host: '127.0.0.1', port, path: pathname }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve({ status: res.statusCode, bytes: Buffer.concat(chunks) }));
+      }).on('error', () => resolve({ status: 0, bytes: Buffer.alloc(0) }));
+    });
+  }
+
+  /** Двоичный STL из одного треугольника. */
+  function oneTriangleSTL() {
+    const buf = Buffer.alloc(84 + 50);
+    buf.writeUInt32LE(1, 80);
+    let o = 84;
+    for (const x of [0, 0, 1]) { buf.writeFloatLE(x, o); o += 4; }
+    for (const p of [[0, 0, 0], [1, 0, 0], [0, 1, 0]]) {
+      for (const x of p) { buf.writeFloatLE(x, o); o += 4; }
+    }
+    return buf;
+  }
+
+  it('.stl принимается и разбирается', async () => {
+    const res = await post('/api/inspect', 'деталь.stl', oneTriangleSTL());
+    expect(res.status, res.body).toBe(200);
+    const data = JSON.parse(res.body);
+    expect(data.sourceId, 'исходник не заведён').toBeTruthy();
+    // Откуда модель ПРИШЛА — человек бросил .stl, а получит .glb, и знать про это он
+    // должен от нас, а не догадываться по имени файла.
+    expect(data.sourceFormat, 'сервер не сказал, из какого формата принята модель').toBe('stl');
+    expect(data.metrics && data.metrics.triangles).toBe(1);
+    // Ни материалов, ни текстур в STL нет, и выдумывать их мы не будем.
+    expect(data.metrics.materials).toBe(0);
+    expect(data.metrics.textures).toBe(0);
+    // Валидатор Khronos по STL не запускается: проверять его по стандарту glTF нечего.
+    expect(data.validation).toEqual([]);
+  }, 60_000);
+
+  it('.ply принимается и разбирается', async () => {
+    const ply = [
+      'ply', 'format ascii 1.0', 'element vertex 3',
+      'property float x', 'property float y', 'property float z',
+      'element face 1', 'property list uchar int vertex_indices', 'end_header',
+      '0 0 0', '1 0 0', '0 1 0', '3 0 1 2', '',
+    ].join('\n');
+    const res = await post('/api/inspect', 'точки.ply', Buffer.from(ply, 'utf8'));
+    expect(res.status, res.body).toBe(200);
+    expect(JSON.parse(res.body).sourceFormat).toBe('ply');
+  }, 60_000);
+
+  it('отказ чужому формату называет ВСЕ принимаемые расширения', async () => {
+    // Половина списка хуже полного отсутствия: человек решит, что .stl не берут, и
+    // пойдёт искать конвертер, который у него уже есть внутри программы.
+    const res = await post('/api/inspect', 'куб.obj', Buffer.from('v 0 0 0\n', 'utf8'));
+    expect(res.status).toBe(400);
+    for (const ext of ['glb', 'gltf', 'stl', 'ply']) {
+      expect(res.body, `отказ не называет .${ext}`).toMatch(new RegExp(ext, 'i'));
+    }
+  }, 60_000);
+
+  it('облако точек по сети отвергается объяснением, а не внутренним кодом', async () => {
+    const cloud = [
+      'ply', 'format ascii 1.0', 'element vertex 4',
+      'property float x', 'property float y', 'property float z', 'end_header',
+      '0 0 0', '1 0 0', '1 1 0', '0 1 0', '',
+    ].join('\n');
+    const res = await post('/api/inspect?lang=ru', 'облако.ply', Buffer.from(cloud, 'utf8'));
+    expect(res.status, 'облако точек принято как модель').not.toBe(200);
+    // На языке запроса и словами. Внутренние коды и пути во временную папку — не ответ.
+    expect(res.body).toMatch(/точ/i);
+    expect(res.body).not.toMatch(/point_cloud|no_geometry|DataView/);
+  }, 60_000);
+
+  it('кириллица и пробелы в имени проходят весь путь: приём, сборка, скачивание', async () => {
+    // Имя едет заголовком в процентах и возвращается в адресе скачивания. Порваться оно
+    // может на любом из трёх участков, и порвётся молча: файл просто не найдётся.
+    const name = 'моя деталь №1.stl';
+    const insp = await post('/api/inspect', name, oneTriangleSTL());
+    expect(insp.status, insp.body).toBe(200);
+    const sourceId = JSON.parse(insp.body).sourceId;
+
+    const built = await post(
+      `/api/optimize?platform=&engine=&job=cyr-name&source=${encodeURIComponent(sourceId)}`,
+      name,
+      Buffer.alloc(0),
+    );
+    expect(built.status, built.body).toBe(200);
+    const data = JSON.parse(built.body);
+    expect(data.result.status, data.result.error).toBe('ok');
+    // Выход — .glb, и имя сохранено целиком, вместе с пробелами и знаком номера.
+    expect(path.basename(data.result.file.dst)).toBe('моя деталь №1.glb');
+
+    const url = data.downloadUrl || data.result.downloadUrl;
+    if (url) {
+      const file = await get(url);
+      expect(file.status, 'скачивание собранного файла не работает').toBe(200);
+      expect(file.bytes.length).toBeGreaterThan(0);
+      // Это действительно GLB: первые четыре байта — «glTF».
+      expect(file.bytes.subarray(0, 4).toString('ascii')).toBe('glTF');
+    }
+  }, 120_000);
+});
+
 describe('пачка: .gltf со своими файлами рядом', () => {
   /** Соседний файл пачки. Без `source` — заводит пачку и возвращает её идентификатор. */
   function asset(name, body, source = '') {
@@ -238,6 +361,33 @@ describe('пачка: .gltf со своими файлами рядом', () => 
     // безопасность, сломав саму возможность.
     expect((await asset('textures/дерево.png', Buffer.from('png'), source)).status).toBe(200);
   }, 90_000);
+
+it('потолок пачки: сто первый файл отвергается, и отказ понятен', async () => {
+    // Потолок нужен не против злого умысла, а против обычной ошибки: человек бросает
+    // папку проекта целиком, а в ней тысяча файлов исходников. Считать их сервер обязан
+    // САМ, по тому, что уже лежит на диске, а не верить счётчику клиента.
+    //
+    // Проверка идёт по факту записи, а не по коду ответа: код можно вернуть и не
+    // отказав. Смотрим, что сто первый файл действительно не появился.
+    const first = await asset('сосед-0.bin', Buffer.from('x'));
+    expect(first.status, first.body).toBe(200);
+    const source = JSON.parse(first.body).sourceId;
+
+    let refusedAt = 0;
+    let refusal = '';
+    for (let i = 1; i <= 120; i++) {
+      const res = await asset(`сосед-${i}.bin`, Buffer.from('x'), source);
+      if (res.status !== 200) { refusedAt = i; refusal = res.body; break; }
+    }
+
+    expect(refusedAt, 'потолок не сработал: сто двадцать соседей приняты без единого отказа')
+      .toBeGreaterThan(0);
+    // Ровно сто, а не «примерно сто»: сто первый — первый лишний.
+    expect(refusedAt, `отказ пришёл на ${refusedAt}-м файле`).toBe(100);
+    // Отказ обязан называть предел числом — иначе непонятно, сколько выбрасывать.
+    expect(refusal).toMatch(/100/);
+    expect(refusal, 'отказ не называет причину словами').toMatch(/many|files|пач|файл/i);
+  }, 120_000);
 
   it('номер пачки тоже подставляется в путь — и тоже проверяется', async () => {
     // Вторая дверь той же комнаты, и я её сперва не заметил. Имя соседа проверялось
