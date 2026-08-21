@@ -25,6 +25,11 @@ import { RULES } from '../addons/gltf/rules.mjs';
 import { render } from '../core/i18n.mjs';
 import gltfAddon from '../addons/gltf/index.mjs';
 import { modelPath } from './helpers/model-files.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const ioPromise = gltfAddon.createIO();
 const ruleById = (id) => RULES.find((r) => r.meta.id === id);
@@ -157,4 +162,49 @@ describe('Честность отчёта — согласование числ�
       expect(many).toContain('5');
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// Включённая галочка не пропадает из отчёта — даже когда делать ей нечего
+// ---------------------------------------------------------------------------
+//
+// Правило 12 запрещает молчаливый пропуск. У движка для этого есть сторож: правило,
+// которое отработало и не сказало ни слова, получает строку «включено, но в этой модели
+// менять было нечего».
+//
+// Сторож смотрел на `meta.feature` — имя ОДНОЙ галочки. А у `textures/resize` галочек
+// четыре (4096, 2048, 1024, 512), и назвать в этом поле одну нельзя: выбравшему 2048
+// сообщили бы про 4096. Поэтому правило объявляет ГРУППУ (`featureGroup`), и мимо
+// сторожа проходило целиком: человек выбирал «уменьшить до 2048» на модели без текстур
+// и не получал НИ ОДНОЙ строки о своём выборе.
+//
+// Найдено 2026-08-20 на модели из STL — в этом формате текстур нет по устройству, и
+// случай перестал быть редким.
+describe('Честность отчёта — правило с группой галочек тоже отчитывается', () => {
+  it('у каждого правила есть чем назваться: feature либо featureGroup', () => {
+    // «Своя галочка» отличается от «члена набора safe» одним признаком: набор `safe`
+    // САМ ПО СЕБЕ его не включает. Правило, которое зажигается от `safe`, человек
+    // поимённо не выбирал — ему молчать законно (structure/dedup, attributes/vertex-colors).
+    // А правило со своим выключателем обязано его объявить: иначе движку нечем о нём
+    // отчитаться, и молчание вернётся.
+    for (const rule of RULES) {
+      const m = rule.meta;
+      if (typeof m.enabled !== 'function') continue;
+      const ownSwitch = !m.enabled({}) && !m.enabled({ safe: true });
+      if (!ownSwitch) continue;
+      expect(
+        m.feature || m.featureGroup,
+        `${m.id} включается галочкой, но не объявил ни feature, ни featureGroup — движок о нём промолчит`,
+      ).toBeTruthy();
+    }
+  });
+
+  it('движок спрашивает про обе формы выключателя, а не только про feature', () => {
+    // Сторож на самом движке, а не на правиле: правило может объявить группу правильно,
+    // а движок — по-прежнему смотреть только на `feature`. Ровно так и было.
+    const src = fs.readFileSync(path.join(ROOT, 'core', 'engine.mjs'), 'utf8');
+    const guard = src.match(/if \(!saidSomething && \(?([^)]*)\)?\) \{/);
+    expect(guard, 'не нашёл сторож «ничего не сделано» — якорь сменился').toBeTruthy();
+    expect(guard[1], 'движок снова смотрит только на feature').toContain('featureGroup');
+  });
 });

@@ -461,8 +461,23 @@ async function runFile(
       // (safe-чистка) человек не включал поимённо, и молчать им можно.
       const saidSomething = [res.found, res.skipped, res.cost, res.details, res.detail, res.irreversible]
         .some((v) => (Array.isArray(v) ? v.length > 0 : v != null));
-      if (!saidSomething && rule.meta.feature) {
-        const reason: MessageRef = { messageId: 'engine.nothingToDo', data: { feature: rule.meta.feature } };
+      // Спрашиваем и про `featureGroup`, а не только про `feature`.
+      //
+      // Группа — это когда галочек несколько, а правило одно: четыре размера текстур
+      // включают `textures/resize`. Назвать в поле `feature` один размер нельзя — тому,
+      // кто выбрал 2048, сообщили бы про 4096. Поэтому такое правило объявляет ГРУППУ.
+      //
+      // А проверка смотрела только на `feature`, и правило с группой выпадало из отчёта
+      // целиком: человек выбирал «уменьшить до 2048» на модели без текстур и не получал
+      // НИ ОДНОЙ строки о своём выборе. Ровно молчаливый пропуск, запрещённый Правилом 12,
+      // и единственное правило из восьми, до которого сторож не дотягивался (найдено
+      // 2026-08-20 на модели из STL, где текстур нет по устройству формата).
+      //
+      // Поле `feature` в самой записи остаётся пустым — и это верно: интерфейс вешает по
+      // нему знак на КОНКРЕТНУЮ галочку, а какая из четырёх выбрана, движок не знает.
+      // Строка в отчёте при этом появляется, и она здесь главное.
+      if (!saidSomething && (rule.meta.feature || rule.meta.featureGroup)) {
+        const reason: MessageRef = { messageId: 'engine.nothingToDo', data: { feature: rule.meta.feature ?? '' } };
         addSkipped(rule.meta, skipLine(rule.meta, reason), reason, 'nothing');
       }
       addFound(rule.meta, res.found);
