@@ -280,6 +280,13 @@ export default {
   // хотя бы одного — читать нечего, и сказать об этом надо ИМЕНАМИ, а не кодом ошибки
   // из недр библиотеки. Одна строка на весь класс: имена перечисляются потому, что
   // список тут и есть суть находки — по нему человек понимает, чего именно не хватило.
+  // Облако точек: вершины есть, граней нет. Показывать и оптимизировать его программа не
+  // умеет, а МОЛЧА собрать из точек треугольники — выдумать геометрию, которой в файле не
+  // было (Правило 11). Ровно это и происходило до 2026-08-20: четыре точки превращались
+  // в один треугольник, и отчёт объявлял его содержимым модели.
+  'io.pointCloud': ({ format }) => `This ${format} has no faces — only points. A point cloud is not a model this program can work with.`,
+  'io.noGeometry': ({ format }) => `This ${format} has no geometry: not a single vertex.`,
+  'io.unreadable': ({ format }) => `This ${format} could not be read: the file looks truncated or damaged.`,
   'io.missingResources': ({ names }) => `Missing files this .gltf refers to: ${names}. Drop the whole folder, not just the .gltf.`,
 
   // --- integrity checks (validate) ---

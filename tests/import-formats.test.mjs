@@ -382,6 +382,84 @@ describe('вес пачки считается честно', () => {
   }, 60_000);
 });
 
+describe('вес пачки: как именно записан адрес соседа — не должно иметь значения', () => {
+  // Адрес внутри `.gltf` и имя файла на диске совпадают далеко не всегда, и каждое
+  // расхождение ниже встречается в файлах живых экспортёров. Ошибка здесь тихая:
+  // соседа «не видно», вес занижается, а модель при этом собирается.
+  const addon = path.join(ROOT, 'addons', 'gltf', 'index.mjs');
+
+  /** Пачка: `.gltf` со ссылкой `uri` и файл, лежащий на диске под именем `onDisk`. */
+  async function packWeight(uri, onDisk, bytes = 4096) {
+    const { default: gltf } = await import(pathToFileURL(addon).href);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'адрес-'));
+    try {
+      const full = path.join(dir, ...onDisk.split('/'));
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, Buffer.alloc(bytes, 7));
+      const model = path.join(dir, 'модель.gltf');
+      fs.writeFileSync(model, JSON.stringify({
+        asset: { version: '2.0' },
+        images: [{ uri }],
+      }));
+      return gltf.sourceBytes(model) - fs.statSync(model).size;
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('проценты в адресе: %20 против настоящего пробела', async () => {
+    expect(await packWeight('textures/w%20ood.png', 'textures/w ood.png')).toBe(4096);
+  });
+
+  it('кириллица, записанная процентами', async () => {
+    const uri = 'textures/' + encodeURIComponent('дерево.png');
+    expect(await packWeight(uri, 'textures/дерево.png')).toBe(4096);
+  });
+
+  it('один файл по двум ссылкам весит ОДИН раз', async () => {
+    const { default: gltf } = await import(pathToFileURL(addon).href);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'дважды-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'общая.png'), Buffer.alloc(5000, 1));
+      const model = path.join(dir, 'модель.gltf');
+      fs.writeFileSync(model, JSON.stringify({
+        asset: { version: '2.0' },
+        images: [{ uri: 'общая.png' }, { uri: 'общая.png' }, { uri: './общая.png' }],
+      }));
+      const extra = gltf.sourceBytes(model) - fs.statSync(model).size;
+      // Три ссылки, один файл. Пять тысяч байт, а не пятнадцать и не десять:
+      // `./общая.png` — тот же файл, записанный иначе.
+      expect(extra, 'общий файл сосчитан по числу ссылок, а не по числу файлов').toBe(5000);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('встроенное (data:) не считается вторым весом', async () => {
+    const { default: gltf } = await import(pathToFileURL(addon).href);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'встроено-'));
+    try {
+      const model = path.join(dir, 'модель.gltf');
+      fs.writeFileSync(model, JSON.stringify({
+        asset: { version: '2.0' },
+        buffers: [{ byteLength: 4, uri: 'data:application/octet-stream;base64,AAAA' }],
+        images: [{ uri: 'data:image/png;base64,iVBORw0KGgo=' }],
+      }));
+      // Встроенное лежит внутри самого файла и уже сосчитано его размером.
+      expect(gltf.sourceBytes(model)).toBe(fs.statSync(model).size);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('ссылка на файл, которого нет, весит ноль и не роняет подсчёт', async () => {
+    // Неполная пачка — обычное дело: человек бросил не всю папку. Подсчёт веса при этом
+    // обязан вернуть число, а не исключение: сказать о нехватке — работа другого места.
+    expect(await packWeight('textures/нет-такого.png', 'textures/есть-другой.png'))
+      .toBe(0);
+  });
+});
+
 describe('список принимаемых форматов живёт в ОДНОМ месте', () => {
   const SERVER = readSource('server');
   const APP = readSource('ui/app');

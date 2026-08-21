@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { Document } from '@gltf-transform/core';
+import { render } from '../../core/i18n.mjs';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 
@@ -73,16 +74,14 @@ const TYPE_BY_SIZE: Record<number, string> = { 1: 'SCALAR', 2: 'VEC2', 3: 'VEC3'
  * след экспортёра (Правило 11). По стандарту COLOR_0 умножается на базовый цвет и без
  * материала, поэтому цвета видны.
  */
-function buildDocument(geom: Geometry, name: string): Document {
+function buildDocument(geom: Geometry, name: string, format: string): Document {
   const doc = new Document();
   doc.createBuffer();
   const scene = doc.createScene();
   const prim = doc.createPrimitive();
 
   const position = geom.attributes.position;
-  if (!position || !position.count) {
-    throw new Error('no_geometry');
-  }
+  if (!position || !position.count) throw importError('io.noGeometry', format);
 
   const add = (semantic: string, attr: Attr | undefined) => {
     if (!attr || !attr.count) return;
@@ -136,11 +135,59 @@ function buildDocument(geom: Geometry, name: string): Document {
 }
 
 /**
+ * Отказ, который человек прочтёт на своём языке.
+ *
+ * Строка берётся из каталога (Правило 8), а на ошибку вешается рецепт: `message` остаётся
+ * английским для командной строки и журнала, а сервер пересобирает текст на языке запроса.
+ */
+function importError(messageId: string, format: string) {
+  const err: Error & { i18n?: { messageId: string; data: Record<string, unknown> } } =
+    new Error(render(messageId, { format }));
+  err.i18n = { messageId, data: { format } };
+  return err;
+}
+
+/**
+ * Разобрать файл, а внутреннюю ошибку разборщика заменить человеческой.
+ *
+ * Обрезанный STL давал «Offset is outside the bounds of the DataView» — правду о том, что
+ * произошло внутри библиотеки, и ничего о том, что делать. Исходную ошибку не теряем:
+ * она уходит в `cause` и остаётся в журнале сервера.
+ */
+function parseOrExplain(run: () => unknown, format: string): Geometry {
+  try {
+    return run() as Geometry;
+  } catch (e) {
+    const err = importError('io.unreadable', format);
+    err.cause = e;
+    throw err;
+  }
+}
+
+/**
+ * Сколько граней объявляет заголовок PLY. Ноль означает облако точек.
+ *
+ * Заголовок у PLY всегда текстовый, даже когда сами данные двоичные, — значит прочесть
+ * его можно, не разбирая файл целиком. Берём первые несколько килобайт: по стандарту
+ * заголовок обязан кончиться строкой `end_header`, и до неё умещаются десятки строк.
+ *
+ * Нет `element face` вовсе — тоже ноль: объявления нет, значит и граней нет.
+ */
+function plyFaceCount(buf: ArrayBuffer): number {
+  const head = new TextDecoder('utf-8', { fatal: false })
+    .decode(new Uint8Array(buf, 0, Math.min(buf.byteLength, 8192)));
+  const stop = head.indexOf('end_header');
+  const m = (stop >= 0 ? head.slice(0, stop) : head).match(/^\s*element\s+face\s+(\d+)/mi);
+  return m ? Number(m[1]) : 0;
+}
+
+/**
  * Прочитать чужой формат и отдать обычный документ glTF. Дальше конвейер не отличает его
  * от модели, приехавшей в `.glb`.
  */
 export function importForeign(srcPath: string): Document {
   const ext = path.extname(srcPath).toLowerCase().replace(/^\./, '');
+  const format = ext.toUpperCase();
   const buf = readArrayBuffer(srcPath);
   const name = path.basename(srcPath, path.extname(srcPath));
 
@@ -149,10 +196,17 @@ export function importForeign(srcPath: string): Document {
     // Так он устроен — это не мусор экспортёра, и сшивать вершины здесь мы не будем:
     // сшивка склеила бы грани с разными нормалями и сгладила бы то, что автор оставил
     // гранёным. Захочет — включит сшивку галочкой, увидев цену.
-    return buildDocument(new STLLoader().parse(buf) as unknown as Geometry, name);
+    return buildDocument(parseOrExplain(() => new STLLoader().parse(buf), format), name, format);
   }
   if (ext === 'ply') {
-    return buildDocument(new PLYLoader().parse(buf) as unknown as Geometry, name);
+    // Граней нет — значит это облако точек, и треугольников в нём НЕТ.
+    //
+    // Проверять надо ДО разбора и по заголовку, а не по результату: разборщик отдаёт
+    // такое облако как обычную геометрию без индексов, а примитив glTF по умолчанию
+    // рисуется треугольниками. Четыре точки молча превращались в один треугольник —
+    // выдуманную геометрию, которой в файле не было (найдено 2026-08-20).
+    if (plyFaceCount(buf) === 0) throw importError('io.pointCloud', format);
+    return buildDocument(parseOrExplain(() => new PLYLoader().parse(buf), format), name, format);
   }
   throw new Error(`unsupported_import_format:${ext}`);
 }

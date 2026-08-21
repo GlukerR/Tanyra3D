@@ -302,6 +302,9 @@ export default {
   'quantize.skipped.compressed': ({ codec }) => `Геометрия уже упакована (${codec}) — этот способ поверх неё ничего не даёт`,
 
   // --- чтение файла ---
+  'io.pointCloud': ({ format }) => `В этом ${format} нет граней — только точки. Облако точек программа не обрабатывает.`,
+  'io.noGeometry': ({ format }) => `В этом ${format} нет геометрии: ни одной вершины.`,
+  'io.unreadable': ({ format }) => `Этот ${format} не читается: похоже, файл обрезан или повреждён.`,
   'io.missingResources': ({ names }) => `Не хватает файлов, на которые ссылается этот .gltf: ${names}. Бросьте папку целиком, а не один .gltf.`,
 
   // --- integrity checks (validate) ---
