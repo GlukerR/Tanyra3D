@@ -197,11 +197,24 @@ class ViewportSlot {
 
     const base = modelUrl.slice(0, modelUrl.lastIndexOf("/") + 1);
     const byPath = new Map<string, string>();
+    // Второй указатель — ПО ИМЕНИ файла, и только для имён, встречающихся в пачке один
+    // раз. Нужен там, где модель называет соседа с папкой, а человек бросил файлы плоско:
+    // FBX почти всегда пишет «textures/wood.png», а выбор через «+» приносит «wood.png».
+    // Без этого модель показывалась бы без карт, хотя все файлы у нас на руках.
+    //
+    // Условие «один раз» обязательно, и оно не осторожность ради осторожности: две
+    // картинки вполне могут зваться basecolor.png и лежать в разных папках — ровно тот
+    // случай, ради которого пачка вообще носит ПУТИ, а не имена. Двойник просто не
+    // попадает в этот указатель, и поиск по нему остаётся строгим.
+    const byName = new Map<string, string | null>();
     for (const item of pack) {
       if (!item || !item.file) continue;
       const blobUrl = URL.createObjectURL(item.file);
       this._packUrls.push(blobUrl);
-      byPath.set(normalizeAssetPath(item.path), blobUrl);
+      const rel = normalizeAssetPath(item.path);
+      byPath.set(rel, blobUrl);
+      const name = rel.slice(rel.lastIndexOf("/") + 1);
+      byName.set(name, byName.has(name) ? null : blobUrl);
     }
 
     viewer.setAssetResolver((requested: string) => {
@@ -209,6 +222,8 @@ class ViewportSlot {
       const rel = normalizeAssetPath(requested.slice(base.length));
       const hit = byPath.get(rel);
       if (hit) return hit;
+      const byBase = byName.get(rel.slice(rel.lastIndexOf("/") + 1));
+      if (byBase) return byBase;
       missing.add(rel);
       return null;
     });

@@ -26,7 +26,7 @@ import { render } from '../../core/i18n.mjs';
 import type { Accessor, Document, Mesh, Node, Primitive, Texture } from '@gltf-transform/core';
 
 import type { FixDecision, FixOut, GltfContext, GltfRule } from './types.mjs';
-import type { Message } from '../../core/types.mjs';
+import type { Finding, Message } from '../../core/types.mjs';
 
 /**
  * Часть @gltf-transform/functions, которую правило KTX2 передаёт помощнику. Аргументом,
@@ -62,6 +62,7 @@ interface AssetJson {
 import { decodeKtx2 } from './ktx2-decode.mjs';
 import { type Ceiling, probeWebpCeiling, readCeiling, targetQuality } from './source-quality.mjs';
 import { readSourceJson } from './source-json.mjs';
+import { importNote } from './import-fbx.mjs';
 import { collectMetrics, countTriangles, effectiveSkins, listSemantics, textureSize } from './metrics.mjs';
 import { HAS_GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 
@@ -581,6 +582,40 @@ export const RULES: GltfRule[] = [
       if (!nodes) return [];
       // Одна запись на класс (Правило 9): узлов бывают десятки, строка одна.
       return [{ messageId: 'lod.found', data: { nodes, levels: deepest } }];
+    },
+  },
+
+  {
+    // НАБЛЮДЕНИЕ, а не оптимизация: ни canFix, ни fix, и появиться они не должны.
+    // Правило отвечает на один вопрос — что из привезённого файла НЕ доехало.
+    //
+    // Молчание здесь было бы худшим видом вранья. Человек бросил FBX с анимацией,
+    // получил .glb без неё и не узнал бы об этом ниоткуда: модель открывается, меши на
+    // месте, валидатор доволен. То же с текстурой, которую файл НАЗЫВАЕТ, а рядом её не
+    // положили: материал выйдет серым, и это будет выглядеть как наша работа, хотя это
+    // правда о поставке.
+    meta: {
+      id: 'import/not-carried', category: 'scene', title: 'Not carried over from the source', titleKey: 'rule.importNotCarried',
+      severity: 'warn', fixSafety: 'provable', tier: 'basic', runAfter: [], touches: [],
+      reversible: true, dataLoss: 'none',
+      enabled: () => true, // наблюдение не зависит ни от одной галочки
+    },
+    analyze(ctx) {
+      const note = importNote(ctx.document);
+      if (!note) return []; // файл приехал не из FBX — говорить не о чем
+
+      // Одна запись на КЛАСС случаев, а не на элемент (Правило 9): недостающих карт
+      // бывает десяток, а строка про них одна. Имена не перечисляем — хватает счёта;
+      // исключение сделано для единственной, где имя и есть вся суть находки.
+      const out: Finding[] = [];
+      if (note.missingTextures.length) {
+        out.push(note.missingTextures.length === 1
+          ? { messageId: 'import.textureMissing', data: { name: note.missingTextures[0]! } }
+          : { messageId: 'import.textureMissing.many', data: { n: note.missingTextures.length } });
+      }
+      if (note.animations) out.push({ messageId: 'import.animationsDropped', data: { n: note.animations } });
+      if (note.skins) out.push({ messageId: 'import.skinsDropped', data: { n: note.skins } });
+      return out;
     },
   },
 

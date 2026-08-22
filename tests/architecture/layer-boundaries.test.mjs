@@ -50,6 +50,12 @@ const ALLOWED_PACKAGES = {
     // касается, он по-прежнему запрещён без исключений.
     'three/examples/jsm/loaders/STLLoader.js',
     'three/examples/jsm/loaders/PLYLoader.js',
+    // FBX добавлен 2026-08-22 по тому же узкому признаку и с той же проверкой: это ОДИН
+    // модуль, а не пакет three. Пакет целиком по-прежнему запрещён, и это стоило работы —
+    // менеджер загрузки и заглушку текстуры пришлось написать своей формы (см. шапку
+    // nameOnlyManager в addons/gltf/import-fbx.mts). Соблазн вписать сюда 'three' ради
+    // двух конструкторов был, и поддаться ему значило бы впустить в слой аддонов рендерер.
+    'three/examples/jsm/loaders/FBXLoader.js',
   ]),
   // three и three/addons/*, плюс плагины к загрузчику three.js.
   //

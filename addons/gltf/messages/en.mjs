@@ -81,6 +81,16 @@ export default {
   'weld.done': ({ before, after }) => `Vertex weld: ${before} → ${after}`,
 
   // --- geometry/degenerate-triangles ---
+  // --- foreign format import: what did not make it across ---
+  'rule.importNotCarried': () => 'Not carried over from the source',
+  'import.textureMissing': ({ name }) => `the file names texture "${name}", but it was not next to it — the material is without it`,
+  'import.textureMissing.many': ({ n }) => `textures named in the file but not found next to it: ${n} — those materials are without them`,
+  'import.animationsDropped': ({ n }) => (n === 1
+    ? 'the source has an animation — it is not carried over yet'
+    : `animations in the source: ${n} — they are not carried over yet`),
+  'import.skinsDropped': ({ n }) => (n === 1
+    ? 'the source has a skeleton — it is not carried over yet'
+    : `skeletons in the source: ${n} — they are not carried over yet`),
   'degenerate.safe': () => 'a triangle with two corners in the same spot has zero area and is not drawn',
   'degenerate.found': ({ n }) => `degenerate triangles (zero area): ${n}`,
   'degenerate.done': ({ n }) => `Degenerate triangles: removed ${n} (zero area, had no render effect)`,

@@ -25,8 +25,8 @@ window.I18N_CATALOGS.ru = {
   'outliner.validation.count': '✓ Проверка ({n})',
   'outliner.validation.range': '✓ Проверка ({from} → {to})',
   'dropzone.title': 'Перетащите сюда 3D-модель',
-  'dropzone.sub': 'или нажмите + · GLB, glTF, STL',
-  'dropzone.rejected': 'Принимаются: .glb, .gltf, .stl',
+  'dropzone.sub': 'или нажмите + · GLB, glTF, STL, FBX',
+  'dropzone.rejected': 'Принимаются: .glb, .gltf, .stl, .fbx',
 
   // --- журнал ---
   'logs.label': 'Журнал',
@@ -248,7 +248,7 @@ window.I18N_CATALOGS.ru = {
   'log.packMissing': ({ name }) => `Модель ссылается на «${name}», а этот файл не бросили`,
   'log.packMissingMany': ({ n }) => `Файлов, на которые модель ссылается, а их не бросили: ${n}`,
   'log.packUploadFailed': ({ name, error }) => `Не удалось отправить на сервер «${name}»: ${error}`,
-  'log.rejectedMany': ({ n }) => `Пропущено файлов: ${n} — принимаются .glb, .gltf, .stl`,
+  'log.rejectedMany': ({ n }) => `Пропущено файлов: ${n} — принимаются .glb, .gltf, .stl, .fbx`,
   'log.batchStarted': ({ n }) => `Пакетная сборка: моделей в очереди — ${n}`,
   'log.batchDone': ({ ok, failed }) => `Пакетная сборка закончена: собрано ${ok}, не вышло ${failed}`,
   'log.batchStopped': ({ ok, failed, left }) => `Пакетная сборка остановлена: собрано ${ok}, не вышло ${failed}, осталось ${left}`,
@@ -381,7 +381,7 @@ window.I18N_CATALOGS.ru = {
   'log.platform': ({ id }) => `Целевая платформа: ${id}`,
   'log.engine': ({ id }) => `Движок: ${id}`,
   'log.platform.reset': ({ platform }) => `${platform} на этом движке не работает — площадка снята`,
-  'log.rejected': ({ name }) => `Файл «${name}» отклонён — принимаются .glb, .gltf, .stl`,
+  'log.rejected': ({ name }) => `Файл «${name}» отклонён — принимаются .glb, .gltf, .stl, .fbx`,
   'log.loaded': ({ name, size }) => `Модель загружена: ${name} (${size})`,
   'log.foundCompression': ({ list }) => `В исходнике найдено сжатие: ${list}`,
   'log.inspectFailed': ({ status }) => `Инспекция не удалась (${status}) — метаданные и проверка недоступны`,

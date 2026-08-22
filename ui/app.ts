@@ -279,7 +279,7 @@
   // Какие файлы интерфейс считает моделью. Ровно тот же список, что MODEL_EXT на
   // сервере, и это сверяется проверкой: разойдутся — человек увидит файл в списке, а
   // сборка его отвергнет.
-  const MODEL_RE = /\.(glb|gltf|stl|ply)$/i;
+  const MODEL_RE = /\.(glb|gltf|stl|ply|fbx)$/i;
 
   /**
    * Вес, на который программа РАССЧИТАНА. Не запрет и не предел приёма — предел стоит
@@ -1711,7 +1711,11 @@
     const assets = items.filter((it) => !MODEL_RE.test(it.path));
     const claimed = new Set<DroppedFile>();
     const packs = models.map((m) => {
-      if (!/\.gltf$/i.test(m.path)) return { file: m.file, pack: [] as PackFile[] };
+      // FBX здесь наравне с .gltf, и по той же причине: он ССЫЛАЕТСЯ на свои текстуры по
+      // имени файла, а сами файлы лежат рядом. `.glb` соседей по-прежнему не получает — он
+      // самодостаточен, и приложить к нему картинки значило бы решить за человека, что он
+      // хотел заменить материал (Правило 11).
+      if (!/\.(gltf|fbx)$/i.test(m.path)) return { file: m.file, pack: [] as PackFile[] };
       const dir = dirOf(m.path);
       const pack: PackFile[] = [];
       for (const a of assets) {

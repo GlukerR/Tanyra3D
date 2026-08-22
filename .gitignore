@@ -138,6 +138,8 @@ addons/gltf/source-quality.mjs
 addons/gltf/source-quality.d.mts
 addons/gltf/source-json.mjs
 addons/gltf/source-json.d.mts
+addons/gltf/import-fbx.mjs
+addons/gltf/import-fbx.d.mts
 optimize2.mjs
 optimize2.d.mts
 server.mjs

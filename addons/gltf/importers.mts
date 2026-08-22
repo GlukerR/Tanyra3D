@@ -21,10 +21,20 @@ import path from 'node:path';
 import { Document } from '@gltf-transform/core';
 import { render } from '../../core/i18n.mjs';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
+import { importFbx } from './import-fbx.mjs';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 
-/** Расширения, которые мы умеем ПРИНЯТЬ, но не отдаём: выход всегда glTF. */
-export const IMPORT_FORMATS = ['stl', 'ply'] as const;
+/**
+ * Расширения, которые мы умеем ПРИНЯТЬ, но не отдаём: выход всегда glTF.
+ *
+ * FBX добавлен 2026-08-22 по прямой просьбе Александра: «у меня слишком много в таком
+ * формате моделей. не хочу постоянно в блендер лезть». Он же назвал и порядок: сперва
+ * FBX, который САМ называет свои текстуры — там нет ни одной догадки, и файл ведёт себя
+ * ровно как `.gltf` со своей пачкой соседей. Разбор живёт в отдельном модуле: у FBX
+ * есть иерархия, материалы и развёртки, и рядом с «прочитали треугольники» он был бы
+ * нечитаем (см. шапку import-fbx.mts, там же про лицензию).
+ */
+export const IMPORT_FORMATS = ['stl', 'ply', 'fbx'] as const;
 
 export function isImportFormat(srcPath: string): boolean {
   const ext = path.extname(String(srcPath)).toLowerCase().replace(/^\./, '');
@@ -207,6 +217,13 @@ export function importForeign(srcPath: string): Document {
     // выдуманную геометрию, которой в файле не было (найдено 2026-08-20).
     if (plyFaceCount(buf) === 0) throw importError('io.pointCloud', format);
     return buildDocument(parseOrExplain(() => new PLYLoader().parse(buf), format), name, format);
+  }
+  if (ext === 'fbx') {
+    // Текстуры FBX ищет РЯДОМ С СОБОЙ — как `.gltf` ищет своих соседей. Поэтому сюда
+    // передаётся путь, а не только байты: без него относительный адрес не от чего
+    // отсчитывать. Отказы у всех форматов общие, поэтому `importError` уезжает
+    // параметром — так новый модуль не тянет обратную ссылку на этот.
+    return importFbx(srcPath, buf, importError);
   }
   throw new Error(`unsupported_import_format:${ext}`);
 }

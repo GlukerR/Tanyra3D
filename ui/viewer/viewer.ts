@@ -18,6 +18,7 @@ import { GLTFAnimationPointerExtension } from "@needle-tools/three-animation-poi
 import GLTFMaterialsVariantsExtension from "three-gltf-extensions/loaders/KHR_materials_variants/KHR_materials_variants.js";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { PLYLoader } from "three/addons/loaders/PLYLoader.js";
+import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 // Контракт движка просмотра. Импорт типов, а не кода: в собранный файл он не попадает.
@@ -30,7 +31,7 @@ const DRACO_DECODER_PATH = "/vendor/three/examples/jsm/libs/draco/gltf/";
 const KTX2_TRANSCODER_PATH = "/vendor/three/examples/jsm/libs/basis/";
 
 /** Форматы, которые открывает не glTF-загрузчик, а свой. См. Viewer._loadForeign. */
-const FOREIGN_FORMATS = ["stl", "ply"];
+const FOREIGN_FORMATS = ["stl", "ply", "fbx"];
 
 /**
  * Узел при обходе сцены. Обход отдаёт узлы ЛЮБОГО вида — свет, кости, пустышки, —
@@ -702,6 +703,27 @@ export class Viewer implements ViewerLike {
    */
   async _loadForeign(url: string, format: string) {
     const buf = await (await fetch(url)).arrayBuffer();
+
+    // FBX стоит особняком от STL и PLY: те несут одну голую геометрию, а он — целую
+    // сцену с иерархией, материалами и ССЫЛКАМИ на текстуры. Поэтому у него свой путь,
+    // и материал мы ему не придумываем: он свой привёз.
+    //
+    // Текстуры находятся сами, и это не совпадение: загрузчику отдан ОБЩИЙ менеджер
+    // (см. _initLoaders). Через его setURLModifier проходит каждый адрес, за которым
+    // движок идёт, — тем же швом, каким `.gltf` из брошенной пачки находит своих
+    // соседей. Здесь, в браузере, картинки декодируются по-настоящему: это показ, а не
+    // сборка. На сервере тот же FBX читается иначе (addons/gltf/import-fbx.mts) — там
+    // декодировать нечем и незачем, там нужны только имена файлов.
+    if (format === 'fbx') {
+      // Второй аргумент — БАЗА для относительных адресов текстур, и пустым его оставлять
+      // нельзя: загрузчик попросил бы «textures/wood.png» от корня сайта, а подмена пачки
+      // ловит только адреса, начинающиеся с базы модели (см. _installPack в index.ts).
+      // Модель живёт blob-адресом — от него и отсчитываем.
+      const base = url.slice(0, url.lastIndexOf('/') + 1);
+      const scene = new FBXLoader(this._manager).parse(buf, base);
+      return { scene, animations: (scene as unknown as { animations?: unknown[] }).animations || [], parser: { json: {} }, userData: {} } as unknown as GLTF;
+    }
+
     const geom = format === 'ply' ? new PLYLoader().parse(buf) : new STLLoader().parse(buf);
     // У STL нормали свои, у PLY их может не быть вовсе — тогда считаем по граням, иначе
     // модель выйдет плоско-чёрной.

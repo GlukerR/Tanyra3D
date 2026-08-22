@@ -407,11 +407,17 @@ function normalizeOpts(opts: RawOpts = {}): GltfOpts {
   };
 }
 
+// Список СОБИРАЕТСЯ из IMPORT_FORMATS, а не переписан руками. Это ПЯТАЯ копия того же
+// перечня, и она уже разошлась: 2026-08-22 сюда забыли дописать fbx, и файл выходил с
+// именем «модель.fbx», внутри которого лежал двоичный glTF. Сторож в
+// tests/import-stl-ply.test.mjs стерёг четыре места; это было пятым и незамеченным.
+const OUTPUT_RENAME = new RegExp(`\\.(gltf|${IMPORT_FORMATS.join('|')})$`, 'i');
+
 function outputName(src: string): string {
   // Выход у нас всегда glTF, каким бы ни был вход: `.gltf` и `.stl` одинаково становятся
   // `.glb`. Без чужих расширений здесь `модель.stl` дала бы файл `модель.stl` с двоичным
   // glTF внутри — имя, которое врёт про содержимое.
-  return path.basename(src).replace(/\.(gltf|stl|ply)$/i, '.glb');
+  return path.basename(src).replace(OUTPUT_RENAME, '.glb');
 }
 
 // ---------------------------------------------------------------------------
