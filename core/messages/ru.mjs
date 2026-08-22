@@ -23,6 +23,7 @@ export default {
   // случае нельзя: человек поставил галочку и обязан узнать, что с ней стало.
   'engine.nothingToDo': () => 'включено, но в этой модели менять было нечего',
   'engine.feature.exclusive': ({ selected }) => `не применено: вместо этого выбран вариант «${selected}»`,
+  'engine.outDirGone': () => 'рабочую папку очистили, пока шла сборка, — записывать стало некуда. Соберите заново.',
   'engine.skipped.line': ({ title, reason }) => `${title} — ${reason}`,
 
   // --- input compression ---

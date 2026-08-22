@@ -73,11 +73,12 @@ const GLTF_EXT_DIR = path.join(__dirname, 'node_modules', 'three-gltf-extensions
 // оптимизация хранится на диске — см. purgeBeyondLimit).
 // Чистим СОДЕРЖИМОЕ, а не саму папку: на Windows удалённый каталог остаётся в состоянии
 // pending-delete, и немедленный mkdir того же имени падает (UNKNOWN errno -4094).
-async function ensureEmptyDir(dir: string) {
+async function ensureEmptyDir(dir: string, keep: Set<string> = new Set()) {
   await fsp.mkdir(dir, { recursive: true });
   let entries;
   try { entries = await fsp.readdir(dir); } catch { return; }
   for (const entry of entries) {
+    if (keep.has(entry)) continue;
     await fsp.rm(path.join(dir, entry), { recursive: true, force: true }).catch(() => {});
   }
 }
@@ -431,6 +432,32 @@ const pendingPacks = new Map<string, { touched: number }>();
 // Пачки, в которые пишут прямо сейчас. Тот же приём, что и `activeRuns`: занятое не
 // трогаем ни при каких обстоятельствах.
 const packWrites = new Map<string, number>();
+
+/**
+ * Исходники, в которые ПРЯМО СЕЙЧАС течёт файл по сети.
+ *
+ * Отдельно от `activeRuns`, потому что это другая половина работы и другое окно времени:
+ * приём модели идёт ДО того, как прогон начался, и на границе в сто мегабайт занимает
+ * заметные секунды. Уборка, пришедшая в эти секунды, стирала недокачанный файл — и прогон
+ * потом падал на чтении того, чего уже нет.
+ *
+ * Заведено 2026-08-22 вместе с защитой идущего прогона: «не трогать то, что делается
+ * прямо сейчас» — одно правило, а мест, где что-то делается, два.
+ */
+const uploadWrites = new Map<string, number>();
+
+const beginWrite = (map: Map<string, number>, id: string) => map.set(id, (map.get(id) || 0) + 1);
+const endWrite = (map: Map<string, number>, id: string) => {
+  const left = (map.get(id) || 1) - 1;
+  if (left > 0) map.set(id, left); else map.delete(id);
+};
+
+/** Всё, что занято прямо сейчас: идёт приём файла либо идёт прогон. */
+const busyNow = (): Set<string> => new Set([
+  ...[...activeRuns].map((key) => String(key).split('/')[0]!),
+  ...uploadWrites.keys(),
+  ...packWrites.keys(),
+]);
 
 // Сколько пачка без модели ждёт своей модели, прежде чем её сочтут брошенной.
 //
@@ -978,12 +1005,26 @@ const server = http.createServer(async (req, res) => {
         // Стираем ВСЁ, включая текущую модель: «очистить» значит очистить. Ссылка на
         // исходник после этого отвечает 410 source_expired, и клиент перезаливает файл
         // сам — этот путь давно работает, отдельного согласования тут не нужно.
-        sourceUploads.clear();
-        sourceRuns.clear();
-        pendingPacks.clear();
-        await ensureEmptyDir(UPLOADS_DIR);
-        await ensureEmptyDir(RESULTS_DIR);
-        sendJSON(res, 200, { bytes: await workBytes() });
+        //
+        // ЕДИНСТВЕННОЕ исключение — то, что пишется прямо сейчас. Это не смягчение
+        // «очистить значит очистить», а защита от прямого вреда: замер 2026-08-22
+        // показал два исхода, и оба плохие. Уборка посреди сборки убивала её сообщением
+        // «ENOENT ... \results\7a24…\b8d2…\probe.glb» — путь из UUID вместо причины.
+        // Уборка сразу после сборки оставляла ответ «готово, файл записан» при стёртом
+        // файле, и ссылка отвечала 404. Прогон, который человек только что запустил, —
+        // это его работа, а не мусор; уборка мусора не должна её обрывать.
+        //
+        // Тот же приём и по той же причине, что у purgeBeyondLimit: занятое прогоном
+        // не трогаем (см. activeRuns, ревью 2026-08-10 D2).
+        const busy = busyNow();
+        for (const id of [...sourceUploads.keys()]) if (!busy.has(id)) sourceUploads.delete(id);
+        for (const id of [...sourceRuns.keys()]) if (!busy.has(id)) sourceRuns.delete(id);
+        for (const id of [...pendingPacks.keys()]) if (!busy.has(id)) pendingPacks.delete(id);
+        await ensureEmptyDir(UPLOADS_DIR, busy);
+        await ensureEmptyDir(RESULTS_DIR, busy);
+        // `kept` говорит интерфейсу, что убрано не всё, — чтобы он не докладывал о полной
+        // очистке там, где одна модель осталась. Ноль — обычный случай.
+        sendJSON(res, 200, { bytes: await workBytes(), kept: busy.size });
         return;
       }
       sendJSON(res, 405, { error: 'method_not_allowed' });
@@ -1281,7 +1322,7 @@ const server = http.createServer(async (req, res) => {
       const newPack = !sourceUploads.has(sourceId);
       if (newPack) {
         touchPack(sourceId);
-        packWrites.set(sourceId, (packWrites.get(sourceId) || 0) + 1);
+        beginWrite(packWrites, sourceId);
       }
       try {
         await streamBodyToFile(req, dest);
@@ -1290,8 +1331,7 @@ const server = http.createServer(async (req, res) => {
         return;
       } finally {
         if (newPack) {
-          const left = (packWrites.get(sourceId) || 1) - 1;
-          if (left > 0) packWrites.set(sourceId, left); else packWrites.delete(sourceId);
+          endWrite(packWrites, sourceId);
           // Пачка, у которой приём оборвался, тоже должна дождаться уборки, а не
           // остаться навсегда: время отсчитывается от последней попытки, удачной или нет.
           if (pendingPacks.has(sourceId)) touchPack(sourceId);
@@ -1320,11 +1360,15 @@ const server = http.createServer(async (req, res) => {
       if (packDir) {
         const uploadPath = path.join(packDir, fileName);
         let received;
+        // Пока файл течёт, папку не трогает никто — см. uploadWrites.
+        beginWrite(uploadWrites, packParam);
         try {
           received = await streamBodyToFile(req, uploadPath);
         } catch (e: any) {
           sendJSON(res, e.message === 'File too large' ? 413 : 400, { error: e.message });
           return;
+        } finally {
+          endWrite(uploadWrites, packParam);
         }
         if (!received) {
           sendJSON(res, 400, { error: 'Empty request body — no file received' });
@@ -1351,12 +1395,15 @@ const server = http.createServer(async (req, res) => {
       await fsp.mkdir(srcDir, { recursive: true });
       const uploadPath = path.join(srcDir, fileName);
       let received;
+      beginWrite(uploadWrites, sourceId);
       try {
         received = await streamBodyToFile(req, uploadPath);
       } catch (e: any) {
         await fsp.rm(srcDir, { recursive: true, force: true });
         sendJSON(res, e.message === 'File too large' ? 413 : 400, { error: e.message });
         return;
+      } finally {
+        endWrite(uploadWrites, sourceId);
       }
       if (!received) {
         await fsp.rm(srcDir, { recursive: true, force: true });
@@ -1469,6 +1516,7 @@ const server = http.createServer(async (req, res) => {
         }
         uploadPath = path.join(srcDir, fileName);
         let received;
+        beginWrite(uploadWrites, sourceId);
         try {
           received = await streamBodyToFile(req, uploadPath);
         } catch (e: any) {
@@ -1477,6 +1525,8 @@ const server = http.createServer(async (req, res) => {
           if (!packDir) await fsp.rm(srcDir, { recursive: true, force: true });
           sendJSON(res, e.message === 'File too large' ? 413 : 400, { error: e.message });
           return;
+        } finally {
+          endWrite(uploadWrites, sourceId);
         }
         if (!received) {
           if (!packDir) await fsp.rm(srcDir, { recursive: true, force: true });
@@ -1614,7 +1664,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     // --- скачивание результата ---
-    if (req.method === 'GET' && pathname === '/api/download') {
+    // HEAD наравне с GET, и это не украшение протокола.
+    //
+    // Файл результата сервер вправе убрать сам: «Очистить рабочую папку», потолок в
+    // MAX_KEPT_SOURCES исходников, потолок по объёму. Интерфейс при этом продолжает
+    // держать ссылку и кнопку выгрузки — и на нажатие писал в журнал «Файл сохранён»,
+    // хотя не сохранилось ничего: скачивание идёт через <a download>, а тот об отказе
+    // не сообщает никак. Чтобы не врать, интерфейсу нужен способ СПРОСИТЬ, на месте ли
+    // файл, не выкачивая его. Это и есть HEAD.
+    //
+    // Тело при HEAD не отправляется — заголовки те же самые, включая длину.
+    if ((req.method === 'GET' || req.method === 'HEAD') && pathname === '/api/download') {
       const f = url.searchParams.get('f');
       if (!f) {
         res.writeHead(400);
@@ -1653,6 +1713,12 @@ const server = http.createServer(async (req, res) => {
         'Content-Length': size,
         'Content-Disposition': `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(name)}`,
       });
+      // HEAD — вопрос «файл на месте?», а не «дай файл». Заголовки уже отправлены,
+      // читать с диска нечего.
+      if (req.method === 'HEAD') {
+        res.end();
+        return;
+      }
       const stream = fs.createReadStream(filePath);
       // Оборвал человек скачивание — закрываем чтение, иначе поток дочитает файл до конца
       // в никуда и подержит дескриптор.

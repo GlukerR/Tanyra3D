@@ -259,6 +259,49 @@ describe('Честность отчёта — причина отказа нас
     }
   }, 60_000);
 
+it('исчезнувшая папка результата объясняется словами, а не путём из UUID', async () => {
+    // Уборка рабочей папки может прийти ПОСРЕДИ сборки — «Очистить» в настройках,
+    // потолок по объёму. Папку под результат движок завёл сам, и её пропажу он
+    // объяснить может: причина известна. Без этого наружу уходило сообщение библиотеки —
+    // ENOENT с путём из двух UUID, по-английски и совершенно бесполезно для человека
+    // (замер 2026-08-22).
+    //
+    // Момент ловим по контракту прогресса, а не по секундомеру: фаза 5 объявляется
+    // ровно перед записью файла, поэтому гонки здесь нет по построению.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'outdir-gone-'));
+    try {
+      const src = path.join(dir, 'tiny.ply');
+      fs.writeFileSync(src, [
+        'ply', 'format ascii 1.0', 'element vertex 3',
+        'property float x', 'property float y', 'property float z',
+        'element face 1', 'property list uchar int vertex_index',
+        'end_header', '0 0 0', '1 0 0', '0 1 0', '3 0 1 2', '',
+      ].join('\n'));
+
+      const outDir = path.join(dir, 'out');
+      const result = await optimizeFile(src, {
+        outDir,
+        force: true,
+        locale: 'ru',
+        onProgress: (e) => {
+          // Фаза 5 объявлена — файл ещё не записан. Уносим папку из-под записи.
+          if (e && e.phase === 5) fs.rmSync(outDir, { recursive: true, force: true });
+        },
+      });
+
+      expect(result.status, 'запись в исчезнувшую папку прошла — тест ничего не проверил').toBe('fail');
+      expect(result.file.written, 'файла нет, а движок говорит, что записал').toBe(false);
+      expect(result.error, 'причина не названа').toBeTruthy();
+      expect(result.error, 'наружу ушло сообщение библиотеки вместо человеческой причины')
+        .not.toMatch(/ENOENT|no such file/i);
+      const ref = result.i18n && result.i18n.error;
+      expect(ref && ref.messageId, 'у причины нет рецепта — перевести её будет нечем').toBe('engine.outDirGone');
+      expect(/[А-Яа-я]/.test(result.error), `причина не на языке прогона: ${result.error}`).toBe(true);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
   it('по рецепту причина собирается на другом языке без пересборки модели', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fail-reason-ru-'));
     try {

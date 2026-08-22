@@ -143,6 +143,94 @@ describe('рабочая папка: уборка руками', () => {
   }, 180_000);
 });
 
+
+describe('уборка не трогает то, что делается прямо сейчас', () => {
+  // ЗАМЕР 2026-08-22, два исхода, и оба плохие. «Очистить», нажатая ПОСРЕДИ сборки,
+  // убивала её сообщением «ENOENT ... \\results\\7a24…\\b8d2…\\probe.glb» — путь из двух
+  // UUID вместо причины. Нажатая СРАЗУ ПОСЛЕ — оставляла ответ «готово, файл записан»
+  // при стёртом файле, и ссылка отвечала 404.
+  //
+  // Работы две, и обе надо щадить: ПРИЁМ файла (на границе в сто мегабайт это заметные
+  // секунды) и ПРОГОН. Первую проверяем здесь — у неё темп задаёт сам тест, поэтому
+  // гонки нет по построению. Вторую держит тот же список занятого (activeRuns), и её
+  // проверяет живой замер, а не этот файл: воспроизвести её без гонки нечем.
+  //
+  // Второй исход (ссылка на убранный файл) чинится в интерфейсе — он обязан сверить
+  // ссылку, а не предлагать её вслепую. Сторож там же: tests/architecture/per-model-state.
+
+  /** Отправить модель, растянув отправку, и вклиниться в середину чужим запросом. */
+  function uploadSlowly(bytes, name, onMiddle) {
+    return new Promise((resolve, reject) => {
+      const r = http.request({
+        host: '127.0.0.1', port, path: '/api/inspect', method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'x-filename': encodeURIComponent(name),
+          'Content-Length': bytes.length,
+        },
+      }, (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => resolve({ status: res.statusCode, body: Buffer.concat(chunks).toString() }));
+      });
+      r.on('error', reject);
+      // Половину тела отдаём сразу, потом даём чужому запросу отработать, потом остаток.
+      const half = Math.floor(bytes.length / 2);
+      r.write(bytes.subarray(0, half));
+      setTimeout(async () => {
+        await onMiddle();
+        r.write(bytes.subarray(half));
+        r.end();
+      }, 150);
+    });
+  }
+
+  it('очистка посреди приёма не отбирает файл у того, кто его шлёт', async () => {
+    const bytes = fs.readFileSync(MODEL);
+    let cleared = null;
+    const answer = await uploadSlowly(bytes, MODEL_NAME, async () => {
+      cleared = await json({ method: 'DELETE', path: '/api/workdir' });
+    });
+
+    expect(cleared, 'очистка не выполнилась').toBeTruthy();
+    expect(cleared.kept, 'сервер не сказал, что оставил занятое приёмом').toBeGreaterThan(0);
+    expect(answer.status, `приём оборвался очисткой: ${answer.body.slice(0, 200)}`).toBe(200);
+
+    // И модель после этого читается — то есть на диск лёг целый файл, а не половина.
+    const data = JSON.parse(answer.body);
+    expect(data.sourceId, 'исходник не зарегистрирован').toBeTruthy();
+    expect(data.metrics || data.metadata, 'файл принят, но не разобрался — значит доехал обрывок').toBeTruthy();
+  }, 180_000);
+
+  it('всё, что НЕ занято, при этом убрано', async () => {
+    // Исключение узкое: щадится только то, что делается прямо сейчас. Иначе «очистить»
+    // перестало бы значить «очистить».
+    const before = await optimize(fs.readFileSync(MODEL), MODEL_NAME, 'platform=&lang=ru');
+    const cleared = await json({ method: 'DELETE', path: '/api/workdir' });
+    expect(cleared.kept, 'ничего не делалось, а что-то оставлено').toBe(0);
+    const gone = await request({ method: 'GET', path: before.downloadUrl });
+    expect(gone.status, 'после очистки старый результат остался на диске').not.toBe(200);
+  }, 180_000);
+});
+
+describe('интерфейсу есть чем спросить, на месте ли файл', () => {
+  // Без этого проверить наличие файла можно только выкачав его целиком — то есть сто
+  // мегабайт ради ответа «да». Скачивание идёт через <a download>, который об отказе не
+  // сообщает никак, поэтому спрашивать приходится заранее.
+  it('HEAD отвечает теми же заголовками и без тела', async () => {
+    const run = await optimize(fs.readFileSync(MODEL), MODEL_NAME, 'platform=&lang=ru');
+    const head = await request({ method: 'HEAD', path: run.downloadUrl });
+    expect(head.status, 'HEAD по живой ссылке не отвечает 200').toBe(200);
+    expect(head.buf.length, 'на HEAD пришло тело — значит файл всё-таки выкачан').toBe(0);
+  }, 180_000);
+
+  it('на убранный файл HEAD отвечает отказом, а не молчанием', async () => {
+    const run = await optimize(fs.readFileSync(MODEL), MODEL_NAME, 'platform=&lang=ru');
+    await json({ method: 'DELETE', path: '/api/workdir' });
+    const head = await request({ method: 'HEAD', path: run.downloadUrl });
+    expect(head.status, 'HEAD по стёртому файлу отвечает «всё в порядке»').not.toBe(200);
+  }, 180_000);
+});
 describe('показать папку в проводнике', () => {
   // Успешный вызов открыл бы окно проводника прямо во время прогона тестов, поэтому
   // проверяется отказ. Он же и есть суть входа: адрес приходит НЕ от клиента, клиент

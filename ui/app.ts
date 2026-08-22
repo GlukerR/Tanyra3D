@@ -2377,6 +2377,75 @@
 
   // Сбросить всё, что относится к предыдущему результату оптимизации (при загрузке
   // новой модели). Саму загруженную модель и вьюпорты не трогает.
+
+  /**
+   * Файл результата ещё лежит на диске?
+   *
+   * Сервер вправе убрать его САМ, и делает это не в исключительных случаях, а в
+   * обычных: «Очистить рабочую папку», потолок в двенадцать исходников, потолок по
+   * объёму. Интерфейс при этом продолжал держать ссылку и кнопку выгрузки — и на
+   * нажатие писал в журнал «Файл сохранён», хотя не сохранялось ничего: скачивание
+   * идёт через <a download>, а тот об отказе не сообщает никак (замер 2026-08-22).
+   *
+   * HEAD, а не GET: нужен ответ «на месте ли», а не сам файл. Выкачивать сто мегабайт,
+   * чтобы узнать, что они есть, — не проверка, а вторая беда.
+   *
+   * Нет ссылки — отвечаем «цел»: проверять нечего, и это не повод ничего забывать.
+   */
+  async function resultAlive(url: string | null | undefined): Promise<boolean> {
+    if (!url) return true;
+    try {
+      const res = await fetch(url, { method: 'HEAD' });
+      return res.ok;
+    } catch (e) {
+      // Сервера нет вовсе — но и файла тогда тоже нет. Отвечаем честно.
+      return false;
+    }
+  }
+
+  /**
+   * Забыть результат модели целиком.
+   *
+   * Именно целиком, а не одну ссылку. Числа сравнения без файла ещё правдивы, но
+   * галочка «собрана» в списке рядом с исчезнувшим файлом уже врёт, а «Пересобрать»
+   * осталась бы погашенной (настройки-то не менялись) — человек оказался бы заперт:
+   * файла нет и получить его нечем. Пересборка возвращает всё это одним нажатием.
+   */
+  function forgetResult(rec: ModelEntry) {
+    if (rec.id === activeModelId) { clearResults(); return; }
+    for (const key of ['lastResult', 'lastExplain', 'lastFail', 'currentSourceId',
+      'lastBuildSignature', 'resultInspect', 'resultDownloadUrl', 'resultExportBase']) {
+      rec.state[key] = null;
+    }
+  }
+
+  /**
+   * Сверить результаты со диском и забыть те, которых больше нет.
+   *
+   * Одна строка в журнал на весь обход, а не строка на модель (Правило 9): после
+   * очистки папки исчезают ВСЕ результаты разом, и полсотни одинаковых строк — это
+   * дефект, а не подробность.
+   */
+  async function dropVanishedResults(): Promise<number> {
+    const gone: ModelEntry[] = [];
+    for (const rec of models) {
+      const url = rec.id === activeModelId ? resultDownloadUrl : rec.state.resultDownloadUrl;
+      if (!url) continue;
+      if (await resultAlive(url)) continue;
+      gone.push(rec);
+    }
+    if (!gone.length) return 0;
+    for (const rec of gone) forgetResult(rec);
+    exportWindow.classList.add('hidden');
+    renderModelList();
+    updateSummaryButton();
+    updateRunButtonState();
+    logMessage('warn', gone.length === 1
+      ? t('log.resultGone', { name: gone[0]!.file.name })
+      : t('log.resultGoneMany', { n: gone.length }));
+    return gone.length;
+  }
+
   function clearResults() {
     lastResult = null;
     lastExplain = null;
@@ -2454,8 +2523,17 @@
       // а что ещё ждёт. Без этого при пяти моделях приходится щёлкать каждую.
       const icon = document.createElement('span');
       icon.className = 'model-icon';
-      icon.textContent = rec.state.lastResult ? '✓' : '▣';
-      if (rec.state.lastResult) icon.title = t('models.built');
+      // У АКТИВНОЙ модели правда живёт в переменных, в снимок она попадает только при
+      // captureActiveModel — то есть при уходе с модели. Читать снимок для неё значит
+      // читать вчерашнее: ровно тот же довод, по которому так же поступает summaryRows.
+      //
+      // Пока здесь стоял один снимок, галочка «собрана» ПОЯВЛЯЛАСЬ вовремя (после сборки
+      // снимок делают отдельно, нарочно) и не ИСЧЕЗАЛА: у активной модели результат
+      // забыли, а список продолжал показывать ✓ — например, после очистки рабочей папки
+      // (найдено 2026-08-22).
+      const built = rec.id === activeModelId ? !!lastResult : !!rec.state.lastResult;
+      icon.textContent = built ? '✓' : '▣';
+      if (built) icon.title = t('models.built');
       const name = document.createElement('span');
       name.className = 'model-name';
       name.textContent = rec.file.name;
@@ -2832,6 +2910,11 @@
     // сеанса (см. updateInspectButtons).
     updateInspectButtons();
     if (!modelInspect && !modelIssue && !batchInFlight) inspectModel(rec.file);
+
+    // Файл результата мог исчезнуть, пока человек работал с другой моделью: уборка
+    // сервера идёт сама и про интерфейс не знает. Сверяем ДО показа — иначе покажем
+    // кнопку выгрузки, за которой ничего нет.
+    await dropVanishedResults();
 
     // Сборка этой модели уже была и не дала файла — вернуть плашку с причиной.
     // Молча (silent): отказ был один, а строк в журнале иначе набежало бы по числу
@@ -3383,6 +3466,14 @@
           try {
             await fetch('/api/workdir', { method: 'DELETE' });
             setText(workdirNote, 'menu.settings.workdir.cleared');
+            // Папку очистили — значит собранных файлов больше нет. Сказать об этом
+            // обязаны мы: сервер про открытые у человека модели не знает, а список
+            // слева продолжал бы показывать галочки «собрана» и кнопку выгрузки.
+            //
+            // Сверяем, а не гасим всё подряд: прогон, идущий прямо сейчас, сервер
+            // намеренно оставляет на месте (см. activeRuns в /api/workdir), и его
+            // результат забывать не за что.
+            await dropVanishedResults();
           } catch (e) {
             await syncWorkdir();
           }
@@ -4562,8 +4653,12 @@
     return ((r as HTMLInputElement) && (r as HTMLInputElement).value) || 'glb';
   }
 
-  exportSave.addEventListener('click', () => {
+  exportSave.addEventListener('click', async () => {
     if (!resultDownloadUrl) return;
+    // Последняя проверка перед тем, как сказать «сохранено». Без неё эта строка была
+    // безусловной: файл убран уборкой, скачивание молча не состоялось, а в журнале
+    // стоит «Файл сохранён».
+    if (!(await resultAlive(resultDownloadUrl))) { await dropVanishedResults(); return; }
     const fmt = EXPORT_FORMATS[currentExportFormat()] || EXPORT_FORMATS.glb!;
     const base = (exportName.value || resultExportBase).trim() || 'model';
     const fileName = base.replace(/\.[^.]+$/, '') + fmt.ext;

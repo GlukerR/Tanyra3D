@@ -564,7 +564,24 @@ async function runFile(
   progress({ type: 'phase', phase: 5, name: 'report' });
   log('    phase 5/5 · report');
   const writeAsset = !o.dryRun;
-  if (writeAsset) fs.writeFileSync(dst, glb);
+  // Папку под результат движок завёл сам в начале прогона. Если к моменту записи её
+  // нет — значит её убрали ПОКА МЫ РАБОТАЛИ: человек нажал «Очистить рабочую папку»,
+  // сработал потолок по объёму. Причина известна и называется по-человечески.
+  //
+  // Без этой ветки наружу уходило сообщение библиотеки: «ENOENT: no such file or
+  // directory, open 'C:\…\results\7a245c35-…\b8d27e21-…\probe.glb'» — путь из двух
+  // UUID и английская строка в русском окне (замер 2026-08-22). Оно правдиво и
+  // совершенно бесполезно: человек не знает ни что это за папка, ни что он сделал.
+  if (writeAsset) {
+    try {
+      fs.writeFileSync(dst, glb);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+      const err: Error & { i18n?: MessageRef } = new Error(render('engine.outDirGone', {}, locale));
+      err.i18n = { messageId: 'engine.outDirGone', data: {} };
+      throw err;
+    }
+  }
   const reportName = addon.writeReport({ name: dstName, result, before, after, assetWritten: writeAsset, opts: o });
 
   result.file.written = writeAsset;

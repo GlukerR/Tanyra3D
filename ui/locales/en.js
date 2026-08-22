@@ -459,6 +459,11 @@ window.I18N_CATALOGS.en = {
   // называем её; неизвестна — говорим только то, что знаем наверняка: файла нет.
   // Прежняя единственная строка утверждала непройденную проверку целостности всегда,
   // в том числе когда до проверки дело не дошло и список проверок пуст.
+  // Файл результата убрала уборка сервера — она идёт сама и про открытые у человека
+  // модели не знает. Одна строка на весь обход, а не строка на модель (Правило 9):
+  // после очистки папки исчезают все результаты разом.
+  'log.resultGone': ({ name }) => `The built file for “${name}” is gone — the work folder was cleared. Build it again.`,
+  'log.resultGoneMany': ({ n }) => `Built files are gone: ${n}. The work folder was cleared — build them again.`,
   'log.notProcessed': ({ reason }) => `File not written — ${reason}`,
   'log.notWritten': 'File not written — the engine did not produce a result.',
   'log.serverError': ({ status }) => `The server responded with an error (${status}).`,

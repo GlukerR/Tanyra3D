@@ -26,6 +26,10 @@ export default {
   // option: the person ticked the box and must learn what became of it.
   'engine.nothingToDo': () => 'turned on, but this model had nothing to change',
   'engine.feature.exclusive': ({ selected }) => `not applied because ${selected} was selected instead`,
+  // Папку под результат движок завёл сам, а к моменту записи её не стало: её убрали,
+  // пока шла сборка. Причина известна — значит называем её, а не отдаём наружу путь
+  // из UUID, по которому человек всё равно ничего не поймёт.
+  'engine.outDirGone': () => 'the work folder was cleared while the model was being built — nothing was written. Build it again.',
   // Строка «что пропущено — почему». Собрана сообщением, а не склейкой в коде: разделитель
   // между частями — часть языка, и другому он может понадобиться другой.
   'engine.skipped.line': ({ title, reason }) => `${title} — ${reason}`,

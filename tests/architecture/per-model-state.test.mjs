@@ -29,14 +29,30 @@ const app = fs.readFileSync(path.join(ROOT, 'ui', 'app.ts'), 'utf8');
 const html = fs.readFileSync(path.join(ROOT, 'ui', 'index.html'), 'utf8');
 const i18n = fs.readFileSync(path.join(ROOT, 'ui', 'i18n.ts'), 'utf8');
 
-/** Тело функции по имени — от её объявления до следующего на том же отступе. */
+/**
+ * Тело функции по имени — по балансу фигурных скобок.
+ *
+ * Первая редакция искала закрывающую скобку по ОТСТУПУ, и на `async function` отступ
+ * считался неверно: перед именем стоит ещё слово, и «пробелы строки до имени» давали на
+ * один пробел больше настоящего. Закрытие не находилось, функция возвращала весь остаток
+ * файла — а сторож, которому подсунули полфайла, находит что угодно и не краснеет
+ * никогда. Поймано пробой 2026-08-22: убрал вызов из showActiveModel, а тест прошёл.
+ *
+ * Баланс скобок отступа не знает и потому не ошибается. Строк со скобками внутри кавычек
+ * в этих функциях нет; появятся — сторож придётся усложнить, и это будет видно сразу.
+ */
 function functionBody(src, name) {
   const start = src.indexOf(`function ${name}(`);
   if (start === -1) return null;
-  const from = src.lastIndexOf('\n', start) + 1;
-  const indent = src.slice(from, start).replace(/[^ ]/g, '');
-  const closing = src.indexOf(`\n${indent}}\n`, start);
-  return closing === -1 ? src.slice(start) : src.slice(start, closing);
+  let depth = 0;
+  for (let i = src.indexOf('{', start); i < src.length; i += 1) {
+    if (src[i] === '{') depth += 1;
+    else if (src[i] === '}') {
+      depth -= 1;
+      if (depth === 0) return src.slice(start, i + 1);
+    }
+  }
+  return src.slice(start);
 }
 
 describe('доступность кнопок инспекции считается в одном месте', () => {
@@ -143,6 +159,56 @@ describe('подпись не из каталога не откатываетс�
   });
 });
 
+
+describe('интерфейс не предлагает файл, которого нет', () => {
+  // Сервер вправе убрать собранный файл САМ, и делает это в обычных случаях:
+  // «Очистить рабочую папку», потолок в двенадцать исходников, потолок по объёму.
+  // Интерфейс же держал ссылку и кнопку выгрузки дальше — и на нажатие писал в журнал
+  // «Файл сохранён», хотя не сохранялось ничего (замер 2026-08-22).
+
+  it('есть чем сверить ссылку, и сверка не выкачивает файл', () => {
+    expect(app, 'нет проверки наличия результата').toMatch(/async function resultAlive\(/);
+    const body = functionBody(app, 'resultAlive');
+    expect(body, "проверка выкачивает файл целиком вместо HEAD").toMatch(/method:\s*'HEAD'/);
+  });
+
+  it('исчезнувший результат забывается целиком, а не одной ссылкой', () => {
+    const body = functionBody(app, 'forgetResult');
+    expect(body, 'нет forgetResult').toBeTruthy();
+    // Числа без файла ещё правдивы, но галочка «собрана» уже врёт, а «Пересобрать»
+    // осталась бы погашенной — человек заперт: файла нет и получить его нечем.
+    for (const key of ['lastResult', 'lastBuildSignature', 'resultDownloadUrl']) {
+      expect(body, `forgetResult не сбрасывает ${key}`).toContain(key);
+    }
+  });
+
+  it('сверка идёт и при показе модели, и перед сохранением', () => {
+    const show = functionBody(app, 'showActiveModel');
+    expect(show, 'показ модели не сверяет результат — покажет кнопку, за которой ничего нет')
+      .toContain('dropVanishedResults()');
+    const save = app.slice(app.indexOf("exportSave.addEventListener"), app.indexOf("exportSave.addEventListener") + 900);
+    expect(save, 'сохранение снова докладывает об успехе, не убедившись в нём')
+      .toContain('resultAlive(');
+  });
+
+  it('«Очистить» забывает результаты, а не только чистит диск', () => {
+    const i = app.indexOf("workdirClear.addEventListener");
+    expect(i, 'не нашёл кнопку очистки').toBeGreaterThan(-1);
+    expect(app.slice(i, i + 1200), 'после очистки список слева продолжит показывать галочки «собрана»')
+      .toContain('dropVanishedResults()');
+  });
+
+  it('галочка «собрана» у активной модели берётся из живых переменных', () => {
+    // Тот же класс, что у selectedFile и сводки: у активной модели снимок отстаёт на
+    // одно действие. Пока значок читал только снимок, галочка ПОЯВЛЯЛАСЬ вовремя
+    // (снимок после сборки делают нарочно) и не ИСЧЕЗАЛА — после очистки папки список
+    // продолжал показывать ✓ у модели, результат которой уже забыт.
+    const body = functionBody(app, 'renderModelList');
+    expect(body, 'не нашёл отрисовку списка').toBeTruthy();
+    expect(body, 'значок «собрана» снова читает только снимок состояния')
+      .toMatch(/rec\.id === activeModelId \? !!lastResult/);
+  });
+});
 describe('отказ сборки не выдаёт одну причину за другую', () => {
   it('журнал называет причину, когда она известна', () => {
     const body = functionBody(app, 'renderFail');
