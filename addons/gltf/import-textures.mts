@@ -164,6 +164,17 @@ export async function attachNeighbourTextures(doc: Document, srcPath: string, no
       const ormTex = doc.createTexture('orm').setMimeType('image/jpeg').setImage(packed);
       material.setMetallicRoughnessTexture(ormTex);
       if (orm[0]) material.setOcclusionTexture(ormTex);
+      // МНОЖИТЕЛИ ОБЯЗАНЫ СТАТЬ ЕДИНИЦАМИ. В glTF metallicFactor и roughnessFactor
+      // УМНОЖАЮТСЯ на соответствующие каналы карты. Мы ставили металличность 0 — и она
+      // обнуляла всю карту металла целиком: модель выходила без единого блика, а в
+      // метаданных карта при этом честно значилась. Александр это и увидел: «выглядит
+      // будто металлик не накладывается. или рафнес. или оба».
+      //
+      // Ноль был осмысленным ДО того, как появились карты: у материала без них «просто
+      // поверхность» — это металличность 0. С картой смысл ровно обратный: множитель
+      // должен пропускать её как есть.
+      if (orm[2]) material.setMetallicFactor(1);
+      if (orm[1]) material.setRoughnessFactor(1);
       for (const [i, k] of ['occlusion', 'roughness', 'metallic'].entries()) {
         if (orm[i]) say(k, orm[i]!);
       }

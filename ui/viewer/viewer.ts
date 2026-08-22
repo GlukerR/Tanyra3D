@@ -797,7 +797,14 @@ export class Viewer implements ViewerLike {
     }
     if (!Object.keys(maps).length) return;
 
-    const material = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0, roughness: 1, ...maps });
+    // metalness и roughness у three.js — тоже МНОЖИТЕЛИ на свои карты. Оставить металл
+    // нулём значит выключить карту металла совсем (тот же дефект, что был на сервере).
+    const material = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      metalness: maps.metalnessMap ? 1 : 0,
+      roughness: 1,
+      ...maps,
+    });
     if (maps.emissiveMap) material.emissive = new THREE.Color(0xffffff);
     scene.traverse((o: MaybeMesh) => {
       if (!o.isMesh) return;
