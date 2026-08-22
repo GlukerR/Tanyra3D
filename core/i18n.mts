@@ -112,6 +112,24 @@ export function localizeResult<T>(result: T, locale: string): T {
   if (!result || !locale) return result;
   const src = result as Record<string, unknown>;
   const out: Record<string, unknown> = { ...src };
+  // Причина, по которой прогон не состоялся, — такая же строка отчёта, как остальные, и
+  // рецепт у неё лежит там же (RunResult.i18n.error). Отдельная ветка нужна потому, что
+  // живёт она не в списке, а в корне результата: обход ниже до неё не доходит.
+  //
+  // Пока этой ветки не было, смена языка оставляла единственную важную строку экрана на
+  // языке сборки — а интерфейс, не найдя её, подставлял вместо неё общую фразу про
+  // проверку целостности, то есть НЕ ТУ причину (найдено 2026-08-21).
+  const rootRefs = src.i18n as Record<string, unknown> | undefined;
+  if (rootRefs) {
+    for (const [field, ref] of Object.entries(rootRefs)) {
+      if (!isMessageRef(ref)) continue;
+      try {
+        out[field] = render(ref.messageId, ref.data || {}, locale);
+      } catch (e) {
+        /* ключа нет ни в одном каталоге — прежний текст лучше пустого места */
+      }
+    }
+  }
   for (const key of LOCALIZED_LISTS) {
     const list = src[key];
     if (!Array.isArray(list)) continue;

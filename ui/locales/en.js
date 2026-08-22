@@ -158,7 +158,7 @@ window.I18N_CATALOGS.en = {
   'profile.err.unknown': 'The platform was not saved.',
 
   'fail.notWritten': 'File not written',
-  'fail.text': 'The model failed the integrity check — the source file is untouched.',
+  'fail.text': 'The engine did not say why. The source file is untouched.',
   'fail.generic': 'Could not process the file',
 
   // --- инспектор ---
@@ -256,7 +256,17 @@ window.I18N_CATALOGS.en = {
   'models.packSize': ({ n }) => `Total weight of the model and the ${n} file(s) beside it`,
   // Беда с самой моделью, а не с нашей работой (красный круг с «!»).
   'issue.incomplete': ({ n }) => `The model refers to ${n} file(s) that were not dropped. The file itself is fine — drop the whole folder, not just the .gltf.`,
-  'issue.unreadable': ({ detail }) => `This file cannot be read as a GLB${detail ? ` — ${detail}` : ''}. It looks truncated or corrupted: re-export it or download it again.`,
+  // Два разных случая, и совет у них ПРОТИВОПОЛОЖНЫЙ.
+  //
+  // Причина известна (движок объяснил, почему не читает) — показываем ЕЁ и молчим
+  // дальше. Приклеенное к ней «похоже, файл обрезан» было прямой неправдой: у облака
+  // точек файл целый, переэкспорт его не спасёт, а час работы человеку стоит. Оттуда же
+  // бралась вторая точка подряд — причина от движка своей точкой уже заканчивается.
+  'issue.unreadable.reason': ({ detail }) => `The engine cannot read this file — ${detail}`,
+  // Причины нет — только тогда догадка и уместна, потому что сказать больше нечего.
+  // Слово «GLB» убрано: сюда доходят и .gltf, и .stl, и .ply, а называть чужой формат
+  // своим — сбивать человека там, где он и так в затруднении.
+  'issue.unreadable': 'The engine cannot read this file. It looks truncated or corrupted: re-export it or download it again.',
   'issue.validation': ({ n }) => `The model breaks the glTF standard: ${n} error(s). It opened and renders here, but another engine may refuse to show it. This came with the file — see "Validation".`,
   'models.built': 'Already built',
 
@@ -439,7 +449,12 @@ window.I18N_CATALOGS.en = {
   'log.applied': ({ text }) => `Applied: ${text}`,
   'log.exported': ({ name, format }) => `Exported ${name} (${format})`,
   'log.integrityFailed': 'The result differs from the source — the file is written and can be downloaded, check it before using it.',
-  'log.notWritten': 'File not written — the model failed the integrity check.',
+  // Отказов два, и они разные (см. renderFail в ui/app.ts). Причина известна —
+  // называем её; неизвестна — говорим только то, что знаем наверняка: файла нет.
+  // Прежняя единственная строка утверждала непройденную проверку целостности всегда,
+  // в том числе когда до проверки дело не дошло и список проверок пуст.
+  'log.notProcessed': ({ reason }) => `File not written — ${reason}`,
+  'log.notWritten': 'File not written — the engine did not produce a result.',
   'log.serverError': ({ status }) => `The server responded with an error (${status}).`,
   'log.noServer': ({ error }) => `Could not reach the server: ${error}`,
   'log.ktx2mode': ({ mode }) => `KTX2 mode: ${mode}`,

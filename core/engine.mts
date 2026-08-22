@@ -213,9 +213,15 @@ export async function runOptimize(
     return await runFile(addon, src, dstName, o, result);
   } catch (e) {
     // исключение (модель не читается и т.п.) — наружу не летит, а становится status:'fail'
-    const err = e as { message?: string } | null | undefined;
+    const err = e as { message?: string; i18n?: MessageRef } | null | undefined;
     result.status = 'fail';
     result.error = err && err.message ? err.message : String(e);
+    // Рецепт причины, если аддон его приложил. Строку `error` мы не пересобираем здесь:
+    // она уже собрана на языке прогона, а перевод — работа localizeResult, которую зовёт
+    // тот, кто знает язык запроса. Наше дело — не потерять рецепт по дороге.
+    if (err && err.i18n && err.i18n.messageId) {
+      result.i18n = { error: { messageId: err.i18n.messageId, data: err.i18n.data ?? {} } };
+    }
     return result;
   }
 }

@@ -105,6 +105,25 @@
     if (pair) pair[1](el, t(key, values));
   }
 
+  // Текст, которого В КАТАЛОГЕ НЕТ и быть не может: причина отказа, пришедшая от
+  // движка, имя файла, число от сервера.
+  //
+  // Такому тексту нужен не ключ, а СНЯТИЕ ключа. Пока его не было, единственным способом
+  // записать подпись оставался `textContent =` — а элемент в разметке помечен своим
+  // ключом, и apply() при первой же смене языка возвращал подпись из каталога. Так и
+  // выходило: движок объяснял, что PLY — это облако точек, человек переключал язык и
+  // читал вместо объяснения общую фразу про непройденную проверку целостности, то есть
+  // НЕ ТУ причину (найдено 2026-08-21).
+  //
+  // Снимаем и подстановки: они принадлежали прежнему ключу и к новому тексту отношения
+  // не имеют. Пустой текст — законный вызов: он означает «здесь нечего показывать».
+  function setRaw(el: Element | null, text: string): void {
+    if (!el) return;
+    el.removeAttribute('data-i18n');
+    if (el.__i18n) delete el.__i18n['data-i18n'];
+    el.textContent = text;
+  }
+
   function setLang(next: string): void {
     if (!catalogs[next] || next === lang) return;
     lang = next;
@@ -125,6 +144,7 @@
     setText: (el: Element | null, key: string, values?: UiParams) => mark(el, 'data-i18n', key, values),
     setTitle: (el: Element | null, key: string, values?: UiParams) => mark(el, 'data-i18n-title', key, values),
     setAria: (el: Element | null, key: string, values?: UiParams) => mark(el, 'data-i18n-aria', key, values),
+    setRaw,
     get lang() { return lang; },
     languages: known,
     onChange(fn) { if (typeof fn === 'function') listeners.push(fn); },

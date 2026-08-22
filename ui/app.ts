@@ -18,6 +18,10 @@
   // ключ из разметки. Всё, что меняется по ходу работы (кнопка сборки, строка статуса,
   // счётчики на кнопках окон), обязано ставиться через это.
   const setText = (el: Element | null, key: string, params?: UiParams) => window.I18n.setText(el, key, params);
+  // А это — обратное: подпись, которой в каталоге нет и быть не может (причина отказа от
+  // движка). Ключ с элемента СНИМАЕТСЯ, иначе смена языка вернёт на его место фразу из
+  // разметки — то есть не ту причину.
+  const setRaw = (el: Element | null, text: string) => window.I18n.setRaw(el, text);
   // Язык отчёта запрашивается у сервера явно: тексты итога, планов и описаний опций
   // живут в assistant.mjs и profiles/*.json, клиент их не хранит.
   const langParam = () => `lang=${encodeURIComponent(window.I18n.lang)}`;
@@ -316,6 +320,15 @@
   // а не просит сервер собрать модель заново.
   let lastResult: RunResultDto | null = null;
   let lastExplain: ExplainDto | null = null;
+  // Отказ, при котором файла не вышло вовсе. Отдельно от lastResult намеренно: тот
+  // означает «результат есть, вот он», и половина экрана читает его именно так —
+  // сравнение размеров, кнопка выгрузки, окна инспекции. Положить в него провалившийся
+  // прогон значило бы заставить их рисовать несуществующее.
+  //
+  // А помнить отказ надо: без этого он не переживал ни смену языка (перерисовывать было
+  // нечего, и на месте причины оставалась фраза из разметки), ни возврат к этой модели
+  // из списка (плашка просто не появлялась, хотя сборки у модели по-прежнему нет).
+  let lastFail: { result: RunResultDto | null; explain: ExplainDto | null } | null = null;
   // Идёт ли сборка прямо сейчас. Нужна отдельная переменная, а не состояние кнопки:
   // кнопку включает обратно updateRunButtonState() при любом изменении настроек.
   let buildInFlight = false;
@@ -407,6 +420,7 @@
     { key: 'lastDetection', get: () => lastDetection, set: (v: any) => { lastDetection = v; } },
     { key: 'lastResult', get: () => lastResult, set: (v: any) => { lastResult = v; } },
     { key: 'lastExplain', get: () => lastExplain, set: (v: any) => { lastExplain = v; } },
+    { key: 'lastFail', get: () => lastFail, set: (v: any) => { lastFail = v; } },
     { key: 'modelInspect', get: () => modelInspect, set: (v: any) => { modelInspect = v; } },
     { key: 'modelIssue', get: () => modelIssue, set: (v: any) => { modelIssue = v; } },
     { key: 'resultInspect', get: () => resultInspect, set: (v: any) => { resultInspect = v; } },
@@ -693,20 +707,42 @@
   // приходит result со строками правил на новом языке — они собраны из messageId,
   // а не переведены заново (см. localizeResult в core/i18n.mjs). Модель при смене
   // языка не перезаливается и не пересобирается: меняются слова, не результат.
-  async function reexplainLastResult() {
-    if (!lastResult) return;
+  /** Тот же результат, пересказанный сервером на текущем языке. Не вышло — вернём как есть. */
+  async function reexplain(result: RunResultDto | null) {
+    if (!result) return null;
     try {
       const res = await fetch(
         `/api/explain?platform=${encodeURIComponent(platformSelect.value)}&${langParam()}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ result: lastResult }) },
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ result }) },
       );
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.explain) lastExplain = data.explain;
-        if (data && data.result) lastResult = data.result;
-      }
+      if (!res.ok) return null;
+      return await res.json();
     } catch (e) {
-      /* отчёт останется на прежнем языке — лучше, чем пустая панель */
+      return null; /* отчёт останется на прежнем языке — лучше, чем пустая панель */
+    }
+  }
+
+  async function reexplainLastResult() {
+    // Отказ переводится ровно так же, как удачная сборка, и по той же причине: причина
+    // отказа несёт свой рецепт (RunResult.i18n.error), а собирает из него строку тот, кто
+    // знает язык запроса, — сервер. Пока этой ветки не было, на месте настоящей причины
+    // после смены языка оставалась общая фраза про проверку целостности.
+    if (lastFail) {
+      const data = await reexplain(lastFail.result);
+      if (data) {
+        lastFail = {
+          result: data.result || lastFail.result,
+          explain: data.explain || lastFail.explain,
+        };
+      }
+      renderFail(lastFail.result, lastFail.explain, true);
+      return;
+    }
+    if (!lastResult) return;
+    const data = await reexplain(lastResult);
+    if (data) {
+      if (data.explain) lastExplain = data.explain;
+      if (data.result) lastResult = data.result;
     }
     renderReport(lastResult, lastExplain);
     // Строки расхождения — часть того же результата и берутся из него же: без этой
@@ -1863,8 +1899,7 @@
   async function inspectModel(file: File) {
     modelInspect = null;
     setModelIssue(null);
-    btnMetadata.disabled = true;
-    btnValidation.disabled = true;
+    // Разбора нет — updateInspectButtons сама погасит клавиши на время запроса.
     updateInspectButtons();
     try {
       const rec = models.find((m) => m.file === file) || null;
@@ -1872,7 +1907,12 @@
       // Пока ехала пачка, человек мог переключиться на другую модель — тогда эта
       // инспекция уже не про то, что на экране.
       if (selectedFile !== file) return;
-      const res = await fetch(`/api/inspect${packId ? `?source=${encodeURIComponent(packId)}` : ''}`, {
+      // Язык запроса нужен и здесь: отказ разбора объясняет ДВИЖОК, его словами
+      // («в этом PLY нет граней»), а язык он берёт из запроса. Без параметра ответ
+      // приходил по-английски всегда — и в русском интерфейсе человек читал английскую
+      // причину под русской подписью.
+      const q = `?${langParam()}${packId ? `&source=${encodeURIComponent(packId)}` : ''}`;
+      const res = await fetch(`/api/inspect${q}`, {
         method: 'POST',
         headers: { 'X-Filename': encodeURIComponent(file.name), 'Content-Type': 'application/octet-stream' },
         body: file,
@@ -1905,8 +1945,6 @@
       // сохранив выбор человека.
       if (extensions.length) renderExtensionsPanel(currentSelection());
       if (data.sourceId) currentSourceId = data.sourceId; // сборка переиспользует исходник
-      btnMetadata.disabled = false;
-      btnValidation.disabled = false;
       // Открытые окна ОБЯЗАНЫ переехать на новую модель. Без этих двух строк они
       // показывали данные предыдущей: человек загружал модель с WebP поверх модели с
       // KTX2 и читал в метаданных KHR_texture_basisu — то есть про чужой файл. Симметрия
@@ -1951,7 +1989,13 @@
     // которого файл целый и просто лежит рядом с недостающей текстурой, — это час
     // работы впустую по нашей подсказке.
     if (issue.kind === 'incomplete') return t('issue.incomplete', { n: issue.count });
-    if (issue.kind === 'unreadable') return t('issue.unreadable', { detail: issue.detail || '' });
+    // Причину назвал движок — она и есть ответ, догадки к ней не приклеиваем. Своей
+    // догадкой отвечаем только на молчание.
+    if (issue.kind === 'unreadable') {
+      return issue.detail
+        ? t('issue.unreadable.reason', { detail: issue.detail })
+        : t('issue.unreadable');
+    }
     return t('issue.validation', { n: issue.count });
   }
 
@@ -1963,6 +2007,24 @@
   // Счётчик на кнопке Validation: пока собранной модели нет — число проблем исходника;
   // после сборки — «было → стало», чтобы разница была видна не открывая окно.
   function updateInspectButtons() {
+    // Доступность кнопок считается ЗДЕСЬ и только здесь, из разбора активной модели.
+    //
+    // Раньше её выставляли по месту: `inspectModel` гасил кнопки в начале и включал в
+    // конце, а `showActiveModel` трогал их только когда разбора не было вовсе. Разбор —
+    // величина ПОМОДЕЛЬНАЯ (живёт в rec.state), а `disabled` оставался общим на экран:
+    // переключение уносило его от соседа.
+    //
+    // Чем это было для человека (найдено в браузере 2026-08-21): стоит открыть модель,
+    // которую движок не читает, — обе кнопки гаснут правильно, но дальше они остаются
+    // погашенными НА ВСЕХ моделях, куда ни переключись. Разбор у них есть, окна полны,
+    // а клавиши мертвы до конца сеанса. Это Правило 12 наоборот: показанная клавиша
+    // обязана работать, а не изображать поломку соседа.
+    //
+    // Тот же класс дефекта, что три предыдущих (2026-08-19): состояние, которое код
+    // считает посчитанным для ЭТОЙ модели, на деле досталось от другой. Лечится не
+    // третьим присваиванием в третьем месте, а одним источником правды.
+    btnMetadata.disabled = !modelInspect;
+    btnValidation.disabled = !modelInspect;
     if (!modelInspect) { setText(btnValidation, 'outliner.validation'); return; }
     // считаем только настоящие проблемы: сообщения, объяснённые слепотой валидатора
     // к расширениям, дефектами модели не являются (см. explainedBy в addons/gltf).
@@ -2294,6 +2356,7 @@
   function clearResults() {
     lastResult = null;
     lastExplain = null;
+    lastFail = null;
     currentSourceId = null;
     lastBuildSignature = null; // новая модель ещё не собиралась — первая сборка разрешена
     resultInspect = null; // окна инспекции снова показывают только исходник
@@ -2462,7 +2525,25 @@
       const live = rec.id === activeModelId;
       const res = live ? lastResult : rec.state.lastResult;
       const explain = live ? lastExplain : rec.state.lastExplain;
-      if (!res) continue;
+      // Модель, которая НЕ СОБРАЛАСЬ, обязана быть в сводке строкой отказа.
+      //
+      // Раньше она из сводки выпадала целиком: результата у неё нет, а отбор шёл по
+      // наличию результата. Собрал человек три модели, одна отказала — и сводка
+      // сообщала «всего моделей: 2», ни словом не обмолвившись о третьей. То есть
+      // отвечала не на тот вопрос, ради которого её и открывают: «где не прошло».
+      // Отрисовка такую строку умеет с самого начала (`r.failed` → строка на всю
+      // ширину), просто до неё ничего не доходило (найдено 2026-08-21).
+      const fail = live ? lastFail : rec.state.lastFail;
+      if (!res) {
+        if (!fail) continue;   // эту модель не собирали вовсе — её в сводке и не ждут
+        rows.push({
+          name: rec.file.name,
+          failed: true,
+          fileBefore: null, fileAfter: null, vramBefore: null, vramAfter: null,
+          triangles: null, budget: 'none',
+        });
+        continue;
+      }
       const before = (res.metrics && res.metrics.before) || null;
       const after = (res.metrics && res.metrics.after) || null;
       // Уровень бюджета берём худший из проверок: человеку важно «есть ли повод
@@ -2735,11 +2816,18 @@
     // Внутри пакета не разбираем: сборка и так грузит файл на сервер, а второй заход
     // ради метаданных удвоил бы работу на каждой из пятидесяти моделей. Человек
     // откроет модель руками — тогда и разберём.
-    if (!modelInspect && !modelIssue) {
-      btnMetadata.disabled = true;
-      btnValidation.disabled = true;
-      if (!batchInFlight) inspectModel(rec.file);
-    }
+    //
+    // Клавиши приводим в согласие с ЭТОЙ моделью ВСЕГДА, а не только когда разбора нет.
+    // Пока это делалось лишь внутри условия, погашенное состояние от нечитаемого соседа
+    // переезжало на модель, у которой с разбором всё в порядке, — и оставалось до конца
+    // сеанса (см. updateInspectButtons).
+    updateInspectButtons();
+    if (!modelInspect && !modelIssue && !batchInFlight) inspectModel(rec.file);
+
+    // Сборка этой модели уже была и не дала файла — вернуть плашку с причиной.
+    // Молча (silent): отказ был один, а строк в журнале иначе набежало бы по числу
+    // переключений между моделями.
+    if (lastFail) renderFail(lastFail.result, lastFail.explain, true);
 
     // Результат уже собран — вернуть его на экран целиком, не пересобирая.
     if (lastResult && lastExplain) {
@@ -3664,8 +3752,9 @@
     setPhase('status.error', 'fail');
     logMessage('error', message);
     showWindow(failBanner);
-    failBanner.querySelector('.fail-title')!.textContent = t('fail.generic');
-    failBanner.querySelector('.fail-text')!.textContent = message;
+    setText(failBanner.querySelector('.fail-title'), 'fail.generic');
+    // Сообщение пришло от сервера или из исключения — ключа у него нет (см. setRaw).
+    setRaw(failBanner.querySelector('.fail-text'), message);
     failValidation.innerHTML = '';
     // Кнопку не прячем; прогон не удался — разрешаем повтор даже с теми же настройками.
     lastBuildSignature = null;
@@ -3714,6 +3803,8 @@
 
     const integrityFailed = result.status === 'fail';
     setPhase(integrityFailed ? 'status.doneWithIssue' : 'status.ready', integrityFailed ? 'fail' : null);
+    // Файл вышел — прежний отказ этой модели больше не про неё.
+    lastFail = null;
     failBanner.classList.add('hidden');
 
     // Применённые правила — раньше итога, чтобы в свёрнутой панели логов (она показывает
@@ -3839,13 +3930,45 @@
     }
   }
 
-  function renderFail(result: RunResultDto | null, explain: ExplainDto | null) {
+  /**
+   * Сборка не дала файла.
+   *
+   * ДВА РАЗНЫХ ОТКАЗА, и путать их нельзя — движок говорит об этом прямым текстом
+   * (`core/engine.mts`, ревью 2026-08-10 P1.4):
+   *
+   *   • прогон НЕ ДОШЁЛ до конца — модель не читается, формат не тот, опция неизвестна.
+   *     Признак: заполнено `result.error`, проверок нет вовсе;
+   *   • прогон дошёл, а результат НЕ ПРОШЁЛ проверку целостности. Признак: `error` пуст,
+   *     в `validation` есть запись уровня fail.
+   *
+   * Интерфейс их смешивал: на любой отказ в журнал уходила строка «модель не прошла
+   * проверку целостности». На облаке точек это выглядело так — движок объяснил, что в
+   * PLY нет граней, а человек прочёл, что его файл не прошёл проверку, которой над ним
+   * никто не проводил. Список проверок при этом пуст, то есть подтвердить сказанное
+   * нечем (найдено 2026-08-21).
+   *
+   * `silent` — перерисовка того же отказа (смена языка, возврат к модели в списке).
+   * Строку в журнал тогда не пишем: отказ был один, а записей набежало бы по числу
+   * переключений языка.
+   */
+  function renderFail(result: RunResultDto | null, explain: ExplainDto | null, silent = false) {
+    lastFail = { result, explain };
     setPhase('status.failed', 'fail');
-    logMessage('error', t('log.notWritten'));
+    // Причина в порядке доверия: пересказ ассистента → слово движка → общая фраза.
+    // Общая фраза остаётся последней и говорит только то, что мы знаем наверняка:
+    // файла нет. Догадок о причине в ней больше нет.
+    const reason = (explain && explain.summary) || (result && result.error) || '';
+    if (!silent) {
+      logMessage('error', reason
+        ? t('log.notProcessed', { reason })
+        : t('log.notWritten'));
+    }
     showWindow(failBanner);
-    failBanner.querySelector('.fail-title')!.textContent = t('fail.notWritten');
-    failBanner.querySelector('.fail-text')!.textContent =
-      (explain && explain.summary) || t('fail.text');
+    setText(failBanner.querySelector('.fail-title'), 'fail.notWritten');
+    // setRaw, а не textContent: причина пришла от движка, в каталоге её нет, и ключ с
+    // элемента надо СНЯТЬ — иначе смена языка вернёт на её место фразу из разметки.
+    if (reason) setRaw(failBanner.querySelector('.fail-text'), reason);
+    else setText(failBanner.querySelector('.fail-text'), 'fail.text');
 
     failValidation.innerHTML = '';
     const items = (result && result.validation) || [];

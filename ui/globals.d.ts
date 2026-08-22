@@ -27,6 +27,8 @@ interface I18nApi {
   setText(el: Element | null, key: string, values?: UiParams): void;
   setTitle(el: Element | null, key: string, values?: UiParams): void;
   setAria(el: Element | null, key: string, values?: UiParams): void;
+  /** Текст не из каталога (причина от движка, имя файла): снимает ключ, чтобы смена языка его не откатила. */
+  setRaw(el: Element | null, text: string): void;
   readonly lang: string;
   languages(): string[];
   onChange(fn: (lang: string) => void): void;

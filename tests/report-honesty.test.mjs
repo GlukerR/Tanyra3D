@@ -22,7 +22,9 @@
 
 import { describe, it, expect } from 'vitest';
 import { RULES } from '../addons/gltf/rules.mjs';
-import { render } from '../core/i18n.mjs';
+import { render, localizeResult } from '../core/i18n.mjs';
+import { optimizeFile } from '../optimize2.mjs';
+import os from 'node:os';
 import gltfAddon from '../addons/gltf/index.mjs';
 import { modelPath } from './helpers/model-files.mjs';
 import fs from 'node:fs';
@@ -207,4 +209,72 @@ describe('Честность отчёта — правило с группой �
     expect(guard, 'не нашёл сторож «ничего не сделано» — якорь сменился').toBeTruthy();
     expect(guard[1], 'движок снова смотрит только на feature').toContain('featureGroup');
   });
+});
+
+// ============================================================================
+// 5. Причина отказа — настоящая, и она переживает смену языка (ревью 2026-08-21).
+//
+// Движок различает два «fail» и говорит об этом прямым текстом (core/engine.mts,
+// ревью 2026-08-10 P1.4): прогон НЕ ДОШЁЛ (заполнено `error`, проверок нет) — и прогон
+// дошёл, но результат НЕ ПРОШЁЛ проверку целостности (`error` пуст, в `validation` есть
+// запись уровня fail).
+//
+// Интерфейс их смешивал: на любой отказ он писал в журнал «модель не прошла проверку
+// целостности» — про модель, над которой этой проверки никто не проводил. А смена языка
+// стирала настоящую причину совсем: рецепта у неё не было, пересобрать было не из чего,
+// и на её месте оставалась общая фраза из разметки.
+//
+// Проверяем ОБА конца механизма: движок кладёт рецепт, localizeResult собирает по нему
+// строку на другом языке. Ни то ни другое поодиночке дефект не закрывает.
+// ============================================================================
+describe('Честность отчёта — причина отказа настоящая и переводимая', () => {
+  /** Облако точек: PLY с вершинами и БЕЗ граней. Движок такое не берёт намеренно. */
+  function pointCloudPly(dir) {
+    const file = path.join(dir, 'cloud.ply');
+    fs.writeFileSync(file, [
+      'ply', 'format ascii 1.0', 'element vertex 3',
+      'property float x', 'property float y', 'property float z',
+      'end_header', '0 0 0', '1 0 0', '0 1 0', '',
+    ].join('\n'));
+    return file;
+  }
+
+  it('прогон, который не состоялся, несёт рецепт своей причины', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fail-reason-'));
+    try {
+      const src = pointCloudPly(dir);
+      const result = await optimizeFile(src, { outDir: dir, force: true, locale: 'en' });
+
+      expect(result.status, 'облако точек прошло как годная модель').toBe('fail');
+      expect(result.file.written, 'файла быть не должно').toBe(false);
+      // Это первый вид отказа: причина названа, а проверок не было вовсе. Утверждаем и
+      // второе — иначе сторож не отличит его от провала проверки целостности.
+      expect(result.error, 'движок не сказал, почему отказался').toBeTruthy();
+      expect(result.validation, 'проверки не проводилось, а записи о ней есть').toEqual([]);
+
+      const ref = result.i18n && result.i18n.error;
+      expect(ref && ref.messageId, 'у причины отказа нет рецепта — перевести её будет нечем').toBeTruthy();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  it('по рецепту причина собирается на другом языке без пересборки модели', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fail-reason-ru-'));
+    try {
+      const src = pointCloudPly(dir);
+      const result = await optimizeFile(src, { outDir: dir, force: true, locale: 'en' });
+      const ru = localizeResult(result, 'ru');
+
+      expect(ru.error, 'причина не переведена — осталась строка языка сборки').not.toBe(result.error);
+      expect(/[А-Яа-я]/.test(ru.error), `перевод не похож на русский: ${ru.error}`).toBe(true);
+      // Пересборки при этом не было: localizeResult — чистая функция от результата, и
+      // исходный результат она не трогает.
+      expect(result.error, 'исходный результат изменён — функция не чистая').toBe(
+        render(result.i18n.error.messageId, result.i18n.error.data, 'en'),
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }, 60_000);
 });
