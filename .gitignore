@@ -136,6 +136,8 @@ addons/gltf/ktx2-decode.mjs
 addons/gltf/ktx2-decode.d.mts
 addons/gltf/source-quality.mjs
 addons/gltf/source-quality.d.mts
+addons/gltf/source-json.mjs
+addons/gltf/source-json.d.mts
 optimize2.mjs
 optimize2.d.mts
 server.mjs

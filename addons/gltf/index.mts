@@ -28,6 +28,7 @@ import {
 import enMessages from './messages/en.mjs';
 import ruMessages from './messages/ru.mjs';
 import { importForeign, isImportFormat, IMPORT_FORMATS } from './importers.mjs';
+import { readSourceJson, sourceStamp } from './source-json.mjs';
 import { RULES } from './rules.mjs';
 import { TOKTX } from './tools.mjs';
 
@@ -522,32 +523,10 @@ function arraysAddressedBy(value: unknown): Set<string> | null {
   return sawString && names.size ? names : null;
 }
 
-/** JSON-часть файла: у .glb — чанк, у .gltf — сам файл. Нечитаемое — не беда, вернём null. */
-function sourceJson(src: string): Record<string, unknown> | null {
-  // У GLB читаем ЗАГОЛОВОК И ОДИН ЧАНК, а не файл целиком. Раньше здесь стоял
-  // readFileSync, и это было терпимо, пока чтение случалось один раз за проход. Теперь
-  // исходник спрашивают ещё и на записи (правило «сверяться с первоначальным файлом»),
-  // а модели у нас доходят до 600 МБ — вычитывать их дважды ради килобайта JSON нельзя.
-  let fd: number | null = null;
-  try {
-    fd = fs.openSync(src, 'r');
-    const head = Buffer.alloc(20);
-    const got = fs.readSync(fd, head, 0, 20, 0);
-    if (got === 20 && head.readUInt32LE(0) === 0x46546c67 && head.readUInt32LE(16) === 0x4e4f534a) {
-      const len = head.readUInt32LE(12);
-      const chunk = Buffer.alloc(len);
-      fs.readSync(fd, chunk, 0, len, 20);
-      return JSON.parse(chunk.toString('utf8'));
-    }
-    // .gltf — обычный JSON, читаем целиком: он и есть весь документ.
-    fs.closeSync(fd); fd = null;
-    return JSON.parse(fs.readFileSync(src, 'utf8'));
-  } catch {
-    return null;
-  } finally {
-    if (fd !== null) { try { fs.closeSync(fd); } catch { /* уже закрыт */ } }
-  }
-}
+// Чтение JSON-части исходника переехало в addons/gltf/source-json.mts: спрашивающих
+// трое, а читателей до 2026-08-22 было тоже трое, и каждый читал по-своему. Здесь
+// осталось только имя, под которым его знает остальной файл.
+const sourceJson = readSourceJson;
 
 /** Обойти документ и собрать всё, что относится к незнакомым расширениям. */
 function collectCarried(json: Record<string, unknown>): Carried | null {
@@ -1163,14 +1142,22 @@ function groupValidation(messages: ExplainedMessage[], examples: number = VALIDA
  * ядро, которое однажды получит второй формат, не должно его нести. Движок спрашивает
  * через необязательный хук и без него берёт размер файла (core/types.mts).
  */
+const referencedCache = new Map<string, { uri: string; full: string }[]>();
+
 function referencedResources(srcPath: string): { uri: string; full: string }[] {
   if (!/\.gltf$/i.test(srcPath)) return [];
-  let json: any;
-  try {
-    json = JSON.parse(fs.readFileSync(srcPath, 'utf8'));
-  } catch {
-    return [];   // не JSON — пусть об этом скажет разбор, а не обход ссылок
-  }
+  // Спрашивают дважды за прогон — на вес пачки и на имена недостающих соседей, — а разбор
+  // самодостаточного .gltf стоит вдвое больше самого файла (замер: 24 МБ → 73 МБ кучи).
+  // Запоминаем МАЛЫЙ вывод, а не разобранный документ: список ссылок — это десяток строк,
+  // а документ — те самые встроенные картинки, которые незачем держать в памяти.
+  //
+  // Памяти хватает одной записи: за прогон спрашивают об одном файле, а отпечаток
+  // (путь, время, размер) не даст принять за него другой.
+  const stamp = sourceStamp(srcPath);
+  const known = referencedCache.get(stamp);
+  if (known) return known;
+  const json: any = readSourceJson(srcPath);
+  if (!json) return [];   // не JSON — пусть об этом скажет разбор, а не обход ссылок
   const dir = path.dirname(srcPath);
   const seen = new Set<string>();
   const out: { uri: string; full: string }[] = [];
@@ -1185,6 +1172,8 @@ function referencedResources(srcPath: string): { uri: string; full: string }[] {
     seen.add(full);
     out.push({ uri, full });
   }
+  referencedCache.clear();          // одна запись: держать историю незачем
+  referencedCache.set(stamp, out);
   return out;
 }
 

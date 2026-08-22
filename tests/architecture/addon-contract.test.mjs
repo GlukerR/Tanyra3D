@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url';
 
 import { runOptimize } from '../../core/engine.mjs';
 import gltfAddon from '../../addons/gltf/index.mjs';
+import { readSource } from '../helpers/source-files.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ENGINE_PATH = path.resolve(__dirname, '../../core/engine.mjs');
@@ -259,5 +260,58 @@ describe('addon-contract — движок работает на выдуманн
     const result = await runOptimize(mockAddon, src, { outDir: path.join(tmp, 'out'), force: true });
     expect(result.status).toBe('fail');
     expect(result.error).toMatch(/collectMetrics/);
+  });
+});
+
+describe('JSON исходника читает один модуль', () => {
+  // ЗАМЕР 2026-08-22 на самодостаточном .gltf 24,3 МБ (наше же окно выгрузки такие и
+  // отдаёт): три полных чтения файла за прогон, два из них строкой, и четыре полных
+  // разбора JSON. На .glb 41 МБ — одно лишнее чтение целого файла там, где хватает
+  // заголовка и одного чанка.
+  //
+  // Причина была не в жадности, а в том, что читатели не знали друг о друге. Один из
+  // них уже умел читать у GLB только чанк, и в его комментарии прямо сказано почему —
+  // «модели у нас доходят до 600 МБ». Второй делал ту же работу, но вычитывал файл
+  // целиком. Одинаковое знание в двух видах — это не дублирование кода, это
+  // расходящееся поведение.
+  //
+  // После сведения: у .glb полных чтений НОЛЬ. У .gltf их по-прежнему столько, сколько
+  // спрашивающих, — и это осознанно: запомнить разобранный самодостаточный .gltf
+  // значило бы держать в памяти его встроенные картинки, то есть лечить хуже болезни.
+
+  const files = [
+    ['addons/gltf/index', readSource('addons/gltf/index')],
+    ['addons/gltf/rules', readSource('addons/gltf/rules')],
+  ];
+
+  it('общий читатель существует и читает у GLB только чанк', () => {
+    const src = readSource('addons/gltf/source-json');
+    expect(src, 'нет общего читателя JSON исходника').toBeTruthy();
+    expect(src, 'общий читатель вычитывает GLB целиком — ради килобайта оглавления')
+      .toMatch(/readSync\(/);
+    expect(src, 'у GLB читается не заголовок с чанком, а весь файл')
+      .toMatch(/GLB_MAGIC|0x46546c67/);
+  });
+
+  it('никто больше не разбирает исходник своим способом', () => {
+    // Признак прежнего дефекта: readFileSync прямо рядом с JSON.parse. Так делали оба
+    // прежних читателя, и так же сделает следующий, если сторожа не будет.
+    const strays = [];
+    for (const [name, src] of files) {
+      if (!src) continue;
+      const hits = src.match(/JSON\.parse\(\s*fs\.readFileSync/g) || [];
+      for (let i = 0; i < hits.length; i += 1) strays.push(`${name}: JSON.parse(fs.readFileSync(...))`);
+    }
+    expect(
+      strays,
+      'исходник снова разбирают на месте, минуя общий читатель:\n' + strays.join('\n'),
+    ).toEqual([]);
+  });
+
+  it('оба спрашивающих берут его из общего модуля', () => {
+    for (const [name, src] of files) {
+      expect(src, `${name} не пользуется общим читателем`)
+        .toMatch(/from '\.\/source-json\.mjs'/);
+    }
   });
 });

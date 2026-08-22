@@ -61,6 +61,7 @@ interface AssetJson {
 }
 import { decodeKtx2 } from './ktx2-decode.mjs';
 import { type Ceiling, probeWebpCeiling, readCeiling, targetQuality } from './source-quality.mjs';
+import { readSourceJson } from './source-json.mjs';
 import { collectMetrics, countTriangles, effectiveSkins, listSemantics, textureSize } from './metrics.mjs';
 import { HAS_GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 
@@ -209,21 +210,11 @@ function relabelDataTextures(document: Document, functions: TextureSlotFns, out:
 // Список берём из САМОГО файла: в GLB он лежит в JSON-чанке, в .gltf это обычный JSON.
 const KNOWN_EXTENSIONS = new Set(ALL_EXTENSIONS.map((e) => e.EXTENSION_NAME));
 
-function readAssetJson(srcPath: string): AssetJson | null {
-  const buf = fs.readFileSync(srcPath);
-  // .gltf — обычный JSON; .glb — контейнер, первый чанк JSON (спецификация glTF 2.0 §4.4).
-  if (buf.length >= 4 && buf.readUInt32LE(0) === 0x46546c67) {
-    let off = 12;
-    while (off + 8 <= buf.length) {
-      const len = buf.readUInt32LE(off);
-      const type = buf.readUInt32LE(off + 4);
-      if (type === 0x4e4f534a) return JSON.parse(buf.slice(off + 8, off + 8 + len).toString('utf8'));
-      off += 8 + len;
-    }
-    return null;
-  }
-  return JSON.parse(buf.toString('utf8'));
-}
+// Своего читателя здесь больше нет. Прежний вычитывал файл ЦЕЛИКОМ — и у .glb тоже,
+// хотя нужен один чанк: на модели в 41 МБ это было 41 лишний мегабайт через память за
+// каждый прогон. Соседний модуль умел правильно с самого начала, просто про него не
+// знали (сведено 2026-08-22).
+const readAssetJson = (srcPath: string): AssetJson | null => readSourceJson(srcPath) as AssetJson | null;
 
 // Результат кэшируется в ctx.cache: файл читают несколько правил, а он может весить
 // сотни мегабайт.
