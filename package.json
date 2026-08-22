@@ -1,6 +1,6 @@
 {
   "name": "tanyra3d",
-  "version": "0.2.9",
+  "version": "0.2.10",
   "private": true,
   "license": "Apache-2.0",
   "description": "Умный оптимизатор GLB/glTF для веба — анализ, безопасная оптимизация, отчёты",
