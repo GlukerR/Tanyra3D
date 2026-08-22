@@ -169,6 +169,12 @@ function staticMessageIds() {
   const files = [
     'addons/gltf/rules',
     'addons/gltf/index',
+    // Ввоз чужих форматов (STL/PLY, с 2026-08-20). Его ключи — причины ОТКАЗА принять
+    // файл: «в этом PLY нет граней», «файл не читается». В отчётах матрицы они не
+    // появляются никогда, потому что до отчёта дело не доходит — прогон обрывается
+    // на загрузке. Без этого файла в списке все три висели сиротами, и сторож краснел
+    // на честном коде (найдено ревью 2026-08-21).
+    'addons/gltf/importers',
     'core/engine',
     'core/contract',
   ].map(sourcePath);
@@ -179,6 +185,11 @@ function staticMessageIds() {
     for (const m of src.matchAll(/render\(\s*'([^']+)'/g)) out.add(m[1]);
     for (const m of src.matchAll(/vp\(\s*'(?:pass|info|fail)',\s*'([^']+)'/g)) out.add(m[1]);
     for (const m of src.matchAll(/titleKey:\s*'([^']+)'/g)) out.add(m[1]);
+    // Отказы ввоза ключ не «называют» ни одним из образцов выше: там он уезжает
+    // переменной внутрь render(). Зато он всегда первый аргумент importError —
+    // и это тот же самый статический разбор, а не поблажка: опечатку в ключе поймает
+    // соседняя проверка «на что ссылается код, того нет в каталоге».
+    for (const m of src.matchAll(/importError\(\s*'([^']+)'/g)) out.add(m[1]);
   }
   // 'pipeline' — служебный маркер фазы analyze (analyze() возвращает «задание»
   // { messageId: 'pipeline' }), не рецепт строки: в каталогах его нет по дизайну.

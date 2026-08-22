@@ -406,6 +406,12 @@ window.I18N_CATALOGS.en = {
   'inspect.noResult': 'No optimized model yet — run a build to compare.',
   'inspect.noScene': 'No scene contents reported.',
   'inspect.clean': 'No validation issues — the file is clean.',
+  // Формат, пришедший НЕ из glTF (.stl, .ply), проверять по стандарту glTF нечем:
+  // стандарта для него нет, а самого glTF ещё нет. Писать в этом месте «замечаний нет —
+  // файл чистый» значило бы отчитаться о проверке, которой не было. Сказать надо ровно
+  // две вещи: почему пусто сейчас и где проверка всё-таки будет.
+  'inspect.noValidation': ({ format }) => `The glTF standard check does not apply to .${format} — there is no glTF here yet. The assembled .glb is checked, and its result is in the right column.`,
+  'log.sourceNotValidated': ({ format }) => `Source read: .${format} is not checked against the glTF standard — the assembled file is`,
   'budget.source': 'source',
   'budget.ourChoice': 'our own threshold, not platform documentation',
   'budget.yourChoice': 'your threshold, from your own profile',

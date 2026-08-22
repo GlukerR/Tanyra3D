@@ -65,6 +65,12 @@ interface ExplainDto {
 /** Ответ /api/inspect и /api/inspect-result — метаданные и отчёт валидатора. */
 interface InspectDto {
   format?: string | null;
+  /**
+   * Формат, из которого модель ПРИШЛА (stl, ply). Есть только у разбора чужого формата —
+   * у обычного glTF его нет вовсе, и это работающий признак: по нему видно, что
+   * проверять по стандарту glTF здесь нечего.
+   */
+  sourceFormat?: string;
   asset?: { version?: string; generator?: string };
   extensions?: string[];
   metadata?: Record<string, any> | null;

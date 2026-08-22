@@ -298,7 +298,31 @@
    */
   const COMFORT_BYTES = 100 * 1024 * 1024;
 
-  let selectedFile: File | null = null;
+  /**
+   * Файл, который сейчас на экране.
+   *
+   * Это ВЫЧИСЛЕНИЕ из записи активной модели, а не переменная и не поле снимка —
+   * и таким оно стало не из любви к чистоте. Пока это была переменная, её
+   * приходилось выставлять В КАЖДОМ пути, который меняет активную модель, и каждый
+   * забытый путь давал один и тот же дефект: снимок модели, с которой ещё не уходили,
+   * пуст (`{}`), applyModelState обнуляет из него selectedFile — и модель на экране
+   * есть, а файла у программы нет.
+   *
+   * Так было уже дважды. 2026-08-18: бросок пачки возвращался на первую модель,
+   * снимок последней оставался пустым, и её сборка тихо не делала ничего. 2026-08-21:
+   * удаление активной модели переключало на соседнюю — и та не разбиралась, кнопки
+   * инспекции оставались мёртвыми, а «Собрать» гасла совсем; человеку оставалось
+   * загрузить файл заново. Один и тот же дефект, два разных пути, и второй появился
+   * ПОСЛЕ того, как первый починили в selectModel.
+   *
+   * Вычисление закрывает весь класс: у записи `file` лежит с момента добавления и не
+   * меняется никогда, а нового пути переключения, который «забудут поправить», больше
+   * не существует.
+   *
+   * Сверки вида `selectedFile() !== file` работают как раньше и отвечают на тот же
+   * вопрос: пока летел запрос, человек ушёл на другую модель?
+   */
+  const selectedFile = () => activeModel()?.file || null;
   // Идентификатор загруженного исходника на сервере: пока он есть, повторная
   // оптимизация той же модели идёт без перезаливки файла (меняем только флажки).
   let currentSourceId: string | null = null;
@@ -413,7 +437,6 @@
   // самый неприятный сорт бага — состояние одной модели протекает в другую, причём
   // через раз и только по одному полю.
   const PER_MODEL_STATE = [
-    { key: 'selectedFile', get: () => selectedFile, set: (v: any) => { selectedFile = v; } },
     { key: 'currentSourceId', get: () => currentSourceId, set: (v: any) => { currentSourceId = v; } },
     { key: 'originalStats', get: () => originalStats, set: (v: any) => { originalStats = v; } },
     { key: 'lastBuildSignature', get: () => lastBuildSignature, set: (v: any) => { lastBuildSignature = v; } },
@@ -543,7 +566,7 @@
     // есть модель с Draco выйдет распакованной, и это законный, измеримый результат,
     // ради которого человек может нажать кнопку намеренно. Во-вторых, кнопка при этом
     // оставалась ВИДНОЙ и просто не работала — ровно то, что запрещает Правило 12.
-    if (!selectedFile) {
+    if (!selectedFile()) {
       runBtn.disabled = true;
       runBtn.title = '';
       return;
@@ -1726,7 +1749,7 @@
         : t('log.rejectedMany', { n: badCount }));
     }
     if (!packs.length) {
-      if (!models.length) { selectedFile = null; runBtn.disabled = true; }
+      if (!models.length) runBtn.disabled = true;
       return;
     }
 
@@ -1739,7 +1762,6 @@
     const first = added[0]!;
     activeModelId = first.id;
     applyModelState(first.state);
-    selectedFile = first.file;
     renderModelList();
     if (packs.length > 1) logMessage('info', t('log.loadedMany', { n: packs.length }));
     // Сколько соседних файлов приехало вместе с моделями — одной строкой на весь бросок.
@@ -1772,7 +1794,7 @@
         const info = await window.OptiViewer.loadOriginal(file, rec.pack);
         // Пока разбирался файл, человек мог бросить следующий: тогда эти данные уже
         // не про ту модель, что на экране, и записывать их в общие переменные нельзя.
-        if (selectedFile !== file) return;
+        if (selectedFile() !== file) return;
         originalStats = ((info as any) && (info as any).stats) || null;
         renderSourceStats(sourceBytesOf(rec));
         // Определяем, что уже сжато в исходнике → авто-включаем флажки с бейджем [Source].
@@ -1906,7 +1928,7 @@
       const packId = await uploadPack(rec);
       // Пока ехала пачка, человек мог переключиться на другую модель — тогда эта
       // инспекция уже не про то, что на экране.
-      if (selectedFile !== file) return;
+      if (selectedFile() !== file) return;
       // Язык запроса нужен и здесь: отказ разбора объясняет ДВИЖОК, его словами
       // («в этом PLY нет граней»), а язык он берёт из запроса. Без параметра ответ
       // приходил по-английски всегда — и в русском интерфейсе человек читал английскую
@@ -1919,7 +1941,7 @@
       });
       // Пользователь мог выбрать другой файл, пока этот запрос летел — не затираем
       // его данные устаревшим ответом.
-      if (selectedFile !== file) return;
+      if (selectedFile() !== file) return;
       if (!res.ok) {
         // Сервер не смог даже прочитать файл. Раньше это была одна строка в журнале,
         // и модель в списке выглядела как все остальные — человек шёл собирать
@@ -1933,7 +1955,7 @@
         return;
       }
       const data = await res.json();
-      if (selectedFile !== file) return;
+      if (selectedFile() !== file) return;
       modelInspect = data;
       // Цифры движка приехали — заменяем ими прикидку по отрисованной сцене.
       // Только до первой сборки: после неё в шапке стоят before/after из отчёта
@@ -1958,9 +1980,11 @@
       const errors = (data.validation || []).filter((m: any) => !m.explainedBy && m.severity === 0).length;
       setModelIssue(errors ? { kind: 'validation', count: errors } : null);
       updateInspectButtons();
-      logMessage('info', n
-        ? t('log.sourceInspected', { n })
-        : t('log.sourceInspected', { n: 0 }));
+      // Та же развилка, что в окне проверки: у .stl и .ply проверять было нечего, и
+      // «замечаний нет» про них — отчёт о непроведённой работе.
+      logMessage('info', data.sourceFormat
+        ? t('log.sourceNotValidated', { format: data.sourceFormat })
+        : t('log.sourceInspected', { n }));
       logBlindSpots(data.validation);
     } catch (e) {
       // инспекция недоступна — кнопки выключены, сборка всё равно работает
@@ -2718,7 +2742,6 @@
     models.push(rec);
     activeModelId = rec.id;
     applyModelState(null);          // новая модель начинает с чистого состояния
-    selectedFile = file;
     return rec;
   }
 
@@ -2729,20 +2752,6 @@
     captureActiveModel();
     activeModelId = id;
     applyModelState(rec.state);
-    // Файл берём из ЗАПИСИ, а не из снимка состояния. Снимок может быть пуст: он
-    // заполняется в captureActiveModel, то есть при уходе С модели, — а у той, с
-    // которой ещё не уходили, он `{}`, и applyModelState обнулял бы selectedFile.
-    //
-    // Ловится это только пакетом. При загрузке по одному незаполненный снимок всегда
-    // принадлежит АКТИВНОЙ модели, а selectModel на активную не переключается вовсе.
-    // Бросок пачки заводит N записей разом и возвращается на первую — снимок последней
-    // так и остаётся пустым, и её сборка тихо не делала ничего: `runOptimize` выходит
-    // на первой строке, если `selectedFile` пуст. Найдено проверкой в браузере
-    // 2026-08-18: три модели, два запроса на сервер.
-    //
-    // Правильный источник правды — запись: `file` лежит в ней с момента добавления и
-    // не меняется никогда.
-    selectedFile = rec.file;
     renderModelList();
     await showActiveModel();
   }
@@ -3640,13 +3649,13 @@
     const doFetch = (sourceId: string | null, withBody: boolean) => fetch(buildOptimizeUrl(jobId, sourceId), {
       method: 'POST',
       headers: {
-        'X-Filename': encodeURIComponent(selectedFile!.name),
+        'X-Filename': encodeURIComponent(selectedFile()!.name),
         'Content-Type': 'application/octet-stream',
       },
-      body: withBody ? selectedFile : null,
+      body: withBody ? selectedFile() : null,
     });
 
-    const rec = models.find((m) => m.file === selectedFile) || null;
+    const rec = activeModel();
     if (!currentSourceId) await uploadPack(rec);
     const packId = rec ? rec.packSourceId || null : null;
 
@@ -3683,7 +3692,7 @@
   }
 
   async function runOptimize() {
-    if (!selectedFile || buildInFlight) return;
+    if (!selectedFile() || buildInFlight) return;
 
     buildInFlight = true;
     // Снимок настроек на момент запуска — см. renderResult.
@@ -4800,7 +4809,16 @@
     }
     const p = document.createElement('p');
     p.className = 'meta-empty';
-    p.textContent = t('inspect.clean');
+    // Пусто по двум РАЗНЫМ причинам, и путать их нельзя. Проверили и не нашли — «файл
+    // чистый». Не проверяли вовсе — так и надо сказать.
+    //
+    // Второе — это .stl и .ply: стандарта glTF у них нет, и валидатору Khronos не за что
+    // взяться, пока модель не собрана. Интерфейс же писал им «Замечаний нет — файл
+    // чистый», то есть отчитывался о проверке, которой не было (найдено 2026-08-21).
+    // Признак прямой: поле sourceFormat проставляет только разбор чужого формата
+    // (foreignInspect в addons/gltf) — списка расширений здесь держать не нужно.
+    if (data.sourceFormat) setText(p, 'inspect.noValidation', { format: data.sourceFormat });
+    else p.textContent = t('inspect.clean');
     col.appendChild(p);
   }
 

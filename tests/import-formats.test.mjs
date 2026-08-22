@@ -719,6 +719,57 @@ describe('глина: показ безтекстурных моделей', () 
   });
 });
 
+describe('проверка по стандарту не выдаётся за проведённую', () => {
+  // ДЕФЕКТ, найденный ревью 2026-08-21. Валидатору Khronos не за что взяться, пока
+  // модель не собрана: стандарта glTF у .stl и .ply нет, и самого glTF ещё нет.
+  // Разбор честно возвращал пустой список проверок — а интерфейс писал по этому пустому
+  // списку «Замечаний нет — файл чистый», и в журнал уходило «Исходник проверен —
+  // замечаний нет». То есть отчёт о работе, которой не было.
+  //
+  // Признак развилки — поле sourceFormat: его проставляет ТОЛЬКО разбор чужого формата
+  // (foreignInspect), у обычного glTF его нет вовсе. Списка расширений в интерфейсе
+  // держать не нужно — он разошёлся бы с аддоном на первом же новом формате.
+
+  const APP = readSource('ui/app');
+
+  it('разбор чужого формата помечает, откуда пришла модель', () => {
+    const addon = readSource('addons/gltf/index');
+    expect(addon, "foreignInspect больше не сообщает исходный формат — интерфейсу нечем "
+      + "отличить «проверили и чисто» от «проверять было нечего»").toContain('sourceFormat:');
+  });
+
+  it('окно проверки различает «чисто» и «не проверяли»', () => {
+    const i = APP.indexOf('function buildValidationPane');
+    expect(i, 'не нашёл панель проверки — якорь сменился').toBeGreaterThan(-1);
+    const body = APP.slice(i, i + 1600);
+    expect(/data\.sourceFormat/.test(body),
+      'панель проверки снова не смотрит на исходный формат: у .stl она отчитается о непроведённой проверке').toBe(true);
+    expect(body, 'нет строки про неприменимость проверки').toContain('inspect.noValidation');
+  });
+
+  it('журнал тоже не отчитывается о непроведённой проверке', () => {
+    expect(APP, 'в журнал по-прежнему уходит «замечаний нет» для формата, который не проверяли')
+      .toContain('log.sourceNotValidated');
+  });
+
+  it('обе строки есть в обоих каталогах (Правило 8)', () => {
+    const en = fs.readFileSync(path.join(ROOT, 'ui', 'locales', 'en.js'), 'utf8');
+    const ru = fs.readFileSync(path.join(ROOT, 'translations', 'ru.js'), 'utf8');
+    for (const key of ['inspect.noValidation', 'log.sourceNotValidated']) {
+      expect(en.includes(`'${key}'`), `нет английской строки: ${key}`).toBe(true);
+      expect(ru.includes(`'${key}'`), `нет русской строки: ${key}`).toBe(true);
+    }
+  });
+
+  it('обычный glTF по-прежнему получает честное «чисто»', () => {
+    // Обратная сторона: развилка не должна проглотить нормальный случай. У glTF
+    // sourceFormat нет, значит ветка «не проверяли» до него не доходит.
+    const i = APP.indexOf('function buildValidationPane');
+    const body = APP.slice(i, i + 1600);
+    expect(body, 'строка «файл чистый» пропала — теперь и о чистом файле сказать нечем')
+      .toContain('inspect.clean');
+  });
+});
 describe('без интернета (слово Александра 2026-08-19)', () => {
   const APP = readSource('ui/app');
   const HTML = fs.readFileSync(path.join(ROOT, 'ui', 'index.html'), 'utf8');
