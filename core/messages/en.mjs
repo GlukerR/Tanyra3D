@@ -6,19 +6,19 @@
 
 export default {
   // --- baseline-checkpoint ---
-  'check.baselineMatch': ({ keys }) => `baseline-checkpoint: structure (${keys}) matches the checkpoint taken after the basic optimizations`,
+  'metric.triangles': () => 'triangles',
+  'metric.vertices': () => 'vertices',
+  'metric.drawCalls': () => 'draw calls',
+  'metric.skins': () => 'skins',
+  'metric.nodes': () => 'scene nodes',
+  'metric.animations': () => 'animations',
+  'metric.morphTargets': () => 'morph targets',
+  'metric.attributes': () => 'vertex attributes',
+  'check.baselineMatch': () => 'the model structure did not change during compression',
   'check.baselineSoftMismatch': ({ k, baseline, after }) =>
-    `${k} changed during encoding (was ${baseline} at checkpoint, now ${after}) — `
-    + 'the codec re-indexed/welded vertices (e.g. Draco calls weld before compression). '
-    + 'Triangles and mesh topology are preserved; writing is not blocked. For animated models the strict keys (skins, animations) protect the structure.',
-  // Подставляется в {cause} строкой ниже — отдельным сообщением, чтобы переводилась.
-  'check.cause.secondPass': ({ ids }) => `second-pass extensions (${ids}) or file writing`,
-  'check.cause.writeOnly': () => 'file writing (no second-pass fixes were applied)',
-  'check.baselineHardMismatch': ({ k, baseline, after, cause }) =>
-    `Component guarantee violated: ${k} changed after the extensions (was ${baseline} at checkpoint, now ${after}). `
-    + "Per the components' official docs (ARCHITECTURE.md §0a) Draco/Meshopt/KTX2 do not change mesh structure. "
-    + `Likely cause: ${cause} — a library bug or incorrect component use. `
-    + 'The file was written, but do not trust it as an exact copy of the source geometry — check the result visually before shipping it.',
+    `${k} were rebuilt by the codec: ${baseline} → ${after}. Triangles and the picture are unchanged.`,
+  'check.baselineHardMismatch': ({ k, baseline, after }) =>
+    `${k} changed after compression: ${baseline} → ${after}. This should not happen — look the model over before shipping it. Details are in the log.`,
 
   // --- engine-level messages ---
   'feature.notEnabled': ({ feature }) => `feature "${feature}" is not enabled (advancedFeatures: ['${feature}'])`,

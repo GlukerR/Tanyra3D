@@ -101,7 +101,9 @@ describeIfModels(['CarConcept.glb'], 'KTX2 — basic', () => {
     //   2. Есть pass-уровневая запись про геометрию ('geometry is present', английский).
     // Язык сообщений не хардкодить (правило промпта): на ktx2-only baseline-checkpoint
     // остаётся pass; на ktx2+draco и all-three может уйти в info/fail — отдельные тесты ниже.
-    const baselineEntry = result.validation.find((v) => v.text.includes('baseline'));
+    // По рецепту, а не по словам: текст этой строки адресован человеку и правился
+    // 2026-08-22 (было «baseline-checkpoint: структура (triangles, vertices, …)»).
+    const baselineEntry = result.validation.find((v) => v.i18n?.text?.messageId === 'check.baselineMatch');
     expect(baselineEntry).toBeDefined();
 
     const geoPass = result.validation.find(
@@ -148,8 +150,10 @@ describeIfModels(['CarConcept.glb'], 'KTX2 — vs default pipeline', () => {
       }),
     ]);
 
-    const ktx2Basel = ktx2Result.validation.find((v) => v.text.includes('baseline'));
-    const defBasel = defaultResult.validation.find((v) => v.text.includes('baseline'));
+    // По рецепту, а не по словам (см. выше): текст строки успеха правился 2026-08-22.
+    const byMatch = (r) => r.validation.find((v) => v.i18n?.text?.messageId === 'check.baselineMatch');
+    const ktx2Basel = byMatch(ktx2Result);
+    const defBasel = byMatch(defaultResult);
 
     expect(ktx2Basel).toBeDefined();
     expect(defBasel).toBeDefined();

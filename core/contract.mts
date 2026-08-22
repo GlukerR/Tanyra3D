@@ -74,6 +74,29 @@ export interface CompareBaselineOptions {
   soft?: Set<string>;
 }
 
+// Человеческое имя метрики. Без него в русскую фразу утекал английский идентификатор —
+// «vertices изменился при кодировании» человек и читал (Александр, 2026-08-22). Имя —
+// вложенное сообщение, а не склейка: render() развернёт его на языке отчёта.
+//
+// Ключ, которого в списке нет, подставляется КАК ЕСТЬ. Строгость каталога (нет ключа —
+// падаем) хороша на ошибке разработчика, но набор метрик задаёт аддон, а не движок:
+// уронить чужую сборку из-за неназванной метрики — цена не по проступку.
+// Ключи выписаны ЛИТЕРАЛАМИ, а не собраны шаблоном `metric.${k}`. Так их видит
+// статический сканер сторожа ключей-сирот (tests/engine-contract.test.mjs): собранный
+// на лету ключ он прочесть не может, и восемь честных имён повисли бы мусором.
+const METRIC_NAMES: Record<string, { messageId: string; data: Record<string, unknown> }> = {
+  triangles: { messageId: 'metric.triangles', data: {} },
+  vertices: { messageId: 'metric.vertices', data: {} },
+  drawCalls: { messageId: 'metric.drawCalls', data: {} },
+  skins: { messageId: 'metric.skins', data: {} },
+  nodes: { messageId: 'metric.nodes', data: {} },
+  animations: { messageId: 'metric.animations', data: {} },
+  morphTargets: { messageId: 'metric.morphTargets', data: {} },
+  attributes: { messageId: 'metric.attributes', data: {} },
+};
+const metricName = (k: string): { messageId: string; data: Record<string, unknown> } | string =>
+  METRIC_NAMES[k] ?? k;
+
 // BASELINE-CHECKPOINT: сверка снимка структуры (после базового прохода) с метриками
 // реальных байтов будущего файла. Жёсткие ключи (треугольники/скины/узлы/анимации/
 // draw-calls) не должны меняться — их расхождение блокирует запись (нарушение гарантии
@@ -93,24 +116,30 @@ export function compareBaseline(
   }
   const broken = keys.filter((k) => after[k] !== baseline[k]);
   if (broken.length === 0) {
-    return [{ level: 'pass', messageId: 'check.baselineMatch', data: { keys: keys.join(', ') } }];
+    return [{ level: 'pass', messageId: 'check.baselineMatch', data: {} }];
   }
-  // Причина — вложенное сообщение, а не английский кусок, склеенный здесь: она
-  // подставляется внутрь переведённой фразы, и склейка оставляла в русском тексте
-  // «Вероятная причина: second-pass extensions (…) or file writing». render() разворачивает
-  // такие подстановки сам (resolveNested в core/i18n.mjs).
-  const cause = advancedPlannedIds.length
-    ? { messageId: 'check.cause.secondPass', data: { ids: advancedPlannedIds.join(', ') } }
-    : { messageId: 'check.cause.writeOnly', data: {} };
-  return broken.map((k) => (soft.has(k)
-    ? {
-      level: 'info' as const,
-      messageId: 'check.baselineSoftMismatch',
-      data: { k, baseline: baseline[k], after: after[k] },
+  return broken.map((k) => {
+    if (soft.has(k)) {
+      return {
+        level: 'info' as const,
+        messageId: 'check.baselineSoftMismatch',
+        data: { k: metricName(k), baseline: baseline[k], after: after[k] },
+      };
     }
-    : {
+    // Разбор — В ЖУРНАЛ, а не в отчёт. Человеку нужны две вещи: что изменилось и что с
+    // этим делать; «согласно официальной документации компонентов документации компонентов»
+    // и «ошибка библиотеки или некорректное использование компонента» — это записка нам
+    // самим, и в правой панели она только пугает (Александр, 2026-08-22: «слишком страшно
+    // выглядит и звучит непонятно»). Журнал для такого и заведён.
+    log(
+      `      [baseline-validate] HARD MISMATCH ${k}: ${baseline[k]} → ${after[k]}; likely cause: `
+      + (advancedPlannedIds.length ? `second-pass extensions (${advancedPlannedIds.join(', ')}) or file writing` : 'file writing (no second-pass fixes applied)')
+      + '; per docs/ЗАВИСИМОСТИ.md the codecs must not change mesh topology — suspect a library bug or incorrect component use',
+    );
+    return {
       level: 'fail' as const,
       messageId: 'check.baselineHardMismatch',
-      data: { k, baseline: baseline[k], after: after[k], cause },
-    }));
+      data: { k: metricName(k), baseline: baseline[k], after: after[k] },
+    };
+  });
 }
