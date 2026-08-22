@@ -218,6 +218,26 @@
       <span class="vp-ctl-label" data-i18n-title="vp.exposure" title="Exposure">☀</span>
       <input id="exposure-slider" class="vp-slider" type="range" min="10" max="300" value="100" step="5" data-i18n-aria="vp.exposure" aria-label="Exposure">
       <span id="exposure-value" class="vp-ctl-value">1.0</span>
+
+    </div>
+
+    <!-- ВЕРХ СПРАВА: чем показывать модель — её материалами или нашей глиной.
+         Два шарика подряд, в самом углу, как в Blender. Александр 2026-08-22: «Можно
+         сделать как в блендере 2 шарика. но тогда как и в блендере лучше сделать сверху
+         справа. Что бы уж точно понятно и нативно было».
+
+         Выбран всегда ровно ОДИН — это переключатель из двух положений, а не две
+         независимые кнопки. Поэтому подписи стоят в разметке и не меняются: у каждого
+         шарика своё постоянное имя.
+
+         Числа «ПОСЛЕ ОПТИМИЗАЦИИ» отодвинуты влево (.vp-hud-right в style.css), а не
+         накрыты: угол занимала информация, ради которой окно и открыто.
+
+         Не на полке справа внизу: способ показа относится к ЛЮБОЙ модели, как камера и
+         свет, — а полка держит свойства КОНКРЕТНОГО файла. -->
+    <div class="vp-shading" role="group" data-i18n-aria="vp.shading" aria-label="Viewport shading">
+      <button id="display-file" class="vp-tool is-on" type="button" aria-pressed="true" data-i18n-title="vp.display.file" data-i18n-aria="vp.display.file" title="Materials from the file" aria-label="Materials from the file">◉</button>
+      <button id="display-clay" class="vp-tool" type="button" aria-pressed="false" data-i18n-title="vp.display.clay" data-i18n-aria="vp.display.clay" title="Clay" aria-label="Clay">●</button>
     </div>
 
     <!-- НИЗ СПРАВА: свойства ЭТОЙ модели — значками, каждый со своей полочкой.
@@ -260,16 +280,6 @@
         </div>
       </div>
 
-      <!-- Материал показа: материалы модели или наша глина. Значок стоит ВСЕГДА, в
-           отличие от соседних: те появляются только у моделей, где есть что выбирать
-           (свои камеры, свой свет, уровни), а показать глиной можно любую модель. -->
-      <div id="display-controls" class="vp-group">
-        <button class="vp-tool vp-group-btn" type="button" aria-expanded="false" data-i18n-title="vp.display" data-i18n-aria="vp.display" title="Display material" aria-label="Display material">◐</button>
-        <div class="vp-pop">
-          <span class="vp-ctl-label" data-i18n="vp.display">Display material</span>
-          <select id="display-select" class="vp-anim-clip" data-i18n-aria="vp.display" aria-label="Display material"></select>
-        </div>
-      </div>
 
       <!-- Свет: наш студийный или тот, что принесла сама модель (KHR_lights_punctual).
            Значка нет у моделей без своих источников — там «свет из файла» означал бы

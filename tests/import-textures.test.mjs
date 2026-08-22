@@ -191,3 +191,37 @@ describe('затенение, шероховатость и металл пак�
     expect(material.getOcclusionTexture(), 'подключили затенение, которого не приносили').toBeNull();
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// РАЗДЕЛ 5 · Одна таблица назначений на движок и на интерфейс
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('интерфейс и движок одинаково понимают имена файлов', () => {
+  it('таблицы назначений совпадают побуквенно', () => {
+    // ПОЧЕМУ ТАБЛИЦА ЛЕЖИТ В ДВУХ МЕСТАХ. Слой интерфейса не имеет права импортировать
+    // `addons/` (§2.4, layer-boundaries), а знать назначение карты обязан: без этого он
+    // не поймёт, какую прежнюю карту вытесняет новая. Значит копия неизбежна — и
+    // единственное, что делает её безопасной, это сторож на расхождение.
+    //
+    // Разойдись они молча — интерфейс выбросит из пачки не ту карту. Человек увидит это
+    // не раньше сборки, а причину не увидит вовсе.
+    const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.slice(1)), '..');
+    const strip = (text, start) => {
+      const from = text.indexOf(start);
+      expect(from, `таблица ${start} не найдена`).toBeGreaterThan(-1);
+      const to = text.indexOf('];', from);
+      return text.slice(from, to)
+        .split('\n')
+        // Только СТРОКИ ТАБЛИЦЫ. Заголовок объявления отбрасываем: имена переменных
+        // разные намеренно (`SLOTS` у движка, `TEXTURE_SLOTS` у интерфейса), а сверяем
+        // мы содержимое.
+        .filter((l) => l.includes("{ slot: '"))
+        .map((l) => l.trim().replace(/\s+/g, ' '))
+        .join('\n');
+    };
+    const engine = strip(fs.readFileSync(path.join(root, 'addons/gltf/import-textures.mts'), 'utf8'), 'const SLOTS');
+    const ui = strip(fs.readFileSync(path.join(root, 'ui/app.ts'), 'utf8'), 'const TEXTURE_SLOTS');
+    expect(engine.length, 'таблица движка пуста').toBeGreaterThan(0);
+    expect(ui, 'таблицы назначений разошлись — интерфейс выбросит не ту карту').toBe(engine);
+  });
+});

@@ -55,11 +55,11 @@ window.I18N_CATALOGS.en = {
   'vp.lod.guess': 'Looks like detail levels',
   // Полка значков справа внизу: свойства этой модели, каждое со своей полочкой.
   'vp.rail': 'This model’s controls',
+  'vp.shading': 'Viewport shading',
   // Чем показывать модель. «Clay» — слово из трёхмерных редакторов, художник его знает;
   // объяснять, что это matcap, ему незачем (Правило 10).
-  'vp.display': 'Surface',
-  'viewer.display.file': 'Materials from the file',
-  'viewer.display.clay': 'Clay',
+  'vp.display.file': 'Materials from the file',
+  'vp.display.clay': 'Clay',
   // Свет. Появляется только у моделей, которые несут свои источники.
   'vp.light': 'Lighting',
   'viewer.light.studio': 'Studio',
@@ -298,6 +298,9 @@ window.I18N_CATALOGS.en = {
     ? `A map was added to "${name}". Build again to see it on the result.`
     : `${n} maps were added to "${name}". Build again to see them on the result.`),
   'log.texturesAlready': ({ name }) => `"${name}" already has these maps`,
+  'log.texturesReplaced': ({ n }) => (n === 1
+    ? 'The earlier map for the same slot was removed — the new one stays.'
+    : `${n} earlier maps for the same slots were removed — the new ones stay.`),
   'log.rejectedMany': ({ n }) => `Skipped files: ${n} — accepted: .glb, .gltf, .stl, .fbx`,
   'log.batchStarted': ({ n }) => `Batch build: ${n} model(s) queued`,
   'log.batchDone': ({ ok, failed }) => `Batch build finished: ${ok} built, ${failed} failed`,
