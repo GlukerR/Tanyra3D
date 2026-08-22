@@ -376,6 +376,10 @@ async function rememberRun(sourceId: string, runId: string) {
 async function dropSource(id: string) {
   sourceUploads.delete(id);
   sourceRuns.delete(id);
+  // Учёт пачек ведётся отдельно от учёта исходников, и забыть его здесь значит оставить
+  // запись о папке, которой уже нет: следующая уборка пошла бы удалять пустоту, а
+  // счётчик брошенных пачек начал бы врать.
+  pendingPacks.delete(id);
   await fsp.rm(path.join(UPLOADS_DIR, id), { recursive: true, force: true }).catch(() => {});
   await fsp.rm(path.join(RESULTS_DIR, id), { recursive: true, force: true }).catch(() => {});
 }
@@ -402,10 +406,87 @@ const sourceBytes = async (id: string) =>
 /** Идёт ли по этому исходнику прогон прямо сейчас. Такой трогать нельзя — см. activeRuns. */
 const sourceBusy = (id: string) => [...activeRuns].some((key) => (key as string).startsWith(`${id}/`));
 
+// ---- Пачки, до которых модель ещё не доехала ----
+//
+// Найдено ревью 2026-08-21, подтверждено живым замером. Соседей `.gltf` клиент присылает
+// ПЕРВЫМИ, отдельными запросами на `/api/asset`, и папка пачки заводится сразу. Записи в
+// `sourceUploads` у неё в этот момент нет: она появится, только когда приедет сама модель.
+//
+// Пока её нет, папка невидима для уборки — `purgeBeyondLimit` ходит по `sourceUploads` и
+// про эту папку не знает НИЧЕГО. А человек до модели доезжает не всегда: переключился на
+// другую в списке (инспекция после `uploadPack` сама себя обрывает проверкой
+// `selectedFile !== file`), закрыл вкладку, оборвалась отправка одного из соседей.
+//
+// Дальше начинается худшее. Занятое место `workBytes` эти папки СЧИТАЕТ — и уборка,
+// пытаясь уложиться в потолок, стирает то единственное, до чего дотягивается: настоящие
+// модели человека. Замер на пяти брошенных пачках и трёх моделях: брошенных выжило 5 из 5,
+// моделей — 1 из 3. То есть уборка съела работу человека, оставив мусор, и до потолка так
+// и не дошла, потому что дойти не могла.
+//
+// Поэтому пачки без модели ведутся отдельным учётом. Брошенной считается та, в которую
+// давно не писали И в которую не пишут прямо сейчас: пачка из ста текстур едет минутами,
+// и убрать её на середине значило бы сломать законный порядок работы ради уборки.
+const pendingPacks = new Map<string, { touched: number }>();
+
+// Пачки, в которые пишут прямо сейчас. Тот же приём, что и `activeRuns`: занятое не
+// трогаем ни при каких обстоятельствах.
+const packWrites = new Map<string, number>();
+
+// Сколько пачка без модели ждёт своей модели, прежде чем её сочтут брошенной.
+//
+// Десять минут — это заведомо больше, чем занимает бросок папки: между двумя соседями
+// проходят миллисекунды, и `touched` обновляется на каждом. Меньше ставить нельзя —
+// человек вправе бросить папку, уйти за кофе и вернуться к незакрытой вкладке.
+//
+// Переменной задаётся по той же причине, что и остальные пределы (`TANYRA_WORK_LIMIT_BYTES`,
+// `TANYRA_MAX_BODY_BYTES`): код, который стирает файлы с чужого диска, обязан проверяться,
+// а десять минут в тесте не выждать.
+const PACK_IDLE_MS = (() => {
+  const n = Number(process.env.TANYRA_PACK_IDLE_MS);
+  return Number.isFinite(n) && n >= 0 ? n : 10 * 60_000;
+})();
+
+const touchPack = (id: string) => pendingPacks.set(id, { touched: Date.now() });
+
+/** Пачка получила свою модель — это больше не пачка-сирота, а обычный исходник. */
+const packBecameSource = (id: string) => { pendingPacks.delete(id); };
+
+/**
+ * Убрать всё, за чем никто не придёт.
+ *
+ * Два разных класса мусора, и оба до 2026-08-21 не убирались никогда:
+ *
+ *   1. Пачка без модели, в которую давно не пишут, — см. выше.
+ *   2. Папка на диске, которой нет НИ В ОДНОМ учёте. Взяться ей неоткуда, кроме нашей же
+ *      ошибки, — и ровно поэтому её надо убирать: учёт, который не сходится с диском,
+ *      молча копит гигабайты. На старте папка чистится целиком, так что пропустить чужое
+ *      мы тут не можем.
+ */
+async function sweepAbandoned() {
+  const now = Date.now();
+  for (const [id, info] of [...pendingPacks]) {
+    if (packWrites.get(id)) continue;                    // в неё пишут прямо сейчас
+    if (now - info.touched < PACK_IDLE_MS) continue;     // ещё ждём модель
+    await dropSource(id);
+  }
+  let onDisk: string[];
+  try { onDisk = await fsp.readdir(UPLOADS_DIR); } catch { return; }
+  for (const id of onDisk) {
+    if (sourceUploads.has(id) || pendingPacks.has(id) || packWrites.get(id)) continue;
+    await fsp.rm(path.join(UPLOADS_DIR, id), { recursive: true, force: true }).catch(() => {});
+    await fsp.rm(path.join(RESULTS_DIR, id), { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 // Оставить N самых свежих исходников, остальные стереть. Сравнение по seq, а не по
 // времени файла: две одновременные загрузки видели друг друга «старыми» и стирали
 // чужие каталоги, так что обе вкладки теряли исходник.
 async function purgeBeyondLimit() {
+  // ПЕРВЫМ делом — мусор, и только потом работа человека. Порядок здесь не украшение:
+  // пока брошенные пачки оставались на диске, они считались в занятое место, а стереть
+  // уборка могла только настоящие модели. Замер: 5 из 5 брошенных выжило, 2 из 3 моделей
+  // стёрлось, потолок так и остался пробит (ревью 2026-08-21).
+  await sweepAbandoned();
   const entries = [...sourceUploads.entries()].sort((a, b) => b[1].seq - a[1].seq);
   const kept: string[] = [];
   for (const [id] of entries) {
@@ -899,6 +980,7 @@ const server = http.createServer(async (req, res) => {
         // сам — этот путь давно работает, отдельного согласования тут не нужно.
         sourceUploads.clear();
         sourceRuns.clear();
+        pendingPacks.clear();
         await ensureEmptyDir(UPLOADS_DIR);
         await ensureEmptyDir(RESULTS_DIR);
         sendJSON(res, 200, { bytes: await workBytes() });
@@ -1192,11 +1274,28 @@ const server = http.createServer(async (req, res) => {
       }
 
       await fsp.mkdir(path.dirname(dest), { recursive: true });
+      // Пачка без модели живёт в своём учёте — иначе её не видит ни одна уборка.
+      // Отмечаем ДО приёма и ещё раз после: пока файл едет, папка защищена счётчиком
+      // `packWrites`, а `touched` не даёт счесть брошенной пачку, соседи которой
+      // приезжают по одному и долго.
+      const newPack = !sourceUploads.has(sourceId);
+      if (newPack) {
+        touchPack(sourceId);
+        packWrites.set(sourceId, (packWrites.get(sourceId) || 0) + 1);
+      }
       try {
         await streamBodyToFile(req, dest);
       } catch (e: any) {
         sendJSON(res, e.message === 'File too large' ? 413 : 400, { error: e.message });
         return;
+      } finally {
+        if (newPack) {
+          const left = (packWrites.get(sourceId) || 1) - 1;
+          if (left > 0) packWrites.set(sourceId, left); else packWrites.delete(sourceId);
+          // Пачка, у которой приём оборвался, тоже должна дождаться уборки, а не
+          // остаться навсегда: время отсчитывается от последней попытки, удачной или нет.
+          if (pendingPacks.has(sourceId)) touchPack(sourceId);
+        }
       }
       sendJSON(res, 200, { sourceId });
       return;
@@ -1232,6 +1331,8 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         sourceUploads.set(packParam, { uploadPath, name: fileName, seq: ++uploadSeq });
+        // Пачка дождалась своей модели — снимаем её с учёта брошенных.
+        packBecameSource(packParam);
         await purgeBeyondLimit();
         let packData;
         try {
@@ -1390,6 +1491,9 @@ const server = http.createServer(async (req, res) => {
         }
 
         sourceUploads.set(sourceId, { uploadPath, name: fileName, seq: ++uploadSeq });
+        // Та же пачка, но модель приехала сразу на сборку, минуя инспекцию
+        // (пакетный прогон): снять с учёта надо и здесь.
+        packBecameSource(sourceId);
         // новая модель → стереть данные предыдущих (не копим лишнее)
         await purgeBeyondLimit();
       }
@@ -1525,15 +1629,36 @@ const server = http.createServer(async (req, res) => {
         res.end('Result file not found');
         return;
       }
-      const data = await fsp.readFile(filePath);
+      // Файл уходит ПОТОКОМ, а не через память.
+      //
+      // Симметрия с приёмом, где это сделано 2026-08-19: там модель течёт на диск, а
+      // здесь до 2026-08-21 она по-прежнему читалась целиком в оперативную память ради
+      // одного `res.end(data)`. На модели в сто мегабайт (наша расчётная граница) это сто
+      // мегабайт всплеска на каждое скачивание — и на каждый показ собранной модели в
+      // правом окне, потому что просмотрщик берёт файл по этой же ссылке. То есть чаще,
+      // чем на «скачать»: человек нажимает «Собрать» и всплеск случается сразу.
+      //
+      // Размер берём у файла: длину ответа надо объявить до первого байта, иначе браузер
+      // не покажет ход загрузки.
+      const size = await fsp.stat(filePath).then((s) => s.size).catch(() => null);
+      if (size === null) {
+        res.writeHead(404);
+        res.end('Result file not found');
+        return;
+      }
       const name = chosenExportName(url.searchParams.get('name'), path.basename(filePath), '.glb');
       const asciiFallback = asciiHeaderName(name);
       res.writeHead(200, {
         'Content-Type': 'model/gltf-binary',
-        'Content-Length': data.length,
+        'Content-Length': size,
         'Content-Disposition': `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(name)}`,
       });
-      res.end(data);
+      const stream = fs.createReadStream(filePath);
+      // Оборвал человек скачивание — закрываем чтение, иначе поток дочитает файл до конца
+      // в никуда и подержит дескриптор.
+      res.on('close', () => stream.destroy());
+      stream.on('error', () => { res.destroy(); });
+      stream.pipe(res);
       return;
     }
 
