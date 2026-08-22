@@ -797,15 +797,35 @@ export class Viewer implements ViewerLike {
     }
     if (!Object.keys(maps).length) return;
 
-    // metalness и roughness у three.js — тоже МНОЖИТЕЛИ на свои карты. Оставить металл
-    // нулём значит выключить карту металла совсем (тот же дефект, что был на сервере).
-    const material = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      metalness: maps.metalnessMap ? 1 : 0,
-      roughness: 1,
-      ...maps,
-    });
-    if (maps.emissiveMap) material.emissive = new THREE.Color(0xffffff);
+    // МНОЖИТЕЛИ УСТУПАЮТ ТОЛЬКО СВОИМ КАРТАМ — то же правило, что на сервере, и по той
+    // же причине: у three.js color, roughness и metalness тоже УМНОЖАЮТСЯ на свои карты.
+    //
+    // Первая редакция заводила новый материал с нуля. Это гасило чёрный базовый цвет из
+    // Blender (хорошо, Александр этого и ждал) — но заодно стирало ВСЁ остальное, чего он
+    // менять не просил: свою шероховатость, свой металл, своё свечение. Приложив одну
+    // карту рельефа, человек терял настройки материала целиком.
+    //
+    // Поэтому берём материал автора и меняем в нём ровно те слоты, для которых карта
+    // нашлась. Клонируем, а не правим на месте: тот же материал может стоять и на других
+    // частях, которых наш набор не касается.
+    const patched = new Map<THREE.Material, THREE.Material>();
+    const patch = (src: THREE.Material): THREE.Material => {
+      const seen = patched.get(src);
+      if (seen) return seen;
+      const m = (src && (src as THREE.MeshStandardMaterial).isMeshStandardMaterial
+        ? (src.clone() as THREE.MeshStandardMaterial)
+        : new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0, roughness: 1 }));
+      if (maps.map) { m.map = maps.map; m.color = new THREE.Color(0xffffff); }
+      if (maps.normalMap) m.normalMap = maps.normalMap;
+      if (maps.roughnessMap) { m.roughnessMap = maps.roughnessMap; m.roughness = 1; }
+      if (maps.metalnessMap) { m.metalnessMap = maps.metalnessMap; m.metalness = 1; }
+      if (maps.aoMap) m.aoMap = maps.aoMap;
+      if (maps.emissiveMap) { m.emissiveMap = maps.emissiveMap; m.emissive = new THREE.Color(0xffffff); }
+      m.needsUpdate = true;
+      patched.set(src, m);
+      return m;
+    };
+
     scene.traverse((o: MaybeMesh) => {
       if (!o.isMesh) return;
       // aoMap в three.js читает ВТОРУЮ развёртку. У моделей из экспорта её обычно нет —
@@ -813,7 +833,9 @@ export class Viewer implements ViewerLike {
       if (maps.aoMap && o.geometry && !o.geometry.getAttribute('uv1') && o.geometry.getAttribute('uv')) {
         o.geometry.setAttribute('uv1', o.geometry.getAttribute('uv'));
       }
-      o.material = material;
+      o.material = Array.isArray(o.material)
+        ? (o.material as THREE.Material[]).map(patch)
+        : patch(o.material as THREE.Material);
     });
   }
 

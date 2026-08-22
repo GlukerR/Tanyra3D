@@ -129,20 +129,34 @@ export async function attachNeighbourTextures(doc: Document, srcPath: string, no
   // покрыта, знает только автор, а он про это молчит — материалов-то в файле нет.
   // Значит честный ответ один: набор общий, и он на всём.
   const material = root.listMaterials()[0] || doc.createMaterial('imported');
-  material.setMetallicFactor(0).setRoughnessFactor(1);
   for (const mesh of root.listMeshes()) {
     for (const prim of mesh.listPrimitives()) prim.setMaterial(material);
   }
-  // Цвет ставим белым, потому что цветом теперь работает КАРТА. В glTF множитель
-  // baseColorFactor умножается на неё, и оставить здесь серый (а три.js подставляет
-  // 0.8 серого всякому материалу, которого в FBX нет) значило бы притушить чужую
-  // текстуру на двадцать процентов — решение, которого не принимал никто.
-  material.setBaseColorFactor([1, 1, 1, 1]);
 
   const say = (slot: string, file: string) => note.attached.push({ slot, file: path.basename(file) });
 
+  // КАЖДЫЙ МНОЖИТЕЛЬ УСТУПАЕТ ТОЛЬКО СВОЕЙ КАРТЕ.
+  //
+  // Александр 2026-08-22: «на модели был чёрный бейсмат из блендера. но я добавил
+  // текстуры и он должен был пропасть… если в модели чёрный цвет и был рафнес 0.3, мы
+  // добавляем рафнес — и материал уже не 0.3, а текстура».
+  //
+  // В glTF множитель УМНОЖАЕТСЯ на карту, а не заменяется ею. Чёрный baseColorFactor
+  // из Blender умножал бы цветную карту на ноль: модель осталась бы чёрной, а карта в
+  // метаданных значилась бы честно. Ровно тот же дефект, что был с металличностью.
+  //
+  // Но правило работает и в обратную сторону, и это важнее. Раньше здесь стояло
+  // безусловное «цвет белый, шероховатость 1, металл 0» — то есть, приложив ОДНУ карту
+  // рельефа, человек терял и свой чёрный цвет, и свои 0.3 шероховатости. Мы стирали
+  // значения автора, которых он нам менять не поручал.
+  //
+  // Поэтому: карта есть — множитель уступает; карты нет — множитель НЕ ТРОГАЕМ.
   const base = found.get('baseColor');
-  if (base) { material.setBaseColorTexture(await texOf(base)); say('baseColor', base); }
+  if (base) {
+    material.setBaseColorTexture(await texOf(base));
+    material.setBaseColorFactor([1, 1, 1, 1]);
+    say('baseColor', base);
+  }
 
   const normal = found.get('normal');
   if (normal) { material.setNormalTexture(await texOf(normal)); say('normal', normal); }
@@ -175,6 +189,8 @@ export async function attachNeighbourTextures(doc: Document, srcPath: string, no
       // должен пропускать её как есть.
       if (orm[2]) material.setMetallicFactor(1);
       if (orm[1]) material.setRoughnessFactor(1);
+      // Затенению множителя в glTF не полагается — только сила (occlusionStrength),
+      // и её умолчание уже единица. Трогать нечего.
       for (const [i, k] of ['occlusion', 'roughness', 'metallic'].entries()) {
         if (orm[i]) say(k, orm[i]!);
       }
