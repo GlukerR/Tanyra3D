@@ -78,7 +78,8 @@
   const lodSel = $('lod-select') as HTMLSelectElement;
   const variantControls = $('variant-controls');
   const variantSel = $('variant-select') as HTMLSelectElement;
-  const displaySel = $('display-select') as HTMLSelectElement;
+  const displayFileBtn = $('display-file');
+  const displayClayBtn = $('display-clay');
   const lightControls = $('light-controls');
   const lightSel = $('light-select') as HTMLSelectElement;
   const cameraControls = $('camera-controls');
@@ -1732,6 +1733,31 @@
   const IMAGE_RE = /\.(png|jpe?g|webp)$/i;
 
   /**
+   * Назначения карт по имени файла — ТА ЖЕ таблица, что у движка в
+   * `addons/gltf/import-textures.mts`. Копия здесь не по лени: слой интерфейса не имеет
+   * права импортировать `addons/` (§2.4, `tests/architecture/layer-boundaries.test.mjs`),
+   * а знать назначение он обязан — иначе не поймёт, какую карту новая заменяет.
+   *
+   * Расхождение двух таблиц стерегут тестом: разошлись — интерфейс выбросит не ту карту,
+   * и человек этого не увидит, пока не соберёт.
+   */
+  const TEXTURE_SLOTS: Array<{ slot: string; re: RegExp }> = [
+    { slot: 'baseColor', re: /(basecolor|base_color|albedo|diffuse|_col(our)?[._-]|_d\.)/i },
+    { slot: 'normal', re: /(normal|_nrm[._-]|_n\.)/i },
+    { slot: 'roughness', re: /(rough|_rgh[._-])/i },
+    { slot: 'metallic', re: /(metal|_mtl[._-])/i },
+    { slot: 'occlusion', re: /((^|[._-])ao([._-]|$)|occlusion|ambient)/i },
+    { slot: 'emissive', re: /(emissi|_emit[._-])/i },
+  ];
+
+  /** Назначение карты по имени файла; null — имя ни о чём не говорит. */
+  function slotOf(filePath: string): string | null {
+    const base = String(filePath).slice(String(filePath).lastIndexOf('/') + 1);
+    for (const { slot, re } of TEXTURE_SLOTS) if (re.test(base)) return slot;
+    return null;
+  }
+
+  /**
    * Бросок БЕЗ модели, но с картинками — «добавь эти карты вот к той, что открыта».
    *
    * ПОВОД (Александр, 2026-08-22): «я перетягиваю папку с текстурами во вьюпорт.
@@ -1749,16 +1775,46 @@
   function attachTextures(rec: ModelEntry, images: DroppedFile[]) {
     const have = new Set(rec.pack.map((a) => String(a.path).toLowerCase()));
     let added = 0;
+    const replacing = new Set<string>();
     for (const img of images) {
       const key = String(img.path).toLowerCase();
       if (have.has(key)) continue;
       have.add(key);
+      const slot = slotOf(img.path);
+      if (slot) replacing.add(slot);
       rec.pack.push({ path: img.path, file: img.file });
       added++;
     }
     if (!added) {
       logMessage('info', t('log.texturesAlready', { name: rec.file.name }));
       return;
+    }
+
+    // НОВАЯ КАРТА ВЫТЕСНЯЕТ ПРЕЖНЮЮ ТОГО ЖЕ НАЗНАЧЕНИЯ.
+    //
+    // ДЕФЕКТ, найденный Александром 2026-08-22: «Если снова забрасывается бейс колор, то
+    // модель не меняется и текстура не заменяется а остаётся первая. должна заменяться.
+    // При этом текстур хоть сколько закидываешь они все остаются висеть слева в
+    // аутлайнере… и увеличивают вес модели постоянно».
+    //
+    // Обе половины — одна причина. Движок берёт ПЕРВУЮ карту, подошедшую под назначение,
+    // значит вторая молча не действовала; а лежать в пачке она продолжала, уезжала на
+    // сервер и попадала в файл. Человек видел растущий вес и неизменную картинку — то
+    // есть худшее из двух: заплатил и не получил.
+    //
+    // Выбрасываем только то, что бросили РАНЬШЕ и того же назначения. Прочие файлы пачки
+    // (сама модель, `.bin`, карты других слотов) не трогаем.
+    let dropped = 0;
+    if (replacing.size) {
+      const fresh = new Set(images.map((i) => String(i.path).toLowerCase()));
+      rec.pack = rec.pack.filter((a) => {
+        const p = String(a.path);
+        if (fresh.has(p.toLowerCase()) || !IMAGE_RE.test(p)) return true;
+        const slot = slotOf(p);
+        if (!slot || !replacing.has(slot)) return true;
+        dropped++;
+        return false;
+      });
     }
 
     // Папка на сервере собрана без этих файлов — значит её надо завести заново.
@@ -1769,6 +1825,8 @@
 
     chosenFileLabel.textContent = '';
     logMessage('info', t('log.texturesAttached', { n: added, name: rec.file.name }));
+    // Одна строка на класс случаев, а не строка на выброшенный файл (Правило 9).
+    if (dropped) logMessage('info', t('log.texturesReplaced', { n: dropped }));
     renderModelList();
     // Показать заново: у вьюпорта теперь есть чем закрыть недостающие адреса.
     if (rec.id === activeModelId) void loadActive(rec);
@@ -5279,25 +5337,33 @@
   // Значок стоит ВСЕГДА, в отличие от соседних. Свет, камеры и уровни появляются только
   // там, где автор их положил, — а глиной можно посмотреть любую модель, в том числе
   // текстурированную: иногда именно так и проверяют геометрию.
+  /**
+   * Два шарика, как в Blender: материалы из файла и глина. Выбран всегда ровно один.
+   *
+   * Александр 2026-08-22: «Можно сделать как в блендере 2 шарика… что бы уж точно понятно
+   * и нативно было». До этого здесь стояла полочка со списком из двух строк — два нажатия
+   * там, где хватает одного, и ни одного намёка снаружи, что там вообще выбор.
+   *
+   * Подписи стоят В РАЗМЕТКЕ и не меняются: у каждой кнопки своё постоянное имя. Это и
+   * есть разница между переключателем из двух положений и одной кнопкой-тумблером —
+   * у второй подпись пришлось бы переписывать из кода на каждое нажатие.
+   */
   function refreshDisplayUI() {
-    if (!displaySel || !window.OptiViewer || !window.OptiViewer.getDisplayMaterial) return;
-    if (!displaySel.dataset.filled) {
-      displaySel.dataset.filled = '1';
-      for (const mode of ['file', 'clay']) {
-        const opt = document.createElement('option');
-        opt.value = mode;
-        setText(opt, mode === 'file' ? 'viewer.display.file' : 'viewer.display.clay');
-        displaySel.appendChild(opt);
-      }
+    if (!displayFileBtn || !displayClayBtn) return;
+    if (!window.OptiViewer || !window.OptiViewer.getDisplayMaterial) return;
+    const clay = window.OptiViewer.getDisplayMaterial() === 'clay';
+    for (const [btn, on] of [[displayFileBtn, !clay], [displayClayBtn, clay]] as const) {
+      btn.classList.toggle('is-on', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     }
-    const now = window.OptiViewer.getDisplayMaterial();
-    if (displaySel.value !== now) displaySel.value = now;
   }
 
-  if (displaySel) {
-    displaySel.addEventListener('change', () => {
+  for (const [btn, mode] of [[displayFileBtn, 'file'], [displayClayBtn, 'clay']] as const) {
+    if (!btn) continue;
+    btn.addEventListener('click', () => {
       if (!window.OptiViewer) return;
-      window.OptiViewer.setDisplayMaterial(displaySel.value === 'clay' ? 'clay' : 'file');
+      window.OptiViewer.setDisplayMaterial(mode);
+      refreshDisplayUI();
     });
   }
 

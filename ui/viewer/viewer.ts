@@ -360,8 +360,11 @@ export class Viewer implements ViewerLike {
   declare _display: 'file' | 'clay';
   /** Родные материалы мешей на время показа глиной. Ключ — меш, значение — что было. */
   declare _origMaterials: Map<THREE.Mesh, THREE.Material | THREE.Material[]>;
-  /** Глина по значению `side`: у двусторонних деталей своя, иначе силуэт врёт. */
-  declare _clay: Map<THREE.Side, THREE.MeshMatcapMaterial>;
+  /**
+   * Глина по паре «`side` + цвет автора»: у двусторонних деталей своя, иначе силуэт врёт,
+   * а цвет автора глина не стирает и потому входит в ключ. См. `_clayFor`.
+   */
+  declare _clay: Map<string, THREE.MeshMatcapMaterial>;
   /** Картинка шара для глины. Рисуется один раз при первом показе. */
   declare _clayMap?: THREE.Texture | null;
   /** Габарит модели для глубинного затемнения глины: центр и радиус. */
@@ -611,13 +614,37 @@ export class Viewer implements ViewerLike {
     return this._display;
   }
 
-  _clayFor(side: THREE.Side) {
-    let mat = this._clay.get(side);
+  /**
+   * Глина для одной детали — с ЦВЕТОМ АВТОРА, если он его задал.
+   *
+   * ДЕФЕКТ, найденный Александром 2026-08-22 на его же модели `gluke-purple.glb`:
+   * «с моей модели на которой был 1 цвет (фиолетовый) спал полностью этот цвет. цвета и
+   * материалы которые встроены в модель без текстур не должны сами собой пропадать
+   * и/или заменяться на глину».
+   *
+   * Он прав, и ошибка была в самой посылке. Глина заводилась под мысль «нет текстур —
+   * значит и цвета нет, экспортёр оставил белое по умолчанию». У его модели текстур нет,
+   * а цвет есть: `baseColorFactor` фиолетовый, шероховатость 0,55, металличность 0,05.
+   * Всё это автор задал руками — и мы стирали его работу, не спросив.
+   *
+   * Починка не «отключить глину», а перестать ею ЗАМЕЩАТЬ. `MeshMatcapMaterial.color`
+   * умножается на картинку шара: глина даёт форму, цвет остаётся авторский. У модели, где
+   * цвета и правда нет, множитель — белый, то есть глина выходит ровно прежней.
+   *
+   * Чего маткап показать не может — шероховатость и металличность: у него нет таких
+   * величин вовсе. Это цена режима показа, а не потеря: в файле они целы, и «Материалы из
+   * файла» возвращает их одним переключением.
+   */
+  _clayFor(side: THREE.Side, source?: THREE.Material | null) {
+    const tint = (source as THREE.MeshStandardMaterial | undefined)?.color;
+    const hex = tint ? tint.getHex() : 0xffffff;
+    const key = `${side}:${hex}`;
+    let mat = this._clay.get(key);
     if (!mat) {
       // Картинка шара одна на все материалы: она не зависит ни от чего, кроме себя.
       if (!this._clayMap) this._clayMap = makeClayMatcap();
-      mat = new THREE.MeshMatcapMaterial({ matcap: this._clayMap, side });
-      this._clay.set(side, mat);
+      mat = new THREE.MeshMatcapMaterial({ matcap: this._clayMap, side, color: hex });
+      this._clay.set(key, mat);
     }
     return mat;
   }
@@ -670,7 +697,7 @@ export class Viewer implements ViewerLike {
         const mesh = o as unknown as THREE.Mesh;
         if (!this._origMaterials.has(mesh)) this._origMaterials.set(mesh, o.material!);
         const first = Array.isArray(o.material) ? o.material[0] : o.material;
-        o.material = this._clayFor(first ? first.side : THREE.FrontSide);
+        o.material = this._clayFor(first ? first.side : THREE.FrontSide, first);
       });
       this._updateClayDepth();
       return;
