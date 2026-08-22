@@ -711,7 +711,24 @@ export const RULES: GltfRule[] = [
       const root = ctx.document.getRoot();
       const semBefore = listSemantics(ctx.document);
       const b = { tex: root.listTextures().length, mat: root.listMaterials().length, skins: root.listSkins().length, effSkins: effectiveSkins(ctx.document) };
-      await ctx.document.transform(fns.prune({ keepAttributes: false, keepLeaves: false }));
+      // РАЗВЁРТКУ НЕ ВЫБРАСЫВАЕМ У МОДЕЛИ БЕЗ ТЕКСТУР.
+      //
+      // Чистка считает атрибут лишним, если на него не ссылается ни один материал. Для
+      // модели с текстурами это верно: восьмой UV-канал, которого не касается ни одна
+      // карта, — мусор экспорта. Но если текстур в файле НЕТ ВОВСЕ, ссылаться на развёртку
+      // просто нечему, и «не используется» значит «пока не используется», а не «не нужна».
+      //
+      // Замер 2026-08-22 на FBX Александра (CCR1072, экспортирован без материалов):
+      // атрибуты до NORMAL,POSITION,TEXCOORD_0 → после NORMAL,POSITION. Развёртка,
+      // сделанная автором руками, уничтожалась молча — и приложить к модели текстуры после
+      // этого стало нельзя вообще. Ровно то, ради чего он и просил ввоз FBX.
+      //
+      // Развёртка — замысел автора наравне с уровнями детализации (Правило 11), а сомнение
+      // здесь решается в пользу сохранности. Цена признана и мала: у модели без единой
+      // текстуры вместе с развёрткой уцелеют и другие атрибуты, на которые никто не
+      // ссылается. Как только текстура появляется, чистка снова работает в полную силу.
+      const noTextures = root.listTextures().length === 0;
+      await ctx.document.transform(fns.prune({ keepAttributes: noTextures, keepLeaves: false }));
       const semAfter = listSemantics(ctx.document);
       const a = { tex: root.listTextures().length, mat: root.listMaterials().length, skins: root.listSkins().length, effSkins: effectiveSkins(ctx.document) };
       const out: { found: Message[]; details: Message[] } = { found: [], details: [] };
@@ -1421,7 +1438,13 @@ export const RULES: GltfRule[] = [
     async fix(finding, ctx) {
       const root = ctx.document.getRoot();
       const b = root.listAccessors().length;
-      await ctx.document.transform(fns.prune()); // как в v2: подчистка после всех проходов
+      // Та же оговорка, что у structure/prune-unused, и по той же причине: у модели БЕЗ
+      // текстур ссылаться на развёртку нечему, и «не используется» здесь означает «пока
+      // не используется». Без этой строки развёртка Александрова FBX уносилась здесь —
+      // и уносилась МОЛЧА, потому что финальная чистка отчитывается блоками данных, а не
+      // атрибутами. Первая правка (в prune-unused) сделала потерю тихой, а не убрала её.
+      const keepAttributes = ctx.document.getRoot().listTextures().length === 0;
+      await ctx.document.transform(fns.prune({ keepAttributes })); // как в v2: подчистка после всех проходов
       const a = root.listAccessors().length;
       if (b > a) return { details: [{ messageId: 'pruneFinal.done', data: { n: b - a } }] };
       return {};
