@@ -1081,28 +1081,101 @@ export const RULES: GltfRule[] = [
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
     canFix() { return { safe: true, messageId: 'degenerate.safe', data: {} }; },
     fix(finding, ctx) {
-      // два/три одинаковых индекса = нулевая площадь; считаем ПОСЛЕ weld (он их порождает).
-      // Итог меряем дельтой по сцене: правка общего аксессора действует на все его инстансы.
+      // Вырожденный треугольник — тот, у которого два угла стоят в ОДНОЙ ТОЧКЕ. Площадь
+      // нулевая, видеокарта не закрашивает ни одного пикселя, на картинке его нет.
+      //
+      // Совпадение бывает двух видов, и до 2026-08-22 мы ловили только первый:
+      //
+      //   1. ОДИН И ТОТ ЖЕ индекс дважды в тройке. Это порождает сам weld: он склеивает
+      //      одинаковые вершины, и треугольник, у которого две вершины были одинаковы,
+      //      схлопывается в отрезок.
+      //   2. РАЗНЫЕ индексы, но одинаковая позиция. Weld такие НЕ склеивает: у вершин
+      //      различаются нормаль или развёртка, и как вершины они разные. А как углы
+      //      треугольника — одна точка.
+      //
+      // Второй вид пропускался, и его находил уже кодировщик Draco: он выбрасывает такие
+      // треугольники сам, на записи. Отсюда брался испуг в отчёте — «нарушение гарантии
+      // компонента», хотя ничего не ломалось. ЗАМЕР 2026-08-22 по 61 настоящей модели:
+      // теряли треугольники 15 штук, и потеря СОВПАДАЛА с числом вырожденных до единицы
+      // (Whatsminer 17560 из 116399, «Ноутбук» 8420, Е300 405 = 213 по индексам + 192 по
+      // позициям). От числа бит квантования потеря не зависит — значит дело не в сетке
+      // кодека, а в этих самых треугольниках. Убрали их здесь — Draco не теряет ничего.
+      //
+      // Считаем ПОСЛЕ weld (он порождает первый вид). Итог меряем дельтой по сцене:
+      // правка общего аксессора действует на все его инстансы.
       const trisBefore = countTriangles(ctx.document);
-      const patched = new Set();
+      const prims = [];
+      const shareCount = new Map<object, number>();
       for (const mesh of ctx.document.getRoot().listMeshes()) {
         for (const prim of mesh.listPrimitives()) {
           if (prim.getMode() !== 4) continue; // только TRIANGLES
           const indices = prim.getIndices();
-          if (!indices || patched.has(indices)) continue;
-          // `!` вместо проверок: getArray() у аксессора с индексами непустой — сюда
-          // не доходят примитивы без индексов (см. проверку выше). Конструктор берётся
-          // у самого массива, чтобы сохранить его тип (Uint16Array/Uint32Array), —
-          // приведение нужно только компилятору, в собранном коде его нет.
-          const arr = indices.getArray()!;
-          const out: number[] = [];
-          for (let i = 0; i + 2 < arr.length; i += 3) {
-            const a = arr[i], b = arr[i + 1], c = arr[i + 2];
-            if (a !== b && b !== c && a !== c) out.push(a!, b!, c!);
-          }
-          if (out.length < arr.length) indices.setArray(new (arr.constructor as Uint32ArrayConstructor)(out));
-          patched.add(indices); // общий аксессор не обрабатываем дважды
+          if (!indices) continue;
+          prims.push(prim);
+          shareCount.set(indices, (shareCount.get(indices) || 0) + 1);
         }
+      }
+      const patched = new Set();
+      for (const prim of prims) {
+        const indices = prim.getIndices()!;
+        // Позиции читаем на КАЖДЫЙ примитив: совпадение точек — свойство его вершин, а не
+        // индексов. Общий индексный аксессор у примитивов с разными вершинами — законная
+        // разметка, и резать его по чужим позициям нельзя (ниже он для этого клонируется).
+        const pos = prim.getAttribute('POSITION');
+        const p = pos ? pos.getArray() : null;
+        // Морфы: вершина, стоящая в одной точке с соседней в базовой позе, под морфом
+        // расходится — треугольник оживает. Такие не трогаем, только повтор индекса.
+        const morphed = prim.listTargets().length > 0;
+        const joints = prim.getAttribute('JOINTS_0');
+        const weights = prim.getAttribute('WEIGHTS_0');
+        // Скин: то же самое, но расхождение даёт не морф, а кость. Совпадение позиций
+        // считается только когда обе вершины привязаны одинаково — тогда они и в анимации
+        // останутся одной точкой.
+        const rigSame = (a: number, b: number): boolean => {
+          for (const acc of [joints, weights]) {
+            if (!acc) continue;
+            const arr = acc.getArray();
+            if (!arr) continue;
+            const n = acc.getElementSize();
+            for (let c = 0; c < n; c++) if (arr[a * n + c] !== arr[b * n + c]) return false;
+          }
+          return true;
+        };
+        const onePoint = (a: number, b: number): boolean => {
+          if (a === b) return true;
+          if (!p || morphed) return false;
+          if (p[a * 3] !== p[b * 3] || p[a * 3 + 1] !== p[b * 3 + 1] || p[a * 3 + 2] !== p[b * 3 + 2]) return false;
+          return rigSame(a, b);
+        };
+        // Аксессор, общий с другим примитивом, режется ТОЛЬКО по повторяющемуся индексу —
+        // этот признак от вершин не зависит и у всех совладельцев одинаков. Всё остальное
+        // требует своей копии, иначе рез по позициям одного примитива выкосит треугольники
+        // у другого, у которого те же индексы указывают на другие точки.
+        const sharedAccessor = (shareCount.get(indices) || 1) > 1;
+        // `!` вместо проверок: getArray() у аксессора с индексами непустой — сюда
+        // не доходят примитивы без индексов (см. проверку выше). Конструктор берётся
+        // у самого массива, чтобы сохранить его тип (Uint16Array/Uint32Array), —
+        // приведение нужно только компилятору, в собранном коде его нет.
+        const arr = indices.getArray()!;
+        const out: number[] = [];
+        let cutByPosition = false;
+        for (let i = 0; i + 2 < arr.length; i += 3) {
+          const a = arr[i]!, b = arr[i + 1]!, c = arr[i + 2]!;
+          if (a === b || b === c || a === c) continue;
+          if (onePoint(a, b) || onePoint(b, c) || onePoint(a, c)) { cutByPosition = true; continue; }
+          out.push(a, b, c);
+        }
+        if (out.length === arr.length) { patched.add(indices); continue; }
+        if (sharedAccessor && cutByPosition) {
+          // Своя копия — чужие примитивы с тем же аксессором остаются как были.
+          const own = indices.clone();
+          own.setArray(new (arr.constructor as Uint32ArrayConstructor)(out));
+          prim.setIndices(own);
+          continue;
+        }
+        if (patched.has(indices)) continue; // общий аксессор не режем дважды
+        indices.setArray(new (arr.constructor as Uint32ArrayConstructor)(out));
+        patched.add(indices);
       }
       const sceneRemoved = trisBefore - countTriangles(ctx.document);
       ctx.cache.set('degenerateRemoved', sceneRemoved); // для инварианта по треугольникам

@@ -166,14 +166,18 @@ describe('Draco — golden corpus', () => {
 describeInput('Draco — input folder (first 10 models)', () => {
   const inputModels = readInputModels({ limit: 10, ext: ['.glb'] });
 
-  // Known-failing для Draco: некоторые модели не поддерживают Draco-кодирование
-  // (обычно из-за особенностей геометрии: non-triangle примитивы, нестандартные
-  // accessor types, mesh с без-индексной геометрией)
+  // Здесь до 2026-08-22 лежали четыре модели с подписью «не поддерживают Draco-кодирование
+  // (non-triangle примитивы, нестандартные accessor types, без-индексная геометрия)».
+  // Подпись была догадкой и оказалась неверной: три из четырёх падали на нашем дефекте —
+  // мы не убирали треугольники нулевой площади, кодировщик выбрасывал их сам, и сверка
+  // baseline-checkpoint объявляла нарушение гарантии. После правила по совпадающим точкам
+  // все три дают status:'ok' («1 (2)» и «2 (2)» — минус 10 вырожденных, «2 (3)» — минус
+  // 3026). Разбор целиком — в tests/degenerate-triangles.test.mjs.
+  //
+  // Четвёртой, '1_Flowers_GLB.glb', на диске нет, и в первую десятку она не попадает —
+  // проверить её было нечем. Оставлена как есть, а не вычеркнута по догадке.
   const DRACO_FAILING = new Set([
-    '1 (2).glb',
     '1_Flowers_GLB.glb',
-    '2 (2).glb',
-    '2 (3).glb',
   ]);
   const KNOWN_FAILING = new Set(['decepticon_fighter.glb', 'uttvm_core_guard.glb']);
   const models = inputModels.filter((m) => !KNOWN_FAILING.has(m));

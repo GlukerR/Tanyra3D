@@ -81,7 +81,7 @@ export default {
   'weld.done': ({ before, after }) => `Vertex weld: ${before} → ${after}`,
 
   // --- geometry/degenerate-triangles ---
-  'degenerate.safe': () => 'a triangle with a repeated index has zero area and is not drawn',
+  'degenerate.safe': () => 'a triangle with two corners in the same spot has zero area and is not drawn',
   'degenerate.found': ({ n }) => `degenerate triangles (zero area): ${n}`,
   'degenerate.done': ({ n }) => `Degenerate triangles: removed ${n} (zero area, had no render effect)`,
 
