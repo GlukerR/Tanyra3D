@@ -283,17 +283,36 @@ describe('контракт пережил перевод на TypeScript', () =>
 
   it('сверка baseline ведёт себя как прежде', async () => {
     const { compareBaseline } = await import('../core/contract.mjs');
+    // Строка успеха перечисляла ключи ('baseline-checkpoint: структура (triangles,
+    // vertices, …)'). 2026-08-22 перечень ушёл в журнал, человеку осталась одна фраза —
+    // поэтому data пустая.
     const same = compareBaseline({ t: 1 }, { t: 1 }, ['t']);
-    expect(same).toEqual([{ level: 'pass', messageId: 'check.baselineMatch', data: { keys: 't' } }]);
+    expect(same).toEqual([{ level: 'pass', messageId: 'check.baselineMatch', data: {} }]);
 
-    const hard = compareBaseline({ t: 1 }, { t: 2 }, ['t']);
+    const logged = [];
+    const hard = compareBaseline({ t: 1 }, { t: 2 }, ['t'], { log: (m) => logged.push(m) });
     expect(hard[0].level).toBe('fail');
     expect(hard[0].messageId).toBe('check.baselineHardMismatch');
-    // Причина — вложенное сообщение, а не склеенная строка (Правило 8).
-    expect(hard[0].data.cause.messageId).toBe('check.cause.writeOnly');
+    // Разбор («вероятная причина», ссылка на документацию компонентов) с 2026-08-22 идёт
+    // В ЖУРНАЛ, а не в отчёт: человеку он помочь не мог, а пугал исправно. Сторож следит,
+    // чтобы разбор не пропал совсем — иначе разбирать настоящую поломку станет нечем.
+    expect(hard[0].data.cause, 'причина вернулась в отчёт').toBeUndefined();
+    expect(
+      logged.some((m) => m.includes('HARD MISMATCH') && m.includes('likely cause')),
+      'разбор не попал ни в отчёт, ни в журнал — он исчез',
+    ).toBe(true);
 
-    const soft = compareBaseline({ v: 1 }, { v: 2 }, ['v'], { soft: new Set(['v']) });
+    const soft = compareBaseline({ vertices: 1 }, { vertices: 2 }, ['vertices'], { soft: new Set(['vertices']) });
     expect(soft[0].level).toBe('info');
     expect(soft[0].messageId).toBe('check.baselineSoftMismatch');
+    // Имя метрики — рецепт, а не английский идентификатор: человек читал «vertices
+    // изменился при кодировании» буквально, английским словом в русской фразе.
+    expect(soft[0].data.k, 'имя метрики снова подставляется как есть').toEqual({
+      messageId: 'metric.vertices', data: {},
+    });
+    // Метрику, которой в таблице имён нет, подставляем КАК ЕСТЬ: набор метрик задаёт
+    // аддон, и ронять чужую сборку из-за неназванной — цена не по проступку.
+    const odd = compareBaseline({ zzz: 1 }, { zzz: 2 }, ['zzz'], { soft: new Set(['zzz']) });
+    expect(odd[0].data.k).toBe('zzz');
   });
 });

@@ -82,11 +82,21 @@ describeInput('Input folder — safe cleanup (core invariant)', () => {
       });
 
       if (result.status === 'ok') {
-        // Core invariant: triangles stay ≈ same (degenerate removal is normal)
-        const delta = Math.abs(result.metrics.after.triangles - result.metrics.before.triangles);
-        // Допуск 5000: input-модели могут иметь много вырожденных треугольников
-        // (напр. Ноутбук.glb удаляет 2264, 2 (3).glb — 1546)
-        expect(delta).toBeLessThanOrEqual(5000);
+        // Треугольников может стать МЕНЬШЕ: вырожденные (два угла в одной точке) убираются,
+        // и на продакшен-моделях их бывает много — Whatsminer теряет 17560 из 116399, и это
+        // правда о файле, а не о нашей работе (tests/degenerate-triangles.test.mjs).
+        //
+        // Здесь до 2026-08-22 стоял порог в абсолютных числах. Он не проверял ничего: правду
+        // он терпел до очередного файла, а неправду пропускал, пока она укладывалась в число.
+        // Настоящий инвариант в двух частях, и обе движок считает сам:
+        //   1. треугольников не ПРИБАВИЛОСЬ — рост в этом пути означал бы поломку;
+        //   2. убыль ОБЪЯСНЕНА — движок называет её вырожденными или говорит, что не менялось.
+        // Необъяснённая убыль даёт check.trianglesMismatch уровня fail, а его ловит строка ниже.
+        expect(result.metrics.after.triangles, 'треугольников стало больше — этого быть не может')
+          .toBeLessThanOrEqual(result.metrics.before.triangles);
+        const explained = result.validation.some((v) => v.i18n?.text?.messageId === 'check.trianglesDropped'
+          || v.i18n?.text?.messageId === 'check.trianglesUnchanged');
+        expect(explained, 'убыль треугольников ничем не объяснена').toBe(true);
         // applied.length может быть 0 на уже-чистых моделях (safe нашёл нечего чистить) —
         // это корректное поведение opt-in. Главный инвариант — safe НЕ ломает валидацию.
         expect(result.validation.some((v) => v.level === 'fail')).toBe(false);

@@ -392,10 +392,21 @@ describe('Post-GAP-005 corpus — клиентские модели, KTX2 gracef
           dryRun: true,
         });
         expect(result.status).toBe('ok');
-        const delta = Math.abs(result.metrics.after.triangles - result.metrics.before.triangles);
-        // Клиентские модели — реальный продакшен; деградация треугольников
-        // под safe должна быть минимальной (допуск по большим моделям).
-        expect(delta).toBeLessThanOrEqual(5000);
+        // Треугольников может стать МЕНЬШЕ: вырожденные (два угла в одной точке) убираются,
+        // и на продакшен-моделях их бывает много — Whatsminer теряет 17560 из 116399, и это
+        // правда о файле, а не о нашей работе (tests/degenerate-triangles.test.mjs).
+        //
+        // Здесь до 2026-08-22 стоял порог в абсолютных числах. Он не проверял ничего: правду
+        // он терпел до очередного файла, а неправду пропускал, пока она укладывалась в число.
+        // Настоящий инвариант в двух частях, и обе движок считает сам:
+        //   1. треугольников не ПРИБАВИЛОСЬ — рост в этом пути означал бы поломку;
+        //   2. убыль ОБЪЯСНЕНА — движок называет её вырожденными или говорит, что не менялось.
+        // Необъяснённая убыль даёт check.trianglesMismatch уровня fail, а его ловит строка ниже.
+        expect(result.metrics.after.triangles, 'треугольников стало больше — этого быть не может')
+          .toBeLessThanOrEqual(result.metrics.before.triangles);
+        const explained = result.validation.some((v) => v.i18n?.text?.messageId === 'check.trianglesDropped'
+          || v.i18n?.text?.messageId === 'check.trianglesUnchanged');
+        expect(explained, 'убыль треугольников ничем не объяснена').toBe(true);
         expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
       });
 
@@ -413,16 +424,21 @@ describe('Post-GAP-005 corpus — клиентские модели, KTX2 gracef
         });
 
         if (result.status === 'ok') {
-          // Под ['safe','ktx2'] welding на продакшен-моделях удаляет
-          // вырожденные треугольники — это нормальная часть safe-cleanup.
-          // Измерено на коммите dbf6513: E300 triΔ=-213, Production Draco Webp 01 triΔ=-66,
-          // Production Many Materials 01 triΔ=-7. Sentinel: |after - before| <= 250 — перекрывает
-          // текущие weld-потери и срабатывает на внезапный рост или полную
-          // потерю геометрии (бывшее симметричное ratio 0.95..1.05 имело
-          // dead-tolerance в верхней половине: рост треугольников в этом
-          // code-path никогда не наблюдался).
-          const triDelta = Math.abs(result.metrics.after.triangles - result.metrics.before.triangles);
-          expect(triDelta).toBeLessThanOrEqual(250);
+          // Треугольников может стать МЕНЬШЕ: вырожденные (два угла в одной точке) убираются,
+          // и на продакшен-моделях их бывает много — Whatsminer теряет 17560 из 116399, и это
+          // правда о файле, а не о нашей работе (tests/degenerate-triangles.test.mjs).
+          //
+          // Здесь до 2026-08-22 стоял порог в абсолютных числах. Он не проверял ничего: правду
+          // он терпел до очередного файла, а неправду пропускал, пока она укладывалась в число.
+          // Настоящий инвариант в двух частях, и обе движок считает сам:
+          //   1. треугольников не ПРИБАВИЛОСЬ — рост в этом пути означал бы поломку;
+          //   2. убыль ОБЪЯСНЕНА — движок называет её вырожденными или говорит, что не менялось.
+          // Необъяснённая убыль даёт check.trianglesMismatch уровня fail, а его ловит строка ниже.
+          expect(result.metrics.after.triangles, 'треугольников стало больше — этого быть не может')
+            .toBeLessThanOrEqual(result.metrics.before.triangles);
+          const explained = result.validation.some((v) => v.i18n?.text?.messageId === 'check.trianglesDropped'
+            || v.i18n?.text?.messageId === 'check.trianglesUnchanged');
+          expect(explained, 'убыль треугольников ничем не объяснена').toBe(true);
         } else if (result.status === 'fail') {
           // Должен быть внятный маркер про отсутствие toktx в PATH.
           // Подстроки проверяем гибко — язык/фразировка может меняться.
