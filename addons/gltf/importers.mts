@@ -22,6 +22,8 @@ import { Document } from '@gltf-transform/core';
 import { render } from '../../core/i18n.mjs';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { importFbx } from './import-fbx.mjs';
+import { emptyNote, importNote, setImportNote } from './import-notes.mjs';
+import { attachNeighbourTextures } from './import-textures.mjs';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 
 /**
@@ -195,18 +197,27 @@ function plyFaceCount(buf: ArrayBuffer): number {
  * Прочитать чужой формат и отдать обычный документ glTF. Дальше конвейер не отличает его
  * от модели, приехавшей в `.glb`.
  */
-export function importForeign(srcPath: string): Document {
+export async function importForeign(srcPath: string): Promise<Document> {
   const ext = path.extname(srcPath).toLowerCase().replace(/^\./, '');
   const format = ext.toUpperCase();
   const buf = readArrayBuffer(srcPath);
   const name = path.basename(srcPath, path.extname(srcPath));
+
+  // Разобрали файл — теперь проверяем, не лежат ли рядом карты. Подробности и границы
+  // (когда берёмся, а когда нет) — в шапке import-textures.mts.
+  const withNeighbours = async (doc: Document): Promise<Document> => {
+    const note = importNote(doc) || emptyNote();
+    await attachNeighbourTextures(doc, srcPath, note);
+    setImportNote(doc, note);
+    return doc;
+  };
 
   if (ext === 'stl') {
     // STL хранит треугольники поштучно, со своей нормалью у каждого и без общих вершин.
     // Так он устроен — это не мусор экспортёра, и сшивать вершины здесь мы не будем:
     // сшивка склеила бы грани с разными нормалями и сгладила бы то, что автор оставил
     // гранёным. Захочет — включит сшивку галочкой, увидев цену.
-    return buildDocument(parseOrExplain(() => new STLLoader().parse(buf), format), name, format);
+    return withNeighbours(buildDocument(parseOrExplain(() => new STLLoader().parse(buf), format), name, format));
   }
   if (ext === 'ply') {
     // Граней нет — значит это облако точек, и треугольников в нём НЕТ.
@@ -216,14 +227,14 @@ export function importForeign(srcPath: string): Document {
     // рисуется треугольниками. Четыре точки молча превращались в один треугольник —
     // выдуманную геометрию, которой в файле не было (найдено 2026-08-20).
     if (plyFaceCount(buf) === 0) throw importError('io.pointCloud', format);
-    return buildDocument(parseOrExplain(() => new PLYLoader().parse(buf), format), name, format);
+    return withNeighbours(buildDocument(parseOrExplain(() => new PLYLoader().parse(buf), format), name, format));
   }
   if (ext === 'fbx') {
     // Текстуры FBX ищет РЯДОМ С СОБОЙ — как `.gltf` ищет своих соседей. Поэтому сюда
     // передаётся путь, а не только байты: без него относительный адрес не от чего
     // отсчитывать. Отказы у всех форматов общие, поэтому `importError` уезжает
     // параметром — так новый модуль не тянет обратную ссылку на этот.
-    return importFbx(srcPath, buf, importError);
+    return withNeighbours(importFbx(srcPath, buf, importError));
   }
   throw new Error(`unsupported_import_format:${ext}`);
 }

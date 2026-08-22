@@ -366,6 +366,9 @@ export class Viewer implements ViewerLike {
   declare _clayMap?: THREE.Texture | null;
   /** Габарит модели для глубинного затемнения глины: центр и радиус. */
   declare _clayBounds?: { center: THREE.Vector3; radius: number } | null;
+  /** Файлы брошенной пачки — их имена. См. setPackFiles. */
+  declare _packFiles: string[];
+
   /** Подмена адресов для брошенной пачки; null — обычная загрузка. См. setAssetResolver. */
   declare _resolveAsset: ((url: string) => string | null) | null;
   // Появляются после первой удачной загрузки — до неё полей нет вовсе, отсюда `?`.
@@ -470,6 +473,7 @@ export class Viewer implements ViewerLike {
     // относятся к пачке, и resolveAsset отвечает про них `null`.
     this._manager = new THREE.LoadingManager();
     this._resolveAsset = null;
+    this._packFiles = [];
     this._display = 'file';
     this._origMaterials = new Map();
     this._clay = new Map();
@@ -721,6 +725,7 @@ export class Viewer implements ViewerLike {
       // Модель живёт blob-адресом — от него и отсчитываем.
       const base = url.slice(0, url.lastIndexOf('/') + 1);
       const scene = new FBXLoader(this._manager).parse(buf, base);
+      await this._applyNeighbourMaps(scene as unknown as THREE.Object3D, base);
       return { scene, animations: (scene as unknown as { animations?: unknown[] }).animations || [], parser: { json: {} }, userData: {} } as unknown as GLTF;
     }
 
@@ -737,6 +742,72 @@ export class Viewer implements ViewerLike {
     const scene = new THREE.Group();
     scene.add(new THREE.Mesh(geom, mat));
     return { scene, animations: [], parser: { json: {} }, userData: {} } as unknown as GLTF;
+  }
+
+  /**
+   * Положить на модель карты, лежащие рядом, — если своих у неё нет.
+   *
+   * ЗАЧЕМ ЭТО ЗДЕСЬ, а не только на сервере. Сервер подбирает те же карты при сборке
+   * (addons/gltf/import-textures.mts), и результат справа приезжает с текстурами. Но
+   * СЛЕВА человек всё это время видит серую модель — и с полным основанием считает, что
+   * ничего не подключилось. Александр 2026-08-22: «текстуры до сих пор никак не
+   * подключаются». Показ — это половина ответа, и она была пустой.
+   *
+   * Правила подбора те же, что на сервере, и границы те же: берёмся только когда своих
+   * карт у модели нет ни одной, кладём один набор на все части, ничего не выдумываем
+   * сверх имён файлов. Расхождение между тем, что видно, и тем, что соберётся, было бы
+   * хуже пустого экрана.
+   */
+  async _applyNeighbourMaps(scene: THREE.Object3D, base: string) {
+    if (!this._packFiles || !this._packFiles.length || !this._resolveAsset) return;
+
+    // Свои карты есть — не наше дело.
+    let hasMap = false;
+    scene.traverse((o: MaybeMesh) => {
+      if (!o.isMesh) return;
+      for (const m of ([] as THREE.Material[]).concat(o.material as never)) {
+        if (m && (m as THREE.MeshStandardMaterial).map) hasMap = true;
+      }
+    });
+    if (hasMap) return;
+
+    const find = (re: RegExp) => this._packFiles.find((p) => re.test(p.slice(p.lastIndexOf('/') + 1)));
+    const wanted: Array<[string, RegExp]> = [
+      ['map', /(basecolor|base_color|albedo|diffuse)/i],
+      ['normalMap', /normal/i],
+      ['roughnessMap', /rough/i],
+      ['metalnessMap', /metal/i],
+      ['aoMap', /((^|[._-])ao([._-]|$)|occlusion|ambient)/i],
+      ['emissiveMap', /emissi/i],
+    ];
+
+    const loader = new THREE.TextureLoader(this._manager);
+    const maps: Record<string, THREE.Texture> = {};
+    for (const [slot, re] of wanted) {
+      const rel = find(re);
+      if (!rel) continue;
+      const target = this._resolveAsset(base + rel) || base + rel;
+      try {
+        const tex = await loader.loadAsync(target);
+        // Цвет и свечение живут в sRGB, служебные карты — в линейном. Перепутать здесь
+        // значит получить выцветшую модель, и заметить это по числам будет нельзя.
+        if (slot === 'map' || slot === 'emissiveMap') tex.colorSpace = THREE.SRGBColorSpace;
+        maps[slot] = tex;
+      } catch { /* картинка не открылась — просто не кладём её */ }
+    }
+    if (!Object.keys(maps).length) return;
+
+    const material = new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0, roughness: 1, ...maps });
+    if (maps.emissiveMap) material.emissive = new THREE.Color(0xffffff);
+    scene.traverse((o: MaybeMesh) => {
+      if (!o.isMesh) return;
+      // aoMap в three.js читает ВТОРУЮ развёртку. У моделей из экспорта её обычно нет —
+      // тогда затенение просто не проявится, и это лучше, чем чёрная модель.
+      if (maps.aoMap && o.geometry && !o.geometry.getAttribute('uv1') && o.geometry.getAttribute('uv')) {
+        o.geometry.setAttribute('uv1', o.geometry.getAttribute('uv'));
+      }
+      o.material = material;
+    });
   }
 
   /** Базовая статистика загруженной модели (для HUD ещё до оптимизации). */
@@ -851,6 +922,17 @@ export class Viewer implements ViewerLike {
    *
    * Функция отвечает `null` на всё, что её не касается, — тогда адрес идёт как был.
    */
+  /**
+   * Список файлов брошенной пачки — отдельно от подмены адресов.
+   *
+   * Подмена отвечает на вопрос «куда сходить за ЭТИМ адресом», а здесь нужен другой:
+   * «что вообще лежит рядом». Модель без материалов (FBX из экспорта `_nomat`) не
+   * назовёт ни одного адреса, и по резолверу о её соседях узнать нечего.
+   */
+  setPackFiles(paths: string[] | null) {
+    this._packFiles = Array.isArray(paths) ? paths.slice() : [];
+  }
+
   setAssetResolver(resolve: ((url: string) => string | null) | null) {
     this._resolveAsset = typeof resolve === 'function' ? resolve : null;
   }

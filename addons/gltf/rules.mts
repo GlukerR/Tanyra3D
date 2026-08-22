@@ -62,7 +62,7 @@ interface AssetJson {
 import { decodeKtx2 } from './ktx2-decode.mjs';
 import { type Ceiling, probeWebpCeiling, readCeiling, targetQuality } from './source-quality.mjs';
 import { readSourceJson } from './source-json.mjs';
-import { importNote } from './import-fbx.mjs';
+import { importNote } from './import-notes.mjs';
 import { collectMetrics, countTriangles, effectiveSkins, listSemantics, textureSize } from './metrics.mjs';
 import { HAS_GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 
@@ -586,6 +586,46 @@ export const RULES: GltfRule[] = [
   },
 
   {
+    // НАБЛЮДЕНИЕ, а не оптимизация. Отвечает на вопрос «что мы приложили к модели из
+    // того, что лежало рядом» — и отвечать обязано ВСЛУХ.
+    //
+    // Пару «эта модель + эти карты» составил человек, когда бросил их вместе, поэтому
+    // Правило 11 не нарушено. Но раскладку по слотам предложили МЫ, прочитав имена
+    // файлов, — а предложенное за человека он должен видеть. Молчаливое назначение было
+    // бы решением за него, и разницы с редактором не осталось бы никакой.
+    meta: {
+      id: 'import/textures-attached', category: 'scene', title: 'Textures picked up from neighbouring files', titleKey: 'rule.importTexturesAttached',
+      severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: [], touches: [],
+      reversible: true, dataLoss: 'none',
+      enabled: () => true,
+    },
+    analyze(ctx) {
+      const note = importNote(ctx.document);
+      if (!note || !note.attached.length) return [];
+      // Здесь строка НА КАЖДУЮ карту, и это не нарушение Правила 9. Схлопывать нечего:
+      // слоты разные, файлы разные, и «приложено 6 карт» не даёт человеку проверить,
+      // не села ли шероховатость в слот металличности. Список сам и есть суть находки —
+      // ровно то исключение, которое правило называет.
+      // Имена слотов выписаны ЛИТЕРАЛАМИ, а не собраны шаблоном `slot.${a.slot}`. Так их
+      // видит статический сканер сторожа ключей-сирот: собранный на лету ключ он прочесть
+      // не может, и шесть честных имён повисли бы мусором. Ровно та же ошибка уже была
+      // сделана с metric.* в core/contract.mts — и поймана тем же сторожем.
+      const SLOT_NAME = {
+        baseColor: { messageId: 'slot.baseColor', data: {} },
+        normal: { messageId: 'slot.normal', data: {} },
+        roughness: { messageId: 'slot.roughness', data: {} },
+        metallic: { messageId: 'slot.metallic', data: {} },
+        occlusion: { messageId: 'slot.occlusion', data: {} },
+        emissive: { messageId: 'slot.emissive', data: {} },
+      } as Record<string, { messageId: string; data: Record<string, unknown> }>;
+      return note.attached.map((a) => ({
+        messageId: 'import.textureAttached',
+        data: { slot: SLOT_NAME[a.slot] ?? a.slot, file: a.file },
+      }));
+    },
+  },
+
+  {
     // НАБЛЮДЕНИЕ, а не оптимизация: ни canFix, ни fix, и появиться они не должны.
     // Правило отвечает на один вопрос — что из привезённого файла НЕ доехало.
     //
@@ -711,24 +751,16 @@ export const RULES: GltfRule[] = [
       const root = ctx.document.getRoot();
       const semBefore = listSemantics(ctx.document);
       const b = { tex: root.listTextures().length, mat: root.listMaterials().length, skins: root.listSkins().length, effSkins: effectiveSkins(ctx.document) };
-      // РАЗВЁРТКУ НЕ ВЫБРАСЫВАЕМ У МОДЕЛИ БЕЗ ТЕКСТУР.
+      // Разворачивать оговорку «а вдруг человек приложит карты потом» здесь НЕ НАДО.
+      // Пробовал 2026-08-22 — Александр поправил: «если загружается модель с юви, но нет
+      // текстур и мы прогоняем через оптимизацию, так и должно быть, что удаляется юви
+      // канал». Он прав: развёртка без единой карты — мёртвый груз, и хранить её значит
+      // возить байты, которые ничего не показывают.
       //
-      // Чистка считает атрибут лишним, если на него не ссылается ни один материал. Для
-      // модели с текстурами это верно: восьмой UV-канал, которого не касается ни одна
-      // карта, — мусор экспорта. Но если текстур в файле НЕТ ВОВСЕ, ссылаться на развёртку
-      // просто нечему, и «не используется» значит «пока не используется», а не «не нужна».
-      //
-      // Замер 2026-08-22 на FBX Александра (CCR1072, экспортирован без материалов):
-      // атрибуты до NORMAL,POSITION,TEXCOORD_0 → после NORMAL,POSITION. Развёртка,
-      // сделанная автором руками, уничтожалась молча — и приложить к модели текстуры после
-      // этого стало нельзя вообще. Ровно то, ради чего он и просил ввоз FBX.
-      //
-      // Развёртка — замысел автора наравне с уровнями детализации (Правило 11), а сомнение
-      // здесь решается в пользу сохранности. Цена признана и мала: у модели без единой
-      // текстуры вместе с развёрткой уцелеют и другие атрибуты, на которые никто не
-      // ссылается. Как только текстура появляется, чистка снова работает в полную силу.
-      const noTextures = root.listTextures().length === 0;
-      await ctx.document.transform(fns.prune({ keepAttributes: noTextures, keepLeaves: false }));
+      // Случай «карты приложили рядом» закрывается сам и раньше: подбор соседних карт
+      // (import-textures.mts) идёт на ВВОЗЕ, до правил. К этому месту текстура уже
+      // привязана к материалу, материал ссылается на развёртку — и чистка её не тронет.
+      await ctx.document.transform(fns.prune({ keepAttributes: false, keepLeaves: false }));
       const semAfter = listSemantics(ctx.document);
       const a = { tex: root.listTextures().length, mat: root.listMaterials().length, skins: root.listSkins().length, effSkins: effectiveSkins(ctx.document) };
       const out: { found: Message[]; details: Message[] } = { found: [], details: [] };
@@ -1438,13 +1470,7 @@ export const RULES: GltfRule[] = [
     async fix(finding, ctx) {
       const root = ctx.document.getRoot();
       const b = root.listAccessors().length;
-      // Та же оговорка, что у structure/prune-unused, и по той же причине: у модели БЕЗ
-      // текстур ссылаться на развёртку нечему, и «не используется» здесь означает «пока
-      // не используется». Без этой строки развёртка Александрова FBX уносилась здесь —
-      // и уносилась МОЛЧА, потому что финальная чистка отчитывается блоками данных, а не
-      // атрибутами. Первая правка (в prune-unused) сделала потерю тихой, а не убрала её.
-      const keepAttributes = ctx.document.getRoot().listTextures().length === 0;
-      await ctx.document.transform(fns.prune({ keepAttributes })); // как в v2: подчистка после всех проходов
+      await ctx.document.transform(fns.prune()); // как в v2: подчистка после всех проходов
       const a = root.listAccessors().length;
       if (b > a) return { details: [{ messageId: 'pruneFinal.done', data: { n: b - a } }] };
       return {};

@@ -81,6 +81,15 @@ export default {
   'weld.done': ({ before, after }) => `Vertex weld: ${before} → ${after}`,
 
   // --- geometry/degenerate-triangles ---
+  // --- foreign format import: maps picked up from neighbouring files ---
+  'slot.baseColor': () => 'colour',
+  'slot.normal': () => 'surface relief',
+  'slot.roughness': () => 'roughness',
+  'slot.metallic': () => 'metal',
+  'slot.occlusion': () => 'ambient shading',
+  'slot.emissive': () => 'glow',
+  'rule.importTexturesAttached': () => 'Maps found next to the model',
+  'import.textureAttached': ({ slot, file }) => `${slot} ← ${file}`,
   // --- foreign format import: what did not make it across ---
   'rule.importNotCarried': () => 'Not carried over from the source',
   'import.textureMissing': ({ name }) => `the file names texture "${name}", but it was not next to it — the material is without it`,

@@ -140,6 +140,10 @@ addons/gltf/source-json.mjs
 addons/gltf/source-json.d.mts
 addons/gltf/import-fbx.mjs
 addons/gltf/import-fbx.d.mts
+addons/gltf/import-notes.mjs
+addons/gltf/import-notes.d.mts
+addons/gltf/import-textures.mjs
+addons/gltf/import-textures.d.mts
 optimize2.mjs
 optimize2.d.mts
 server.mjs

@@ -217,6 +217,8 @@ class ViewportSlot {
       byName.set(name, byName.has(name) ? null : blobUrl);
     }
 
+    if (typeof viewer.setPackFiles === 'function') viewer.setPackFiles(pack.map((i) => String(i.path)));
+
     viewer.setAssetResolver((requested: string) => {
       if (requested === modelUrl || !base || !requested.startsWith(base)) return null;
       const rel = normalizeAssetPath(requested.slice(base.length));

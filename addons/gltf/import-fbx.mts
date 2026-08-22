@@ -31,31 +31,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import { Document, type Material, type Texture } from '@gltf-transform/core';
+import { emptyNote, setImportNote, type ImportNote } from './import-notes.mjs';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 
-/** Что мы НЕ довезли и обязаны назвать вслух, а не проглотить. */
-export interface ImportNote {
-  /** Анимационных дорожек в файле (в glTF пока не переносим). */
-  animations: number;
-  /** Скинов (скелетная привязка) — там же. */
-  skins: number;
-  /** Имена текстур, которые FBX называет, а рядом их не оказалось. */
-  missingTextures: string[];
-}
-
-/**
- * Заметки о ввозе, привязанные к документу.
- *
- * WeakMap, а не `extras` документа: `extras` уезжают в СОБРАННЫЙ файл, и наша служебная
- * записка стала бы частью модели человека. Здесь она живёт ровно столько, сколько живёт
- * сам документ, и наружу не попадает никогда.
- */
-const NOTES = new WeakMap<Document, ImportNote>();
-
-/** Заметка о ввозе для этого документа, если он приехал из FBX. */
-export function importNote(doc: Document): ImportNote | null {
-  return NOTES.get(doc) || null;
-}
+// Записка о ввозе (что не доехало, что подобрано у соседей) живёт в общем модуле
+// import-notes.mts: заполняет её разбор, а читают правила отчёта, и знать друг о друге
+// им незачем.
 
 /** Расширения картинок, которые может понадобиться подставить вместо TextureLoader. */
 const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'webp', 'tif', 'tiff', 'bmp', 'gif', 'tga', 'psd', 'exr', 'dds'];
@@ -162,7 +143,7 @@ export function importFbx(
   const scene = doc.createScene();
   doc.getRoot().setDefaultScene(scene);
 
-  const note: ImportNote = { animations: 0, skins: 0, missingTextures: [] };
+  const note: ImportNote = emptyNote();
   const anims = (group as { animations?: unknown[] }).animations;
   if (Array.isArray(anims)) note.animations = anims.length;
 
@@ -314,6 +295,6 @@ export function importFbx(
 
   if (!meshCount) throw fail('io.noGeometry', format);
 
-  NOTES.set(doc, note);
+  setImportNote(doc, note);
   return doc;
 }

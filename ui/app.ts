@@ -1728,6 +1728,52 @@
     return { packs, orphans: assets.filter((a) => !claimed.has(a)) };
   }
 
+  /** Картинки, которые имеет смысл прикладывать к модели как карты. */
+  const IMAGE_RE = /\.(png|jpe?g|webp)$/i;
+
+  /**
+   * Бросок БЕЗ модели, но с картинками — «добавь эти карты вот к той, что открыта».
+   *
+   * ПОВОД (Александр, 2026-08-22): «я перетягиваю папку с текстурами во вьюпорт.
+   * перетягиваю отдельно картинку, они никак не подключается к приложению нигде». И это
+   * была правда: до сих пор карты приезжали ТОЛЬКО вместе с моделью, одним броском.
+   * Файлы без модели считались мусором и получали строку «отклонён».
+   *
+   * Почему это не нарушает Правило 11. Пару «эта модель + эти карты» составляет ЧЕЛОВЕК,
+   * и здесь даже яснее, чем при общем броске: модель уже открыта, он смотрит на неё и
+   * кладёт карты именно к ней. Мы ничего не решаем — мы выполняем.
+   *
+   * Готовый результат при этом СБРАСЫВАЕТСЯ. Он собран без этих карт, и оставить его на
+   * экране значило бы показывать одно, а иметь в виду другое.
+   */
+  function attachTextures(rec: ModelEntry, images: DroppedFile[]) {
+    const have = new Set(rec.pack.map((a) => String(a.path).toLowerCase()));
+    let added = 0;
+    for (const img of images) {
+      const key = String(img.path).toLowerCase();
+      if (have.has(key)) continue;
+      have.add(key);
+      rec.pack.push({ path: img.path, file: img.file });
+      added++;
+    }
+    if (!added) {
+      logMessage('info', t('log.texturesAlready', { name: rec.file.name }));
+      return;
+    }
+
+    // Папка на сервере собрана без этих файлов — значит её надо завести заново.
+    rec.packSourceId = null;
+    rec.packChecked = false;
+    rec.packMissing = 0;
+    if (rec.id === activeModelId) clearResults(); else rec.state = {};
+
+    chosenFileLabel.textContent = '';
+    logMessage('info', t('log.texturesAttached', { n: added, name: rec.file.name }));
+    renderModelList();
+    // Показать заново: у вьюпорта теперь есть чем закрыть недостающие адреса.
+    if (rec.id === activeModelId) void loadActive(rec);
+  }
+
   async function handleFiles(list: DroppedFile[]) {
     const items = Array.from(list || []);
     if (!items.length) return;
@@ -1743,6 +1789,23 @@
     // модель плюс мусор. Соседи не отвергаются: они едут вместе с моделью и на сервер,
     // и во вьюпорт (groupPacks выше).
     const { packs, orphans } = groupPacks(items);
+
+    // Бросили ОДНИ картинки, без модели? Значит их кладут к той, что открыта. Это
+    // единственный способ добавить карты к уже загруженной модели, и раньше его не было
+    // вовсе: такой бросок целиком уходил в «отклонён».
+    if (!packs.length && orphans.length) {
+      const rec = activeModel();
+      const images = orphans.filter((o) => IMAGE_RE.test(o.path));
+      if (rec && images.length) {
+        // Не картинки в том же броске (например .txt рядом) — по-прежнему мимо, и об
+        // этом говорит строка ниже. Поэтому считаем ОСТАТОК, а не весь бросок.
+        const rest = orphans.length - images.length;
+        attachTextures(rec, images);
+        if (rest) logMessage('warn', t('log.rejectedMany', { n: rest }));
+        return;
+      }
+    }
+
     const badCount = orphans.length;
     // Одна строка на класс случаев, а не строка на файл (Правило 9): бросили папку с
     // сотней картинок — человек получит одно сообщение, а не сотню.

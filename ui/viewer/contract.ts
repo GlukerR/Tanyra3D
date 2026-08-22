@@ -235,5 +235,7 @@ export interface ViewerLike {
    * а отсутствующая — быть названной).
    */
   setAssetResolver?(resolve: ((url: string) => string | null) | null): void;
+  /** Имена файлов брошенной пачки — нужны модели, которая своих текстур не называет. */
+  setPackFiles?(paths: string[] | null): void;
   dispose(): void;
 }

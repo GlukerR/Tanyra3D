@@ -694,7 +694,7 @@ function restoreCarried(json: Record<string, unknown>, carried: Carried | undefi
 // документ (KTX2, круг через временный файл). Теперь ответ берётся из исходного файла в
 // момент записи, и промежуточные состояния на него не влияют. См. writeBytes.
 const load = (io: NodeIOType, src: string) => (
-  isImportFormat(src) ? Promise.resolve(importForeign(src)) : readOrExplain(io, src)
+  isImportFormat(src) ? importForeign(src) : readOrExplain(io, src)
 );
 
 const readBytes = (io: NodeIOType, bytes: Uint8Array) => io.readBinary(bytes);
@@ -1244,7 +1244,7 @@ async function inspect(srcPath: string): Promise<Record<string, unknown>> {
   // Чужой формат читается переходником — тем же, каким его читает сборка. Разойдись эти
   // два пути, человек увидел бы в метаданных одно, а собрал бы другое.
   const foreign = isImportFormat(srcPath);
-  const doc = foreign ? importForeign(srcPath) : await readOrExplain(io, srcPath);
+  const doc = foreign ? await importForeign(srcPath) : await readOrExplain(io, srcPath);
   const asset = doc.getRoot().getAsset() || {};
   const extensions = doc.getRoot().listExtensionsUsed().map((e: { extensionName: string }) => e.extensionName);
 
@@ -1337,7 +1337,7 @@ function mimeFromUri(uri: string): string {
 
 async function toJSON(srcPath: string): Promise<Record<string, unknown>> {
   const io = await createIO();
-  const doc = isImportFormat(srcPath) ? importForeign(srcPath) : await readOrExplain(io, srcPath);
+  const doc = isImportFormat(srcPath) ? await importForeign(srcPath) : await readOrExplain(io, srcPath);
   const { json, resources } = await io.writeJSON(doc, {});
   const inline = (uri: string, mime: string) => {
     const bytes = resources && resources[uri];

@@ -95,6 +95,16 @@ export default {
   'weld.done': ({ before, after }) => `Совпадающие вершины склеены: ${before} → ${after}`,
 
   // --- geometry/degenerate-triangles ---
+  // --- ввоз чужого формата: карты, подобранные у соседей ---
+  // Имена слотов — отдельными ключами: это СЛОВА для человека, а не поля стандарта.
+  'slot.baseColor': () => 'цвет',
+  'slot.normal': () => 'рельеф',
+  'slot.roughness': () => 'шероховатость',
+  'slot.metallic': () => 'металл',
+  'slot.occlusion': () => 'затенение',
+  'slot.emissive': () => 'свечение',
+  'rule.importTexturesAttached': () => 'Карты, найденные рядом с моделью',
+  'import.textureAttached': ({ slot, file }) => `${slot} ← ${file}`,
   // --- ввоз чужого формата: что НЕ доехало ---
   'rule.importNotCarried': () => 'Не перенесено из исходника',
   'import.textureMissing': ({ name }) => `текстура «${name}» названа в файле, но рядом её не оказалось — материал остался без неё`,

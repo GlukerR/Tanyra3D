@@ -69,6 +69,7 @@ export const REPO_MODELS = new Set([
   // Третья — уже с CI: коммитимой модели с АНИМИРОВАННЫМИ формами не было ни одной,
   // и на чистом клоне вторая половина правила scene/morph-targets не выполнялась.
   'Animated Morphs 01.glb',
+  'Two UV Islands 01.glb',
 ]);
 
 export function modelPath(name) {

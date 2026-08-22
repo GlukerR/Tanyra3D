@@ -294,6 +294,10 @@ window.I18N_CATALOGS.en = {
   'log.packMissing': ({ name }) => `The model refers to "${name}", but that file was not dropped`,
   'log.packMissingMany': ({ n }) => `Files the model refers to but that were not dropped: ${n}`,
   'log.packUploadFailed': ({ name, error }) => `Failed to send "${name}" to the server: ${error}`,
+  'log.texturesAttached': ({ n, name }) => (n === 1
+    ? `A map was added to "${name}". Build again to see it on the result.`
+    : `${n} maps were added to "${name}". Build again to see them on the result.`),
+  'log.texturesAlready': ({ name }) => `"${name}" already has these maps`,
   'log.rejectedMany': ({ n }) => `Skipped files: ${n} — accepted: .glb, .gltf, .stl, .fbx`,
   'log.batchStarted': ({ n }) => `Batch build: ${n} model(s) queued`,
   'log.batchDone': ({ ok, failed }) => `Batch build finished: ${ok} built, ${failed} failed`,
