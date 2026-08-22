@@ -771,7 +771,7 @@ function sendJSON(res: http.ServerResponse, status: number, obj: unknown) {
  * Список один на оба места приёма (`/api/inspect` и `/api/optimize`). Двумя копиями он
  * уже был и разъехался бы при первом же добавлении формата.
  */
-const MODEL_EXT = /\.(glb|gltf|stl|ply|fbx)$/i;
+const MODEL_EXT = /\.(glb|gltf|stl|ply|fbx|obj)$/i;
 
 /**
  * Тот же список словами — для отказа, который человек прочтёт. Считается ИЗ самого

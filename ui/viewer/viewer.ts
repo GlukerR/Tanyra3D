@@ -19,6 +19,8 @@ import GLTFMaterialsVariantsExtension from "three-gltf-extensions/loaders/KHR_ma
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
 import { PLYLoader } from "three/addons/loaders/PLYLoader.js";
 import { FBXLoader } from "three/addons/loaders/FBXLoader.js";
+import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
+import { MTLLoader } from "three/addons/loaders/MTLLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 // Контракт движка просмотра. Импорт типов, а не кода: в собранный файл он не попадает.
@@ -31,7 +33,7 @@ const DRACO_DECODER_PATH = "/vendor/three/examples/jsm/libs/draco/gltf/";
 const KTX2_TRANSCODER_PATH = "/vendor/three/examples/jsm/libs/basis/";
 
 /** Форматы, которые открывает не glTF-загрузчик, а свой. См. Viewer._loadForeign. */
-const FOREIGN_FORMATS = ["stl", "ply", "fbx"];
+const FOREIGN_FORMATS = ["stl", "ply", "fbx", "obj"];
 
 /**
  * Узел при обходе сцены. Обход отдаёт узлы ЛЮБОГО вида — свет, кости, пустышки, —
@@ -717,7 +719,7 @@ export class Viewer implements ViewerLike {
   }
 
   /**
-   * Показать формат, который glTF-загрузчик не откроет: STL, PLY.
+   * Показать формат, который glTF-загрузчик не откроет: STL, PLY, FBX, OBJ.
    *
    * Принимать формат и не уметь его ПОКАЗАТЬ нельзя (Правило 12): человек бросил файл,
    * сервер его принял и собрал, а левое окно написало бы «не удалось показать модель» —
@@ -754,6 +756,34 @@ export class Viewer implements ViewerLike {
       const scene = new FBXLoader(this._manager).parse(buf, base);
       await this._applyNeighbourMaps(scene as unknown as THREE.Object3D, base);
       return { scene, animations: (scene as unknown as { animations?: unknown[] }).animations || [], parser: { json: {} }, userData: {} } as unknown as GLTF;
+    }
+
+    // OBJ — как FBX, только материалы лежат в СОСЕДНЕМ файле `.mtl`, и без него модель
+    // приезжает белой, хотя автор её раскрасил. Читаем его тем же швом, каким `.gltf`
+    // находит своих соседей: через общий менеджер и подмену адресов пачки.
+    //
+    // Развёртку здесь НЕ переворачиваем, в отличие от сервера. Разница не в небрежности:
+    // `TextureLoader` в три.js по умолчанию переворачивает саму картинку (`flipY`), и
+    // отсчёт V снизу, принятый в OBJ, сходится сам собой. `GLTFLoader` этого не делает —
+    // поэтому переворот и живёт на стороне сборки (addons/gltf/import-obj.mts).
+    if (format === 'obj') {
+      const base = url.slice(0, url.lastIndexOf('/') + 1);
+      const text = new TextDecoder('utf-8', { fatal: false }).decode(new Uint8Array(buf));
+      const loader = new OBJLoader(this._manager);
+      const lib = /^\s*mtllib\s+(.+)$/im.exec(text);
+      if (lib && lib[1]) {
+        try {
+          const mtlUrl = this._manager.resolveURL(base + lib[1].trim().split(/\s+/)[0]);
+          const res = await fetch(mtlUrl);
+          if (res.ok) {
+            const creator = new MTLLoader(this._manager).setPath(base).parse(await res.text(), base);
+            creator.preload();
+            loader.setMaterials(creator);
+          }
+        } catch { /* нет .mtl рядом — у OBJ он необязателен, модель покажем без него */ }
+      }
+      const scene = loader.parse(text);
+      return { scene, animations: [], parser: { json: {} }, userData: {} } as unknown as GLTF;
     }
 
     const geom = format === 'ply' ? new PLYLoader().parse(buf) : new STLLoader().parse(buf);

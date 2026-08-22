@@ -25,8 +25,8 @@ window.I18N_CATALOGS.en = {
   'outliner.validation.count': '✓ Validation ({n})',
   'outliner.validation.range': '✓ Validation ({from} → {to})',
   'dropzone.title': 'Drop a 3D model here',
-  'dropzone.sub': 'or click + · GLB, glTF, STL, FBX',
-  'dropzone.rejected': 'Accepted: .glb, .gltf, .stl, .fbx',
+  'dropzone.sub': 'or click + · GLB, glTF, STL, FBX, OBJ',
+  'dropzone.rejected': 'Accepted: .glb, .gltf, .stl, .fbx, .obj',
 
   // --- журнал ---
   'logs.label': 'Logs',
@@ -301,7 +301,7 @@ window.I18N_CATALOGS.en = {
   'log.texturesReplaced': ({ n }) => (n === 1
     ? 'The earlier map for the same slot was removed — the new one stays.'
     : `${n} earlier maps for the same slots were removed — the new ones stay.`),
-  'log.rejectedMany': ({ n }) => `Skipped files: ${n} — accepted: .glb, .gltf, .stl, .fbx`,
+  'log.rejectedMany': ({ n }) => `Skipped files: ${n} — accepted: .glb, .gltf, .stl, .fbx, .obj`,
   'log.batchStarted': ({ n }) => `Batch build: ${n} model(s) queued`,
   'log.batchDone': ({ ok, failed }) => `Batch build finished: ${ok} built, ${failed} failed`,
   'log.batchStopped': ({ ok, failed, left }) => `Batch build stopped: ${ok} built, ${failed} failed, ${left} left`,
