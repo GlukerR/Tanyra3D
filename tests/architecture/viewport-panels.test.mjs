@@ -143,3 +143,43 @@ describe('панели вьюпорта — устройство', () => {
     expect(wiring.includes('aria-expanded'), 'состояние полочки не сообщается голосом').toBe(true);
   });
 });
+
+describe('пробел — пуск и пауза анимации', () => {
+  // Просьба Александра 2026-08-22. Клавиша и кнопка обязаны делать ОДНО И ТО ЖЕ, иначе
+  // две копии переключателя разойдутся на первой же правке.
+  //
+  // И пробел не всегда наш: в поле ввода это пробел, на кнопке в фокусе он уже работает
+  // (нажимает её), а без анимации нажимать нечего. Клавиша, которая делает вид, что
+  // сработала, хуже клавиши, которая молчит.
+
+  it('кнопка и клавиша зовут один переключатель', () => {
+    expect(app, 'переключение анимации снова написано на месте, а не одной функцией')
+      .toMatch(/function toggleAnimation\(\)/);
+    expect(app, 'кнопка перестала звать общий переключатель')
+      .toMatch(/animPlayBtn\.addEventListener\('click', toggleAnimation\)/);
+  });
+
+  it('пробел перехватывается и не листает страницу', () => {
+    const at = app.indexOf("if (e.key !== ' ' && e.code !== 'Space') return;");
+    expect(at, 'обработчика пробела нет').toBeGreaterThan(-1);
+    const handler = app.slice(at, at + 900);
+    expect(handler, 'пробел не переключает анимацию').toContain('toggleAnimation()');
+    expect(handler, 'без preventDefault пробел пролистает страницу').toContain('e.preventDefault()');
+  });
+
+  it('в поле ввода и на клавише пробел остаётся чужим', () => {
+    const at = app.indexOf("if (e.key !== ' ' && e.code !== 'Space') return;");
+    const handler = app.slice(at, at + 900);
+    for (const tag of ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON']) {
+      expect(handler, `пробел отбирается у ${tag} — там он и так работает`).toContain(tag);
+    }
+    expect(handler, 'редактируемая область не учтена').toContain('isContentEditable');
+  });
+
+  it('без анимации клавиша молчит', () => {
+    const at = app.indexOf("if (e.key !== ' ' && e.code !== 'Space') return;");
+    const handler = app.slice(at, at + 900);
+    expect(handler, 'пробел срабатывает и на модели без анимации — панели-то нет')
+      .toMatch(/animControls[\s\S]{0,80}hidden/);
+  });
+});

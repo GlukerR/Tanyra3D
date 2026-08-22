@@ -5324,16 +5324,53 @@
     window.I18n.setAria(animPlayBtn, playing ? 'vp.pause' : 'vp.play');
   }
 
-  if (animPlayBtn) {
-    animPlayBtn.addEventListener('click', () => {
-      const playing = !animPlayBtn.classList.contains('is-on');
-      animPlayBtn.classList.toggle('is-on', playing);
-      animPlayBtn.setAttribute('aria-pressed', String(playing));
-      animPlayBtn.textContent = playing ? '⏸' : '▶';
-      refreshAnimLabels();
-      if (window.OptiViewer) window.OptiViewer.setAnimationPlaying(playing);
-    });
+  /**
+   * Пуск и пауза анимации. Один путь на кнопку и на пробел.
+   *
+   * Именно один: две копии переключателя разошлись бы на первой же правке, и клавиша
+   * начала бы делать не то, что кнопка. Тот же довод, по которому в этом файле уже
+   * сведены к одному месту доступность кнопок инспекции и файл на экране.
+   */
+  function toggleAnimation() {
+    if (!animPlayBtn) return;
+    const playing = !animPlayBtn.classList.contains('is-on');
+    animPlayBtn.classList.toggle('is-on', playing);
+    animPlayBtn.setAttribute('aria-pressed', String(playing));
+    animPlayBtn.textContent = playing ? '⏸' : '▶';
+    refreshAnimLabels();
+    if (window.OptiViewer) window.OptiViewer.setAnimationPlaying(playing);
   }
+
+  if (animPlayBtn) animPlayBtn.addEventListener('click', toggleAnimation);
+
+  /**
+   * Пробел — пуск и пауза анимации (просьба Александра, 2026-08-22).
+   *
+   * Три случая, когда пробел НЕ наш, и все три обязательны:
+   *
+   * 1. Человек печатает. Имя файла в окне выгрузки, поля своей площадки — там пробел
+   *    это пробел, и отнимать его нельзя. Смотрим на элемент в фокусе, а не на то,
+   *    открыто ли окно: полей много, а признак у них один.
+   * 2. В фокусе клавиша или список. Пробел там уже работает — он их нажимает; перехват
+   *    означал бы двойное срабатывание (в том числе на самой кнопке анимации).
+   * 3. Анимации в модели нет — панель спрятана. Клавиша, которая делает вид, что
+   *    сработала, хуже клавиши, которая молчит (Правило 12 с другой стороны).
+   *
+   * preventDefault обязателен: по умолчанию пробел листает страницу.
+   */
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== ' ' && e.code !== 'Space') return;
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    const el = document.activeElement as HTMLElement | null;
+    if (el) {
+      const tag = el.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return;
+      if (el.isContentEditable) return;
+    }
+    if (!animControls || animControls.classList.contains('hidden')) return;
+    e.preventDefault();
+    toggleAnimation();
+  });
 
   if (animClipSel) {
     animClipSel.addEventListener('change', () => {
