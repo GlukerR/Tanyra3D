@@ -452,12 +452,25 @@ The honest list of what the tool doesn't do, or doesn't do fully.
   model weighed before and after, which ones sit over the target's limit, which failed.
   It computes nothing of its own — every number is read back from the per-model reports —
   and saves as CSV.
-- **STL and PLY come in, glTF goes out.** Both are read on the server and turned into
-  a glTF document by the same code the CLI uses, so the command line gains the formats
-  for free. Neither format carries materials or textures, and none are invented: the
-  report shows zero because that is the truth about the file. PLY vertex colours are
-  carried across as authored, and STL faceting survives welding — only vertices that
+- **STL, PLY, FBX and OBJ come in, glTF goes out.** All are read on the server and turned
+  into a glTF document by the same code the CLI uses, so the command line gains the formats
+  for free. Nothing is invented along the way: STL and PLY carry no materials or textures,
+  and the report shows zero because that is the truth about the file. PLY vertex colours
+  are carried across as authored, and STL faceting survives welding — only vertices that
   match in normal as well as position are merged.
+
+  FBX and OBJ bring more, and more can go wrong. Both measure the V axis from the bottom
+  of the image while glTF measures it from the top, so UVs are flipped on the way in — get
+  that wrong and every count stays correct while the picture lands upside down. OBJ keeps
+  its materials in a neighbouring `.mtl`, which is read as well; without it the model would
+  arrive white despite the author having coloured it. Neither format states roughness or
+  metalness, and neither value is guessed from what they do state.
+
+  Textures that sit next to a model without being referenced by it — the usual shape of an
+  FBX export — are matched by filename against the Substance Painter convention
+  (`_BaseColor`, `_Normal`, `_Roughness`, `_Metallic`, `_AO`, `_Emissive`), packed into the
+  single ORM image glTF requires, and listed in the report. A file whose name matches
+  nothing is left alone.
 - **Built for models up to 100 MB.** Not a refusal — a boundary stated honestly. Anything
   heavier still opens and still builds, but the preview turns sluggish and the build takes
   long enough that it stops being worth waiting for; a 330 MB file barely rotated in the
