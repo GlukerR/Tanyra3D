@@ -58,16 +58,50 @@ describe('путь из file:-URL', () => {
     expect(fs.existsSync(GLTF_CLI_JS)).toBe(true);
   });
 
+  /** Одна проверка на файл: приём тот же, где бы он ни встретился. */
+  function offences(rel) {
+    const found = [];
+    const src = fs.readFileSync(rel, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/[^\n]*/g, '');
+    // `.pathname` от file:-URL, а также ручное снятие ведущего слэша перед буквой диска
+    if (/import\.meta\.url[\s\S]{0,120}?\.pathname/.test(src)) found.push(`${rel}: .pathname от import.meta.url`);
+    if (/\^\\\/\(\[A-Za-z\]:\)/.test(src)) found.push(`${rel}: ручное снятие слэша перед буквой диска`);
+    return found;
+  }
+
   it('старый приём не вернулся в исходники', () => {
-    const guilty = [];
-    for (const rel of SOURCES) {
-      const src = fs.readFileSync(rel, 'utf8')
-        .replace(/\/\*[\s\S]*?\*\//g, '')
-        .replace(/\/\/[^\n]*/g, '');
-      // `.pathname` от file:-URL, а также ручное снятие ведущего слэша перед буквой диска
-      if (/import\.meta\.url[\s\S]{0,120}?\.pathname/.test(src)) guilty.push(`${rel}: .pathname от import.meta.url`);
-      if (/\^\\\/\(\[A-Za-z\]:\)/.test(src)) guilty.push(`${rel}: ручное снятие слэша перед буквой диска`);
-    }
-    expect(guilty).toEqual([]);
+    expect(SOURCES.flatMap(offences)).toEqual([]);
+  });
+
+  it('старый приём не завёлся и в самих тестах', () => {
+    // ДОБАВЛЕНО 2026-08-23, и повод стоит записать целиком. Полный набор на машине
+    // Александра прошёл — 4317 тестов, ноль падений, — и на этом вышла версия 0.2.11.
+    // Через минуту CI на Linux уронил один тест:
+    //
+    //   ENOENT: …/Tanyra3D/home/runner/work/Tanyra3D/Tanyra3D/addons/gltf/import-textures.mts
+    //
+    // Путь склеился вдвое. Виновата ровно та строка, ради которой этот файл и заведён:
+    // `new URL(import.meta.url).pathname.slice(1)`. На Windows `pathname` даёт `/D:/…` —
+    // лишний слэш впереди, и `.slice(1)` его снимает. На Linux тот же адрес даёт
+    // `/home/runner/…`, где слэш НУЖЕН: без него путь относительный, и `path.resolve`
+    // приклеивает рабочую папку.
+    //
+    // Сторож существовал с 2026-08-10, но смотрел ТОЛЬКО на рабочий код. Тесты — тоже
+    // код, и ошибка в них стоит не меньше: красный CI на выпущенной версии.
+    //
+    // И это не «впредь буду внимательнее»: проверка на Linux у нас закрыта навсегда
+    // (решение Александра 2026-08-19, доступа к таким машинам нет). Значит весь класс
+    // «работает на Windows, падает на Linux» ловится только чтением кода — а читать
+    // должен тест, потому что человек прочтёт один раз, а тест читает каждый прогон.
+    const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const full = path.join(dir, e.name);
+      return e.isDirectory() ? walk(full) : (/\.(mjs|js)$/.test(e.name) ? [full] : []);
+    });
+    const files = walk(path.join(path.dirname(fileURLToPath(import.meta.url))));
+    expect(files.length, 'не нашёл тестов — сторож проверяет пустоту').toBeGreaterThan(20);
+    // Себя не проверяем: в этом файле приём назван по имени, чтобы его запретить.
+    const self = fileURLToPath(import.meta.url);
+    expect(files.filter((f) => f !== self).flatMap(offences)).toEqual([]);
   });
 });
