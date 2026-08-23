@@ -1,4 +1,4 @@
-// addons/gltf/importers.mts — чужие форматы на вход: STL и PLY.
+// addons/gltf/importers.mts — чужие форматы на вход: STL, PLY, FBX и OBJ.
 //
 // Зачем это здесь, а не отдельным аддоном. Аддон формата отвечает на вопрос «как получить
 // документ glTF из файла» — и для `.stl` ответ на него такой же законный, как для `.glb`.
@@ -22,6 +22,7 @@ import { Document } from '@gltf-transform/core';
 import { render } from '../../core/i18n.mjs';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { importFbx } from './import-fbx.mjs';
+import { importObj } from './import-obj.mjs';
 import { emptyNote, importNote, setImportNote } from './import-notes.mjs';
 import { attachNeighbourTextures } from './import-textures.mjs';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
@@ -36,7 +37,7 @@ import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
  * есть иерархия, материалы и развёртки, и рядом с «прочитали треугольники» он был бы
  * нечитаем (см. шапку import-fbx.mts, там же про лицензию).
  */
-export const IMPORT_FORMATS = ['stl', 'ply', 'fbx'] as const;
+export const IMPORT_FORMATS = ['stl', 'ply', 'fbx', 'obj'] as const;
 
 export function isImportFormat(srcPath: string): boolean {
   const ext = path.extname(String(srcPath)).toLowerCase().replace(/^\./, '');
@@ -228,6 +229,11 @@ export async function importForeign(srcPath: string): Promise<Document> {
     // выдуманную геометрию, которой в файле не было (найдено 2026-08-20).
     if (plyFaceCount(buf) === 0) throw importError('io.pointCloud', format);
     return withNeighbours(buildDocument(parseOrExplain(() => new PLYLoader().parse(buf), format), name, format));
+  }
+  if (ext === 'obj') {
+    // OBJ, как и FBX, ищет соседей: материалы лежат в `.mtl` рядом, карты — рядом с ним.
+    // Поэтому сюда тоже уезжает путь, а не одни байты.
+    return withNeighbours(importObj(srcPath, buf, importError));
   }
   if (ext === 'fbx') {
     // Текстуры FBX ищет РЯДОМ С СОБОЙ — как `.gltf` ищет своих соседей. Поэтому сюда

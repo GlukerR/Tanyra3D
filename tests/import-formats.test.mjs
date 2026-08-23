@@ -119,9 +119,11 @@ describe('что сервер принимает на вход', () => {
   }, 60_000);
 
   it('чужой формат отвергается ПОНЯТНО, а не молча', async () => {
-    // OBJ придёт позже (см. .claude/ПЛАН_импорт-форматов_2026-08-19.md). Пока его нет —
-    // отказ обязан называть, что принимается, иначе человек не поймёт, что делать.
-    const res = await upload(Buffer.from('v 0 0 0\n', 'utf8'), 'куб.obj');
+    // Пример берётся ЗАВЕДОМО чужой. Раньше здесь стоял `.obj`, и когда формат стал
+    // нашим (2026-08-23), тест упал не на дефекте, а на собственном устаревшем примере.
+    // `.blend` — родной файл Blender, и принимать его мы не будем никогда: это проект
+    // редактора, а не поставка модели.
+    const res = await upload(Buffer.from('BLENDER-v300\n', 'utf8'), 'куб.blend');
     expect(res.status).toBe(400);
     expect(res.body).toMatch(/gltf/i);
     expect(res.body).toMatch(/glb/i);
@@ -201,9 +203,9 @@ describe('чужие форматы приходят по сети так же, 
   it('отказ чужому формату называет ВСЕ принимаемые расширения', async () => {
     // Половина списка хуже полного отсутствия: человек решит, что .stl не берут, и
     // пойдёт искать конвертер, который у него уже есть внутри программы.
-    const res = await post('/api/inspect', 'куб.obj', Buffer.from('v 0 0 0\n', 'utf8'));
+    const res = await post('/api/inspect', 'куб.blend', Buffer.from('BLENDER-v300\n', 'utf8'));
     expect(res.status).toBe(400);
-    for (const ext of ['glb', 'gltf', 'stl', 'ply']) {
+    for (const ext of ['glb', 'gltf', 'stl', 'ply', 'fbx', 'obj']) {
       expect(res.body, `отказ не называет .${ext}`).toMatch(new RegExp(ext, 'i'));
     }
   }, 60_000);
