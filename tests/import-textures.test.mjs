@@ -26,6 +26,10 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+// fileURLToPath, а НЕ `new URL(...).pathname`: у второго на Windows впереди лишний слэш
+// (`/D:/…`), и напрашивается `.slice(1)` — который на Linux отрезает НУЖНЫЙ слэш и делает
+// путь относительным. Сторож на этот класс ошибок — tests/path-from-url.test.mjs.
+import { fileURLToPath } from 'node:url';
 
 import sharp from 'sharp';
 import { Document } from '@gltf-transform/core';
@@ -205,7 +209,7 @@ describe('интерфейс и движок одинаково понимают
     //
     // Разойдись они молча — интерфейс выбросит из пачки не ту карту. Человек увидит это
     // не раньше сборки, а причину не увидит вовсе.
-    const root = path.resolve(path.dirname(new URL(import.meta.url).pathname.slice(1)), '..');
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
     const strip = (text, start) => {
       const from = text.indexOf(start);
       expect(from, `таблица ${start} не найдена`).toBeGreaterThan(-1);
