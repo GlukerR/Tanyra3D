@@ -148,7 +148,13 @@ export default {
   'instance.found': () => 'repeated meshes — they can be drawn with one command instead of one per copy',
   'instance.done': ({ dcBefore, dcAfter, nodesBefore, nodesAfter }) =>
     `Repeats collected into instances: draw calls ${dcBefore} → ${dcAfter}, nodes ${nodesBefore} → ${nodesAfter}`,
+  'instance.unbaked': ({ n, groups }) => (groups === 1
+    ? `${n} identical copies recognised by shape — they arrived as separate meshes because the exporter baked the offset into the vertices`
+    : `${n} identical copies recognised by shape (${groups} distinct shapes) — they arrived as separate meshes because the exporter baked the offset into the vertices`),
   'instance.skipped.nothing': () => 'no repeated meshes — nothing to collect into instances',
+  'instance.skipped.animated': ({ n }) => (n === 1
+    ? 'the one repeated mesh here is moved by an animation — batching would freeze it in place'
+    : `${n} repeated meshes are moved by animation — batching would freeze them in place`),
 
   // --- animation/resample ---
   'resample.done': ({ pct }) => `Redundant keyframes removed: animation data ${pct}% lighter — the motion is unchanged`,

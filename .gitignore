@@ -146,6 +146,8 @@ addons/gltf/import-textures.mjs
 addons/gltf/import-textures.d.mts
 addons/gltf/import-obj.mjs
 addons/gltf/import-obj.d.mts
+addons/gltf/instance.mjs
+addons/gltf/instance.d.mts
 optimize2.mjs
 optimize2.d.mts
 server.mjs

@@ -1148,19 +1148,32 @@ describe('Golden Corpus — Orphan Texture Cube 01: orphan cleanup + drawCalls l
 
 describe('Golden Corpus — Instance Grid 01: 625 узлов, pipeline does not crash', () => {
 
-  it('["instance"] в одиночку: applied пуст, status ok', async () => {
-    // Array-модификатор Blender запёк смещения в вершины. В GLB получилось
-    // 625 РАЗНЫХ мешей, каждый с одной нодой — порог правила (≥5 нод на меш)
-    // не достигается. Правило явно отказывает и пишет «no repeated meshes…»
-    // Тест ловит два дефекта сразу: (а) crash на сцене из 625 узлов,
-    // (б) продукт молча сделал вид, что отработал, а должен был отказать.
+  it('["instance"] в одиночку: копии узнаются ПО ФОРМЕ и собираются в партии', async () => {
+    // ПЕРЕПИСАНО 2026-08-23. Прежде тест утверждал обратное — «applied пуст», — и это
+    // было верное описание тогдашнего поведения: Array-модификатор Blender запекает
+    // смещение каждой копии в координаты вершин, в GLB приезжает 625 РАЗНЫХ мешей, и ни
+    // склейка одинаковых, ни инстансинг их не видели.
+    //
+    // Александр 2026-08-23: «это одинаковые кубы. мы никак не можем начать их тоже
+    // инстансить? если человек пришлёт такую же модель мы не сможем понять что это
+    // одинаковые модели никак?». Можем — по ФОРМЕ, приведя координаты к общему началу.
+    // Замер: из 625 мешей 623 — одна и та же форма.
+    //
+    // Геометрия при этом не переписывается: меняются только ссылка узла на меш и его
+    // сдвиг (разбор — в шапке `addons/gltf/instance.mts`). Сохранность картинки
+    // стережёт отдельный тест в `instance-animated.test.mjs`.
     const result = await optimizeFile(modelPath('Instance Grid 01.glb'), {
       outDir: tmpOutDir(),
       advancedFeatures: ['instance'],
       dryRun: true,
     });
     expect(result.status).toBe('ok');
-    expect(result.applied.length).toBe(0);
+    expect(result.applied.some((a) => a.ruleId === 'scene/instance'),
+      'инстансинг снова не узнаёт запечённые копии').toBe(true);
+    // Треугольники не трогаем ни при каких условиях — это та же модель.
+    expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
+    expect(result.metrics.after.drawCalls,
+      'вызовов отрисовки не убыло — партии не собрались').toBeLessThan(result.metrics.before.drawCalls / 10);
   });
 
   it('safe на 625 узлах не ломается; треугольники и узлы не изменились', async () => {
@@ -1228,15 +1241,23 @@ describe('Golden Corpus — Unlinked Duplicates 01: identical geometry without n
   });
 
   // ----------------------------------------------------------
-  // ['instance'] без safe — не срабатывает (каждый меш у 1 узла)
+  // ['instance'] без safe — теперь срабатывает и БЕЗ склейки одинаковых
   // ----------------------------------------------------------
 
-  it('["instance"] без safe: applied пуст, status ok', async () => {
+  it('["instance"] без safe: копии узнаются по форме, склейка не нужна', async () => {
+    // ПЕРЕПИСАНО 2026-08-23 по той же причине, что и тест Instance Grid выше. Раньше
+    // инстансинг умел работать только ПОСЛЕ `dedup`: тот связывал одинаковые меши в один,
+    // и лишь тогда появлялись «несколько узлов на один меш». Копии, у которых смещение
+    // запечено в вершины, до склейки не доживали — данные-то разные.
+    //
+    // Теперь форма узнаётся напрямую, и порядок перестал быть обязательным.
     const { result } = await runAndRead('Unlinked Duplicates 01.glb', {
       advancedFeatures: ['instance'],
     });
     expect(result.status).toBe('ok');
-    expect(result.applied.length).toBe(0);
+    expect(result.applied.some((a) => a.ruleId === 'scene/instance'),
+      'без safe инстансинг снова бездействует').toBe(true);
+    expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
   });
 
   // ----------------------------------------------------------
