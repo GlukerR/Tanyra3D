@@ -60,6 +60,7 @@ interface AssetJson {
   [key: string]: unknown;
 }
 import { decodeKtx2 } from './ktx2-decode.mjs';
+import { instanceStatic } from './instance.mjs';
 import { type Ceiling, probeWebpCeiling, readCeiling, targetQuality } from './source-quality.mjs';
 import { readSourceJson } from './source-json.mjs';
 import { importNote } from './import-notes.mjs';
@@ -1420,15 +1421,30 @@ export const RULES: GltfRule[] = [
       // +20 % против −14 % при одинаковых 15 draw calls, то есть 34 процентных пункта
       // из-за одной цифры; Dirty Cube 01 −5 % → −11 %; MosquitoInAmber2 −2 % → −9 %.
       // На остальных 31 результат совпал байт в байт.
-      await ctx.document.transform(fns.instance({ min: 2 }));
+      // СВОЙ проход, а не fns.instance(). Разница ровно одна и она принципиальная:
+      // библиотека отказывается инстансить файл, в котором есть ХОТЬ ОДНА анимация, где
+      // бы та ни сидела. Александр 2026-08-23: «ведь анимируются не детали на которых
+      // инстансинги. тогда почему отказывается делать инстанс?». Наша граница поузловая —
+      // разбор и остальные сохранённые запреты в шапке `instance.mts`.
+      const res = instanceStatic(ctx.document, { min: 2 });
       const a = { nodes: root.listNodes().length, dc: collectMetrics(ctx.document, 0).drawCalls };
-      if (a.nodes < b.nodes || a.dc < b.dc) {
+      if (res.batches > 0) {
         return {
           found: [{ messageId: 'instance.found', data: {} }],
           details: [{ messageId: 'instance.done', data: { dcBefore: b.dc, dcAfter: a.dc, nodesBefore: b.nodes, nodesAfter: a.nodes } }],
         };
       }
-      return { skipped: [{ messageId: 'instance.skipped.nothing', data: {} }] };
+      // ПРИЧИНА ОТКАЗА НАЗЫВАЕТСЯ ВЕРНАЯ. Раньше здесь стояла одна строка на все случаи —
+      // «повторяющихся мешей нет», — и на анимированной модели она была ложью: меши могли
+      // повторяться сколько угодно, а отказала библиотека совсем по другому поводу.
+      // Правило 12 разрешает не делать действие, только если объяснить почему; неверное
+      // объяснение хуже молчания, потому что человек по нему принимает решения.
+      return {
+        skipped: [{
+          messageId: res.animatedSkipped ? 'instance.skipped.animated' : 'instance.skipped.nothing',
+          data: { n: res.animatedSkipped },
+        }],
+      };
     },
   },
 

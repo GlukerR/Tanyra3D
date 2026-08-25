@@ -149,6 +149,9 @@ export default {
   'instance.done': ({ dcBefore, dcAfter, nodesBefore, nodesAfter }) =>
     `Repeats collected into instances: draw calls ${dcBefore} → ${dcAfter}, nodes ${nodesBefore} → ${nodesAfter}`,
   'instance.skipped.nothing': () => 'no repeated meshes — nothing to collect into instances',
+  'instance.skipped.animated': ({ n }) => (n === 1
+    ? 'the one repeated mesh here is moved by an animation — batching would freeze it in place'
+    : `${n} repeated meshes are moved by animation — batching would freeze them in place`),
 
   // --- animation/resample ---
   'resample.done': ({ pct }) => `Redundant keyframes removed: animation data ${pct}% lighter — the motion is unchanged`,
