@@ -405,7 +405,7 @@ describe('Квантование × instance — инвариант сочета
     expect(await accessorBytes(result.file.dst)).toBeLessThan(before);
   });
 
-  it('Instance Grid 01 — нет общей геометрии: instance воздержался, join применился, итог легче исходника', async () => {
+  it('Instance Grid 01 — копии узнаны по форме: instance и join работают вместе, итог легче исходника', async () => {
     const outDir = tmpOutDir();
     const before = await accessorBytes(modelPath('Instance Grid 01.glb'));
     const result = await optimizeFile(modelPath('Instance Grid 01.glb'), {
@@ -415,10 +415,19 @@ describe('Квантование × instance — инвариант сочета
     });
 
     expect(result.status).toBe('ok');
-    // инстансировать нечего — ни один меш не имеет ≥2 родителей (625 отдельных копий)
-    expect(result.applied.some((a) => a.ruleId === 'scene/instance')).toBe(false);
-    // join схлопнул 625 копий в одну
+    // ПЕРЕПИСАНО 2026-08-23. Прежде тест утверждал «instance воздержался», и это было
+    // верным описанием тогдашнего поведения: модификатор Array в Blender запёк смещение
+    // каждой копии в вершины, меши вышли разными, и ни склейка одинаковых, ни инстансинг
+    // их не узнавали.
+    //
+    // Теперь копии узнаются ПО ФОРМЕ (координаты приводятся к общему началу), и оба
+    // правила работают вместе: инстансинг собирает партии, склейка добирает остальное.
+    // Замер: вызовов 625 → 4, файл 971 → 103 КБ, треугольники не тронуты.
+    expect(result.applied.some((a) => a.ruleId === 'scene/instance'),
+      'инстансинг снова не узнаёт запечённые копии').toBe(true);
     expect(result.applied.some((a) => a.ruleId === 'scene/join')).toBe(true);
+    expect(result.metrics.after.drawCalls,
+      'вызовов отрисовки почти не убыло').toBeLessThan(result.metrics.before.drawCalls / 50);
     // квантование отработало поверх склеенной геометрии
     expect(result.applied.some((a) => a.ruleId === 'geometry/quantize')).toBe(true);
     expect(await requiredExtensions(result.file.dst)).toContain('KHR_mesh_quantization');
