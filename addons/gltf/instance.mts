@@ -170,3 +170,157 @@ function pruneEmptied(nodes: Node[]): void {
     node.dispose();
   }
 }
+
+/**
+ * КОПИИ, РАЗЪЕХАВШИЕСЯ ПО ВЕРШИНАМ: узнать их и свести к одному мешу.
+ *
+ * ПОВОД (Александр, 2026-08-23): «это одинаковые кубы. мы никак не можем начать их тоже
+ * инстансить? если человек пришлёт такую же модель мы не сможем понять что это одинаковые
+ * модели никак?»
+ *
+ * Можем. Это самый обычный экспорт: модификатор Array в Blender ЗАПЕКАЕТ смещение каждой
+ * копии прямо в координаты вершин. На выходе получается не «один меш и 625 узлов», а 625
+ * отдельных мешей, у которых узлы стоят в одной точке. Склейка одинаковых (`dedup`) их не
+ * видит — данные и правда разные; инстансинг не видит тем более.
+ *
+ * Замер на `Instance Grid 01`: 625 мешей, из них **623 — одна и та же форма**, отличие
+ * только в сдвиге. Оставшиеся два отличаются порядком вершин, и их мы не трогаем.
+ *
+ * КАК ЭТО ДЕЛАЕТСЯ БЕЗ ЕДИНОЙ ПРАВКИ ГЕОМЕТРИИ. Вершины не переписываются вовсе — это
+ * важно, потому что переписанная геометрия автора требует другого разговора (Правило 11).
+ * Мы меняем только УЗЕЛ: он начинает ссылаться на общий меш, а разницу берёт на себя его
+ * собственное преобразование. Матрица узла в glTF есть T·R·S, и чтобы вершина осталась на
+ * прежнем месте при сдвиге меша на `o`, достаточно T' = T + R·S·o. Картинка не меняется
+ * ни на пиксель, а лишние меши после этого убирает обычная чистка.
+ *
+ * ЧЕГО НЕ ТРОГАЕМ, и каждый запрет закрывает настоящую беду:
+ *   · узлы С ДЕТЬМИ — правка их преобразования утащила бы за собой всё поддерево;
+ *   · скиннутые меши — там своё преобразование и свои обратные матрицы;
+ *   · меши с запасными формами — их дельты сравнивать сложнее, чем они того стоят;
+ *   · узлы, чей меш делят другие узлы, — такой меш уже общий, сводить нечего.
+ */
+export interface UnbakeResult {
+  /** Сколько групп «одна форма, разные места» найдено. */
+  groups: number;
+  /** Сколько мешей перестали быть отдельными. */
+  merged: number;
+}
+
+/**
+ * Подпись формы: координаты ОТНОСИТЕЛЬНО первой вершины плюс всё остальное как есть.
+ *
+ * Сдвиг не меняет ни нормалей, ни развёртки, ни индексов — поэтому они входят в подпись
+ * без изменений, а положение приводится к общему началу.
+ *
+ * Сравнение ТОЧНОЕ, без допуска. Допуск здесь означал бы «две почти одинаковые детали
+ * считаем одной», то есть правку модели по нашему усмотрению; на замере он и не нужен —
+ * 623 куба совпали побитово.
+ */
+function shapeKey(mesh: Mesh): string | null {
+  const prims = mesh.listPrimitives();
+  if (prims.length !== 1) return null;              // составной меш — не наш случай
+  const prim = prims[0]!;
+  if (prim.listTargets().length) return null;       // запасные формы
+  if (prim.getAttribute('JOINTS_0')) return null;   // скин
+
+  const pos = prim.getAttribute('POSITION');
+  if (!pos || !pos.getCount()) return null;
+  const o = pos.getElement(0, []);
+  const parts: string[] = [String(prim.getMode()), prim.getMaterial()?.getName() ?? ''];
+  const rel = new Float32Array(pos.getCount() * 3);
+  for (let i = 0; i < pos.getCount(); i++) {
+    const v = pos.getElement(i, []);
+    rel[i * 3] = v[0]! - o[0]!;
+    rel[i * 3 + 1] = v[1]! - o[1]!;
+    rel[i * 3 + 2] = v[2]! - o[2]!;
+  }
+  parts.push(Buffer.from(rel.buffer, rel.byteOffset, rel.byteLength).toString('base64'));
+
+  for (const name of prim.listSemantics().filter((n) => n !== 'POSITION').sort()) {
+    const a = prim.getAttribute(name)!;
+    const arr = a.getArray();
+    parts.push(name, Buffer.from(arr!.buffer, arr!.byteOffset, arr!.byteLength).toString('base64'));
+  }
+  const idx = prim.getIndices();
+  if (idx) {
+    const arr = idx.getArray()!;
+    parts.push('I', Buffer.from(arr.buffer, arr.byteOffset, arr.byteLength).toString('base64'));
+  }
+  return parts.join('|');
+}
+
+/** Первая вершина меша — точка, относительно которой считается сдвиг. */
+function anchor(mesh: Mesh): vec3 {
+  const v: number[] = [];
+  mesh.listPrimitives()[0]!.getAttribute('POSITION')!.getElement(0, v);
+  return [v[0]!, v[1]!, v[2]!];
+}
+
+/** Повернуть и растянуть вектор преобразованием самого узла: R·S·o. */
+function applyRS(node: Node, o: vec3): vec3 {
+  const [x, y, z] = o;
+  const s = node.getScale();
+  const [qx, qy, qz, qw] = node.getRotation();
+  const sx = x * s[0], sy = y * s[1], sz = z * s[2];
+  // Поворот кватернионом: v + 2q_v × (q_v × v + q_w·v)
+  const tx = 2 * (qy * sz - qz * sy);
+  const ty = 2 * (qz * sx - qx * sz);
+  const tz = 2 * (qx * sy - qy * sx);
+  return [
+    sx + qw * tx + (qy * tz - qz * ty),
+    sy + qw * ty + (qz * tx - qx * tz),
+    sz + qw * tz + (qx * ty - qy * tx),
+  ];
+}
+
+/**
+ * Свести меши одной формы к одному, перенеся разницу в преобразования узлов.
+ *
+ * Геометрия не переписывается: меняются только ссылки узлов и их сдвиг.
+ */
+export function unbakeCopies(doc: Document): UnbakeResult {
+  const root = doc.getRoot();
+  const out: UnbakeResult = { groups: 0, merged: 0 };
+
+  // Меш → узлы, которые на него ссылаются. Меш с несколькими хозяевами уже общий.
+  const owners = new Map<Mesh, Node[]>();
+  for (const node of root.listNodes()) {
+    const mesh = node.getMesh();
+    if (!mesh) continue;
+    const list = owners.get(mesh) || [];
+    list.push(node);
+    owners.set(mesh, list);
+  }
+
+  const byShape = new Map<string, Mesh[]>();
+  for (const [mesh, nodes] of owners) {
+    if (nodes.length !== 1) continue;               // меш уже делят — не наш случай
+    if (nodes[0]!.listChildren().length) continue;  // правка узла утащит поддерево
+    if (nodes[0]!.getSkin()) continue;
+    const key = shapeKey(mesh);
+    if (!key) continue;
+    const list = byShape.get(key) || [];
+    list.push(mesh);
+    byShape.set(key, list);
+  }
+
+  for (const meshes of byShape.values()) {
+    if (meshes.length < 2) continue;
+    const canon = meshes[0]!;
+    const base = anchor(canon);
+    out.groups++;
+    for (let i = 1; i < meshes.length; i++) {
+      const mesh = meshes[i]!;
+      const node = owners.get(mesh)![0]!;
+      const a = anchor(mesh);
+      const o: vec3 = [a[0] - base[0], a[1] - base[1], a[2] - base[2]];
+      const shift = applyRS(node, o);
+      const t = node.getTranslation();
+      node.setTranslation([t[0] + shift[0], t[1] + shift[1], t[2] + shift[2]]);
+      node.setMesh(canon);
+      mesh.dispose();
+      out.merged++;
+    }
+  }
+  return out;
+}

@@ -60,7 +60,7 @@ interface AssetJson {
   [key: string]: unknown;
 }
 import { decodeKtx2 } from './ktx2-decode.mjs';
-import { instanceStatic } from './instance.mjs';
+import { instanceStatic, unbakeCopies } from './instance.mjs';
 import { type Ceiling, probeWebpCeiling, readCeiling, targetQuality } from './source-quality.mjs';
 import { readSourceJson } from './source-json.mjs';
 import { importNote } from './import-notes.mjs';
@@ -1426,13 +1426,27 @@ export const RULES: GltfRule[] = [
       // бы та ни сидела. Александр 2026-08-23: «ведь анимируются не детали на которых
       // инстансинги. тогда почему отказывается делать инстанс?». Наша граница поузловая —
       // разбор и остальные сохранённые запреты в шапке `instance.mts`.
+      // СНАЧАЛА РАСПЕКАЕМ КОПИИ, разъехавшиеся по вершинам, и только потом инстансим.
+      //
+      // Александр 2026-08-23: «это одинаковые кубы. мы никак не можем начать их тоже
+      // инстансить? если человек пришлёт такую же модель мы не сможем понять что это
+      // одинаковые модели никак?». Можем: модификатор Array в Blender запекает смещение
+      // в координаты, и одинаковые кубы приезжают разными мешами. Разбор — в шапке
+      // `instance.mts`; геометрия при этом не переписывается ни на число.
+      const unbaked = unbakeCopies(ctx.document);
       const res = instanceStatic(ctx.document, { min: 2 });
       const a = { nodes: root.listNodes().length, dc: collectMetrics(ctx.document, 0).drawCalls };
       if (res.batches > 0) {
-        return {
-          found: [{ messageId: 'instance.found', data: {} }],
-          details: [{ messageId: 'instance.done', data: { dcBefore: b.dc, dcAfter: a.dc, nodesBefore: b.nodes, nodesAfter: a.nodes } }],
-        };
+        const details: Message[] = [
+          { messageId: 'instance.done', data: { dcBefore: b.dc, dcAfter: a.dc, nodesBefore: b.nodes, nodesAfter: a.nodes } },
+        ];
+        // Про распекание говорим ОТДЕЛЬНОЙ строкой и только когда оно было: человек
+        // вправе знать, что копии узнаны не по ссылке, а по форме. Одна строка на весь
+        // класс, а не на каждый меш (Правило 9).
+        if (unbaked.merged) {
+          details.push({ messageId: 'instance.unbaked', data: { n: unbaked.merged, groups: unbaked.groups } });
+        }
+        return { found: [{ messageId: 'instance.found', data: {} }], details };
       }
       // ПРИЧИНА ОТКАЗА НАЗЫВАЕТСЯ ВЕРНАЯ. Раньше здесь стояла одна строка на все случаи —
       // «повторяющихся мешей нет», — и на анимированной модели она была ложью: меши могли

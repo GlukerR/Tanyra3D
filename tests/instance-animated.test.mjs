@@ -24,7 +24,7 @@ import { Document, NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
 
 import '../addons/gltf/index.mjs';
-import { instanceStatic } from '../addons/gltf/instance.mjs';
+import { instanceStatic, unbakeCopies } from '../addons/gltf/instance.mjs';
 
 let tmp;
 beforeAll(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'inst-anim-')); });
@@ -156,5 +156,139 @@ describe('инстансинг не пасует перед чужой аним�
     expect(batched.length, 'узла с партией в файле нет').toBe(1);
     expect(batched[0].extensions.EXT_mesh_gpu_instancing.attributes,
       'партия без преобразований — копии сошлись бы в одну точку').toBeTruthy();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Копии, запечённые в вершины: узнаём по форме
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('одинаковые копии узнаются по форме, а не по ссылке', () => {
+  // ПОВОД (Александр, 2026-08-23): «это одинаковые кубы. мы никак не можем начать их тоже
+  // инстансить? если человек пришлёт такую же модель мы не сможем понять что это
+  // одинаковые модели никак?».
+  //
+  // Модификатор Array в Blender ЗАПЕКАЕТ смещение каждой копии прямо в координаты вершин.
+  // На выходе не «один меш и N узлов», а N отдельных мешей: склейка одинаковых их не
+  // видит (данные и правда разные), инстансинг — тем более.
+  //
+  // Ключевое требование к починке: КАРТИНКА НЕ МЕНЯЕТСЯ. Геометрия не переписывается
+  // вовсе — узел начинает ссылаться на общий меш, а разницу берёт на себя его собственный
+  // сдвиг (T' = T + R·S·o). Первый тест ниже сверяет ВСЕ вершины в мировых координатах,
+  // потому что ошибка здесь сдвигает деталь, не тронув ни одного счётчика.
+
+  /** N кубов, у каждого СВОЙ меш со смещением, запечённым в вершины. */
+  function baked(count, { rotate = false } = {}) {
+    const doc = new Document();
+    const buf = doc.createBuffer();
+    const sc = doc.createScene('S');
+    doc.getRoot().setDefaultScene(sc);
+    const mat = doc.createMaterial('m');
+    const shape = [0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0];
+    for (let i = 0; i < count; i++) {
+      const off = i * 3;
+      const arr = new Float32Array(shape.length);
+      for (let k = 0; k < shape.length; k++) arr[k] = shape[k] + (k % 3 === 0 ? off : 0);
+      const acc = (a, t) => doc.createAccessor().setType(t).setBuffer(buf).setArray(a);
+      const prim = doc.createPrimitive().setMode(4)
+        .setAttribute('POSITION', acc(arr, 'VEC3'))
+        .setIndices(acc(new Uint16Array([0, 1, 2, 1, 3, 2]), 'SCALAR'))
+        .setMaterial(mat);
+      const node = doc.createNode('n' + i).setMesh(doc.createMesh('cube_' + i).addPrimitive(prim));
+      // Поворот узла проверяет, что сдвиг переносится ЧЕРЕЗ его преобразование, а не мимо.
+      if (rotate) node.setRotation([0, 0.7071068, 0, 0.7071068]);
+      sc.addChild(node);
+    }
+    return doc;
+  }
+
+  /** Все вершины всех мешей в МИРОВЫХ координатах — то, что видит глаз. */
+  function worldPoints(doc) {
+    const out = [];
+    for (const node of doc.getRoot().listNodes()) {
+      const mesh = node.getMesh();
+      if (!mesh) continue;
+      const t = node.getWorldTranslation();
+      const pos = mesh.listPrimitives()[0].getAttribute('POSITION');
+      const pts = [];
+      for (let i = 0; i < pos.getCount(); i++) {
+        const v = [];
+        pos.getElement(i, v);
+        pts.push((v[0] + t[0]).toFixed(4), (v[1] + t[1]).toFixed(4), (v[2] + t[2]).toFixed(4));
+      }
+      out.push(pts.join(','));
+    }
+    return out.sort();
+  }
+
+  it('десять запечённых копий сводятся к одному мешу', () => {
+    const doc = baked(10);
+    expect(doc.getRoot().listMeshes().length, 'заготовка не про этот случай').toBe(10);
+    const res = unbakeCopies(doc);
+    expect(res.groups, 'форма не узнана').toBe(1);
+    expect(res.merged, 'сведены не все копии').toBe(9);
+    expect(doc.getRoot().listMeshes().length, 'лишние меши остались').toBe(1);
+  });
+
+  it('КАРТИНКА НЕ МЕНЯЕТСЯ: все вершины остаются на своих местах', () => {
+    // Главный тест файла. Ошибка в переносе сдвига двигает деталь, не тронув ни
+    // треугольников, ни материалов, ни счётчиков — по отчёту этого не увидеть.
+    const doc = baked(10);
+    const before = worldPoints(doc);
+    unbakeCopies(doc);
+    expect(worldPoints(doc), 'детали разъехались — сдвиг перенесён неверно').toEqual(before);
+  });
+
+  it('поворот узла учитывается: сдвиг переносится ЧЕРЕЗ его преобразование', () => {
+    // T' = T + R·S·o. Забудь про R — и повёрнутые копии уедут вбок.
+    const doc = baked(6, { rotate: true });
+    const before = worldPointsRotated(doc);
+    unbakeCopies(doc);
+    expect(worldPointsRotated(doc), 'повёрнутые копии разъехались').toEqual(before);
+  });
+
+  /** То же, что worldPoints, но через полную матрицу узла — с поворотом. */
+  function worldPointsRotated(doc) {
+    const out = [];
+    for (const node of doc.getRoot().listNodes()) {
+      const mesh = node.getMesh();
+      if (!mesh) continue;
+      const m = node.getWorldMatrix();
+      const pos = mesh.listPrimitives()[0].getAttribute('POSITION');
+      const pts = [];
+      for (let i = 0; i < pos.getCount(); i++) {
+        const v = [];
+        pos.getElement(i, v);
+        const x = m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12];
+        const y = m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13];
+        const z = m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14];
+        pts.push(x.toFixed(3), y.toFixed(3), z.toFixed(3));
+      }
+      out.push(pts.join(','));
+    }
+    return out.sort();
+  }
+
+  it('разные формы не сваливаются в одну', () => {
+    // Допуска здесь нет намеренно: «почти одинаковые» детали — это разные детали, и
+    // сводить их значило бы править модель по своему усмотрению (Правило 11).
+    const doc = baked(4);
+    const odd = doc.getRoot().listMeshes()[2].listPrimitives()[0].getAttribute('POSITION');
+    const v = [];
+    odd.getElement(1, v);
+    odd.setElement(1, [v[0], v[1] + 0.01, v[2]]);   // одна вершина сдвинута
+    const res = unbakeCopies(doc);
+    expect(doc.getRoot().listMeshes().length, 'непохожий меш сведён с остальными').toBe(2);
+    expect(res.merged).toBe(2);
+  });
+
+  it('узел с детьми не трогаем — правка утащила бы поддерево', () => {
+    const doc = baked(6);
+    const nodes = doc.getRoot().listNodes().filter((n) => n.getMesh());
+    nodes[1].addChild(doc.createNode('child'));
+    const res = unbakeCopies(doc);
+    // Пять оставшихся сводятся между собой, узел с ребёнком остаётся при своём меше.
+    expect(res.merged).toBe(4);
+    expect(nodes[1].getMesh(), 'меш узла с детьми подменили').toBeTruthy();
   });
 });
