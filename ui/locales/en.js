@@ -296,6 +296,7 @@ window.I18N_CATALOGS.en = {
     ? 'The earlier map for the same slot was removed — the new one stays.'
     : `${n} earlier maps for the same slots were removed — the new ones stay.`),
   'log.rejectedMany': ({ n }) => `Skipped files: ${n} — accepted: .glb, .gltf, .stl, .fbx, .obj`,
+  'log.batchAlreadyBuilt': ({ n }) => `Already built with these settings, skipped: ${n}`,
   'log.batchStarted': ({ n }) => `Batch build: ${n} model(s) queued`,
   'log.batchDone': ({ ok, failed }) => `Batch build finished: ${ok} built, ${failed} failed`,
   'log.batchStopped': ({ ok, failed, left }) => `Batch build stopped: ${ok} built, ${failed} failed, ${left} left`,
