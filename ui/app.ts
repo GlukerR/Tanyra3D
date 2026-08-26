@@ -36,8 +36,7 @@
   const modelList = $('model-list');
   const batchBar = $('batch-bar');
   const batchCount = $('batch-count');
-  const batchAllBtn = $('batch-all') as HTMLButtonElement;
-  const batchNoneBtn = $('batch-none') as HTMLButtonElement;
+  const batchToggle = $('batch-toggle') as HTMLInputElement;
   const batchSummaryBtn = $('batch-summary') as HTMLButtonElement;
   const summaryWindow = $('summary-window');
   const summaryBody = $('summary-body');
@@ -504,10 +503,9 @@
   // было видно, с какими настройками собиралась каждая версия.
   function onOptionChanged() {
     updateRunButtonState();
-    // Строка «Сейчас в модели» договаривает разное в зависимости от выбора: сняли
-    // все варианты группы — она предупреждает, что входное сжатие будет снято.
-    // Значит обновлять её надо на каждое изменение, а не только при загрузке модели.
-    refreshInputNotes();
+    // Значок «В модели» здесь не пересчитывается намеренно: он говорит о ЗАГРУЖЕННОМ
+    // ФАЙЛЕ, а не о выборе человека. Флажок сняли — в файле от этого ничего не
+    // изменилось, и значок обязан остаться на месте.
     rememberSelection(); // запомнить выбор платформы — он переживёт новую модель/смену платформы
     // Раскрытые разделы описывают ПРОШЛУЮ сборку. Тронули флажок — они устарели,
     // и держать их открытыми значит показывать неверное как текущее.
@@ -1136,12 +1134,9 @@
     updateRunButtonState();
   }
 
-  function optSection(title: string, groupKind: string | null) {
+  function optSection(title: string) {
     const sec = document.createElement('div');
     sec.className = 'opt-section';
-    // Метка нужна, чтобы строку «Сейчас в модели» можно было вставить ПОЗЖЕ:
-    // панель строится до того, как приходит инспекция файла.
-    if (groupKind) sec.dataset.group = groupKind;
     const h = document.createElement('div');
     h.className = 'opt-section-title';
     h.textContent = title;
@@ -1149,70 +1144,44 @@
     return sec;
   }
 
-  // Что УЖЕ лежит в загруженной модели по этой группе.
+  // Что из НАШЕГО СПИСКА уже лежит в загруженной модели: id опции → имя расширения.
   //
-  // Зачем. Движок снимает входное сжатие при загрузке всегда — по замыслу, чтобы не
-  // накладывать кодек на кодек (ARCHITECTURE §6). Значит модель с Draco, собранная
-  // без единого флажка геометрии, выйдет НЕСЖАТОЙ, и файл вырастет: замер на
-  // `Ноутбук.glb` — 6.2 → 57.6 МБ. Раньше человек узнавал об этом из строки отчёта,
-  // когда сборка уже закончилась.
+  // ОДНА таблица на всё, потому что ответ на вопрос «это уже в файле?» человек должен
+  // получать в ОДНОМ месте — у самой опции, значком «В модели». Раньше ответов было два
+  // и они расходились: значок знал про четыре технологии (Draco, Meshopt, KTX2, инстансинг),
+  // а строка над группой «Сейчас в модели: …» — про пять. WebP получал строку и не получал
+  // значка; Draco получал и то и другое сразу, дважды говоря одно и то же.
   //
-  // Отдельный пункт «не сжимать» этого не решает: при входном Draco непонятно,
-  // означает он «оставить как было» или «убрать». Поэтому не пункт, а факт —
-  // сказанный вовремя. Отсутствие галочки по-прежнему значит «не добавлять».
-  const GROUP_INPUT_MARKERS: Record<string, Record<string, string>> = {
-    geometry: {
-      meshopt: 'EXT_meshopt_compression',
-      draco: 'KHR_draco_mesh_compression',
-      quantize: 'KHR_mesh_quantization',
-    },
-    textures: {
-      ktx2: 'KHR_texture_basisu',
-      webp: 'EXT_texture_webp',
-    },
+  // Александр, 2026-08-26: «алреди и всё что там указано мы убираем везде и всегда.
+  // оставаться должно соурс на будущих всегда и везде… если к нам приходит что-то с
+  // инстансингом мы должны показать соурс. так же на сжатии геометрии и на сжатии текстур
+  // и всё остальное что в будущем может появиться на других движках». Правило записано
+  // отдельно — `docs/ПРАВИЛА_ИНТЕРФЕЙСА.md`, раздел «Что пришло в модели — говорит значок».
+  //
+  // ПОПОЛНЯТЬ ЗДЕСЬ. Технология, которую движок умеет и узнавать на входе, и предлагать
+  // галочкой, добавляется ОДНОЙ строкой — значок появится сам, во всех группах сразу.
+  // Сторож на полноту таблицы — `tests/ui-source-badges.test.mjs`.
+  const SOURCE_MARKERS: Record<string, string> = {
+    meshopt: 'EXT_meshopt_compression',
+    draco: 'KHR_draco_mesh_compression',
+    quantize: 'KHR_mesh_quantization',
+    ktx2: 'KHR_texture_basisu',
+    webp: 'EXT_texture_webp',
+    instance: 'EXT_mesh_gpu_instancing',
   };
 
-  // Выбрана ли хоть одна опция группы — от этого зависит вторая половина строки.
-  function groupHasChoice(groupKind: string) {
-    if (groupKind === 'geometry') return geometryChoice !== 'none';
-    const markers = GROUP_INPUT_MARKERS[groupKind] || {};
-    return Object.keys(markers).some((id) => {
-      const box = document.getElementById(`ext-${id}`) as HTMLInputElement | null;
-      return box && box.checked;
-    });
-  }
-
-  // Пересобирает строку «Сейчас в модели» во всех группах. Зовётся из applyDetection:
-  // к этому моменту инспекция файла уже пришла, а панель уже построена.
-  function refreshInputNotes() {
-    for (const sec of extensionsList.querySelectorAll('.opt-section[data-group]')) {
-      const old = sec.querySelector('.opt-input-note');
-      if (old) old.remove();
-
-      const groupKind = (sec as HTMLElement).dataset.group!;
-      const markers = GROUP_INPUT_MARKERS[groupKind];
-      if (!markers) continue;
-      // Два источника, потому что приходят они в разное время и знают разное:
-      // detectSource из вьюера — сразу после загрузки, но только про четыре вещи;
-      // инспекция файла — позже, зато полным списком расширений.
-      const present = new Set((modelInspect && modelInspect.extensions) || []);
-      const found = Object.entries(markers)
-        .filter(([id, ext]) => present.has(ext) || (lastDetection && lastDetection[id]))
-        .map(([id]) => id);
-      if (!found.length) continue;
-
-      const note = document.createElement('p');
-      note.className = 'opt-input-note';
-      // Названия берём из тех же опций, что видит человек рядом, — не из имён расширений
-      // (идентификатор спецификации ему ничего не говорит).
-      const byId = Object.fromEntries(extensions.map((e) => [e.id, e]));
-      const names = found.map((id) => (byId[id] && byId[id].title) || id).join(', ');
-      note.textContent = groupHasChoice(groupKind)
-        ? t('opts.inputHas', { names })
-        : t('opts.inputHasAndDropped', { names });
-      // Сразу под заголовком группы, до самих опций.
-      sec.insertBefore(note, sec.children[1] || null);
-    }
+  // Технологии из таблицы, которые есть в загруженном файле.
+  //
+  // Два источника, потому что приходят они в разное время и знают разное: detectSource
+  // из вьюера — сразу после загрузки, но только про четыре вещи; инспекция файла —
+  // позже, зато полным списком расширений. Значок обязан появляться от любого из них:
+  // до инспекции WebP не виден вовсе, а KTX2 иные экспортёры объявляют только через
+  // mimeType картинок — это ловит как раз вьюер (см. detectSource).
+  function sourceTechnologies() {
+    const present = new Set((modelInspect && modelInspect.extensions) || []);
+    return Object.entries(SOURCE_MARKERS)
+      .filter(([id, ext]) => present.has(ext) || !!(lastDetection && lastDetection[id]))
+      .map(([id]) => id);
   }
 
   // «?» — «на сайте нужно кое-что подключить». Один переиспользуемый индикатор вместо
@@ -1363,7 +1332,7 @@
   // поэтому движок не помечает его needsDecoder и значок ему не ставится.
   function renderGeometryGroup(byId: Record<string, ExtensionDto>) {
     if (!byId.meshopt && !byId.draco && !byId.quantize) return null;
-    const sec = optSection(t('group.geometry'), 'geometry');
+    const sec = optSection(t('group.geometry'));
     const opts = [
       byId.meshopt && { v: 'meshopt', ext: byId.meshopt, label: byId.meshopt.title },
       byId.draco && { v: 'draco', ext: byId.draco, label: byId.draco.title },
@@ -1464,7 +1433,7 @@
       opts = opts.filter((ext) => resizeTargetOf(ext.id) < side);
       if (!opts.length) return null;
     }
-    const sec = optSection(t(group.titleKey), 'textureSize');
+    const sec = optSection(t(group.titleKey));
 
     const wrap = document.createElement('div');
     wrap.className = 'select-wrap';
@@ -1511,7 +1480,7 @@
     if (!items.length) return null;
     // Текстурная группа — такой же случай, как геометрия: входной формат снимается,
     // и человек должен узнать об этом до сборки, а не из отчёта.
-    const sec = optSection(t(group.titleKey), group.ids!.includes('ktx2') ? 'textures' : null);
+    const sec = optSection(t(group.titleKey));
     for (const ext of items) sec.appendChild(buildExtensionRow(ext));
     return sec;
   }
@@ -2255,7 +2224,6 @@
     else applyDefaultSelection();
 
     showDetectionBadges();
-    refreshInputNotes();
     // Знак цены относится к показанному результату, а не к сборке, которая только что
     // прошла: пока на экране тот же результат, знак обязан быть на месте. Иначе он
     // пропадал при каждой пересборке панели — переключении модели, смене языка.
@@ -2360,17 +2328,24 @@
     await loadExtensions(platformSelect.value, keep);
   }
 
-  // Бейджи [Source] — по текущей модели, информационно (что уже было в импортированном файле).
+  // Значок «В модели» — у КАЖДОЙ опции, чья технология есть в загруженном файле.
+  //
+  // Проход по всей таблице SOURCE_MARKERS, а не четыре именных случая. Именные случаи и
+  // были причиной дыр: WebP и квантование в них не входили, и человек, принёсший модель
+  // с WebP, значка не видел вовсе. Теперь новая строка в таблице закрывает вопрос сама.
+  //
+  // Взаимоисключение геометрии значка НЕ касается. Meshopt-файл несёт внутри себя и
+  // KHR_mesh_quantization — значит обе технологии в нём ЕСТЬ, и обе получают значок,
+  // хотя выбрать для сборки можно только одну. Значок отвечает на «что в файле», а не
+  // на «что будет собрано»; смешать эти два вопроса значило бы соврать в одном из них.
   function showDetectionBadges() {
-    if (!lastDetection) return;
-    if (lastDetection.draco) badgeGeometry('draco');
-    else if (lastDetection.meshopt) badgeGeometry('meshopt');
-    if (lastDetection.ktx2) badgeCheck('ktx2');
-    if (lastDetection.instance) badgeCheck('instance');
-    // Отдельный значок, а не [Source]: [Source] означает «в файле уже есть, сохраняем»,
-    // а здесь наоборот — в файле этого нет, но содержимое просит включить. Одинаковый
-    // значок на двух разных утверждениях обесценил бы оба.
-    else if (hasSharedGeometry()) badgeAdvised('instance', lastDetection.opportunity);
+    for (const id of sourceTechnologies()) badgeOption(id);
+    // Отдельный значок, а не «В модели»: «В модели» означает «в файле уже есть,
+    // сохраняем», а здесь наоборот — в файле этого нет, но содержимое просит включить.
+    // Одинаковый значок на двух разных утверждениях обесценил бы оба.
+    if (lastDetection && !sourceTechnologies().includes('instance') && hasSharedGeometry()) {
+      badgeAdvised('instance', lastDetection.opportunity);
+    }
   }
 
   // Красный знак у галочки, которая назначила цену: правило само измерило, во что
@@ -2445,18 +2420,21 @@
     if (cur) cur.textContent = t('opt.webpQuality.share', { share: webpQuality });
   }
 
-  function badgeGeometry(v: string) {
-    addSourceBadge(document.querySelector(`.opt-radio-row[data-geom="${v}"]`) as HTMLElement, '.opt-radio-text');
-  }
-
-  function badgeCheck(id: string) {
+  // Опция живёт в панели в одном из двух видов: обычный флажок (`.ext-row`) или строка
+  // взаимоисключающего выбора геометрии (`.opt-radio-row`). Значку разница безразлична,
+  // поэтому ищем оба — ровно как это делает renderCostBadges. Отсутствие строки не
+  // ошибка: площадка вправе не показывать опцию, и тогда помечать нечего.
+  function badgeOption(id: string) {
     const cb = document.getElementById(`ext-${id}`);
-    addSourceBadge((cb && cb.closest('.ext-row'))!, '.ext-label');
+    const container = (cb && cb.closest('.ext-row'))
+      || document.querySelector(`.opt-radio-row[data-geom="${id}"]`);
+    if (!container) return;
+    addSourceBadge(container as HTMLElement);
   }
 
-  function addSourceBadge(container: HTMLElement, anchorSel: string) {
+  function addSourceBadge(container: HTMLElement) {
     if (!container || container.querySelector('.ext-source-badge')) return;
-    const anchor = container.querySelector(anchorSel) || container;
+    const anchor = container.querySelector('.ext-label') || container.querySelector('.opt-radio-text') || container;
     const badge = document.createElement('span');
     badge.className = 'ext-source-badge';
     badge.textContent = t('ext.source');
@@ -2646,7 +2624,15 @@
   function renderBatchBar() {
     batchBar.classList.toggle('hidden', !batchMode());
     if (!batchMode()) return;
-    setText(batchCount, 'batch.count', { n: pickedModels().length, total: models.length });
+    const n = pickedModels().length;
+    setText(batchCount, 'batch.count', { n, total: models.length });
+    // Состояние общего квадратика — вывод из списка, а не отдельная память. Отмечено
+    // не всё и не ничего — промежуточное положение: оно честно говорит «часть», и по
+    // нажатию из него берутся ВСЕ (браузер снимает indeterminate в checked).
+    batchToggle.checked = n === models.length;
+    batchToggle.indeterminate = n > 0 && n < models.length;
+    batchToggle.title = t('batch.toggle');
+    batchToggle.setAttribute('aria-label', t('batch.toggle'));
   }
 
   function renderModelList() {
@@ -2767,11 +2753,17 @@
     updateRunButtonState();
   }
 
-  // «Все» / «ничего» — одна кнопка на два состояния была бы короче, но её название
-  // пришлось бы менять на лету, а человек, вернувшийся к списку через минуту, не помнит,
-  // что она сделает. Две кнопки говорят о себе сами.
-  batchAllBtn.addEventListener('click', () => setAllPicked(true));
-  batchNoneBtn.addEventListener('click', () => setAllPicked(false));
+  // Общий выключатель: отмечен — берём всех, снят — не берём никого.
+  //
+  // Раньше здесь стояли две кнопки, «все» и «ничего». Александр, 2026-08-26: «любые
+  // кнопки которые делают точно противоположные действия друг другу должны сводиться
+  // в одну кнопку». Довод против («название придётся менять на лету, и человек не
+  // вспомнит, что она сделает») снимается тем, что это НЕ кнопка с названием, а
+  // квадратик: он показывает СОСТОЯНИЕ, а не обещание действия, и стоит ровно над
+  // такими же квадратиками моделей — то есть читается без слов вообще.
+  //
+  // Правило записано в docs/ПРАВИЛА_ИНТЕРФЕЙСА.md.
+  batchToggle.addEventListener('change', () => setAllPicked(batchToggle.checked));
 
   function setAllPicked(picked: boolean) {
     for (const rec of models) rec.picked = picked;
@@ -2984,6 +2976,21 @@
 
   function addModel(file: File, pack: PackFile[] = []) {
     captureActiveModel();          // не потерять состояние той, что сейчас на экране
+    // СОБРАННЫЕ РАНЬШЕ выходят из выбора. Александр, 2026-08-26: «я добавил 4 модели,
+    // сделал им билд и оптимизировал. добавил 5 модель — оптимизация по тем же флажкам
+    // пошла с 1 модели и дальше. такого не должно быть. Всё должно быть только конкретно
+    // на новой модели, если старые с флажками уже выполнены были».
+    //
+    // Галочка означает «предстоит собрать», а не «когда-то отмечал». Модель, у которой
+    // результат уже есть, этого не предстоит: принеся пятую, человек просит собрать
+    // ПЯТУЮ, а не прогнать четыре готовых по второму разу — на тяжёлом пакете это
+    // минуты работы и мегабайты на диске, которых он не заказывал.
+    //
+    // Условие ровно то, что он назвал: «если СТАРЫЕ С ФЛАЖКАМИ УЖЕ ВЫПОЛНЕНЫ БЫЛИ».
+    // Несобранные (упавшие, до которых не дошла очередь) галочку сохраняют — им сборка
+    // всё ещё предстоит. Готовность читаем из снимка: captureActiveModel выше только что
+    // сложил туда результат активной модели, поэтому источник один на всех.
+    for (const rec of models) if (rec.state.lastResult) rec.picked = false;
     // Новая модель отмечена. Человек принёс файл, чтобы его обработать, — снять
     // галочку у лишних дешевле, чем поставить у нужных: бросили пятьдесят, собрать
     // хотят сорок восемь. Обратный умолчание («ничего не отмечено») заставляло бы

@@ -177,11 +177,6 @@ window.I18N_CATALOGS.en = {
   'opts.noServer': ({ error }) => `Optimization options could not be loaded: ${error}. The server may not be running — restart it and reload the page.`,
   'opts.noPlatforms': 'The server returned no target platforms, so there are no options to choose from. Check the profiles/ folder.',
   'opts.empty': ({ platform }) => `Platform "${platform}" offers no advanced options.`,
-  // What the incoming model already carries. The second line covers the fact that
-  // incoming compression is always stripped on load: pick nothing and the result
-  // comes out uncompressed.
-  'opts.inputHas': ({ names }) => `Already in the model: ${names}`,
-  'opts.inputHasAndDropped': ({ names }) => `Already in the model: ${names}. Pick nothing and it will be removed — the result stays uncompressed and the file grows.`,
   'insp.summary': 'Summary',
   'insp.integrity': 'Integrity check',
   'insp.analysis': 'Analysis',
@@ -272,8 +267,7 @@ window.I18N_CATALOGS.en = {
 
   // --- batch build ---
   'batch.count': ({ n, total }) => `${n} of ${total} selected`,
-  'batch.all': 'all',
-  'batch.none': 'none',
+  'batch.toggle': 'Pick all or clear the selection',
   'batch.pick': 'Include in the batch',
   'btn.buildPicked': ({ n }) => `Build selected (${n})`,
   'btn.stop': 'Stop',
@@ -368,7 +362,7 @@ window.I18N_CATALOGS.en = {
   // технология уже есть в загруженной модели», и смысл у него противоположный.
   'ext.origin': 'Where from: {text}',
   'ext.source': 'Source',
-  'ext.source.title': 'This technology was already used in the imported model',
+  'ext.source.title': 'This technology is present in the imported model',
   // «Советуем» — противоположное утверждение: в модели этого НЕТ, но содержимое просит.
   'ext.advised': 'Advised',
   'ext.advised.shared': ({ meshes, nodes }) =>
