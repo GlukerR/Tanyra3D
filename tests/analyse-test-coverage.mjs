@@ -569,28 +569,38 @@ const describedModels = data.describes
 
 // Модели, отсутствующие на диске.
 //
-// ВАЖНО про чистый клон: из 34 моделей корпуса в git лежат только те, что
-// перечислены в REPO_MODELS (`tests/helpers/model-files.mjs`) — у остальных
-// чужая лицензия, коммитить их нельзя. На CI после `npm ci` на диске поэтому
-// 11 моделей из 24 в GOLDEN_MODELS, и это НОРМА, а не поломка: тесты на
-// локальные модели пропускаются через describeLocal.
+// ВАЖНО про чистый клон: в git лежат только модели, объявленные исключениями в
+// `fixtures/.gitignore` — у остальных чужая лицензия, коммитить их нельзя. На CI
+// после `npm ci` на диске поэтому лишь часть GOLDEN_MODELS, и это НОРМА, а не
+// поломка: тесты на локальные модели пропускаются через describeLocal.
+//
+// Числа в этом объяснении намеренно не названы: корпус растёт, а «11 из 24» в
+// комментарии устаревает молча.
 //
 // Поэтому гейтить можно только по REPO-моделям: их отсутствие — реальная
 // поломка (файл потерян или выпал из fixtures/.gitignore). Отсутствие
 // локальных моделей отдаётся отдельным полем и ничего не валит.
 const modelsDir = path.resolve(PROJECT_ROOT, 'fixtures/models');
 
-// REPO_MODELS читаем регуляркой, а не импортом: helper тянет глобалы vitest
-// (`import { describe, it } from 'vitest'`), которые вне раннера недоступны,
-// а этот скрипт запускается обычным `node`.
-const helperCode = fs.readFileSync(
-  path.resolve(PROJECT_ROOT, 'tests/helpers/model-files.mjs'),
-  'utf-8',
-);
-const repoModelsMatch = helperCode.match(/const\s+REPO_MODELS\s*=\s*new\s+Set\s*\(\s*\[([^\]]+)\]/s);
-const repoModels = repoModelsMatch
-  ? [...repoModelsMatch[1].matchAll(/['"`]([^'"`]+\.glb)['"`]/g)].map((m) => m[1])
-  : [];
+// Список коммитимых моделей берём ИЗ ПЕРВОИСТОЧНИКА — `fixtures/.gitignore`, где и
+// принимается решение о публикации. Импортировать helper нельзя: он тянет глобалы
+// vitest (`import { describe, it } from 'vitest'`), а скрипт запускается обычным `node`.
+//
+// Раньше здесь стояла регулярка ПО ИСХОДНИКУ helper'а — она ждала литерал
+// `new Set([...])`. 2026-08-26 helper перестал держать свой список и стал читать тот же
+// `.gitignore` — регулярка перестала совпадать, и `repoModels` молча стал пустым. А
+// пустой список означает, что гейт ниже (`missingFromDisk`) не поймает НИЧЕГО: потерю
+// коммитимой модели этот скрипт объявил бы нормой. Разбор чужого исходника регуляркой
+// ломается ровно так — беззвучно, и обнаруживается через месяц.
+const repoModels = fs.readFileSync(path.resolve(PROJECT_ROOT, 'fixtures/.gitignore'), 'utf-8')
+  .split(/\r?\n/)
+  .map((line) => /^!models\/(.+\.(?:glb|gltf))\s*$/.exec(line.trim()))
+  .filter(Boolean)
+  .map((m) => m[1]);
+if (!repoModels.length) {
+  throw new Error('fixtures/.gitignore не дал ни одной коммитимой модели — разбор сломан, '
+    + 'а с пустым списком гейт «коммитимая модель пропала с диска» проверяет пустоту');
+}
 
 const absentFromDisk = goldenModels.filter((m) => !fs.existsSync(path.join(modelsDir, m)));
 const missingFromDisk = absentFromDisk.filter((m) => repoModels.includes(m));
