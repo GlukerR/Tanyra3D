@@ -289,16 +289,29 @@ body {
   color: var(--on-surface);
 }
 
-/* Полоса выбора моделей для пакетной сборки. */
+/* Полоса выбора моделей для пакетной сборки.
+
+   Просвет, отступ слева и прозрачная рамка ПОВТОРЯЮТ .model-item не для красоты:
+   общий квадратик обязан встать РОВНО над квадратиками моделей, в той же колонке.
+   Александр, 2026-08-26: «только точно над квадратами».
+
+   Рамка здесь именно прозрачная и именно 2px — та самая, которой .model-item отмечает
+   выбранную строку. Без неё выключатель уезжал влево ровно на её толщину (замерено в
+   браузере: 21 против 23). Копировать число в padding было бы хуже: изменят рамку у
+   .model-item — и колонки снова разойдутся, молча. */
 .batch-bar {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 4px 9px 6px;
+  border-left: 2px solid transparent;
   font-size: 11px;
   color: var(--on-surface-variant);
 }
-.batch-count { flex: 1; min-width: 0; }
+.batch-count { flex: 1; min-width: 0; cursor: pointer; }
+/* Общий выключатель носит .model-pick — тот же размер и цвет, что у моделей: одинаковый
+   вид и есть объяснение, что он с ними делает. */
+.batch-toggle { cursor: pointer; }
 .batch-pick {
   padding: 2px 7px;
   background: transparent;
@@ -1618,16 +1631,6 @@ details[open] > .collapsible-summary::before {
   padding-bottom: 5px;
   margin-bottom: 4px;
   border-bottom: 1px solid var(--outline-variant);
-}
-
-/* «Сейчас в модели: …» — факт о загруженном файле, а не опция. Поэтому тише
-   заголовка группы и без рамки: это справка, которую читают глазами по дороге
-   к галочкам, а не ещё один элемент управления. */
-.opt-input-note {
-  margin: 0 0 6px;
-  font-size: 11px;
-  line-height: 1.45;
-  color: var(--on-surface-variant);
 }
 
 /* Геометрия — взаимоисключающий тумблер Meshopt/Draco (checkbox, не radio-группа — нужно

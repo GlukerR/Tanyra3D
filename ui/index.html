@@ -118,12 +118,15 @@
       </div>
       <p id="chosen-file" class="chosen-file"></p>
       <!-- Полоса выбора для пакета. Показывается только когда моделей больше одной:
-           при единственной модели галочка и «все / ничего» — лишние кнопки над
-           единственной строкой. -->
+           при единственной модели выбирать не из чего.
+
+           Первый квадратик — общий выключатель, СТРОГО НАД квадратиками моделей и в
+           той же колонке: отмечает всех, повторное нажатие снимает всех. Раньше здесь
+           стояли две кнопки, «все» и «ничего», — а две кнопки с противоположными
+           действиями это одна кнопка (docs/ПРАВИЛА_ИНТЕРФЕЙСА.md). -->
       <div id="batch-bar" class="batch-bar hidden">
-        <span id="batch-count" class="batch-count"></span>
-        <button id="batch-all" class="batch-pick" type="button" data-i18n="batch.all">All</button>
-        <button id="batch-none" class="batch-pick" type="button" data-i18n="batch.none">None</button>
+        <input type="checkbox" id="batch-toggle" class="model-pick batch-toggle">
+        <label id="batch-count" class="batch-count" for="batch-toggle"></label>
         <button id="batch-summary" class="batch-pick" type="button" data-window-trigger disabled data-i18n="batch.summary">Summary</button>
       </div>
       <ul id="model-list" class="model-list"></ul>
