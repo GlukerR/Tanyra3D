@@ -94,6 +94,24 @@
       <button id="btn-metadata" class="outliner-tool" data-window-trigger disabled data-i18n="outliner.metadata" data-i18n-title="outliner.metadata.title" title="Asset metadata (scenes, meshes, materials…)">⊞ Metadata</button>
       <button id="btn-validation" class="outliner-tool" data-window-trigger disabled data-i18n="outliner.validation" data-i18n-title="outliner.validation.title" title="Khronos glTF validation report">✓ Validation</button>
     </div>
+    <!-- Полоса выбора для пакета. Показывается только когда моделей больше одной:
+         при единственной модели выбирать не из чего.
+
+         СТОИТ ВНЕ .outliner-body, рядом с «Метаданными» и «Проверкой», и это не
+         оформление. Внутри тела она прокручивалась вместе со списком и на длинном
+         списке уезжала вверх — Александр, 2026-08-26: «когда слишком много моделей он
+         уезжает будто первый пункт списка. а он не первый пункт. он отдельно от списка
+         и должен оставаться. как метадата и валидация».
+
+         Первый квадратик — общий выключатель, СТРОГО НАД квадратиками моделей и в той
+         же колонке: отмечает всех, повторное нажатие снимает всех (docs/ПРАВИЛА_ИНТЕРФЕЙСА.md,
+         правила 2 и 4). Отступ слева считается в .batch-bar с учётом того, что тело
+         сайдбара сюда больше не добавляет своих 12px. -->
+    <div id="batch-bar" class="batch-bar hidden">
+      <input type="checkbox" id="batch-toggle" class="model-pick batch-toggle">
+      <label id="batch-count" class="batch-count" for="batch-toggle"></label>
+      <button id="batch-summary" class="batch-pick" type="button" data-window-trigger disabled data-i18n="batch.summary">Summary</button>
+    </div>
     <div class="outliner-body">
       <div id="dropzone" class="dropzone">
         <input type="file" id="file-input" accept=".glb,.gltf,.stl,.ply,.fbx,.obj" multiple hidden>
@@ -102,18 +120,6 @@
         <p class="dropzone-sub" data-i18n="dropzone.sub">or click + · .glb and .gltf</p>
       </div>
       <p id="chosen-file" class="chosen-file"></p>
-      <!-- Полоса выбора для пакета. Показывается только когда моделей больше одной:
-           при единственной модели выбирать не из чего.
-
-           Первый квадратик — общий выключатель, СТРОГО НАД квадратиками моделей и в
-           той же колонке: отмечает всех, повторное нажатие снимает всех. Раньше здесь
-           стояли две кнопки, «все» и «ничего», — а две кнопки с противоположными
-           действиями это одна кнопка (docs/ПРАВИЛА_ИНТЕРФЕЙСА.md). -->
-      <div id="batch-bar" class="batch-bar hidden">
-        <input type="checkbox" id="batch-toggle" class="model-pick batch-toggle">
-        <label id="batch-count" class="batch-count" for="batch-toggle"></label>
-        <button id="batch-summary" class="batch-pick" type="button" data-window-trigger disabled data-i18n="batch.summary">Summary</button>
-      </div>
       <ul id="model-list" class="model-list"></ul>
     </div>
     <!-- Логи внизу сайдбара: ошибки уходят сюда; клик разворачивает окно логов -->
