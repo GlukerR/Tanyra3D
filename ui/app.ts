@@ -38,6 +38,11 @@
   const batchCount = $('batch-count');
   const batchToggle = $('batch-toggle') as HTMLInputElement;
   const batchSummaryBtn = $('batch-summary') as HTMLButtonElement;
+  const batchRemoveBtn = $('batch-remove') as HTMLButtonElement;
+  const confirmRemove = $('confirm-remove');
+  const confirmRemoveText = $('confirm-remove-text');
+  const confirmRemoveYes = $('confirm-remove-yes') as HTMLButtonElement;
+  const confirmRemoveNo = $('confirm-remove-no') as HTMLButtonElement;
   const summaryWindow = $('summary-window');
   const summaryBody = $('summary-body');
   const summarySaveBtn = $('summary-save') as HTMLButtonElement;
@@ -2751,6 +2756,8 @@
     batchToggle.indeterminate = n > 0 && n < models.length;
     batchToggle.title = t('batch.toggle');
     batchToggle.setAttribute('aria-label', t('batch.toggle'));
+    // Удалять нечего — крестик погашен, а не молча бездействует.
+    batchRemoveBtn.disabled = n === 0;
   }
 
   function renderModelList() {
@@ -2874,6 +2881,36 @@
     // список не перерисовывает.
     updateRunButtonState();
   }
+
+  // Удалить ВСЕ отмеченные — крестик в полосе выбора, в той же колонке, что крестики
+  // моделей. Александр, 2026-08-26: «там где крестики удаления нужно сверху поставить
+  // крестик тоже на все действующий».
+  //
+  // СПРАШИВАЕМ ВСЕГДА, даже про одну модель. Его условие: «только сначала окно
+  // всплывающее (удалить файлы, 37 выбранных и т.д.)». Отменить удаление пачки нечем —
+  // записи вместе с их результатами исчезают, — и число отмеченных человек читает ровно
+  // в тот момент, когда ещё может передумать.
+  //
+  // Крестик гаснет, когда не отмечено ничего: кнопка, которой нечего делать, в интерфейсе
+  // быть не может (Правило 12).
+  batchRemoveBtn.addEventListener('click', () => {
+    const n = pickedModels().length;
+    if (!n) return;
+    setText(confirmRemoveText, 'batch.remove.text', { n });
+    showWindow(confirmRemove);
+  });
+
+  confirmRemoveNo.addEventListener('click', () => confirmRemove.classList.add('hidden'));
+
+  confirmRemoveYes.addEventListener('click', () => {
+    confirmRemove.classList.add('hidden');
+    // Снимок ДО удаления: removeModel правит сам список, и обход по живому пропускал бы
+    // каждую вторую запись.
+    const doomed = pickedModels().map((m) => m.id);
+    for (const id of doomed) removeModel(id);
+    // Одна строка на всю пачку, а не строка на модель (Правило 9).
+    logMessage('info', t('log.batchRemoved', { n: doomed.length }));
+  });
 
   // Общий выключатель: отмечен — берём всех, снят — не берём никого.
   //

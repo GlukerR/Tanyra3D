@@ -324,6 +324,11 @@ body {
 /* Общий выключатель носит .model-pick — тот же размер и цвет, что у моделей: одинаковый
    вид и есть объяснение, что он с ними делает. */
 .batch-toggle { cursor: pointer; }
+/* Подтверждение удаления пачки. */
+.confirm-text { margin: 0 0 12px; font-size: 12px; line-height: 1.5; color: var(--on-surface); }
+.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.confirm-danger { border-color: var(--error, #ff6b6b); color: var(--error, #ff6b6b); }
+.confirm-danger:hover { background: var(--error, #ff6b6b); color: var(--surface-low); }
 .batch-pick {
   padding: 2px 7px;
   background: transparent;
@@ -400,6 +405,19 @@ body {
 .model-item:hover .model-remove,
 .model-item.selected .model-remove { opacity: 1; }
 .model-remove:hover { background: var(--surface-low); color: var(--on-surface); }
+
+/* Крестик «удалить отмеченные» носит .model-remove — тот же вид и та же колонка, что у
+   крестиков моделей (замерено: правый край 238.0 против 238.0). Отличие одно: этот виден
+   ВСЕГДА. Крестик модели проступает по наведению на свою строку, а здесь наводить не на
+   что — полоса одна, и невидимая кнопка означала бы, что действия нет вовсе.
+
+   СТОИТ ИМЕННО ПОСЛЕ .model-remove, и это не вкус: у обоих правил одна специфичность —
+   один класс, — значит спор решает порядок в файле. Первая редакция стояла выше, рядом с
+   .batch-toggle, и `opacity: 0` из .model-remove побеждал: кнопка работала и не была
+   видна. Поймано замером в браузере, тестом такое не ловится. */
+.batch-remove { opacity: 1; }
+.batch-remove:disabled { opacity: 0.35; cursor: default; }
+.batch-remove:not(:disabled):hover { background: var(--surface-low); color: var(--on-surface); }
 
 /* ---------- Center stage ---------- */
 
