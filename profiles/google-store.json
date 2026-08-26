@@ -13,10 +13,18 @@
       "source": "https://web.dev/case-studies/3d-on-the-web",
       "note": "«a maximum file size with textures of 2 MB, to support older generation devices and weak internet connections» — слова команды Google о её собственных моделях. Это СОВЕТ, а не отказ: загрузить свою модель в Google Store посторонний не может, страницу собирают они сами. Поэтому warn, а не limit. Самый жёсткий порог во всех наших профилях: втрое строже «Смартфонов» (5 МБ) и вшестеро — прочерка."
     },
-    "triangles": { "note": "источника нет: числа треугольников Google не называет" },
-    "materials": { "note": "источника нет" },
-    "drawCalls": { "note": "источника нет" },
-    "vramMB": { "note": "источника нет" },
+    "triangles": {
+      "note": "источника нет: числа треугольников Google не называет"
+    },
+    "materials": {
+      "note": "источника нет"
+    },
+    "drawCalls": {
+      "note": "источника нет"
+    },
+    "vramMB": {
+      "note": "источника нет"
+    },
     "textureMaxSize": {
       "note": "источника нет отдельно от веса: разбор говорит про суммарные 2 МБ с текстурами, но размерность не называет"
     }
@@ -28,6 +36,9 @@
     "noKtx": true,
     "stripColors": false,
     "dryRun": false
+  },
+  "advises": {
+    "codec": "draco"
   },
   "notes": [
     "Единственная площадка, где базовым кодеком стоит Draco, а не Meshopt, и это не вкус, а свойство движка. model-viewer читает Draco и KTX2 БЕЗ настройки сайта — адреса декодеров зашиты в него по умолчанию (проверено по исходникам 2026-08-14, подробности в engines/model-viewer.json). Meshopt он тоже умеет, но декодер у него выключен, пока сайт не вызовет setMeshoptDecoderLocation. Базовый план обязан работать у того, кто ничего не настраивал, — значит Draco.",

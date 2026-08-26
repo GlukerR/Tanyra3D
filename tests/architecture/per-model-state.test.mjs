@@ -206,7 +206,12 @@ describe('интерфейс не предлагает файл, которог�
     const body = functionBody(app, 'renderModelList');
     expect(body, 'не нашёл отрисовку списка').toBeTruthy();
     expect(body, 'значок «собрана» снова читает только снимок состояния')
-      .toMatch(/rec\.id === activeModelId \? !!lastResult/);
+      .toMatch(/rec\.id === activeModelId \? lastResult : rec\.state\.lastResult/);
+    // Второе условие того же значка, добавлено 2026-08-26: УСПЕШНАЯ сборка, а не любая.
+    // `lastResult` заполняется и при `status: 'fail'` — в отчёте есть метрики и находки,
+    // нет только файла, — и голое `!!lastResult` ставило «✓ собрана» упавшей модели.
+    expect(body, 'значок «собрана» снова считает упавшую сборку успешной')
+      .toMatch(/result\.status !== 'fail'/);
   });
 });
 describe('отказ сборки не выдаёт одну причину за другую', () => {

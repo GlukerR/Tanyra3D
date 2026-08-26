@@ -7,7 +7,9 @@
     "en": "A pipeline for 3D commerce: you upload the model, it is optimized and converted to GLB, USDZ and FBX for retailer catalogs. Numbers below are from VNTANA's own documentation.",
     "ru": "Конвейер для 3D-торговли: модель загружают, её оптимизируют и конвертируют в GLB, USDZ и FBX для каталогов магазинов. Числа ниже — из документации самой VNTANA."
   },
-  "excludeExtensions": ["draco"],
+  "excludeExtensions": [
+    "draco"
+  ],
   "budgets": {
     "fileMB": {
       "limit": 30720,
@@ -17,9 +19,15 @@
     "triangles": {
       "note": "источника нет: VNTANA числа треугольников не называет — сокращение сетки делает их MeshOptimizer по настройкам пользователя"
     },
-    "materials": { "note": "источника нет" },
-    "drawCalls": { "note": "источника нет" },
-    "vramMB": { "note": "источника нет" },
+    "materials": {
+      "note": "источника нет"
+    },
+    "drawCalls": {
+      "note": "источника нет"
+    },
+    "vramMB": {
+      "note": "источника нет"
+    },
     "textureMaxSize": {
       "note": "источника нет: сжатие текстур у них настраиваемое, потолок размерности не назван"
     }
@@ -31,6 +39,9 @@
     "noKtx": true,
     "stripColors": false,
     "dryRun": false
+  },
+  "advises": {
+    "codec": "meshopt"
   },
   "notes": [
     "ГЛАВНОЕ ОБ ЭТОЙ ПЛОЩАДКЕ, и ради этого профиль и заведён: DRACO НА ВХОД НЕ ПРИНИМАЕТСЯ. Дословно: «We do not support Draco Compression on input for any file» — файл с уже применённым Draco не даёт выходов ВООБЩЕ, а не просто теряет сжатие. Отсюда \"excludeExtensions\": [\"draco\"]: опция исчезает из панели совсем.",
