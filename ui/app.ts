@@ -419,6 +419,20 @@
   // Взаимоисключающие группы — приходят с /api/extensions, объявлены в аддоне.
   // Интерфейс их только применяет: [{ id, members: [...] }].
   let exclusiveGroups: Array<{ id: string; members: string[] }> = [];
+
+  /**
+   * Какие кодеки геометрии бывают — по объявлению ДВИЖКА, а не по списку в коде.
+   *
+   * Группа `geometry` и есть ответ на этот вопрос: её члены взаимоисключающи именно
+   * потому, что это варианты одного выбора. До 2026-08-26 список был переписан руками в
+   * трёх местах при живом первоисточнике (аудит Ф3-2).
+   *
+   * Пустой список до ответа сервера — законное состояние: группа просто не рисуется,
+   * а не рисуется наугад.
+   */
+  function geometryMembers(): string[] {
+    return (exclusiveGroups.find((g) => g.id === 'geometry') || { members: [] }).members;
+  }
   // ВЫБОР ЧЕЛОВЕКА — один на весь сеанс и на все модели.
   //
   // Александр, 2026-08-26: «человек выбрал 100 моделей… вот сейчас выбраны флажки. эти
@@ -1359,13 +1373,19 @@
   // тянет то же расширение внутри себя. Единственное отличие — ему не нужен декодер,
   // поэтому движок не помечает его needsDecoder и значок ему не ставится.
   function renderGeometryGroup(byId: Record<string, ExtensionDto>) {
-    if (!byId.meshopt && !byId.draco && !byId.quantize) return null;
+    // Состав группы приходит от ДВИЖКА (exclusiveGroups), а не переписан сюда. Копия
+    // стояла здесь до 2026-08-26 (аудит Ф3-2) — при том, что рядом, в этом же файле,
+    // объявление групп уже принято с сервера и лежит в `exclusiveGroups`.
+    //
+    // Порядок членов задаёт движок, и это правильно: он же решает, что Draco идёт
+    // после Meshopt. Показываем только те, что реально приехали в списке опций, —
+    // площадка вправе вычесть любой (например VNTANA не принимает Draco).
+    const members = geometryMembers();
+    const opts = members
+      .filter((v) => byId[v])
+      .map((v) => ({ v, ext: byId[v]!, label: byId[v]!.title }));
+    if (!opts.length) return null;
     const sec = optSection(t('group.geometry'));
-    const opts = [
-      byId.meshopt && { v: 'meshopt', ext: byId.meshopt, label: byId.meshopt.title },
-      byId.draco && { v: 'draco', ext: byId.draco, label: byId.draco.title },
-      byId.quantize && { v: 'quantize', ext: byId.quantize, label: byId.quantize.title },
-    ].filter(Boolean) as Array<{ v: string; ext: ExtensionDto; label?: string }>;
     for (const o of opts) {
       const row = document.createElement('div');
       row.className = 'opt-radio-row';
@@ -2360,7 +2380,7 @@
   function platformCodec(): string | null {
     if (!platformSelect.value) return null;
     const c = platformDefaults && (platformDefaults as { codec?: string }).codec;
-    return (c === 'meshopt' || c === 'draco' || c === 'quantize') ? c : null;
+    return c && geometryMembers().includes(c) ? c : null;
   }
 
   // Восстановить выбор человека. Геометрия, которой на площадке нет (нет radio),

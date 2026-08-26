@@ -1228,14 +1228,20 @@ const server = http.createServer(async (req, res) => {
       // а непроверенное значение доехало бы до радиокнопок и не совпало ни с одной —
       // результат верный, а экран показывает пустую группу.
       const advises = (plan.advises || {}) as { codec?: string };
-      const advisedCodec = ['meshopt', 'draco', 'quantize'].includes(advises.codec as string)
-        ? advises.codec
-        : null;
+      // Список кодеков берётся у ДВИЖКА, а не переписывается сюда. Копия стояла здесь до
+      // 2026-08-26 (аудит Ф3-2) — при том, что `exclusiveGroups` импортирован в этом же
+      // файле и вызывается семью строками ниже. Первоисточник был в области видимости.
+      //
+      // Группа `geometry` и есть ответ на вопрос «какие бывают кодеки»: её члены
+      // взаимоисключающи именно потому, что это варианты одного выбора.
+      const groups = typeof exclusiveGroups === 'function' ? exclusiveGroups() : [];
+      const codecs: string[] = (groups.find((g) => g.id === 'geometry') || {}).members || [];
+      const advisedCodec = codecs.includes(advises.codec as string) ? advises.codec : null;
       sendJSON(res, 200, {
         engine,
         engineInfo,
         extensions: listExtensionsSafe(platformId, langOf(url), engine),
-        exclusiveGroups: typeof exclusiveGroups === 'function' ? exclusiveGroups() : [],
+        exclusiveGroups: groups,
         defaults: { texMode: advisedTexMode, codec: advisedCodec },
       });
       return;
