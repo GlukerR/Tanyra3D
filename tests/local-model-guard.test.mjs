@@ -26,7 +26,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
-import { REPO_MODELS } from './helpers/model-files.mjs';
+import { REPO_MODELS, modelPath } from './helpers/model-files.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repo = new Set(REPO_MODELS);
@@ -98,6 +98,39 @@ describe('локальные модели в тестах закрыты обё�
         + '\n\nЗакрыть обёрткой: itIfModel(\'имя.glb\', …) для одного теста или '
         + 'describeIfModels([\'имя.glb\'], …) для блока.',
     ).toEqual([]);
+  });
+
+  // ------------------------------------------------------------------
+  // Сам список REPO_MODELS. Весь сторож выше стоит на нём: модель, которой в списке
+  // нет, считается ЛОКАЛЬНОЙ, и всё, что на неё опирается, на CI молча пропускается.
+  //
+  // Раньше список был рукописным и разошёлся с `fixtures/.gitignore` ДВАЖДЫ —
+  // `GLUKE Purple 01.glb` и `Skinned Morphs 01.glb` закоммитили, а вписать забыли.
+  // Вторая заводилась ровно затем, чтобы сторож скиннинга гонялся на чистом клоне,
+  // и из-за расхождения не гонялся бы. Теперь список ЧИТАЕТСЯ из `.gitignore`, а эти
+  // три проверки стерегут сам разбор: сломается он — молча получим пустой набор,
+  // и «ни одно обращение не без обёртки» станет зелёным на пустоте.
+  // ------------------------------------------------------------------
+  it('список коммитимых моделей разобран, а не пуст', () => {
+    expect(REPO_MODELS.size).toBeGreaterThan(20);
+  });
+
+  it('в списке ровно то, что лежит в fixtures/models на диске', () => {
+    // Косвенная сверка с git, без запуска git: после клона коммитимая модель обязана
+    // быть на диске. Имя, переименованное в .gitignore и не переименованное в файлах
+    // (или наоборот), ловится здесь.
+    const missing = [...REPO_MODELS].filter((n) => !fs.existsSync(modelPath(n)));
+    expect(missing,
+      'эти модели объявлены коммитимыми в fixtures/.gitignore, но на диске их нет')
+      .toEqual([]);
+  });
+
+  it('разбор берёт только строки-исключения, а не весь файл', () => {
+    // Если бы регулярка ловила лишнее, сюда попали бы шаблоны запрета (`*.glb`).
+    for (const name of REPO_MODELS) {
+      expect(name.includes('*'), `в списке шаблон, а не имя: ${name}`).toBe(false);
+      expect(name.startsWith('models/'), `имя не очищено от пути: ${name}`).toBe(false);
+    }
   });
 
   it('сторож действительно ловит — проверка на себе', () => {
