@@ -9,8 +9,12 @@ The project uses two catalog folders:
 - **`translations/`** (in the project root) — every other language: `ru.js`,
   `validator-ru.js` and so on. Files here are served under `/translations/*`.
 
-Adding a language means putting two files into `translations/`. Nothing else: `server.mjs`
-reads both folders on every page request and wires up whatever it finds.
+Two files there give you the **interface chrome** — buttons, labels, log lines. That is a
+real, useful half, but it is a half: everything the server computes (platform descriptions,
+option labels, the 📖 booklets, the whole report) has its own catalogs. The full cost is
+five files, listed under "A complete language" below.
+
+`server.mjs` reads both folders on every page request and wires up whatever it finds.
 
 ## How to add a language
 
@@ -20,6 +24,28 @@ reads both folders on every page request and wires up whatever it finds.
 3. Copy `translations/validator-ru.js` to `translations/validator-de.js`,
    `translations/validator-zh.js` and so on, and translate the glTF-validator messages.
 4. Reload the page. A button with the language code appears in the header by itself.
+
+At this point the interface speaks your language and the report still speaks English.
+
+## A complete language
+
+Three more catalogs, and they are plain data files — copy, translate, done. No code changes
+anywhere, and nothing in `core/` to open:
+
+| file | what it translates |
+|---|---|
+| `messages/<code>.mjs` | the report: summary, budgets, warnings |
+| `core/messages/<code>.mjs` | engine strings: metric names, autofix policy |
+| `addons/gltf/messages/<code>.mjs` | rule strings: "what was done", analysis findings |
+
+Each folder is **read as a folder** — put the file in, the language appears. Until
+2026-08-26 these three were static imports in three code files (`assistant.mts`,
+`core/engine.mts`, `addons/gltf/index.mts`), so a new language meant editing the engine.
+The audit measured that cost and it was removed; the mechanism is `loadCatalogs()` in
+`core/i18n.mts`.
+
+A missing catalog is not an error — those strings fall back to English, same as a missing
+key does.
 
 The file starts with two mandatory lines that put the catalog where `ui/i18n.js` looks for it:
 
@@ -63,8 +89,10 @@ English's two, and substitution alone does not solve that:
 'log.sourceInspected': ({ n }) => `Проверено — ${n} ${window.I18n.plural(n, ['замечание', 'замечания', 'замечаний'])}`,
 ```
 
-The form-selection rule for a new language is added to `plural()` in `ui/i18n.js` — that is
-the only place where a code change may be needed.
+The form-selection rule for a new language is added to `plural()` in `ui/i18n.js`. This is
+the **one** place where a code change may still be needed, and only for languages whose
+plural rules differ from English and Russian — Polish and Czech have their own, Chinese and
+Japanese have none at all. German, French, Spanish and Portuguese work with what is there.
 
 ## What this catalog does NOT translate
 
@@ -76,5 +104,5 @@ Text that arrives from the server:
 
 Add-on rule messages stay English deliberately: an add-on may be somebody else's, and
 requiring its author to translate into every language is a reliable way to get no add-ons.
-The mechanism for translating them is the same one and already works (`core/i18n.mjs`): put a
-`ru.mjs` next to `en.mjs` with the same keys, and the rules are not rewritten.
+Translating them is the same move as everything else: put `<code>.mjs` next to `en.mjs` with
+the same keys, and not a line of the rules is rewritten.

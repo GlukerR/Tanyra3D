@@ -21,6 +21,10 @@
 // его правка попадёт в файл, который затрёт следующая сборка. Каталог — данные, а не
 // код; типизировать его нечего, кроме формы значения, которую здесь и объявляем.
 
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
 import type { MessageCatalog, MessageData, MessageRef } from './types.mjs';
 
 /** locale → каталог */
@@ -36,6 +40,60 @@ const BASE_LOCALE = 'en';
 export function register(locale: string, messages: MessageCatalog): void {
   const cur = catalogs.get(locale) || {};
   catalogs.set(locale, { ...cur, ...messages });
+}
+
+/** Имя файла каталога: `en.mjs`, `ru.mjs`, `pt-br.mjs`. Код языка и есть имя локали. */
+const CATALOG_FILE = /^([a-z]{2}(?:-[a-z]{2})?)\.mjs$/i;
+
+/**
+ * Прочитать ПАПКУ каталогов и зарегистрировать всё, что в ней лежит.
+ *
+ * Заведено 2026-08-26 по находке Ф4-3 аудита. До него список языков был записан
+ * СТАТИЧЕСКИМИ ИМПОРТАМИ в трёх файлах кода — `core/engine.mts`, `addons/gltf/index.mts`
+ * и `assistant.mts`, — и добавление языка означало правку ядра. Замер показал цену
+ * буквально: положив два файла по инструкции `ui/locales/README.md`, контрибутор получал
+ * переведённую обвязку интерфейса и английские описания площадок, подписи опций,
+ * книжечки и весь отчёт.
+ *
+ * Механизм для динамики существовал всё это время — `register()` принимает любой код
+ * языка и никем не ограничен. Не хватало того, кто прочитает папку.
+ *
+ * Асинхронность здесь неизбежна: каталог — это модуль, а модуль в ESM грузится только
+ * через `import()`. Приём в проекте уже обкатан (`server.mts:89` так же тянет ядро), и
+ * `asar` у сборки намеренно выключен (`package.json`, `_comment_build`), поэтому чтение
+ * папки в установленном приложении работает так же, как в дереве.
+ *
+ * Битый или чужой файл не роняет остальные: каталог языков — данные от переводчика, и
+ * одна опечатка в португальском не должна лишать приложение русского.
+ *
+ * @returns коды загруженных локалей, по возрастанию.
+ */
+export async function loadCatalogs(dir: string | URL): Promise<string[]> {
+  const base = typeof dir === 'string' ? dir : fileURLToPath(dir);
+  let names: string[];
+  try {
+    names = fs.readdirSync(base);
+  } catch {
+    return [];               // папки нет — это не ошибка, просто нет каталогов
+  }
+  const loaded: string[] = [];
+  for (const name of names.sort()) {
+    const m = CATALOG_FILE.exec(name);
+    if (!m) continue;
+    const locale = m[1]!.toLowerCase();
+    try {
+      const mod = await import(pathToFileURL(path.join(base, name)).href);
+      const catalog = mod.default;
+      if (catalog && typeof catalog === 'object') {
+        register(locale, catalog as MessageCatalog);
+        loaded.push(locale);
+      }
+    } catch (e) {
+      // Именно предупреждение, а не бросок: см. шапку — соседи должны выжить.
+      console.warn(`[i18n] каталог ${name} не загрузился: ${(e as Error).message}`);
+    }
+  }
+  return loaded;
 }
 
 /**

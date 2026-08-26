@@ -19,13 +19,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { register, render } from './i18n.mjs';
-import enCoreMessages from './messages/en.mjs';
-import ruCoreMessages from './messages/ru.mjs';
+import { loadCatalogs, render } from './i18n.mjs';
 
-// Каталоги ядра регистрируются при импорте движка.
-register('en', enCoreMessages);
-register('ru', ruCoreMessages);
+// Каталоги ядра регистрируются при импорте движка — ВСЕ, что лежат в папке. Перечня
+// языков в коде нет с 2026-08-26 (аудит Ф4-3): он был третьим по счёту и единственным,
+// ради которого контрибутору приходилось открывать `core/`.
+await loadCatalogs(new URL('./messages/', import.meta.url));
 
 // Общий словарь движка и аддона (ARCH-001): политика автофикса, engine/*-находки,
 // сверка baseline-checkpoint. Аддон берёт их оттуда же, а не из движка — иначе

@@ -21,12 +21,10 @@ import { MeshoptDecoder, MeshoptEncoder } from 'meshoptimizer';
 // Общий словарь, а не внутренности движка: аддон не должен зависеть от того, кто его
 // вызывает (ARCH-001). core/contract.mjs не зависит ни от кого.
 import { AUTOFIX_MAX_TIER, ENGINE_META, compareBaseline } from '../../core/contract.mjs';
-import { register, render } from '../../core/i18n.mjs';
+import { loadCatalogs, render } from '../../core/i18n.mjs';
 import {
   BASELINE_METRICS, BASELINE_SOFT, MB, collectMetrics, baselineSnapshot,
 } from './metrics.mjs';
-import enMessages from './messages/en.mjs';
-import ruMessages from './messages/ru.mjs';
 import { importForeign, isImportFormat, IMPORT_FORMATS } from './importers.mjs';
 import { readSourceJson, sourceStamp } from './source-json.mjs';
 import { RULES } from './rules.mjs';
@@ -110,10 +108,11 @@ interface ExclusiveGroupDef {
   engineExplains: string[];
 }
 
-// Каталоги правил регистрируются при импорте аддона. Английский обязателен — на него
-// core/i18n.mjs откатывается, когда в другом каталоге не хватает ключа.
-register('en', enMessages);
-register('ru', ruMessages);
+// Каталоги правил регистрируются при импорте аддона — ВСЕ, что лежат в папке. Английский
+// обязателен: на него core/i18n.mjs откатывается, когда в другом каталоге не хватает
+// ключа. Перечня языков здесь нет с 2026-08-26 (аудит Ф4-3) — переводчику достаточно
+// положить файл рядом, не открывая ни строчки кода.
+await loadCatalogs(new URL('./messages/', import.meta.url));
 
 const { NodeIO } = gltfCore;
 

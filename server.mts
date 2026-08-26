@@ -1455,9 +1455,14 @@ const server = http.createServer(async (req, res) => {
       // Прочерк («без площадки») присылается как пустая строка и означает выбор, а не
       // пропуск: подставлять первую попавшуюся площадку было бы подменой решения
       // человека. Фолбэк остаётся только для запроса, где ключа нет совсем.
+      // `?? ''` — не украшение типа: площадок может не быть вовсе (папка профилей пуста
+      // у того, кто собрал приложение сам). Тогда фолбэк обязан дать ПРОЧЕРК, законное
+      // значение (NO_PLATFORM), а не undefined, который ниже приедет в planFor как имя
+      // площадки. Дыру прятал `any`: до 2026-08-26 `id` в списке был нетипизирован,
+      // потому что приходил из JSON.parse. Аудит Ф4 сделал тип честным, и она проявилась.
       const platformId = url.searchParams.has('platform')
         ? (url.searchParams.get('platform') || '')
-        : (listPlatformsSafe(langOf(url))[0] || {}).id;
+        : ((listPlatformsSafe(langOf(url))[0] || {}).id ?? '');
       const engineId = url.searchParams.get('engine') || '';
       const jobId = url.searchParams.get('job') || '';
       const featuresParam = url.searchParams.get('features') || '';
