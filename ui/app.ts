@@ -1097,7 +1097,7 @@
     let failure = null;
     // Пустой ответ по умолчанию: при провале запроса панель обязана обнулиться, а не
     // остаться с данными предыдущей площадки.
-    let fetched = { extensions: [], exclusiveGroups: [], defaults: {} };
+    let fetched = { extensions: [], exclusiveGroups: [], textureSlots: [], defaults: {} };
     try {
       // Движок передаём всегда: при выбранной площадке сервер его игнорирует (движок у
       // неё свой), а при прочерке — это единственный источник, откуда движок известен.
@@ -1111,6 +1111,8 @@
         // Группы взаимоисключений приходят оттуда же, где живёт их единственное
         // объявление (аддон). Свой список интерфейс больше не держит.
         exclusiveGroups: (data && data.exclusiveGroups) || [],
+        // Таблица «имя файла → назначение карты» — оттуда же и по той же причине.
+        textureSlots: (data && data.textureSlots) || [],
         // Совет площадки (режим KTX2 и что появится дальше). Тем же порядком: объявлено
         // в профиле — прочитано здесь, а не продублировано константой.
         defaults: (data && data.defaults) || {},
@@ -1132,6 +1134,7 @@
     // совет. Панель при этом не вздрагивала, поэтому заметить было нечем.
     extensions = fetched.extensions;
     exclusiveGroups = fetched.exclusiveGroups;
+    setTextureSlots(fetched.textureSlots);
     platformDefaults = fetched.defaults;
     // Значки ⚠ — из того же ответа, что и сами опции. Иначе движок сменился, а значки
     // остались от прежнего.
@@ -1775,14 +1778,30 @@
    * Расхождение двух таблиц стерегут тестом: разошлись — интерфейс выбросит не ту карту,
    * и человек этого не увидит, пока не соберёт.
    */
-  const TEXTURE_SLOTS: Array<{ slot: string; re: RegExp }> = [
-    { slot: 'baseColor', re: /(basecolor|base_color|albedo|diffuse|_col(our)?[._-]|_d\.)/i },
-    { slot: 'normal', re: /(normal|_nrm[._-]|_n\.)/i },
-    { slot: 'roughness', re: /(rough|_rgh[._-])/i },
-    { slot: 'metallic', re: /(metal|_mtl[._-])/i },
-    { slot: 'occlusion', re: /((^|[._-])ao([._-]|$)|occlusion|ambient)/i },
-    { slot: 'emissive', re: /(emissi|_emit[._-])/i },
-  ];
+  // Таблица «имя файла → назначение карты» приходит от ДВИЖКА (/api/extensions, поле
+  // textureSlots) и здесь не объявляется.
+  //
+  // До 2026-08-26 тут лежала побайтно такая же копия таблицы из
+  // addons/gltf/import-textures.mts, и дубль был не косметический (аудит Ф2-1): движок
+  // по ней решает, какой файл станет какой картой, а этот файл — какую ранее бро́шенную
+  // карту выбросить как заменённую (см. attachTextures). Разойдись копии, выброшено
+  // было бы не то.
+  //
+  // Регулярка приезжает текстом и флагами: через JSON RegExp не проходит. Битую строку
+  // пропускаем с записью в журнал — один негодный слот не должен лишать остальных.
+  let TEXTURE_SLOTS: Array<{ slot: string; re: RegExp }> = [];
+
+  function setTextureSlots(wire: Array<{ slot: string; pattern: string; flags: string }>) {
+    const built = [];
+    for (const s of wire || []) {
+      try {
+        built.push({ slot: s.slot, re: new RegExp(s.pattern, s.flags) });
+      } catch {
+        console.warn('[textures] негодный признак имени для слота', s && s.slot);
+      }
+    }
+    TEXTURE_SLOTS = built;
+  }
 
   /** Назначение карты по имени файла; null — имя ни о чём не говорит. */
   function slotOf(filePath: string): string | null {

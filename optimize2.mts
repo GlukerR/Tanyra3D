@@ -102,6 +102,24 @@ export function exclusiveGroups(): Array<{ id: string; members: string[] }> {
   return out;
 }
 
+// Таблица «имя файла → назначение карты» — объявляет аддон, читает интерфейс.
+//
+// Тем же путём и по той же причине, что exclusiveGroups выше: у интерфейса была своя
+// побайтно одинаковая копия (аудит Ф2-1). Дубль здесь не косметический — движок по
+// таблице решает, какой файл станет какой картой, а интерфейс по ней же решает, какую
+// ранее бро́шенную карту выбросить как заменённую. Разойдись копии, выброшено было бы
+// не то.
+//
+// Регулярка едет текстом и флагами: через JSON `RegExp` не проходит.
+export function textureSlots(): Array<{ slot: string; pattern: string; flags: string }> {
+  const out: Array<{ slot: string; pattern: string; flags: string }> = [];
+  for (const addon of registry.addons()) {
+    if (typeof addon.textureSlots !== 'function') continue;
+    for (const s of addon.textureSlots()) out.push({ ...s });
+  }
+  return out;
+}
+
 export async function optimizeFile(srcPath: string, opts: Record<string, unknown> = {}): Promise<RunResult> {
   let addon: Addon;
   try {

@@ -87,7 +87,7 @@ await ensureEmptyDir(RESULTS_DIR);
 
 // ---- Ядро (обязательный контракт §4b ARCHITECTURE.md) ----
 const core = await import('./optimize2.mjs');
-const { optimizeFile, inspectFile, exportJson, VERSION, exclusiveGroups } = core;
+const { optimizeFile, inspectFile, exportJson, VERSION, exclusiveGroups, textureSlots } = core;
 // Каталоги сообщений правил регистрирует аддон при импорте ядра выше — поэтому
 // localizeResult здесь умеет пересобрать строки отчёта на любом подключённом языке.
 const { localizeResult, render } = await import('./core/i18n.mjs');
@@ -1242,6 +1242,10 @@ const server = http.createServer(async (req, res) => {
         engineInfo,
         extensions: listExtensionsSafe(platformId, langOf(url), engine),
         exclusiveGroups: groups,
+        // Таблица назначений карт по имени файла. Едет тем же ответом, что и группы:
+        // от площадки она не зависит, но и отдельного запроса не заслуживает — интерфейс
+        // всё равно ходит сюда при загрузке. Своей копии у него больше нет (аудит Ф2-1).
+        textureSlots: typeof textureSlots === 'function' ? textureSlots() : [],
         defaults: { texMode: advisedTexMode, codec: advisedCodec },
       });
       return;
