@@ -1206,12 +1206,25 @@ const server = http.createServer(async (req, res) => {
       const advisedTexMode = (planDefaults.texMode === 'mixed' || planDefaults.texMode === 'uastc')
         ? planDefaults.texMode
         : null;
+      // codec — второй ответ площадки того же рода, что texMode, и по той же причине
+      // аддитивный. Площадка НАЗНАЧАЕТ кодек геометрии (Shopify — meshopt, Google —
+      // draco), и её слово выше рекомендации движка по содержимому модели: профиль
+      // собран человеком под конкретную задачу. Александр, 2026-08-26: «профиль уже сам
+      // решает что ему выбирать… и если даже модель становится чуть хуже или чуть
+      // больше, это не роляет, если цель это сотни моделей».
+      //
+      // Проверяем так же, как texMode, и по той же причине: профиль правят руками,
+      // опечатка правдоподобна, а непроверенное значение доехало бы до радиокнопок и не
+      // совпало ни с одной — результат верный, а экран показывает пустую группу.
+      const advisedCodec = ['meshopt', 'draco', 'quantize'].includes(planDefaults.codec)
+        ? planDefaults.codec
+        : null;
       sendJSON(res, 200, {
         engine,
         engineInfo,
         extensions: listExtensionsSafe(platformId, langOf(url), engine),
         exclusiveGroups: typeof exclusiveGroups === 'function' ? exclusiveGroups() : [],
-        defaults: { texMode: advisedTexMode },
+        defaults: { texMode: advisedTexMode, codec: advisedCodec },
       });
       return;
     }
