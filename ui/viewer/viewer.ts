@@ -397,8 +397,8 @@ export class Viewer implements ViewerLike {
   declare _selectVariant?: ((o: THREE.Object3D, name: string | null) => Promise<unknown>) | null;
   /** Наш студийный источник. Гасится, когда человек просит показать свет из файла. */
   declare _key: THREE.DirectionalLight;
-  /** Сколько источников света принесла сама модель (KHR_lights_punctual). */
-  declare _fileLights?: number;
+  /** Источники, которые принесла сама модель (KHR_lights_punctual). Пусто — своих нет. */
+  declare _modelLights?: THREE.Light[];
   /** Чей свет показываем: 'studio' — наш, 'file' — авторский. */
   declare _lightMode?: 'studio' | 'file';
   /** Камеры, которые автор положил в файл. Пусто — их нет. */
@@ -574,7 +574,7 @@ export class Viewer implements ViewerLike {
     // Свой свет модели считаем после добавления в сцену: загрузчик кладёт источники
     // внутрь модели, и до этого момента обходить нечего. Режим при новой модели всегда
     // студийный — иначе модель без своих источников открылась бы почти чёрной.
-    this._fileLights = this._countFileLights();
+    this._modelLights = this._collectModelLights();
     this.setLightMode('studio');
     // Камеры автора и свет сбрасываются на своё умолчание при каждой модели по одной
     // причине: у следующей их может не быть вовсе.
@@ -1214,17 +1214,23 @@ export class Viewer implements ViewerLike {
   // остатка (FILE_MODE_ENV наверху файла), а не до нуля: ноль был бы такой же
   // неправдой, только с другой стороны.
 
-  /** Сколько источников принесла сама модель; 0 — своих у неё нет. */
-  _countFileLights() {
-    let n = 0;
-    if (this.model) this.model.traverse((o) => { if ((o as THREE.Light).isLight) n++; });
-    return n;
+  /**
+   * Собрать источники, которые принесла сама модель.
+   *
+   * Собираем СПИСОК, а не счёт. Раньше считалось только число — и переключатель мог
+   * лишь узнать, есть ли авторский свет, но не погасить его: до самих источников
+   * дотянуться было нечем.
+   */
+  _collectModelLights() {
+    const found: THREE.Light[] = [];
+    if (this.model) this.model.traverse((o) => { if ((o as THREE.Light).isLight) found.push(o as THREE.Light); });
+    return found;
   }
 
   /** Есть ли у модели свой свет и чей показываем — для полки значков. */
   getLightInfo() {
     return {
-      count: this._fileLights ?? 0,
+      count: (this._modelLights ?? []).length,
       mode: this._lightMode ?? 'studio',
     };
   }
@@ -1236,9 +1242,24 @@ export class Viewer implements ViewerLike {
    * означал бы полную темноту.
    */
   setLightMode(mode: 'studio' | 'file') {
-    if (mode === 'file' && !(this._fileLights ?? 0)) return false;
-    this._key.visible = mode === 'studio';
-    this.scene.environmentIntensity = mode === 'studio' ? 1 : FILE_MODE_ENV;
+    const own = this._modelLights ?? [];
+    if (mode === 'file' && !own.length) return false;
+    const studio = mode === 'studio';
+    this._key.visible = studio;
+    // АВТОРСКИЕ ИСТОЧНИКИ ГАСНУТ В СТУДИЙНОМ РЕЖИМЕ. Без этой строки «студийный» означал
+    // наш свет ПОВЕРХ авторского — то есть ни то, ни другое, и погасить чужое солнце
+    // было нечем вовсе.
+    //
+    // Александр, 2026-08-26, про свою модель `вулкан5.glb`: «есть модели которые очень
+    // пересвечены (потому что там внутри уже стоит моё солнце)… по итогу в моём
+    // приложении я не могу отключить весь свет в модели и оставить только свой».
+    // Замер по файлу: два источника, `Sun` силой 683 и точечный силой 543 — поверх них
+    // наш ключевой с силой 1.1 не виден вовсе, а модель белая.
+    //
+    // Это ПОКАЗ, а не правка: `visible` живёт в сцене просмотра и в файл не попадает.
+    // Собранная модель увозит оба источника целыми (Правило 11).
+    for (const l of own) l.visible = !studio;
+    this.scene.environmentIntensity = studio ? 1 : FILE_MODE_ENV;
     this._lightMode = mode;
     return true;
   }
