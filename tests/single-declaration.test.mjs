@@ -252,7 +252,11 @@ describe('Единственное объявление — режим KTX2', ()
       return null;
     };
 
-    for (const fn of ['applyDefaultSelection', 'restoreSelection']) {
+    // `applyDefaultSelection` переименована в `seedSelection` 2026-08-26, когда флажки
+    // перестали принадлежать модели: она теперь зовётся ровно один раз, при первой
+    // загрузке в пустой список. Обязанность спрашивать площадку о режиме KTX2 у неё та
+    // же — сменилось имя, а не механизм.
+    for (const fn of ['seedSelection', 'restoreSelection']) {
       const body = bodyOf(fn);
       expect(body, `в ui/app.js больше нет ${fn}() — тест устарел, обновить`).toBeTruthy();
       expect(body, `${fn}() перестала спрашивать площадку о режиме KTX2`).toMatch(/defaultKtx2Mode\(\)/);
