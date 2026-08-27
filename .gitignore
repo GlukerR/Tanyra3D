@@ -146,6 +146,8 @@ addons/gltf/import-textures.mjs
 addons/gltf/import-textures.d.mts
 addons/gltf/import-obj.mjs
 addons/gltf/import-obj.d.mts
+addons/gltf/carry.mjs
+addons/gltf/carry.d.mts
 addons/gltf/media.mjs
 addons/gltf/media.d.mts
 addons/gltf/instance.mjs

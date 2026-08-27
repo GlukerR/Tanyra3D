@@ -30,6 +30,7 @@ import { readSourceJson, sourceStamp } from './source-json.mjs';
 import { RULES } from './rules.mjs';
 import { TOKTX } from './tools.mjs';
 import { textureSlotsWire } from './media.mjs';
+import { arraysAddressedBy } from './carry.mjs';
 
 import type { Document, NodeIO as NodeIOType } from '@gltf-transform/core';
 import type { ExclusiveConflict, ReportArgs, ValidateArgs } from '../../core/types.mjs';
@@ -506,28 +507,8 @@ const shapeOf = (json: Record<string, unknown>): Record<string, number> => {
 // Расширение без адресов-строк (`MSFT_lod` перечисляет узлы числами, `KHR_interactivity`
 // хранит граф) остаётся под ПОЛНОЙ проверкой: мы не знаем, на что оно смотрит, и гадать
 // не будем. То есть строгость не ослаблена — она направлена.
-const POINTER_RE = /^\/([A-Za-z_][A-Za-z_0-9]*)\/\d/;
-
-function arraysAddressedBy(value: unknown): Set<string> | null {
-  const names = new Set<string>();
-  let sawString = false;
-  const walk = (v: unknown) => {
-    if (typeof v === 'string') {
-      if (v.startsWith('/')) {
-        sawString = true;
-        const m = POINTER_RE.exec(v);
-        if (m && m[1]) names.add(m[1]);
-      }
-      return;
-    }
-    if (Array.isArray(v)) { v.forEach(walk); return; }
-    if (v && typeof v === 'object') for (const x of Object.values(v)) walk(x);
-  };
-  walk(value);
-  // Адресов не нашли — значит расширение адресует как-то иначе, и сузить проверку не на
-  // чем. `null` читается вызывающим как «сверяй всё».
-  return sawString && names.size ? names : null;
-}
+// `arraysAddressedBy` переехала в ./carry.mts 2026-08-27: то же знание понадобилось
+// правилам (`rules.mts`), а импорт оттуда сюда дал бы цикл. Разбор — в шапке carry.mts.
 
 // Чтение JSON-части исходника переехало в addons/gltf/source-json.mts: спрашивающих
 // трое, а читателей до 2026-08-22 было тоже трое, и каждый читал по-своему. Здесь
