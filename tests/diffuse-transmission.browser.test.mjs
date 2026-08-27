@@ -30,9 +30,21 @@
 // Карту доли и карту цвета читают разные каналы разных текстур; перепутать их — обычная
 // ошибка, и одна модель её не поймает.
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, inject } from 'vitest'
 import * as THREE from 'three'
 import { createViewer, disposeViewer, snapshotPixels } from '../tests/helpers/viewer-test-utils.mjs'
+
+// Обе модели — образцы Khronos: в git их нет и не будет (Правило 0), на чистом клоне и
+// на CI они отсутствуют ЗАКОННО. Условие читается ЗДЕСЬ, на этапе сбора файла: без
+// моделей весь блок становится `describe.skip` с причиной в имени — не упавшим тестом.
+// `isPresent()` тут не работает: файл исполняется в Chromium, `node:fs` ему недоступен —
+// для этого и нужен канал из node-контекста (`diffuse-transmission-models.setup.mjs`).
+//
+// Красный прогон CI 2026-08-27 показал, чего стоит забыть об этом: `viewer.load` падал в
+// `beforeAll`, и оба блока рапортовали «8 skipped» при провалившемся наборе.
+const МОДЕЛИ_ЕСТЬ = inject('diffuse-transmission-models-available') === true
+const БЕЗ_МОДЕЛЕЙ = ' [пропущено: нет локально DiffuseTransmissionTeacup.glb / DiffuseTransmissionPlant.glb]'
+const блок = МОДЕЛИ_ЕСТЬ ? describe : describe.skip
 
 let viewer
 let canvas
@@ -98,6 +110,7 @@ function lumAt(v, materials, factor) {
 }
 
 beforeAll(async () => {
+  if (!МОДЕЛИ_ЕСТЬ) return
   const made = await createViewer()
   viewer = made.viewer
   canvas = made.canvas
@@ -105,7 +118,7 @@ beforeAll(async () => {
 
 afterAll(() => disposeViewer(viewer, canvas))
 
-describe('чайная пара: доля просвета лежит в карте', () => {
+блок('чайная пара: доля просвета лежит в карте' + (МОДЕЛИ_ЕСТЬ ? '' : БЕЗ_МОДЕЛЕЙ), () => {
   let materials
   let shaderErrors
 
@@ -168,7 +181,7 @@ describe('чайная пара: доля просвета лежит в кар�
   })
 })
 
-describe('растение: цвет просвета лежит в отдельной карте', () => {
+блок('растение: цвет просвета лежит в отдельной карте' + (МОДЕЛИ_ЕСТЬ ? '' : БЕЗ_МОДЕЛЕЙ), () => {
   let leaves
 
   beforeAll(async () => {

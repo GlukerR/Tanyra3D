@@ -144,6 +144,10 @@ export default defineConfig({
             'tests/browser-baseline.setup.mjs',
             'tests/instance-grid-build.setup.mjs',
             'tests/parkergirl-build.setup.mjs',
+            // diffuse-transmission-models.setup.mjs — не собирает ничего, только
+            // сообщает, лежат ли на диске образцы Khronos с просветом насквозь: в git
+            // их нет, и на CI проверки показа обязаны пропускаться, а не падать.
+            'tests/diffuse-transmission-models.setup.mjs',
           ],
           testTimeout: 120_000,
           hookTimeout: 120_000,
