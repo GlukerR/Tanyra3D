@@ -56,6 +56,7 @@ const BROWSER_GLOBALS = {
   FileReader: 'readonly',
   FormData: 'readonly',
   Image: 'readonly',
+  createImageBitmap: 'readonly',
   performance: 'readonly',
   requestAnimationFrame: 'readonly',
   cancelAnimationFrame: 'readonly',

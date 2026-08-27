@@ -129,6 +129,24 @@ body {
   color: var(--outline);
 }
 
+/* Список выбора внутри меню: те же поля и тот же кегль, что у пунктов рядом. Своё
+   правило, а не .vp-anim-clip из вьюпорта: там значок на тёмной подложке поверх модели,
+   здесь строка в панели меню — общий класс развёл бы отступы. */
+.menu-select {
+  display: block;
+  width: calc(100% - 20px);
+  margin: 0 10px 4px;
+  padding: 5px 8px;
+  background: var(--surface-high, rgba(255,255,255,0.06));
+  border: 1px solid var(--outline);
+  border-radius: 6px;
+  color: var(--on-surface);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.menu-select:disabled { color: var(--outline); cursor: default; }
+
 .menu-radio {
   display: flex;
   gap: 8px;

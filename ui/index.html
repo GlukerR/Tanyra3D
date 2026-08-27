@@ -53,6 +53,34 @@
         <button class="menu-item" type="button" id="workdir-clear" data-i18n="menu.settings.workdir.clear">Clear it now</button>
       </div>
     </div>
+    <!-- Рендер. Отдельно от выгрузки модели намеренно (Александр, 2026-08-27: «при
+         скачивании модели не нужно рендерить. Это отдельная кнопка должна быть»).
+         Настроек тут со временем будет больше — потому и раздел, а не одна кнопка.
+
+         СОСТАВ КАДРА ЗДЕСЬ НЕ ВЫБИРАЕТСЯ. Материал, вариант, поза анимации, камера и
+         уровень детализации человек уже выбрал в окне, и снимок берёт ровно то, что он
+         видит. Свет — тот же переключатель, что сверху по центру: одно состояние, два
+         входа, поэтому меняя его здесь, человек видит изменение сразу в окне. -->
+    <div class="menu">
+      <button class="menu-title" type="button" data-menu="render" data-i18n="menu.render">Render</button>
+      <div class="menu-panel menu-panel-wide hidden" data-menu-panel="render">
+        <p class="menu-note" data-i18n="menu.render.what">A PNG of the optimized model, exactly as you see it now.</p>
+
+        <p class="menu-group-title" data-i18n="menu.render.light">Lighting</p>
+        <select id="render-light" class="menu-select" data-i18n-aria="menu.render.light" aria-label="Lighting"></select>
+        <p class="menu-note hidden" id="render-light-note" data-i18n="menu.render.light.own">This model brought no lights of its own.</p>
+
+        <p class="menu-group-title" data-i18n="menu.render.size">Size</p>
+        <select id="render-size" class="menu-select" data-i18n-aria="menu.render.size" aria-label="Size"></select>
+
+        <p class="menu-group-title" data-i18n="menu.render.background">Background</p>
+        <select id="render-background" class="menu-select" data-i18n-aria="menu.render.background" aria-label="Background"></select>
+
+        <!-- Неактивна, пока в правом окне нет собранной модели: пункт, который ничего не
+             делает, хуже отсутствующего (то же решение, что у «Download result»). -->
+        <button class="menu-item" type="button" id="render-go" disabled data-i18n="menu.render.go">Render the picture</button>
+      </div>
+    </div>
     <div class="menu">
       <button class="menu-title" type="button" data-menu="help" data-i18n="menu.help">Help</button>
       <div class="menu-panel menu-panel-wide hidden" data-menu-panel="help">
@@ -236,9 +264,14 @@
 
          Не на полке справа внизу: способ показа относится к ЛЮБОЙ модели, как камера и
          свет, — а полка держит свойства КОНКРЕТНОГО файла. -->
+    <!-- Порядок слева направо — блендеровский, по нарастанию достоверности: сетка,
+         глина, материалы из файла (Александр, 2026-08-27). Выбран всегда крайний правый
+         при каждой новой модели; модель без материалов показывается белой сразу, а глина
+         и сетка включаются только личным выбором. -->
     <div class="vp-shading" role="group" data-i18n-aria="vp.shading" aria-label="Viewport shading">
-      <button id="display-file" class="vp-tool is-on" type="button" aria-pressed="true" data-i18n-title="vp.display.file" data-i18n-aria="vp.display.file" title="Materials from the file" aria-label="Materials from the file">◉</button>
+      <button id="display-wire" class="vp-tool" type="button" aria-pressed="false" data-i18n-title="vp.display.wire" data-i18n-aria="vp.display.wire" title="Wireframe" aria-label="Wireframe">◍</button>
       <button id="display-clay" class="vp-tool" type="button" aria-pressed="false" data-i18n-title="vp.display.clay" data-i18n-aria="vp.display.clay" title="Clay" aria-label="Clay">●</button>
+      <button id="display-file" class="vp-tool is-on" type="button" aria-pressed="true" data-i18n-title="vp.display.file" data-i18n-aria="vp.display.file" title="Materials from the file" aria-label="Materials from the file">◉</button>
     </div>
 
     <!-- НИЗ СПРАВА: свойства ЭТОЙ модели — значками, каждый со своей полочкой.

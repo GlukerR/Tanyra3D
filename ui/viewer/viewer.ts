@@ -341,6 +341,17 @@ const FILE_MODE_ENV = 0.15;
 type FileCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera;
 
 /**
+ * Чем показывать модель. Порядок — блендеровский, слева направо по нарастанию
+ * достоверности: сетка → глина → материалы из файла (Александр, 2026-08-27).
+ *
+ * Умолчание — 'file', и оно ставится при КАЖДОЙ новой модели (`_resetDisplayMaterial`).
+ * Модель без материалов показывается белой сразу; глина и сетка — только по личному
+ * выбору человека.
+ */
+export const DISPLAY_MODES = ['wire', 'clay', 'file'] as const;
+export type DisplayMode = (typeof DISPLAY_MODES)[number];
+
+/**
  * Самодостаточный просмотрщик одной модели: рендерер, сцена, студийный IBL-свет,
  * орбитальные контролы, авто-кадрирование под размер модели.
  */
@@ -359,8 +370,8 @@ export class Viewer implements ViewerLike {
   declare _ktx2: KTX2Loader;
   declare _loader: GLTFLoader;
   declare _manager: THREE.LoadingManager;
-  /** Материал показа: 'file' — как в файле, 'clay' — наша глина. См. setDisplayMaterial. */
-  declare _display: 'file' | 'clay';
+  /** Материал показа: 'file' — как в файле, 'clay' — глина, 'wire' — сетка. См. setDisplayMaterial. */
+  declare _display: DisplayMode;
   /** Родные материалы мешей на время показа глиной. Ключ — меш, значение — что было. */
   declare _origMaterials: Map<THREE.Mesh, THREE.Material | THREE.Material[]>;
   /**
@@ -370,6 +381,8 @@ export class Viewer implements ViewerLike {
   declare _clay: Map<string, THREE.MeshMatcapMaterial>;
   /** Картинка шара для глины. Рисуется один раз при первом показе. */
   declare _clayMap?: THREE.Texture | null;
+  /** Материал сетки. Один на всю модель: у сетки нет ни цвета автора, ни сторон. */
+  declare _wire?: THREE.MeshBasicMaterial | null;
   /** Габарит модели для глубинного затемнения глины: центр и радиус. */
   declare _clayBounds?: { center: THREE.Vector3; radius: number } | null;
   /** Файлы брошенной пачки — их имена. См. setPackFiles. */
@@ -610,15 +623,31 @@ export class Viewer implements ViewerLike {
    * НАМЕРЕННО не переносим: сквозь глину и должно быть непрозрачно, иначе внутренние
    * стенки просвечивают и форма читается хуже, чем у белой модели.
    */
-  setDisplayMaterial(mode: 'file' | 'clay') {
-    const want = mode === 'clay' ? 'clay' : 'file';
-    this._display = want;
+  setDisplayMaterial(mode: DisplayMode) {
+    this._display = DISPLAY_MODES.includes(mode) ? mode : 'file';
     this._applyDisplayMaterial();
     return true;
   }
 
-  getDisplayMaterial(): 'file' | 'clay' {
+  getDisplayMaterial(): DisplayMode {
     return this._display;
+  }
+
+  /**
+   * Сетка — один материал на всю модель.
+   *
+   * У глины ключ составной («сторона + цвет автора»), у сетки ключа нет вовсе, и это не
+   * упрощение: сетка показывает РЁБРА, а у ребра нет ни лицевой стороны, ни цвета из
+   * файла. `DoubleSide` — чтобы задние рёбра были видны, как в Blender; без него
+   * половина каркаса пропадает и смотреть становится не на что.
+   */
+  _wireMaterial() {
+    if (!this._wire) {
+      this._wire = new THREE.MeshBasicMaterial({
+        wireframe: true, color: 0xdfe3e6, side: THREE.DoubleSide, toneMapped: false,
+      });
+    }
+    return this._wire;
   }
 
   /**
@@ -698,14 +727,22 @@ export class Viewer implements ViewerLike {
 
   _applyDisplayMaterial() {
     if (!this.model) return;
-    if (this._display === 'clay') {
+    // Глина и сетка проходят одним путём НЕ ради краткости: сохранение и возврат родных
+    // материалов обязаны быть общими. Разведи их по двум веткам — и вторая когда-нибудь
+    // забудет вернуть, а «Правило 11» проверяется именно тем, что модель уезжает такой,
+    // какой пришла.
+    if (this._display !== 'file') {
       this.model.traverse((o: MaybeMesh) => {
         if (!o.isMesh || !o.material) return;
         const mesh = o as unknown as THREE.Mesh;
         if (!this._origMaterials.has(mesh)) this._origMaterials.set(mesh, o.material!);
         const first = Array.isArray(o.material) ? o.material[0] : o.material;
-        o.material = this._clayFor(first ? first.side : THREE.FrontSide, first);
+        o.material = this._display === 'wire'
+          ? this._wireMaterial()
+          : this._clayFor(first ? first.side : THREE.FrontSide, first);
       });
+      // Затемнение по глубине — свойство ГЛИНЫ, и внутри оно само проверяет режим.
+      // Сетке туман не нужен: рёбра и так разведены пустотой между ними.
       this._updateClayDepth();
       return;
     }
@@ -1178,12 +1215,15 @@ export class Viewer implements ViewerLike {
    *   • перспективная — угол yfov, ширина следует из поля aspect;
    *   • ортографическая — границы top/bottom, ширину задаём сами через left/right.
    */
-  _applyAspect() {
-    const parent = this.canvas.parentElement;
-    if (!parent) return;
-    const { clientWidth, clientHeight } = parent;
-    if (!clientWidth || !clientHeight) return;
-    const ratio = clientWidth / clientHeight;
+  _applyAspect(forced?: number) {
+    let ratio = forced;
+    if (ratio === undefined) {
+      const parent = this.canvas.parentElement;
+      if (!parent) return;
+      const { clientWidth, clientHeight } = parent;
+      if (!clientWidth || !clientHeight) return;
+      ratio = clientWidth / clientHeight;
+    }
     const cam = this._activeCamera();
     if ('isOrthographicCamera' in cam && cam.isOrthographicCamera) {
       // Половина высоты — авторская, половина ширины — под окно.
@@ -1324,6 +1364,81 @@ export class Viewer implements ViewerLike {
     // кадр — это вычитание двух чисел, дешевле любой попытки поймать момент сдвига.
     if (this._display === 'clay') this._updateClayDepth();
     this.renderer.render(this.scene, this._activeCamera());
+  }
+
+  /**
+   * Снимок текущего кадра как PNG.
+   *
+   * СОСТАВ КАДРА НЕ ВЫБИРАЕТСЯ ЗДЕСЬ, и это главное свойство метода. Материал, вариант,
+   * поза анимации, камера, уровень детализации, глина, экспозиция и свет уже выбраны
+   * человеком в окне — снимок берёт РОВНО ТО, что он видит. Отдельного набора настроек
+   * показа у рендера нет и быть не должно: два источника правды разошлись бы на первом
+   * же кадре, и человек получил бы картинку, которой не видел.
+   *
+   * ПРОЗРАЧНОСТЬ БЕСПЛАТНА: рендерер создан с `alpha: true`, фон не закрашивается, земли
+   * под моделью нет. Просить о ней нечего — она уже есть; `background` нужен обратному
+   * случаю, когда человеку нужна залитая подложка.
+   *
+   * ПОЧЕМУ ЧЕРЕЗ ВТОРОЕ ПОЛОТНО. У рендерера нет `preserveDrawingBuffer`, то есть буфер
+   * живёт до конца текущего такта. `drawImage` копирует его СИНХРОННО, сразу после
+   * отрисовки, и дальше можно спокойно ждать `toBlob`. Прямой `canvas.toBlob` на
+   * полотне WebGL полагался бы на то, что снимок берётся в момент вызова, — в спецификации
+   * это не обещано.
+   *
+   * ЦЕНА НАЗВАНА: three.js рисует с ПРЕДУМНОЖЕННОЙ альфой. На полупрозрачных пикселях —
+   * стекло, мягкий край листа, сглаженный силуэт — цвет по кромке уходит на единицы.
+   * Обычно незаметно; видно на стекле поверх тёмного. Лечится флагом
+   * `premultipliedAlpha: false` у рендерера, но он меняет и живое окно, поэтому менять
+   * его без замера нельзя.
+   *
+   * @param width  ширина в пикселях; по умолчанию — как на экране
+   * @param height высота; по умолчанию — как на экране
+   * @param background цвет подложки CSS-строкой либо `null` — прозрачный фон
+   */
+  async snapshot({ width, height, background = null }: {
+    width?: number; height?: number; background?: string | null;
+  } = {}): Promise<{ blob: Blob; width: number; height: number } | null> {
+    if (!this.model) return null;
+
+    const было = new THREE.Vector2();
+    this.renderer.getSize(было);
+    const прежнийМасштаб = this.renderer.getPixelRatio();
+
+    // Потолок видеокарты, а не наша выдумка: за ним отрисовка молча даёт пустой кадр.
+    // Обрезаем и СООБЩАЕМ настоящий размер в ответе — обещать 8К и отдать 4К нельзя.
+    const gl = this.renderer.getContext();
+    const потолок = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE) as number;
+    const w = Math.max(1, Math.min(потолок, Math.round(width || было.x * прежнийМасштаб)));
+    const h = Math.max(1, Math.min(потолок, Math.round(height || было.y * прежнийМасштаб)));
+
+    const out = document.createElement('canvas');
+    out.width = w;
+    out.height = h;
+    const g = out.getContext('2d');
+    if (!g) return null;
+
+    try {
+      this.renderer.setPixelRatio(1);
+      this.renderer.setSize(w, h, false);
+      this.camera.aspect = w / h;
+      this.camera.updateProjectionMatrix();
+      this._applyAspect(w / h);
+      this.renderFrame();
+      if (background) {
+        g.fillStyle = background;
+        g.fillRect(0, 0, w, h);
+      }
+      g.drawImage(this.canvas, 0, 0, w, h);
+    } finally {
+      // Возврат через _onResize, а не через запомненные числа: он единственный знает
+      // ВСЁ, что зависит от размера, и не разойдётся с ним при следующей правке.
+      this.renderer.setPixelRatio(прежнийМасштаб);
+      this._onResize();
+      this.renderFrame();
+    }
+
+    const blob = await new Promise<Blob | null>((resolve) => out.toBlob(resolve, 'image/png'));
+    return blob ? { blob, width: w, height: h } : null;
   }
 
   /**
