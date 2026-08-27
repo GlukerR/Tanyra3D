@@ -66,6 +66,7 @@ import { readSourceJson } from './source-json.mjs';
 import { importNote } from './import-notes.mjs';
 import { collectMetrics, countTriangles, effectiveSkins, listSemantics, textureSize } from './metrics.mjs';
 import { HAS_GLTF_CLI, TOKTX, runCli } from './tools.mjs';
+import { hasOpaqueExtension } from './carry.mjs';
 
 // Раздел текстур на «данные» и «цвет». Нормали, occlusion и roughness — это ЧИСЛА,
 // закодированные картинкой, а не картинка: у них нет цветности, которую можно
@@ -247,6 +248,30 @@ function unsupportedExtensions(ctx: GltfContext): string[] {
   const list = ((json && json.extensionsUsed) || []).filter((name: string) => !KNOWN_EXTENSIONS.has(name));
   if (ctx.cache) ctx.cache.set(KEY, list);
   return list;
+}
+
+/**
+ * Незнакомые расширения, ЧЬИ АДРЕСА НЕЛЬЗЯ СУЗИТЬ, — только они опасны для правил,
+ * которые лишь ДОБАВЛЯЮТ элементы в массивы (сварка добавляет аксессор).
+ *
+ * Заведено 2026-08-27. Разбор — в шапке `carry.mts`; коротко: расширение с адресами-
+ * строками (`KHR_animation_pointer` → `/materials/0/...`) видно насквозь, и сварка ему
+ * не мешает; расширение со ссылками числами (`MSFT_lod`, `KHR_interactivity`) —
+ * непрозрачно, и любой сдвиг может его сломать.
+ */
+function opaqueUnsupported(ctx: GltfContext): string[] {
+  const KEY = 'opaqueUnsupported';
+  if (ctx.cache && ctx.cache.has(KEY)) return ctx.cache.get(KEY) as string[];
+  const list = hasOpaqueExtension(assetJson(ctx), unsupportedExtensions(ctx));
+  if (ctx.cache) ctx.cache.set(KEY, list);
+  return list;
+}
+
+/** Отказ для правил, которые массивы только ДОПОЛНЯЮТ, а не перетасовывают. */
+function refuseIfOpaque(ctx: GltfContext): FixDecision | null {
+  const list = opaqueUnsupported(ctx);
+  if (!list.length) return null;
+  return { safe: false, messageId: 'unsupportedExtension.refuse', data: { list: list.join(', '), n: list.length } };
 }
 
 // Готовый отказ для правил, которые переставляют или удаляют свойства. Общий, чтобы
@@ -1140,7 +1165,37 @@ export const RULES: GltfRule[] = [
       enabled: (o) => o.safe || o.compress,
     },
     analyze() { return [{ messageId: 'pipeline', data: {} }]; },
-    canFix() { return { safe: true, messageId: 'weld.safe', data: {} }; },
+    // ОТКАЗ НА НЕПРОЗРАЧНОМ РАСШИРЕНИИ — добавлен 2026-08-27, и это не осторожность впрок,
+    // а починка измеренной потери.
+    //
+    // ЧТО БЫЛО. `Unknown Ext Interactivity 01` приходил с графом поведения:
+    //   "extensions": { "KHR_interactivity": { "graphs": [ … ], "graph": 0 } }
+    // и уходил С ПУСТЫМ ТЕЛОМ при сохранённом имени в `extensionsUsed`. То есть файл
+    // заявлял способность, которой у него больше не было, — ровно то враньё, которого
+    // боится разбор в шапке `restoreCarried` («приклеить расширение к чужому объекту
+    // хуже, чем потерять его: файл выглядел бы целым и врал»).
+    //
+    // ПОЧЕМУ ИМЕННО ЗДЕСЬ. Замер: на passthrough не сдвигается НИЧЕГО и расширение
+    // доезжает целым; на `safe` сдвигаются `accessors 1→2` и `bufferViews 1→2`. Прибавку
+    // даёт сварка — она добавляет аксессор. А `arraysAddressedBy` для графа поведения
+    // возвращает `null` («не знаю, на что смотрит»), и тогда сверяются ВСЕ массивы;
+    // сдвинувшийся `accessors` и отменял восстановление.
+    //
+    // Из шести правил, меняющих длины массивов, отказ стоял у пяти — dedup, prune,
+    // skinnedRoot, join, pruneFinal. Weld был единственным без него, и по нему утекало.
+    //
+    // ОТКАЗ УЖЕ, ЧЕМ У СОСЕДЕЙ, И ЭТО НАМЕРЕННО. Сварка массивы только ДОПОЛНЯЕТ, а не
+    // перетасовывает, поэтому ей хватает `refuseIfOpaque`: расширение с адресами-строками
+    // (KHR_animation_pointer) видно насквозь и сварке не мешает. Широкий отказ ломал бы
+    // прежнее решение, записанное тестом golden-corpus: «Неструктурные правила (weld)
+    // по-прежнему работают» на AnimationPointerUVs. Проверено: с широким отказом тот тест
+    // краснеет, с узким — зелёный, а расширения всё равно доезжают целыми.
+    //
+    // ЦЕНА НАЗВАНА ЧЕСТНО: модель с незнакомым расширением больше не сваривается, то
+    // есть оптимизируется слабее. Это осознанный размен, и он в ту же сторону, что
+    // Правило 11: сохранность замысла автора выше выигрыша в байтах. Человек узнаёт о
+    // пропуске из отчёта — сообщение `unsupportedExtension.refuse` называет расширение.
+    canFix(finding, ctx) { return refuseIfOpaque(ctx) || { safe: true, messageId: 'weld.safe', data: {} }; },
     async fix(finding, ctx) {
       // точка отсчёта для инварианта «треугольники не изменились» — как в v2:
       // после prune/цветов, до сварки (weld порождает вырожденные треугольники)
