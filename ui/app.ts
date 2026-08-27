@@ -84,6 +84,7 @@
   const variantSel = $('variant-select') as HTMLSelectElement;
   const displayFileBtn = $('display-file');
   const displayClayBtn = $('display-clay');
+  const displayWireBtn = $('display-wire');
   const lightControls = $('light-controls');
   const lightSel = $('light-select') as HTMLSelectElement;
   const cameraControls = $('camera-controls');
@@ -3817,6 +3818,152 @@
       syncDownload();
     }
 
+    for (const btn of titles) btn.addEventListener('click', () => refreshRenderUI());
+
+    // -------------------------------------------------------------------
+    // Рендер: картинка PNG с того, что сейчас в правом окне
+    //
+    // Заказ Александра 2026-08-27: «при скачивании модели не нужно рендерить. Это
+    // отдельная кнопка должна быть… пока просто нажимаешь и картинка которая сейчас во
+    // вьюпорте второй модели (оптимизированной) выбрана, то и будет рендериться».
+    //
+    // СОСТАВ КАДРА ЗДЕСЬ НЕ ВЫБИРАЕТСЯ, и это главное. Материал, вариант, поза анимации,
+    // камера и уровень детализации уже выбраны человеком в окне — снимок берёт ровно то,
+    // что он видит. Его слова: «главное что бы они все подтягивались». Второй набор
+    // настроек показа разошёлся бы с первым, и человек получил бы кадр, которого не видел.
+    //
+    // Свет — исключение, и не противоречие: это ТОТ ЖЕ переключатель, что сверху по
+    // центру, одно состояние с двумя входами. Меняя его здесь, человек видит изменение
+    // сразу в окне, поэтому «один вопрос — один ответ» не нарушено.
+    const renderLight = document.getElementById('render-light') as HTMLSelectElement | null;
+    const renderLightNote = document.getElementById('render-light-note');
+    const renderSize = document.getElementById('render-size') as HTMLSelectElement | null;
+    const renderBg = document.getElementById('render-background') as HTMLSelectElement | null;
+    const renderGo = document.getElementById('render-go') as HTMLButtonElement | null;
+
+    /** Размер правого окна в НАСТОЯЩИХ пикселях — от него считаются кратности. */
+    function viewportPixels() {
+      const cv = document.querySelector<HTMLCanvasElement>('#preview-optimized .viewer-canvas');
+      const ratio = Math.min(window.devicePixelRatio || 1, 2);
+      const w = Math.round((cv?.clientWidth || 0) * ratio);
+      const h = Math.round((cv?.clientHeight || 0) * ratio);
+      return { w, h };
+    }
+
+    // Кратности, а не список «1920×1080, 4К»: у окна свои пропорции, и постоянный список
+    // либо растянул бы кадр, либо обрезал. Кратность сохраняет то, что человек скомпоновал.
+    const RENDER_SCALES = [1, 2, 4];
+    const RENDER_BACKGROUNDS = [
+      ['none', null],
+      ['white', '#ffffff'],
+      ['black', '#000000'],
+    ] as const;
+
+    /**
+     * Заполнить и обновить панель рендера.
+     *
+     * Зовётся при каждом открытии меню, а не один раз при запуске: размер окна меняется
+     * вместе с окном программы, а свет — вместе с моделью. Показанные однажды числа
+     * устарели бы молча.
+     */
+    function refreshRenderUI() {
+      if (renderGo) renderGo.disabled = !window.OptiViewer?.canSnapshot?.();
+
+      const info = window.OptiViewer?.getLight?.();
+      const own = (info?.count ?? 0) > 0;
+      if (renderLightNote) renderLightNote.classList.toggle('hidden', own);
+      if (renderLight) {
+        // У модели без своих источников выбирать не из чего: «как в файле» означало бы
+        // темноту. Показываем один пункт и строку с причиной — не серую кнопку.
+        renderLight.disabled = !own;
+        const modes = own ? ['studio', 'file'] : ['studio'];
+        if (renderLight.dataset.filled !== String(modes.length)) {
+          renderLight.dataset.filled = String(modes.length);
+          renderLight.textContent = '';
+          for (const mode of modes) {
+            const opt = document.createElement('option');
+            opt.value = mode;
+            setText(opt, mode === 'studio' ? 'viewer.light.studio' : 'viewer.light.file');
+            renderLight.appendChild(opt);
+          }
+        }
+        if (info?.mode && renderLight.value !== info.mode) renderLight.value = info.mode;
+      }
+
+      if (renderSize) {
+        const { w, h } = viewportPixels();
+        renderSize.textContent = '';
+        for (const times of RENDER_SCALES) {
+          const opt = document.createElement('option');
+          opt.value = String(times);
+          if (times === 1) setText(opt, 'menu.render.size.screen');
+          else setText(opt, 'menu.render.size.multiple', { times, w: w * times, h: h * times });
+          renderSize.appendChild(opt);
+        }
+        renderSize.value = renderSize.dataset.want || '2';
+      }
+
+      if (renderBg && !renderBg.dataset.filled) {
+        renderBg.dataset.filled = '1';
+        for (const [id] of RENDER_BACKGROUNDS) {
+          const opt = document.createElement('option');
+          opt.value = id;
+          setText(opt, 'menu.render.background.' + id);
+          renderBg.appendChild(opt);
+        }
+      }
+    }
+
+    // Свет меняется СРАЗУ в окне, а не в момент рендера: человек должен видеть то, что
+    // получит, до нажатия, а не после.
+    if (renderLight) {
+      renderLight.addEventListener('change', () => {
+        window.OptiViewer?.selectLightMode?.(renderLight.value === 'file' ? 'file' : 'studio');
+        refreshLightUI();
+      });
+    }
+    // Кратность запоминается на сеанс: выбрал 4× — следующий кадр тоже 4×, без повторного
+    // выбора. Список пересобирается при каждом открытии (числа зависят от размера окна),
+    // поэтому выбор хранится отдельно от самого списка.
+    if (renderSize) renderSize.addEventListener('change', () => { renderSize.dataset.want = renderSize.value; });
+
+    if (renderGo) {
+      renderGo.addEventListener('click', async () => {
+        if (!window.OptiViewer?.snapshot) return;
+        const { w, h } = viewportPixels();
+        const times = Number(renderSize?.value || 2) || 1;
+        const bg = RENDER_BACKGROUNDS.find(([id]) => id === (renderBg?.value || 'none'))?.[1] ?? null;
+
+        renderGo.disabled = true;
+        setText(renderGo, 'menu.render.working');
+        try {
+          const shot = await window.OptiViewer.snapshot({ width: w * times, height: h * times, background: bg });
+          if (!shot) { logMessage('warn', t('menu.render.failed')); return; }
+          // Видеокарта могла обрезать размер. Сказать об этом обязаны мы: человек просил
+          // 8К, получил 4К, и молчание тут — то самое враньё на кнопке (Правило 12).
+          if (shot.width !== w * times || shot.height !== h * times) {
+            logMessage('warn', t('menu.render.clamped', { w: shot.width, h: shot.height }));
+          }
+          const base = (activeModel()?.file?.name || 'model').replace(/\.[^.]+$/, '');
+          const name = base + '_render.png';
+          const url = URL.createObjectURL(shot.blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = name;
+          a.click();
+          // Отпускаем не сразу — по той же причине, что и у сводки: часть браузеров
+          // начинает скачивание асинхронно, и ссылка, отозванная в тот же тик, даёт
+          // пустой файл.
+          setTimeout(() => URL.revokeObjectURL(url), 10_000);
+          logMessage('info', t('menu.render.done', { name, w: shot.width, h: shot.height }));
+        } finally {
+          setText(renderGo, 'menu.render.go');
+          renderGo.disabled = false;
+          closeAll();
+        }
+      });
+    }
+
     const profileItem = document.getElementById('menu-profile');
     if (profileItem) profileItem.addEventListener('click', () => { closeAll(); openProfileWindow(); });
 
@@ -5607,7 +5754,20 @@
   // там, где автор их положил, — а глиной можно посмотреть любую модель, в том числе
   // текстурированную: иногда именно так и проверяют геометрию.
   /**
-   * Два шарика, как в Blender: материалы из файла и глина. Выбран всегда ровно один.
+   * Положения переключателя поверхности и их порядок — ОДИН список на весь файл.
+   *
+   * Он же задаёт порядок слева направо и он же обходится при подсветке: две копии этого
+   * перечня (одна для нажатий, другая для вида) разошлись бы на первой же новой кнопке —
+   * ровно так и вышло, когда сетка стала третьей.
+   */
+  const SHADING = [
+    [displayWireBtn, 'wire'],
+    [displayClayBtn, 'clay'],
+    [displayFileBtn, 'file'],
+  ] as const;
+
+  /**
+   * Три шарика, как в Blender: сетка, глина, материалы из файла. Выбран всегда ровно один.
    *
    * Александр 2026-08-22: «Можно сделать как в блендере 2 шарика… что бы уж точно понятно
    * и нативно было». До этого здесь стояла полочка со списком из двух строк — два нажатия
@@ -5618,16 +5778,17 @@
    * у второй подпись пришлось бы переписывать из кода на каждое нажатие.
    */
   function refreshDisplayUI() {
-    if (!displayFileBtn || !displayClayBtn) return;
     if (!window.OptiViewer || !window.OptiViewer.getDisplayMaterial) return;
-    const clay = window.OptiViewer.getDisplayMaterial() === 'clay';
-    for (const [btn, on] of [[displayFileBtn, !clay], [displayClayBtn, clay]] as const) {
+    const now = window.OptiViewer.getDisplayMaterial();
+    for (const [btn, mode] of SHADING) {
+      if (!btn) continue;
+      const on = now === mode;
       btn.classList.toggle('is-on', on);
       btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     }
   }
 
-  for (const [btn, mode] of [[displayFileBtn, 'file'], [displayClayBtn, 'clay']] as const) {
+  for (const [btn, mode] of SHADING) {
     if (!btn) continue;
     btn.addEventListener('click', () => {
       if (!window.OptiViewer) return;

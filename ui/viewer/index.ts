@@ -14,7 +14,7 @@
 // запись понимает и не переписывает — см. tsconfig.ui.json.
 
 import { Viewer } from "./viewer.js";
-import type { CameraState, PackEntry, ViewerLike } from "./contract.js";
+import type { CameraState, DisplayMode, PackEntry, SnapshotOptions, ViewerLike } from "./contract.js";
 
 /**
  * Реализации движка просмотра, которые приложение действительно везёт с собой.
@@ -341,7 +341,7 @@ class DualViewport {
   declare _lightMode: 'studio' | 'file';
   declare _exposure: number;
   /** Материал показа, один на оба окна. См. setDisplayMaterial. */
-  declare _display: 'file' | 'clay';
+  declare _display: DisplayMode;
   declare _perf: { left: Float64Array; right: Float64Array; frame: Float64Array; i: number };
   // Эти два появляются позже конструктора и до тех пор отсутствуют — отсюда `?`:
   // снятие подписки заводится при связывании камер, слушатель загрузки — из UI.
@@ -689,13 +689,32 @@ class DualViewport {
    * материала и один уровень детализации: сравнивают тут «до» и «после», и разъехавшийся
    * показ превратил бы сравнение оптимизации в сравнение способов рисовать.
    */
-  setDisplayMaterial(mode: 'file' | 'clay') {
-    this._display = mode === 'clay' ? 'clay' : 'file';
+  setDisplayMaterial(mode: DisplayMode) {
+    this._display = mode === 'clay' || mode === 'wire' ? mode : 'file';
     this._applyDisplayMaterial();
   }
 
   getDisplayMaterial() {
     return this._display || 'file';
+  }
+
+  /**
+   * Умеет ли ТЕКУЩИЙ движок снимать кадр и есть ли что снимать.
+   *
+   * Два условия, и оба обязательны. Движок мог не реализовать `snapshot` — метод в
+   * контракте необязательный; и в правом окне может не быть модели, пока сборка не
+   * прошла. Кнопка, которой нечего делать, обязана быть неактивной, а не молчать
+   * (Правило 12).
+   */
+  canSnapshot() {
+    return typeof this.right?.viewer?.snapshot === 'function' && !!this.right?.viewer?.getStats?.();
+  }
+
+  /** Снимок правого окна — оптимизированной модели. */
+  async snapshotOptimized(options?: SnapshotOptions) {
+    const viewer = this.right?.viewer;
+    if (!viewer || typeof viewer.snapshot !== 'function') return null;
+    return viewer.snapshot(options);
   }
 
   _applyDisplayMaterial() {
@@ -976,6 +995,10 @@ window.OptiViewer = {
   // Материал показа: 'file' — как в файле, 'clay' — наша глина для безтекстурных моделей.
   setDisplayMaterial: (mode) => dual.setDisplayMaterial(mode),
   getDisplayMaterial: () => dual.getDisplayMaterial(),
+  // Снимок ПРАВОГО окна — оптимизированной модели. Левое не снимаем намеренно: рендер
+  // показывает то, что человек увезёт, а увозит он результат сборки.
+  snapshot: (options) => dual.snapshotOptimized(options),
+  canSnapshot: () => dual.canSnapshot(),
   getExposure: () => dual.getExposure(),
   // Нагрузка на отрисовку: { leftMs, rightMs, fps } либо null, пока окно замера
   // не набралось. Почему не «FPS слева / FPS справа» — см. DualViewport._pushPerf.

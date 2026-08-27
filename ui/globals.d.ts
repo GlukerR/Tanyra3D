@@ -120,8 +120,19 @@ interface OptiViewerApi {
    * текстур. Выбор ОДИН на оба окна: разъехавшийся показ превратил бы сравнение «до и
    * после» в сравнение способов рисовать. Файл при этом не меняется никогда.
    */
-  setDisplayMaterial(mode: 'file' | 'clay'): void;
-  getDisplayMaterial(): 'file' | 'clay';
+  setDisplayMaterial(mode: 'wire' | 'clay' | 'file'): void;
+  getDisplayMaterial(): 'wire' | 'clay' | 'file';
+  /**
+   * Снимок ПРАВОГО окна как PNG — ровно того кадра, что человек видит.
+   *
+   * Размеры не обещание: движок обрежет их по потолку видеокарты и вернёт настоящие.
+   * `background: null` — прозрачный фон. Типы расписаны здесь, а не импортированы из
+   * `ui/viewer/contract.ts`, по той же причине, что и у `loadOriginal` выше.
+   */
+  snapshot(options?: { width?: number; height?: number; background?: string | null }):
+    Promise<{ blob: Blob; width: number; height: number } | null>;
+  /** Есть ли что снимать и умеет ли текущий движок снимать вообще. */
+  canSnapshot(): boolean;
   /** Нагрузка на отрисовку либо null, пока окно замера не набралось. */
   getPerf(): { leftMs?: number; rightMs?: number; fps?: number } | null;
   setOnLoaded(fn: () => void): void;
