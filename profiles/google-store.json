@@ -38,7 +38,8 @@
     "dryRun": false
   },
   "advises": {
-    "codec": "draco"
+    "codec": "draco",
+    "codecSource": "engines/model-viewer.json — адреса декодеров Draco и KTX2 зашиты в model-viewer по умолчанию, Meshopt выключен до вызова setMeshoptDecoderLocation. Проверено по исходникам движка 2026-08-14; см. заметку «Единственная площадка, где базовым кодеком стоит Draco»."
   },
   "notes": [
     "Единственная площадка, где базовым кодеком стоит Draco, а не Meshopt, и это не вкус, а свойство движка. model-viewer читает Draco и KTX2 БЕЗ настройки сайта — адреса декодеров зашиты в него по умолчанию (проверено по исходникам 2026-08-14, подробности в engines/model-viewer.json). Meshopt он тоже умеет, но декодер у него выключен, пока сайт не вызовет setMeshoptDecoderLocation. Базовый план обязан работать у того, кто ничего не настраивал, — значит Draco.",
