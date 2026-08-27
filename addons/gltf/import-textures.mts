@@ -31,24 +31,10 @@ import type { Document, Texture } from '@gltf-transform/core';
 import sharp from 'sharp';
 
 import type { ImportNote } from './import-notes.mjs';
+import { MIME, TEXTURE_SLOTS as SLOTS } from './media.mjs';
 
 /** MIME по расширению. Чего glTF не разрешает, здесь нет: такие файлы мы не берём. */
-const MIME: Record<string, string> = {
-  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
-};
 
-/**
- * Слоты и признаки их имён. Порядок важен: `_AO` проверяется раньше прочего, потому что
- * две буквы легко найти внутри чужого слова, и якоря по краям здесь обязательны.
- */
-const SLOTS: Array<{ slot: string; re: RegExp }> = [
-  { slot: 'baseColor', re: /(basecolor|base_color|albedo|diffuse|_col(our)?[._-]|_d\.)/i },
-  { slot: 'normal', re: /(normal|_nrm[._-]|_n\.)/i },
-  { slot: 'roughness', re: /(rough|_rgh[._-])/i },
-  { slot: 'metallic', re: /(metal|_mtl[._-])/i },
-  { slot: 'occlusion', re: /((^|[._-])ao([._-]|$)|occlusion|ambient)/i },
-  { slot: 'emissive', re: /(emissi|_emit[._-])/i },
-];
 
 /** У модели есть развёртка? Без неё карту класть некуда. */
 function hasUv(doc: Document): boolean {

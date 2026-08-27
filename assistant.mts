@@ -26,10 +26,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import enMessages from './messages/en.mjs';
-import ruMessages from './messages/ru.mjs';
 
 import type { MessageCatalog, MessageData } from './core/types.mjs';
 
@@ -100,12 +98,36 @@ const ENGINES_DIR = path.join(BASE_DIR, 'engines');
 // Язык отчёта
 //
 // Английский — основа: на него откатывается любой каталог при нехватке ключа, и он
-// же используется, когда язык не передан. Добавить язык = добавить messages/<код>.mjs
-// и строку в CATALOGS.
+// же используется, когда язык не передан. Добавить язык = положить messages/<код>.mjs.
+// Больше ничего: перечня языков в коде нет.
 // ----------------------------------------------------------------------------
 
-const CATALOGS: Record<string, MessageCatalog> = { en: enMessages, ru: ruMessages };
 const DEFAULT_LANG = 'en';
+
+// Каталоги отчёта читаются из ПАПКИ, а не перечисляются здесь. Перечень был третьим по
+// счёту (ядро, аддон и этот файл) и держался статическими импортами — из-за них язык,
+// добавленный по инструкции `ui/locales/README.md`, переводил обвязку интерфейса и
+// оставлял английскими описания площадок, подписи опций и весь отчёт (аудит Ф4-3,
+// 2026-08-26). Разбор — в шапке `loadCatalogs`.
+//
+// Свой словарь, а не core/i18n: у ассистента формат значения другой (функция от data),
+// и объединять два разных каталога в один реестр значило бы смешивать их ключи.
+const CATALOGS: Record<string, MessageCatalog> = {};
+await (async () => {
+  const dir = path.join(BASE_DIR, 'messages');
+  let names: string[] = [];
+  try { names = fs.readdirSync(dir); } catch { /* папки нет — останется только английский */ }
+  for (const name of names.sort()) {
+    const m = /^([a-z]{2}(?:-[a-z]{2})?)\.mjs$/i.exec(name);
+    if (!m) continue;
+    try {
+      const mod = await import(pathToFileURL(path.join(dir, name)).href);
+      if (mod.default && typeof mod.default === 'object') CATALOGS[m[1]!.toLowerCase()] = mod.default;
+    } catch (e) {
+      console.warn(`[i18n] каталог отчёта ${name} не загрузился: ${(e as Error).message}`);
+    }
+  }
+})();
 
 export function listLanguages() {
   return Object.keys(CATALOGS);
@@ -176,6 +198,39 @@ function safeId(id: string): string {
   return String(id).replace(/[^a-z0-9_-]/gi, '');
 }
 
+/** Порядок просмотра каталогов. Встроенные первыми — они выигрывают спор об одном id. */
+const PROFILE_DIRS = () => [
+  { dir: PROFILES_DIR, custom: false },
+  { dir: userProfilesDir(), custom: true },
+];
+
+/**
+ * Все профили каталога: id ИЗНУТРИ файла, путь и разобранное содержимое.
+ *
+ * Единственный ответ на вопрос «какие площадки есть». Заведён 2026-08-26 по итогам
+ * аудита, фаза Ф4: до него ответов было два и они расходились. Список для интерфейса
+ * читал `id` внутри файла, а загрузка искала файл ПО ИМЕНИ — совпадали они ровно до тех
+ * пор, пока имя файла равно id. Стоило контрибутору назвать файл иначе, и площадка
+ * появлялась в списке, но при выборе падала сообщением, которое само себе противоречило:
+ * «Unknown platform "авито". Available: … авито».
+ *
+ * Содержимое отдаётся вместе с путём намеренно: без этого `listPlatforms` читал бы
+ * каждый файл во второй раз.
+ */
+function profileEntries(dir: string): Array<{ id: string; file: string; profile: ProfileJson }> {
+  const out = [];
+  for (const f of profileFiles(dir)) {
+    const file = path.join(dir, f);
+    try {
+      const profile = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (profile && profile.id) out.push({ id: String(profile.id), file, profile });
+    } catch {
+      /* повреждённый профиль пропускаем: он не должен рушить весь список */
+    }
+  }
+  return out;
+}
+
 /**
  * Файл профиля: сначала встроенный, потом пользовательский.
  *
@@ -183,13 +238,26 @@ function safeId(id: string): string {
  * подменяет встроенный молча: у встроенных порогов есть ссылка на документ площадки, и
  * подмена значила бы, что человек читает чужое число со ссылкой, которая ему не
  * принадлежит. Свою площадку заводят своим id.
+ *
+ * Проходов два, и второй не роскошь. Первый — по имени файла: так названы все встроенные
+ * и всё, что пишет `saveCustomProfile`, и на этом пути не читается ни один файл. Второй —
+ * по `id` внутри файла, тем же способом, каким площадка попадает в список. Он и
+ * подбирает случай, ради которого всё это переписано: имя файла не равно id (или id не
+ * латиницей — `safeId` вырезает остальное, и прямого пути у такого профиля нет вовсе).
  */
 function profilePath(id: string): { file: string; custom: boolean } | null {
-  const name = `${safeId(id)}.json`;
-  const builtin = path.join(PROFILES_DIR, name);
-  if (fs.existsSync(builtin)) return { file: builtin, custom: false };
-  const user = path.join(userProfilesDir(), name);
-  if (fs.existsSync(user)) return { file: user, custom: true };
+  const wanted = String(id);
+  const name = `${safeId(wanted)}.json`;
+  if (name !== '.json') {
+    for (const { dir, custom } of PROFILE_DIRS()) {
+      const direct = path.join(dir, name);
+      if (fs.existsSync(direct)) return { file: direct, custom };
+    }
+  }
+  for (const { dir, custom } of PROFILE_DIRS()) {
+    const hit = profileEntries(dir).find((e) => e.id === wanted);
+    if (hit) return { file: hit.file, custom };
+  }
   return null;
 }
 
@@ -456,36 +524,32 @@ function timesLess(before: number, after: number) {
 export function listPlatforms(lang: string = DEFAULT_LANG) {
   const out = [];
   const seen = new Set<string>();
-  // Встроенные первыми — они же выигрывают спор об одинаковом id (см. profilePath).
-  for (const [dir, custom] of [[PROFILES_DIR, false], [userProfilesDir(), true]] as const) {
-    for (const f of profileFiles(dir)) {
-      try {
-        const p = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'));
-        // v0.1.0: показываем только включённые платформы (enabled: true или не указано = true)
-        if (!p || !p.id || p.enabled === false) continue;
-        // Свой профиль с чужим id в список не попадает и встроенный не подменяет:
-        // подмена значила бы чужое число под ссылкой на документ настоящей площадки.
-        if (seen.has(p.id)) continue;
-        seen.add(p.id);
-        // engine — аддитивное поле (§4c): интерфейс держит два поля согласованными,
-        // не делая запрос на каждую площадку по отдельности.
-        out.push({
-          id: p.id,
-          title: pick(p.title, lang) || p.id,
-          description: pick(p.description, lang),
-          // Откуда у площадки её запреты и числа. Второй вопрос, отдельный от «что это
-          // за площадка», и в книжечке он идёт отдельной строкой.
-          source: pick(p.source, lang),
-          // null, а не подставленный движок: интерфейс по этому полю решает, показывать
-          // ли «нужен другой движок». Площадка без движка годится любому.
-          engine: dictatesEngine(p) ? engineIdOf(p) : null,
-          // Откуда взялся профиль. Интерфейсу это нужно, чтобы не выдавать свои числа
-          // за выверенные по первоисточнику (решение 2026-08-12).
-          custom,
-        });
-      } catch {
-        /* повреждённый профиль просто не показываем в списке */
-      }
+  // Тот же перебор, которым площадку ИЩЕТ profilePath. Две копии этого обхода разошлись
+  // на первом же файле, названном не по id, — см. шапку profileEntries.
+  for (const { dir, custom } of PROFILE_DIRS()) {
+    for (const { id, profile: p } of profileEntries(dir)) {
+      // v0.1.0: показываем только включённые платформы (enabled: true или не указано = true)
+      if (p.enabled === false) continue;
+      // Свой профиль с чужим id в список не попадает и встроенный не подменяет:
+      // подмена значила бы чужое число под ссылкой на документ настоящей площадки.
+      if (seen.has(id)) continue;
+      seen.add(id);
+      // engine — аддитивное поле (§4c): интерфейс держит два поля согласованными,
+      // не делая запрос на каждую площадку по отдельности.
+      out.push({
+        id,
+        title: pick(p.title, lang) || id,
+        description: pick(p.description, lang),
+        // Откуда у площадки её запреты и числа. Второй вопрос, отдельный от «что это
+        // за площадка», и в книжечке он идёт отдельной строкой.
+        source: pick(p.source, lang),
+        // null, а не подставленный движок: интерфейс по этому полю решает, показывать
+        // ли «нужен другой движок». Площадка без движка годится любому.
+        engine: dictatesEngine(p) ? engineIdOf(p) : null,
+        // Откуда взялся профиль. Интерфейсу это нужно, чтобы не выдавать свои числа
+        // за выверенные по первоисточнику (решение 2026-08-12).
+        custom,
+      });
     }
   }
   return out;

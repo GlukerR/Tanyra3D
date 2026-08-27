@@ -26,6 +26,7 @@ import { importObj } from './import-obj.mjs';
 import { emptyNote, importNote, setImportNote } from './import-notes.mjs';
 import { attachNeighbourTextures } from './import-textures.mjs';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
+import { TYPE_BY_SIZE } from './media.mjs';
 
 /**
  * Расширения, которые мы умеем ПРИНЯТЬ, но не отдаём: выход всегда glTF.
@@ -73,7 +74,6 @@ interface Geometry {
   index?: { array: ArrayLike<number>; count: number } | null;
 }
 
-const TYPE_BY_SIZE: Record<number, string> = { 1: 'SCALAR', 2: 'VEC2', 3: 'VEC3', 4: 'VEC4' };
 
 /**
  * Собрать документ glTF из геометрии three.js.

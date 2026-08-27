@@ -41,7 +41,8 @@
     "dryRun": false
   },
   "advises": {
-    "codec": "meshopt"
+    "codec": "meshopt",
+    "codecSource": "https://www.vntana.com/resource/platform-inputs/ — EXT_meshopt_compression назван в списке поддерживаемых расширений входа. Там же названа причина, по которой Draco невозможен: «We do not support Draco Compression on input for any file»."
   },
   "notes": [
     "ГЛАВНОЕ ОБ ЭТОЙ ПЛОЩАДКЕ, и ради этого профиль и заведён: DRACO НА ВХОД НЕ ПРИНИМАЕТСЯ. Дословно: «We do not support Draco Compression on input for any file» — файл с уже применённым Draco не даёт выходов ВООБЩЕ, а не просто теряет сжатие. Отсюда \"excludeExtensions\": [\"draco\"]: опция исчезает из панели совсем.",

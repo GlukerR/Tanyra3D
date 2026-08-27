@@ -31,11 +31,9 @@ import path from 'node:path';
 import { Document, type Material, type Texture } from '@gltf-transform/core';
 import { emptyNote, setImportNote, type ImportNote } from './import-notes.mjs';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
+import { MIME, TYPE_BY_SIZE } from './media.mjs';
 
 /** MIME по расширению. Чего glTF не разрешает — не называем, такие карты не переносятся. */
-const MIME: Record<string, string> = {
-  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
-};
 
 /** Что мы вычитываем из `.mtl`. Всё остальное автор пусть хранит — мы это не трогаем. */
 interface MtlEntry {
@@ -118,7 +116,6 @@ interface ObjMesh {
   material: { name?: string } | Array<{ name?: string }>;
 }
 
-const TYPE_BY_SIZE: Record<number, string> = { 1: 'SCALAR', 2: 'VEC2', 3: 'VEC3', 4: 'VEC4' };
 
 /**
  * Разобрать OBJ и отдать документ glTF.

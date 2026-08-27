@@ -111,6 +111,13 @@
       <input type="checkbox" id="batch-toggle" class="model-pick batch-toggle">
       <label id="batch-count" class="batch-count" for="batch-toggle"></label>
       <button id="batch-summary" class="batch-pick" type="button" data-window-trigger disabled data-i18n="batch.summary">Summary</button>
+      <!-- Крестик на всех отмеченных — в той же колонке, что крестики моделей.
+           Александр, 2026-08-26: «там где крестики удаления нужно сверху поставить
+           крестик тоже на все действующий… только сначала окно всплывающее».
+           Спрашиваем ВСЕГДА: удаление пачки не отменить, а число «37» человек читает
+           именно в тот момент, когда ещё может передумать. -->
+      <button id="batch-remove" class="model-remove batch-remove" type="button"
+              data-window-trigger data-i18n-title="batch.remove" data-i18n-aria="batch.remove">×</button>
     </div>
     <div class="outliner-body">
       <div id="dropzone" class="dropzone">
@@ -317,6 +324,23 @@
 
     <!-- Окна Metadata / Validation (как на gltf.report): полупрозрачные, почти на всю
          ширину, поверх вьюпортов; закрываемые/перетаскиваемые (паттерн .window). -->
+    <!-- Подтверждение удаления пачки. Отдельное окно, а не «в два нажатия», как у своей
+         площадки: там вопрос вставал бы поверх другого модального окна и его закрывали бы
+         не читая, а здесь список на виду и число отмеченных — главное, что надо прочесть. -->
+    <div id="confirm-remove" class="window window--error hidden" role="dialog" aria-label="Remove models">
+      <div class="window-titlebar">
+        <span class="window-title" data-i18n="batch.remove.title">Remove models</span>
+        <button type="button" class="window-close" data-i18n-aria="win.close" aria-label="Close">×</button>
+      </div>
+      <div class="window-body">
+        <p id="confirm-remove-text" class="confirm-text"></p>
+        <div class="confirm-actions">
+          <button id="confirm-remove-no" class="batch-pick" type="button" data-i18n="batch.remove.cancel">Cancel</button>
+          <button id="confirm-remove-yes" class="batch-pick confirm-danger" type="button" data-i18n="batch.remove.yes">Remove</button>
+        </div>
+      </div>
+    </div>
+
     <div id="metadata-window" class="window window--wide window--glass hidden" role="dialog" aria-label="Metadata">
       <div class="window-titlebar">
         <span class="window-title" data-i18n="win.metadata">Metadata</span>

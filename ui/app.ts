@@ -38,6 +38,11 @@
   const batchCount = $('batch-count');
   const batchToggle = $('batch-toggle') as HTMLInputElement;
   const batchSummaryBtn = $('batch-summary') as HTMLButtonElement;
+  const batchRemoveBtn = $('batch-remove') as HTMLButtonElement;
+  const confirmRemove = $('confirm-remove');
+  const confirmRemoveText = $('confirm-remove-text');
+  const confirmRemoveYes = $('confirm-remove-yes') as HTMLButtonElement;
+  const confirmRemoveNo = $('confirm-remove-no') as HTMLButtonElement;
   const summaryWindow = $('summary-window');
   const summaryBody = $('summary-body');
   const summarySaveBtn = $('summary-save') as HTMLButtonElement;
@@ -414,6 +419,20 @@
   // Взаимоисключающие группы — приходят с /api/extensions, объявлены в аддоне.
   // Интерфейс их только применяет: [{ id, members: [...] }].
   let exclusiveGroups: Array<{ id: string; members: string[] }> = [];
+
+  /**
+   * Какие кодеки геометрии бывают — по объявлению ДВИЖКА, а не по списку в коде.
+   *
+   * Группа `geometry` и есть ответ на этот вопрос: её члены взаимоисключающи именно
+   * потому, что это варианты одного выбора. До 2026-08-26 список был переписан руками в
+   * трёх местах при живом первоисточнике (аудит Ф3-2).
+   *
+   * Пустой список до ответа сервера — законное состояние: группа просто не рисуется,
+   * а не рисуется наугад.
+   */
+  function geometryMembers(): string[] {
+    return (exclusiveGroups.find((g) => g.id === 'geometry') || { members: [] }).members;
+  }
   // ВЫБОР ЧЕЛОВЕКА — один на весь сеанс и на все модели.
   //
   // Александр, 2026-08-26: «человек выбрал 100 моделей… вот сейчас выбраны флажки. эти
@@ -1078,7 +1097,7 @@
     let failure = null;
     // Пустой ответ по умолчанию: при провале запроса панель обязана обнулиться, а не
     // остаться с данными предыдущей площадки.
-    let fetched = { extensions: [], exclusiveGroups: [], defaults: {} };
+    let fetched = { extensions: [], exclusiveGroups: [], textureSlots: [], defaults: {} };
     try {
       // Движок передаём всегда: при выбранной площадке сервер его игнорирует (движок у
       // неё свой), а при прочерке — это единственный источник, откуда движок известен.
@@ -1092,6 +1111,8 @@
         // Группы взаимоисключений приходят оттуда же, где живёт их единственное
         // объявление (аддон). Свой список интерфейс больше не держит.
         exclusiveGroups: (data && data.exclusiveGroups) || [],
+        // Таблица «имя файла → назначение карты» — оттуда же и по той же причине.
+        textureSlots: (data && data.textureSlots) || [],
         // Совет площадки (режим KTX2 и что появится дальше). Тем же порядком: объявлено
         // в профиле — прочитано здесь, а не продублировано константой.
         defaults: (data && data.defaults) || {},
@@ -1113,6 +1134,7 @@
     // совет. Панель при этом не вздрагивала, поэтому заметить было нечем.
     extensions = fetched.extensions;
     exclusiveGroups = fetched.exclusiveGroups;
+    setTextureSlots(fetched.textureSlots);
     platformDefaults = fetched.defaults;
     // Значки ⚠ — из того же ответа, что и сами опции. Иначе движок сменился, а значки
     // остались от прежнего.
@@ -1354,13 +1376,19 @@
   // тянет то же расширение внутри себя. Единственное отличие — ему не нужен декодер,
   // поэтому движок не помечает его needsDecoder и значок ему не ставится.
   function renderGeometryGroup(byId: Record<string, ExtensionDto>) {
-    if (!byId.meshopt && !byId.draco && !byId.quantize) return null;
+    // Состав группы приходит от ДВИЖКА (exclusiveGroups), а не переписан сюда. Копия
+    // стояла здесь до 2026-08-26 (аудит Ф3-2) — при том, что рядом, в этом же файле,
+    // объявление групп уже принято с сервера и лежит в `exclusiveGroups`.
+    //
+    // Порядок членов задаёт движок, и это правильно: он же решает, что Draco идёт
+    // после Meshopt. Показываем только те, что реально приехали в списке опций, —
+    // площадка вправе вычесть любой (например VNTANA не принимает Draco).
+    const members = geometryMembers();
+    const opts = members
+      .filter((v) => byId[v])
+      .map((v) => ({ v, ext: byId[v]!, label: byId[v]!.title }));
+    if (!opts.length) return null;
     const sec = optSection(t('group.geometry'));
-    const opts = [
-      byId.meshopt && { v: 'meshopt', ext: byId.meshopt, label: byId.meshopt.title },
-      byId.draco && { v: 'draco', ext: byId.draco, label: byId.draco.title },
-      byId.quantize && { v: 'quantize', ext: byId.quantize, label: byId.quantize.title },
-    ].filter(Boolean) as Array<{ v: string; ext: ExtensionDto; label?: string }>;
     for (const o of opts) {
       const row = document.createElement('div');
       row.className = 'opt-radio-row';
@@ -1750,14 +1778,30 @@
    * Расхождение двух таблиц стерегут тестом: разошлись — интерфейс выбросит не ту карту,
    * и человек этого не увидит, пока не соберёт.
    */
-  const TEXTURE_SLOTS: Array<{ slot: string; re: RegExp }> = [
-    { slot: 'baseColor', re: /(basecolor|base_color|albedo|diffuse|_col(our)?[._-]|_d\.)/i },
-    { slot: 'normal', re: /(normal|_nrm[._-]|_n\.)/i },
-    { slot: 'roughness', re: /(rough|_rgh[._-])/i },
-    { slot: 'metallic', re: /(metal|_mtl[._-])/i },
-    { slot: 'occlusion', re: /((^|[._-])ao([._-]|$)|occlusion|ambient)/i },
-    { slot: 'emissive', re: /(emissi|_emit[._-])/i },
-  ];
+  // Таблица «имя файла → назначение карты» приходит от ДВИЖКА (/api/extensions, поле
+  // textureSlots) и здесь не объявляется.
+  //
+  // До 2026-08-26 тут лежала побайтно такая же копия таблицы из
+  // addons/gltf/import-textures.mts, и дубль был не косметический (аудит Ф2-1): движок
+  // по ней решает, какой файл станет какой картой, а этот файл — какую ранее бро́шенную
+  // карту выбросить как заменённую (см. attachTextures). Разойдись копии, выброшено
+  // было бы не то.
+  //
+  // Регулярка приезжает текстом и флагами: через JSON RegExp не проходит. Битую строку
+  // пропускаем с записью в журнал — один негодный слот не должен лишать остальных.
+  let TEXTURE_SLOTS: Array<{ slot: string; re: RegExp }> = [];
+
+  function setTextureSlots(wire: Array<{ slot: string; pattern: string; flags: string }>) {
+    const built = [];
+    for (const s of wire || []) {
+      try {
+        built.push({ slot: s.slot, re: new RegExp(s.pattern, s.flags) });
+      } catch {
+        console.warn('[textures] негодный признак имени для слота', s && s.slot);
+      }
+    }
+    TEXTURE_SLOTS = built;
+  }
 
   /** Назначение карты по имени файла; null — имя ни о чём не говорит. */
   function slotOf(filePath: string): string | null {
@@ -2355,7 +2399,7 @@
   function platformCodec(): string | null {
     if (!platformSelect.value) return null;
     const c = platformDefaults && (platformDefaults as { codec?: string }).codec;
-    return (c === 'meshopt' || c === 'draco' || c === 'quantize') ? c : null;
+    return c && geometryMembers().includes(c) ? c : null;
   }
 
   // Восстановить выбор человека. Геометрия, которой на площадке нет (нет radio),
@@ -2751,6 +2795,8 @@
     batchToggle.indeterminate = n > 0 && n < models.length;
     batchToggle.title = t('batch.toggle');
     batchToggle.setAttribute('aria-label', t('batch.toggle'));
+    // Удалять нечего — крестик погашен, а не молча бездействует.
+    batchRemoveBtn.disabled = n === 0;
   }
 
   function renderModelList() {
@@ -2874,6 +2920,36 @@
     // список не перерисовывает.
     updateRunButtonState();
   }
+
+  // Удалить ВСЕ отмеченные — крестик в полосе выбора, в той же колонке, что крестики
+  // моделей. Александр, 2026-08-26: «там где крестики удаления нужно сверху поставить
+  // крестик тоже на все действующий».
+  //
+  // СПРАШИВАЕМ ВСЕГДА, даже про одну модель. Его условие: «только сначала окно
+  // всплывающее (удалить файлы, 37 выбранных и т.д.)». Отменить удаление пачки нечем —
+  // записи вместе с их результатами исчезают, — и число отмеченных человек читает ровно
+  // в тот момент, когда ещё может передумать.
+  //
+  // Крестик гаснет, когда не отмечено ничего: кнопка, которой нечего делать, в интерфейсе
+  // быть не может (Правило 12).
+  batchRemoveBtn.addEventListener('click', () => {
+    const n = pickedModels().length;
+    if (!n) return;
+    setText(confirmRemoveText, 'batch.remove.text', { n });
+    showWindow(confirmRemove);
+  });
+
+  confirmRemoveNo.addEventListener('click', () => confirmRemove.classList.add('hidden'));
+
+  confirmRemoveYes.addEventListener('click', () => {
+    confirmRemove.classList.add('hidden');
+    // Снимок ДО удаления: removeModel правит сам список, и обход по живому пропускал бы
+    // каждую вторую запись.
+    const doomed = pickedModels().map((m) => m.id);
+    for (const id of doomed) removeModel(id);
+    // Одна строка на всю пачку, а не строка на модель (Правило 9).
+    logMessage('info', t('log.batchRemoved', { n: doomed.length }));
+  });
 
   // Общий выключатель: отмечен — берём всех, снят — не берём никого.
   //

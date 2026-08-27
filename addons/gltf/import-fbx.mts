@@ -33,6 +33,7 @@ import path from 'node:path';
 import { Document, type Material, type Texture } from '@gltf-transform/core';
 import { emptyNote, setImportNote, type ImportNote } from './import-notes.mjs';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { MIME, TYPE_BY_SIZE } from './media.mjs';
 
 // Записка о ввозе (что не доехало, что подобрано у соседей) живёт в общем модуле
 // import-notes.mts: заполняет её разбор, а читают правила отчёта, и знать друг о друге
@@ -42,9 +43,6 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'webp', 'tif', 'tiff', 'bmp', 'gif', 'tga', 'psd', 'exr', 'dds'];
 
 /** MIME по расширению. Чего glTF не разрешает — не называем, такие карты не переносятся. */
-const MIME: Record<string, string> = {
-  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp',
-};
 
 // Три поля three.js, из которых достаётся имя файла: наш обработчик кладёт его в
 // userData, но у пустой текстуры-заглушки (FBXLoader ставит её, когда имени нет вовсе)
@@ -114,7 +112,6 @@ interface ThreeMat {
   map?: unknown; normalMap?: unknown; emissiveMap?: unknown; aoMap?: unknown;
 }
 
-const TYPE_BY_SIZE: Record<number, string> = { 1: 'SCALAR', 2: 'VEC2', 3: 'VEC3', 4: 'VEC4' };
 
 /**
  * Прочитать FBX и отдать обычный документ glTF.

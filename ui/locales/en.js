@@ -260,6 +260,12 @@ window.I18N_CATALOGS.en = {
 
   // --- batch build ---
   'batch.count': ({ n, total }) => `${n} of ${total} selected`,
+  'batch.remove': 'Remove selected',
+  'batch.remove.title': 'Remove models',
+  'batch.remove.text': ({ n }) => `Remove ${n} model${n === 1 ? '' : 's'} from the list? The files on disk stay where they are — only the entries and their results go.`,
+  'batch.remove.yes': 'Remove',
+  'batch.remove.cancel': 'Cancel',
+  'log.batchRemoved': ({ n }) => `Removed from the list: ${n}`,
   'batch.toggle': 'Pick all or clear the selection',
   'batch.pick': 'Include in the batch',
   'btn.buildPicked': ({ n }) => `Build selected (${n})`,

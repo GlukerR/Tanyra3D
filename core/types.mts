@@ -299,6 +299,13 @@ export interface Addon {
    * Аддон, у которого взаимоисключений нет, метод не объявляет; это не ошибка.
    */
   exclusiveGroups?: () => Array<{ id: string; members: string[] }>;
+  /**
+   * Таблица «имя файла → назначение карты» в виде, переживающем JSON.
+   *
+   * Аддитивное поле (§4c): формат, у которого карты по имени не угадываются, его просто
+   * не объявляет. Ядро таблицу не читает и не толкует — только доносит до шва.
+   */
+  textureSlots?: () => Array<{ slot: string; pattern: string; flags: string }>;
   /** Опционально: метаданные + валидация без оптимизации (для inspectFile()). */
   inspect?: (srcPath: string) => Promise<Record<string, unknown>>;
   /** Опционально: самодостаточный JSON-экспорт (для exportJson()). */

@@ -266,3 +266,44 @@ describe('Единственное объявление — режим KTX2', ()
     expect(code, 'ui/app.js должен читать defaults с /api/extensions').toMatch(/platformDefaults\s*=/);
   });
 });
+
+describe('состав группы геометрии объявлен один раз (аудит Ф3-2)', () => {
+  // Заведено 2026-08-26. Первоисточник — EXCLUSIVE_FEATURES.geometry.members в аддоне,
+  // и он был объявлен таковым ещё в 2026-08-04 (см. шапку файла). Тем не менее список
+  // ['meshopt','draco','quantize'] к августу 2026 оказался переписан руками ещё трижды:
+  // в server.mts и дважды в ui/app.ts.
+  //
+  // Самый показательный случай — server.mts: `exclusiveGroups` там ИМПОРТИРОВАН и
+  // вызывается семью строками ниже рукописной копии. Первоисточник был в области
+  // видимости, и это не помешало.
+  //
+  // ПРОБА НА КРАСНОТУ пройдена: вернул литерал в server.mts — краснеет; вернул
+  // `c === 'meshopt' || c === 'draco'` в ui/app.ts — краснеет.
+
+  const members = exclusiveGroups().find((g) => g.id === 'geometry').members;
+
+  it('первоисточник на месте и непуст', () => {
+    expect(members.length, 'группа geometry исчезла — сторож ниже потерял смысл')
+      .toBeGreaterThan(1);
+  });
+
+  for (const file of ['server.mts', 'ui/app.ts']) {
+    it(`${file} не держит своей копии списка кодеков`, () => {
+      // Ищем ПЕРЕЧИСЛЕНИЕ: два и более члена группы подряд в одном выражении. Одиночное
+      // упоминание не ловим намеренно — `opts.codec === 'draco'` это ветка поведения,
+      // а не копия списка, и краснеть на неё значило бы мешать работать.
+      const src = readSource(file);
+      const код = src.split(/\r?\n/).filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+      const имена = members.map((m) => `'${m}'`);
+      const перечисления = [];
+      for (const line of код.split(/\r?\n/)) {
+        const сколько = имена.filter((n) => line.includes(n)).length;
+        if (сколько >= 2) перечисления.push(line.trim().slice(0, 90));
+      }
+      expect(перечисления,
+        `${file}: список кодеков переписан руками. Первоисточник — exclusiveGroups(), `
+        + 'группа geometry; читать надо его, а не синхронизировать копию')
+        .toEqual([]);
+    });
+  }
+});
