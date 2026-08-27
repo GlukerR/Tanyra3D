@@ -27,6 +27,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import type { CameraState, LoadOptions, ViewerLike } from "./contract.js";
 import { buildUvPointerDriver, stripUvTransformTracks, type UvPointerDriver } from "./pointer-uv.js";
 import { detectLods, showLod, type LodSet } from "./lod.js";
+import { GLTFDiffuseTransmissionExtension } from "./diffuse-transmission.js";
 
 // Пути к декодерам — тоже из node_modules/three через /vendor-роут сервера (server.mjs).
 const DRACO_DECODER_PATH = "/vendor/three/examples/jsm/libs/draco/gltf/";
@@ -529,6 +530,10 @@ export class Viewer implements ViewerLike {
       // плагин, ссылка на который стоит в документации самого GLTFLoader. Без плагина
       // показывается один вид, и человек не знает, что художник сделал ещё три.
       this._loader.register((parser) => new GLTFMaterialsVariantsExtension(parser));
+      // Просвет насквозь (лист, абажур, тонкий фарфор). У three.js 0.185.1 расширения
+      // нет вовсе — ни свойства, ни ветки загрузчика, — и модель показывалась плотной,
+      // хотя в файл оно доезжает целым. Разбор — в `diffuse-transmission.ts`.
+      this._loader.register((parser) => new GLTFDiffuseTransmissionExtension(parser));
     } catch (err) {
       console.warn('KHR_animation_pointer: плагин не зарегистрирован, анимация по указателю показана не будет', err);
     }

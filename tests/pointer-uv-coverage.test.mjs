@@ -14,15 +14,17 @@
 // понадобится своя таблица и свой сторож.
 //
 // Что сторожится (три независимые вещи):
-//   1. Таблица против three.js: каждый ключ — имя слота (оканчивается на Texture),
-//      а каждое значение — свойство, которое реально существует на материале
-//      three.js (MeshPhysicalMaterial покрывает и core-слоты MeshStandardMaterial).
-//      Ловит опечатку в имени свойства и тихий дрейф таблицы при смене версии.
+//   1. Таблица против движка: каждый ключ — имя слота (оканчивается на Texture),
+//      а каждое значение — свойство, которое реально существует либо на материале
+//      three.js (MeshPhysicalMaterial покрывает и core-слоты MeshStandardMaterial),
+//      либо на нашем — том, что приносит расширение, которого у three.js нет вовсе
+//      (`ui/viewer/diffuse-transmission.ts`). Ловит опечатку в имени свойства и
+//      тихий дрейф таблицы при смене версии.
 //   2. Покрытие корпуса: каждый слот, встреченный в pointer-каналах корпуса, либо
-//      есть в таблице, либо в явном allowlist «three.js такой слот не умеет».
-//      Слот, который three.js умеет, а таблица не переводит, — это баг: текстура
+//      есть в таблице, либо в явном allowlist «просмотрщик такой слот не умеет».
+//      Слот, который движок умеет, а таблица не переводит, — это баг: текстура
 //      застынет молча, тест краснеет и называет слот и модель.
-//   3. Нижняя граница размера: записей не меньше 17 — случайное усечение таблицы
+//   3. Нижняя граница размера: записей не меньше 19 — случайное усечение таблицы
 //      не пройдёт незаметно.
 //
 // Таблица не экспортируется, поэтому читается из ПЕРВОИСТОЧНИКА `pointer-uv.ts` как
@@ -39,6 +41,7 @@ import * as THREE from 'three'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.resolve(__dirname, '..')
 const POINTER_UV_SOURCE = path.join(PROJECT_ROOT, 'ui', 'viewer', 'pointer-uv.ts')
+const DT_SOURCE = path.join(PROJECT_ROOT, 'ui', 'viewer', 'diffuse-transmission.ts')
 const FIXTURES_DIR = path.join(PROJECT_ROOT, 'fixtures', 'models')
 
 // ── Извлечение таблицы из первоисточника ────────────────────────────────────
@@ -117,19 +120,20 @@ function scanCorpus() {
   return found
 }
 
-// ── Allowlist: слоты, которых three.js НЕ умеет ──────────────────────────────
+// ── Allowlist: слоты, которых НЕ УМЕЕТ показать просмотрщик ──────────────────
 //
-// Сюда можно только слот, у которого у установленного three.js (0.185.1) нет
-// свойства на материале — иначе это не «не умеет», а «таблица не переводит», то
-// есть баг. Каждая запись — РЕШЕНИЕ с причиной, а не способ позеленить тест:
-// пополнить allowlist слотом, который three.js умеет, — подгонка под вывод движка,
-// запрещённая ПРАВИЛАМИ_ТЕСТОВ_универсальность.
+// Сюда можно только слот, для которого свойства нет ни у установленного three.js
+// (0.185.1), ни у наших материалов, — иначе это не «не умеет», а «таблица не
+// переводит», то есть баг. Каждая запись — РЕШЕНИЕ с причиной, а не способ
+// позеленить тест: пополнить allowlist слотом, который движок умеет, — подгонка под
+// вывод движка, запрещённая ПРАВИЛАМИ_ТЕСТОВ_универсальность.
+//
+// СЕЙЧАС ПУСТ, и это итог работы, а не недосмотр. До 2026-08-27 здесь лежали
+// `diffuseTransmissionTexture` и `diffuseTransmissionColorTexture`: у three.js r185.1
+// нет ни свойства `diffuseTransmissionMap`, ни ветки загрузчика (grep по `src/` и
+// `examples/jsm/` — ноль вхождений). Теперь расширение приносит наш собственный
+// материал, оба слота переводятся таблицей, и оправдываться больше нечем.
 const UNSUPPORTED_BY_THREE = {
-  // KHR_materials_diffuse_transmission: у three.js r185.1 нет ни свойства
-  // `diffuseTransmissionMap`, ни ветки загрузчика (grep по src/ и examples/jsm/ —
-  // ноль вхождений). Оба слота расширения застывают молча, и это правильно.
-  diffuseTransmissionTexture: 'three.js r185.1 не загружает KHR_materials_diffuse_transmission (нет diffuseTransmissionMap)',
-  diffuseTransmissionColorTexture: 'three.js r185.1 не загружает KHR_materials_diffuse_transmission (нет diffuseTransmissionColorMap)',
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -140,8 +144,8 @@ describe('SLOT_TO_THREE — таблица против three.js', () => {
   const src = fs.readFileSync(POINTER_UV_SOURCE, 'utf8')
   const table = extractSlotToThree(src)
 
-  it('таблица непустая и записей не меньше 17', () => {
-    expect(Object.keys(table).length).toBeGreaterThanOrEqual(17)
+  it('таблица непустая и записей не меньше 19', () => {
+    expect(Object.keys(table).length).toBeGreaterThanOrEqual(19)
   })
 
   it('каждый ключ — имя слота glTF (оканчивается на Texture)', () => {
@@ -149,19 +153,32 @@ describe('SLOT_TO_THREE — таблица против three.js', () => {
     expect(bad, 'ключи не в форме <слот>Texture: ' + bad.join(', ')).toEqual([])
   })
 
-  it('каждое свойство three.js из значений существует на материале', () => {
+  it('каждое свойство из значений существует на материале просмотрщика', () => {
+    // Источников два, и оба обязательны.
+    //
     // MeshPhysicalMaterial наследует MeshStandardMaterial, поэтому на одном его
     // экземпляре есть и core-слоты (map, normalMap, …), и слоты расширений
     // (anisotropyMap, transmissionMap, …). Свойства в three.js задаются в
     // конструкторе (`this.map = null`), поэтому проверяем `in` на экземпляре.
+    //
+    // Второй источник — НАШ материал: `KHR_materials_diffuse_transmission` three.js не
+    // знает вовсе, и его карты приносит `ui/viewer/diffuse-transmission.ts`. Читаем
+    // оттуда ИСХОДНИК, а не сборку, по той же причине, что и саму таблицу:
+    // скомпилированный `.js` в git не идёт, и на чистом клоне до сборки его нет.
     const mat = new THREE.MeshPhysicalMaterial()
+    const наши = new Set(
+      [...fs.readFileSync(DT_SOURCE, 'utf8').matchAll(/^\s*(?:get|set)\s+(\w+)\s*\(/gm)].map((m) => m[1]),
+    )
+    expect(наши.size, 'в diffuse-transmission.ts не нашлось ни одного свойства — форма файла сменилась')
+      .toBeGreaterThan(0)
+
     const missing = []
     for (const [slot, props] of Object.entries(table)) {
       for (const prop of props) {
-        if (!(prop in mat)) missing.push(`${slot} → ${prop}`)
+        if (!(prop in mat) && !наши.has(prop)) missing.push(`${slot} → ${prop}`)
       }
     }
-    expect(missing, 'свойства, которых нет у three.js (опечатка или дрейф версии):\n  ' + missing.join('\n  ')).toEqual([])
+    expect(missing, 'свойства, которых нет ни у three.js, ни у наших материалов (опечатка или дрейф версии):\n  ' + missing.join('\n  ')).toEqual([])
   })
 })
 

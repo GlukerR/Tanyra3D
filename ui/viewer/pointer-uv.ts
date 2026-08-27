@@ -56,6 +56,12 @@ const SLOT_TO_THREE: Record<string, string[]> = {
   iridescenceTexture: ['iridescenceMap'],
   iridescenceThicknessTexture: ['iridescenceThicknessMap'],
   anisotropyTexture: ['anisotropyMap'],
+  // Просвет насквозь. Свойств с такими именами у самого three.js нет — их приносит наш
+  // материал (`diffuse-transmission.ts`), и он же перекладывает `texture.matrix` в свой
+  // uniform перед каждым кадром. Без этой пары строк развёртка просвета застыла бы молча,
+  // ровно как застывало всё расширение до 2026-08-27.
+  diffuseTransmissionTexture: ['diffuseTransmissionMap'],
+  diffuseTransmissionColorTexture: ['diffuseTransmissionColorMap'],
 };
 
 // Что именно анимируют: в glTF — offset/rotation/scale, в three.js — offset/rotation/repeat.
