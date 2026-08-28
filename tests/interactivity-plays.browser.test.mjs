@@ -258,3 +258,44 @@ describe('5. нажимаем как человек', () => {
       'вращение модели запустило отклик').toBe(0)
   }, 120000)
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 6. Нажатие говорит о себе
+//
+// «неработает странно. может я просто не понимаю» (Александр, 2026-08-28). И это не
+// придирка к словам: отклики у этих моделей тихие — цвет лампы, сдвиг развёртки на
+// пиксель, анимация через секунду. Без ответа «попал» человек не отличает промах от
+// сломанного интерактива, и оба выглядят одинаково — никак.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('6. нажатие отвечает', () => {
+  itWithModels(['TrafficLight.glb'], 'попадание зовёт слушателя и называет часть', async () => {
+    await viewer.load('/TrafficLight.glb')
+    const пойманное = []
+    viewer.onInteractivePick = (p) => пойманное.push(p)
+
+    const часть = viewer._interactive[0]
+    const THREE = await import('three')
+    const цель = new THREE.Vector3()
+    часть.object.getWorldPosition(цель)
+    viewer.camera.position.set(цель.x, цель.y, цель.z + 1.5)
+    viewer.camera.lookAt(цель)
+    viewer.camera.updateMatrixWorld(true)
+
+    viewer.pickInteractive(0.5, 0.5)
+    viewer.onInteractivePick = null
+
+    expect(пойманное.length, 'о нажатии никто не узнал').toBe(1)
+    expect(пойманное[0].name, 'часть не названа').toBeTruthy()
+    expect(пойманное[0].responded, 'отклик был, а сказано обратное').toBe(true)
+  }, 120000)
+
+  itWithModels(['TrafficLight.glb'], 'промах мимо модели никого не зовёт', async () => {
+    await viewer.load('/TrafficLight.glb')
+    const пойманное = []
+    viewer.onInteractivePick = (p) => пойманное.push(p)
+    viewer.pickInteractive(0.02, 0.02)
+    viewer.onInteractivePick = null
+    expect(пойманное, 'промах записан как нажатие').toEqual([])
+  }, 120000)
+})

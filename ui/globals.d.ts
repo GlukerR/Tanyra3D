@@ -110,6 +110,8 @@ interface OptiViewerApi {
    * ПОКАЗЫВАЕМ: граф поведения не проигрывается.
    */
   getInteractivity(): { count: number; names: string[]; shown: boolean; playable: boolean };
+  /** Кому рассказывать о нажатии на интерактивную часть — интерфейс пишет в журнал. */
+  setOnInteractivePick(fn: ((part: { name: string; responded: boolean }) => void) | null): void;
   /** Обвести нажимаемые части в обоих вьюпортах либо снять обводку. */
   toggleInteractivity(on?: boolean): boolean;
   /** Выбрать свет — в ОБОИХ вьюпортах: студийный, авторский или никакой. */

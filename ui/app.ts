@@ -5731,6 +5731,16 @@
     interactivityBtn.setAttribute('aria-pressed', String(!!info.shown));
   }
 
+  // Нажатие на интерактивную часть говорит о себе в журнал. Без этого тихий отклик
+  // (цвет лампы, сдвиг развёртки, анимация через секунду) неотличим от промаха, и
+  // человек не понимает, попал он или интерактив не работает вовсе.
+  window.OptiViewer?.setOnInteractivePick?.(({ name, responded }) => {
+    logMessage(
+      responded ? 'info' : 'warn',
+      t(responded ? 'log.interactivity.hit' : 'log.interactivity.silent', { name: name || '—' }),
+    );
+  });
+
   if (interactivityBtn) {
     interactivityBtn.addEventListener('click', () => {
       window.OptiViewer?.toggleInteractivity?.();

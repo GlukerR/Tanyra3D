@@ -64,6 +64,8 @@ window.I18N_CATALOGS.en = {
   // Свет. Появляется только у моделей, которые несут свои источники.
   'vp.light': 'Lighting',
   'vp.interactivity': 'Interactive parts',
+  'log.interactivity.hit': ({ name }) => `Clicked “${name}” — the model responded.`,
+  'log.interactivity.silent': ({ name }) => `Clicked “${name}” — the graph has no response for this part.`,
   'vp.interactivity.count': ({ n }) => `Interactive parts: ${n}. Click an outlined part and the model responds.`,
   'vp.interactivity.shownOnly': ({ n }) => `Interactive parts: ${n}. Outlined only: this graph uses nodes we do not know, so nothing is played.`,
   'viewer.light.studio': 'Studio',

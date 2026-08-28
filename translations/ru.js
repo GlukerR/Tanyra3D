@@ -58,6 +58,8 @@ window.I18N_CATALOGS.ru = {
   'vp.display.wire': 'Сетка',
   'vp.light': 'Свет',
   'vp.interactivity': 'Интерактивные части',
+  'log.interactivity.hit': ({ name }) => `Нажата часть «${name}» — модель откликнулась.`,
+  'log.interactivity.silent': ({ name }) => `Нажата часть «${name}» — в графе нет отклика на неё.`,
   'vp.interactivity.count': ({ n }) => `Нажимаемых частей: ${n}. Нажмите на обведённую — модель откликнется.`,
   'vp.interactivity.shownOnly': ({ n }) => `Нажимаемых частей: ${n}. Только обводка: в этом графе есть незнакомые нам узлы, поэтому отклики не проигрываются.`,
   'viewer.light.studio': 'Студийный',

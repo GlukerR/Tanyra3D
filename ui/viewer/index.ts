@@ -839,6 +839,9 @@ class DualViewport {
     this._applyCameraSelection();
     this._applyLightSelection();
     this._applyInteractivity();
+    // Слушателя нажатий переставляем после каждой загрузки: вьюеры пересоздаются, и
+    // подписка на старом объекте пропала бы молча.
+    if (this._onPick) this.setOnInteractivePick(this._onPick);
     this._applyExposure();
     this._applyDisplayMaterial();
     this._startLoop();
@@ -850,6 +853,20 @@ class DualViewport {
   }
 
   /** Подписка UI на «модель загружена/сменилась». Один слушатель — больше не нужно. */
+  /**
+   * Кому рассказывать о нажатии на интерактивную часть.
+   *
+   * Ставится на ОБА вьюпорта: человек нажимает то слева, то справа, и молчание одной из
+   * половин читалось бы как «эта не работает».
+   */
+  setOnInteractivePick(fn: ((part: { name: string; responded: boolean }) => void) | null) {
+    this._onPick = fn;
+    if (this.left?.viewer) this.left.viewer.onInteractivePick = fn;
+    if (this.right?.viewer) this.right.viewer.onInteractivePick = fn;
+  }
+
+  declare _onPick?: ((part: { name: string; responded: boolean }) => void) | null;
+
   setOnLoaded(fn: (() => void) | null) {
     this._onLoaded = typeof fn === 'function' ? fn : null;
   }
@@ -1057,4 +1074,5 @@ window.OptiViewer = {
   // Уведомление «модель загрузилась/сменилась/сброшена» — по нему UI перестраивает
   // панели, вместо того чтобы опрашивать состав модели каждый кадр.
   setOnLoaded: (fn) => dual.setOnLoaded(fn),
+  setOnInteractivePick: (fn) => dual.setOnInteractivePick(fn),
 };

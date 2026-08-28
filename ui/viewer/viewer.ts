@@ -407,6 +407,8 @@ export class Viewer implements ViewerLike {
   declare _interactiveAll?: InteractivePart[];
   /** Номера узлов, которым граф снял нажимаемость. */
   declare _interactiveOff?: Set<number>;
+  /** Кому рассказать о нажатии — интерфейс пишет об этом в журнал. */
+  declare onInteractivePick?: ((part: { name: string; responded: boolean }) => void) | null;
   /** Рамки подсветки, пока они показаны. */
   declare _interactiveMarks?: InteractivityHighlight | null;
   /** Исполнитель графа поведения. null — графа нет либо мы за него не взялись. */
@@ -1252,7 +1254,14 @@ export class Viewer implements ViewerLike {
     // многопримитивного меша попадание придётся на кусок, а номер узла — у родителя.
     for (let obj: THREE.Object3D | null = hits[0]!.object; obj; obj = obj.parent) {
       const part = parts.find((p) => p.object === obj);
-      if (part) return this._behaviour.select(part.nodeIndex);
+      if (!part) continue;
+      const responded = this._behaviour.select(part.nodeIndex);
+      // Вспышка и строка в журнале — ответ на вопрос «я вообще попал?». Без него
+      // тихий отклик (цвет лампы, сдвиг развёртки) неотличим от промаха.
+      this._interactiveMarks?.flash(part);
+      this.renderFrame();
+      this.onInteractivePick?.({ name: part.name, responded });
+      return responded;
     }
     return false;
   }

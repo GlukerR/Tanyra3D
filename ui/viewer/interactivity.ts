@@ -83,11 +83,17 @@ export function findInteractive(gltf: {
 export class InteractivityHighlight extends THREE.Group {
   readonly isHelper = true;
 
+  readonly color: number;
+
   constructor(parts: readonly InteractivePart[], color = 0x4ade80) {
     super();
     this.name = 'InteractivityHighlight';
+    this.color = color;
     for (const part of parts) {
-      const box = new THREE.BoxHelper(part.object, color);
+      const box = new THREE.BoxHelper(part.object, color) as THREE.BoxHelper & { _part?: InteractivePart };
+      // Помним, чья это рамка: вспышка адресуется части, а не порядковому номеру —
+      // список нажимаемых меняется на ходу, когда граф гасит части.
+      box._part = part;
       // Рамка не должна прятаться внутри модели: её задача — быть видной.
       const material = box.material as THREE.LineBasicMaterial;
       material.depthTest = false;
@@ -96,6 +102,27 @@ export class InteractivityHighlight extends THREE.Group {
       box.renderOrder = 999;
       this.add(box);
     }
+  }
+
+  /**
+   * Вспыхнуть на одной части — ответ на нажатие.
+   *
+   * Зачем. Отклики у моделей бывают тихие: цвет лампы, сдвиг развёртки на пиксель,
+   * анимация, начинающаяся через секунду. Человек нажимает и не понимает, попал он или
+   * промахнулся — а это два совершенно разных положения дел. Вспышка отвечает на этот
+   * вопрос сразу и ни с чем не спорит: она живёт в той же рамке, что и обводка.
+   *
+   * Александр, 2026-08-28: «неработает странно. может я просто не понимаю».
+   */
+  flash(part: InteractivePart, ms = 450): void {
+    const at = this.children.findIndex((c) => (c as THREE.BoxHelper & { _part?: unknown })._part === part);
+    const box = (at >= 0 ? this.children[at] : null) as THREE.BoxHelper | null;
+    if (!box) return;
+    const material = box.material as THREE.LineBasicMaterial;
+    material.color.setHex(0xffffff);
+    setTimeout(() => {
+      if (box.parent) material.color.setHex(this.color);
+    }, ms);
   }
 
   /** Освободить рамки. Сцена живёт всё время работы, мусор в ней копится молча. */
