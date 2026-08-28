@@ -174,6 +174,16 @@ describe('нажимаемые части без отклика видны в о
     expect(found.silent, 'вторая часть ни на что не откликается, а мы этого не заметили').toBe(1);
   });
 
+  it('Dead Interactivity 01 — восемь пустых из девяти нажимаемых', () => {
+    // Модель НАША и лежит в git, поэтому пропуска здесь нет: на чистом клоне это
+    // единственная проверка счёта пустых на настоящем файле. Числа — из
+    // `_work/make-dead-interactivity-fixture.mjs`, разбор — в её `.license.md`.
+    const found = readInteractivity(glbJson(modelPath('Dead Interactivity 01.glb')));
+    expect(found.clickable, 'подставку с «не нажимать» посчитали нажимаемой').toBe(9);
+    expect(found.handlers).toBe(1);
+    expect(found.silent, 'восемь пустых кнопок посчитаны неверно').toBe(8);
+  });
+
   калькуляторIt('Calculator — все пятнадцать кнопок со своим откликом', () => {
     const found = readInteractivity(glbJson(modelPath('Calculator.glb')));
     expect(found.clickable).toBe(15);
