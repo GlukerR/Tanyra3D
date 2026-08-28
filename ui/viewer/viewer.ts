@@ -401,12 +401,29 @@ export class Viewer implements ViewerLike {
   declare _action?: THREE.AnimationAction | null;
   /** Привод развёрток текстур по указателю — вне AnimationMixer, см. pointer-uv.ts. */
   declare _uv?: UvPointerDriver | null;
-  /** Части, откликающиеся на нажатие. Пусто — интерактива в файле нет. См. interactivity.ts. */
+  /** Части, откликающиеся на нажатие СЕЙЧАС. Пусто — интерактива в файле нет. */
   declare _interactive?: InteractivePart[];
+  /** Все части из файла — включая те, что граф временно погасил. */
+  declare _interactiveAll?: InteractivePart[];
+  /** Номера узлов, которым граф снял нажимаемость. */
+  declare _interactiveOff?: Set<number>;
   /** Рамки подсветки, пока они показаны. */
   declare _interactiveMarks?: InteractivityHighlight | null;
   /** Исполнитель графа поведения. null — графа нет либо мы за него не взялись. */
   declare _behaviour?: InteractivityRuntime | null;
+  /**
+   * Отдельный микшер под анимации, запущенные ГРАФОМ.
+   *
+   * Почему не общий. Микшер вьюпорта ведёт ОДНУ дорожку по общей полосе времени
+   * (`setTime`, абсолютное время, одно на оба окна) и стоит на месте, пока человек не
+   * нажал «играть». Граф говорит другое: «запусти вот этот клип прямо сейчас, от такой
+   * секунды до такой». Сложить это в один микшер нельзя — второе непрерывно спорило бы
+   * с первым за одно и то же время. Поэтому у графа свой, и тикает он настоящим
+   * временем кадра, независимо от полосы.
+   */
+  declare _behaviourMixer?: THREE.AnimationMixer | null;
+  /** Когда микшер графа тикал в прошлый раз — для честной дельты. */
+  declare _behaviourAt?: number;
 
   /** Уровни детализации загруженной модели; null — их нет. См. lod.ts. */
   declare _lods?: LodSet | null;
@@ -451,25 +468,25 @@ export class Viewer implements ViewerLike {
   /**
    * Нажатие мышью по нажимаемой части — то, ради чего интерактив и проигрывается.
    *
-   * ОТЛИЧАЕМ НАЖАТИЕ ОТ ВРАЩЕНИЯ. Тот же холст крутит камеру, и без этого различия
-   * каждый поворот модели запускал бы отклики. Считаем нажатием только то, что уложилось
-   * в пять пикселей и полсекунды: рука дрожит, а вращают заметно дальше.
+   * ОТЛИЧАЕМ НАЖАТИЕ ОТ ВРАЩЕНИЯ ПО СДВИГУ, И ТОЛЬКО ПО НЕМУ. Тот же холст крутит
+   * камеру, и без различия каждый поворот запускал бы отклики. Пять пикселей — рука
+   * дрожит, а вращают заметно дальше.
    *
-   * Слушаем ЗАХВАТ (`capture`) не нужно: орбита не отменяет событий, и порядок нам
-   * безразличен — мы ничего не глотаем, только смотрим.
+   * ВРЕМЕНИ ЗДЕСЬ НЕТ, и это исправление, а не упрощение. Первая редакция считала
+   * нажатием только то, что уложилось в полсекунды, — и Александр сообщил, что «многие
+   * кнопки не работают». Так и есть: осмысленное нажатие по маленькой кнопке (навёл,
+   * посмотрел, отпустил) в полсекунды не укладывается, а держать кнопку нажатой — не
+   * вращение. Долгое нажатие без сдвига — всё равно нажатие.
    */
   _initPicking() {
     let startX = 0;
     let startY = 0;
-    let startedAt = 0;
     this.canvas.addEventListener('pointerdown', (e) => {
       startX = e.clientX;
       startY = e.clientY;
-      startedAt = performance.now();
     });
     this.canvas.addEventListener('pointerup', (e) => {
-      const ушло = Math.hypot(e.clientX - startX, e.clientY - startY);
-      if (ушло > 5 || performance.now() - startedAt > 500) return;
+      if (Math.hypot(e.clientX - startX, e.clientY - startY) > 5) return;
       const box = this.canvas.getBoundingClientRect();
       if (!box.width || !box.height) return;
       this.pickInteractive((e.clientX - box.left) / box.width, (e.clientY - box.top) / box.height);
@@ -629,7 +646,9 @@ export class Viewer implements ViewerLike {
     this._lod = null;
     // Нажимаемые части. Ищем ПОСЛЕ добавления модели в сцену — рамки строятся по мировым
     // габаритам, а до этого их не посчитать.
-    this._interactive = findInteractive(gltf as never);
+    this._interactiveAll = findInteractive(gltf as never);
+    this._interactiveOff = new Set<number>();
+    this._interactive = [...this._interactiveAll];
     this._interactiveMarks = null;
     // Показываем СРАЗУ, не дожидаясь нажатия. Прямое требование Александра 2026-08-28:
     // «мне важно что бы видно было интерактивные элементы». Первая редакция прятала
@@ -637,7 +656,6 @@ export class Viewer implements ViewerLike {
     // что кнопку надо было ещё найти и нажать. Показанное по умолчанию отвечает на
     // вопрос сразу; кнопка остаётся, чтобы обводку СНЯТЬ.
     if (this._interactive.length) this.setInteractivityMarks(true);
-    this._startBehaviour(gltf as never);
     // Свой свет модели считаем после добавления в сцену: загрузчик кладёт источники
     // внутрь модели, и до этого момента обходить нечего. Режим при новой модели всегда
     // студийный — иначе модель без своих источников открылась бы почти чёрной.
@@ -648,6 +666,11 @@ export class Viewer implements ViewerLike {
     this._readFileCameras(gltf);
     this.setCamera(null);
     this._setupAnimations(gltf.animations);
+    // Исполнитель графа поднимается ПОСЛЕ анимаций, и порядок здесь не украшение.
+    // Первая редакция звала его выше — до `_setupAnimations`, — и он забирал `clips`
+    // пустыми, а микшер `null`. Каждый `animation/start` уходил в никуда: WhackAMole и
+    // MagicBall показывали обводку и не двигались вовсе (Александр, 2026-08-28).
+    this._startBehaviour(gltf as never);
     // camera передан (сборка/ребилд той же модели) → СОХРАНИТЬ ракурс: приближённая
     // пользователем деталь остаётся на месте. Иначе (новая модель) — авто-кадрирование.
     if (camera) this.applyCameraState(camera);
@@ -1173,12 +1196,15 @@ export class Viewer implements ViewerLike {
       }
     }
 
+    this._behaviourMixer = new THREE.AnimationMixer(this.model);
+    this._behaviourAt = 0;
     const runtime = new InteractivityRuntime(graph, {
       nodes,
       materials,
       clips: this.clips ?? [],
-      mixer: this._mixer ?? null,
+      mixer: this._behaviourMixer,
       redraw: () => this.renderFrame(),
+      setClickable: (at, on) => this._setClickable(at, on),
     });
     if (runtime.refusal.length) {
       // Отказ ЦЕЛИКОМ и вслух: половинчатое проигрывание хуже отсутствия. Человек
@@ -1188,6 +1214,24 @@ export class Viewer implements ViewerLike {
     }
     this._behaviour = runtime;
     runtime.start();
+  }
+
+  /**
+   * Граф погасил или вернул нажимаемость узла.
+   *
+   * Держим ПОЛНЫЙ список отдельно от показанного: погашенная часть может вернуться, и
+   * тогда её надо снова обвести. Выбросив её насовсем, мы бы этого уже не смогли.
+   */
+  _setClickable(nodeIndex: number, on: boolean) {
+    const all = this._interactiveAll ?? [];
+    if (!all.length) return;
+    const off = this._interactiveOff ?? (this._interactiveOff = new Set<number>());
+    if (on) off.delete(nodeIndex);
+    else off.add(nodeIndex);
+    this._interactive = all.filter((p) => !off.has(p.nodeIndex));
+    // Обводка обязана следовать за списком: обведённая, но погашенная часть обещала бы
+    // нажатие, которого автор больше не предусмотрел (Правило 12).
+    if (this._interactiveMarks) this.setInteractivityMarks(true);
   }
 
   /**
@@ -1211,6 +1255,26 @@ export class Viewer implements ViewerLike {
       if (part) return this._behaviour.select(part.nodeIndex);
     }
     return false;
+  }
+
+  /**
+   * Продвинуть анимации, запущенные графом, на прошедшее время.
+   *
+   * РЕАЛЬНЫМ временем, а не полосой вьюпорта: граф запускает клип «сейчас», и ждать,
+   * пока человек нажмёт «играть», незачем — он ведь уже нажал на деталь.
+   *
+   * Первый кадр после запуска даёт дельту ноль: иначе анимация прыгнула бы на всё время,
+   * прошедшее с загрузки модели.
+   */
+  _advanceBehaviourAnimations() {
+    const mixer = this._behaviourMixer;
+    if (!mixer) return;
+    const now = performance.now();
+    const was = this._behaviourAt || 0;
+    this._behaviourAt = now;
+    if (!was) return;
+    const dt = Math.min((now - was) / 1000, 0.1); // потолок на случай спящей вкладки
+    if (dt > 0) mixer.update(dt);
   }
 
   /** Проигрывается ли интерактив и почему нет. */
@@ -1529,6 +1593,7 @@ export class Viewer implements ViewerLike {
 
   /** Обновить контролы и отрисовать один кадр (цикл гонит dual-viewport.js). */
   renderFrame() {
+    this._advanceBehaviourAnimations();
     // Через камеру автора орбита не работает: она увела бы её с места, куда автор
     // поставил. update() зовём только когда смотрим своей.
     if (this.controls.enabled) this.controls.update();
@@ -1674,10 +1739,17 @@ export class Viewer implements ViewerLike {
     // Рамки держат ссылки на узлы ЭТОЙ модели. Не снять — переживут её и обведут пустоту.
     this.setInteractivityMarks(false);
     this._interactive = [];
+    this._interactiveAll = [];
+    this._interactiveOff = new Set<number>();
     // Исполнитель держит отложенные запуски. Не снять — они оживут над следующей
     // моделью и подвинут её узлы (та же беда, что была у запасных уровней детализации).
     this._behaviour?.dispose();
     this._behaviour = null;
+    if (this._behaviourMixer) {
+      this._behaviourMixer.stopAllAction();
+      if (this.model) this._behaviourMixer.uncacheRoot(this.model);
+      this._behaviourMixer = null;
+    }
     this._selectVariant = null;
     this._variants = [];
     this._variant = null;

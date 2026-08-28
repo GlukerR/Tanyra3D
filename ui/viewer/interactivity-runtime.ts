@@ -57,6 +57,14 @@ export interface RuntimeDeps {
   mixer: THREE.AnimationMixer | null;
   /** Перерисовать кадр: граф меняет сцену вне цикла отрисовки. */
   redraw: () => void;
+  /**
+   * Граф погасил или вернул нажимаемость узлу.
+   *
+   * Это не косметика: `"selectable": false` — решение автора, и часть, которую он
+   * выключил, не должна откликаться на нажатие и не должна быть обведена. У калькулятора
+   * граф гасит узел при каждом нажатии.
+   */
+  setClickable: (nodeIndex: number, on: boolean) => void;
 }
 
 export class InteractivityRuntime implements GraphHost {
@@ -158,8 +166,9 @@ export class InteractivityRuntime implements GraphHost {
       else if (path.endsWith('/scale')) obj.scale.set(v[0] ?? 1, v[1] ?? 1, v[2] ?? 1);
       else if (path.endsWith('/rotation')) obj.quaternion.set(v[0] ?? 0, v[1] ?? 0, v[2] ?? 0, v[3] ?? 1);
       else if (path.endsWith('/visible')) obj.visible = truthy(value);
-      // `selectable` меняет только то, откликнётся ли узел дальше; сцена от этого не
-      // меняется, и рисовать тут нечего.
+      else if (path.endsWith('/selectable')) {
+        this.deps.setClickable(indexOf(path, 'nodes'), truthy(value));
+      }
       this.deps.redraw();
       return;
     }

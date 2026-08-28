@@ -181,3 +181,80 @@ describe('4. за собой убираем', () => {
       .toBe(0)
   }, 120000)
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 5. Две поломки, найденные Александром на живых моделях
+//
+// Обе прошли мимо первых сторожей, и обе — из-за того, что тест звал движок напрямую,
+// а человек нажимает мышью и ждёт кадров.
+//
+//   • «WhackAMole MagicBall не работают никак». Исполнитель поднимался РАНЬШЕ, чем
+//     создавался микшер, и забирал `clips` пустыми: каждый `animation/start` уходил в
+//     никуда. Вдобавок анимации графа некому было продвигать — полоса времени вьюпорта
+//     стоит, пока человек не нажал «играть».
+//   • «многие кнопки не работают». Нажатием считалось только то, что уложилось в
+//     полсекунды. Осмысленное нажатие по маленькой кнопке в это не укладывается.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('5. нажимаем как человек', () => {
+  itWithModels(['WhackAMole.glb'], 'анимация, запущенная графом, ИДЁТ сама', async () => {
+    await viewer.load('/WhackAMole.glb')
+    // Проверяем то, что ДОЕХАЛО ДО ИСПОЛНИТЕЛЯ, а не то, что есть у вьюера. Разница и
+    // была поломкой: исполнитель поднимался раньше `_setupAnimations` и забирал пустой
+    // список, хотя у вьюера клипы через миг появлялись. Сдвиг крота этого не ловит — он
+    // едет ещё и через `pointer/set`, и тест зеленел на сломанном коде.
+    expect(viewer._behaviour.deps.clips.length, 'клипы не доехали до исполнителя')
+      .toBeGreaterThan(0)
+    expect(viewer._behaviourMixer, 'у графа нет своего микшера').toBeTruthy()
+
+    const крот = viewer._interactive[0]
+    const было = крот.object.position.clone()
+    viewer._behaviour.select(крот.nodeIndex)
+
+    // Крутим кадры настоящим временем: микшер графа продвигается именно ими, а не
+    // полосой вьюпорта.
+    for (let i = 0; i < 90; i++) {
+      await new Promise((r) => setTimeout(r, 33))
+      viewer.renderFrame()
+    }
+    expect(крот.object.position.distanceTo(было), 'крот не сдвинулся за три секунды кадров')
+      .toBeGreaterThan(0)
+  }, 120000)
+
+  itWithModels(['TrafficLight.glb'], 'ДОЛГОЕ нажатие без сдвига — тоже нажатие', async () => {
+    await viewer.load('/TrafficLight.glb')
+    const часть = viewer._interactive[0]
+    const THREE = await import('three')
+    const цель = new THREE.Vector3()
+    часть.object.getWorldPosition(цель)
+    viewer.camera.position.set(цель.x, цель.y, цель.z + 1.5)
+    viewer.camera.lookAt(цель)
+    viewer.camera.updateMatrixWorld(true)
+
+    const было = colours()
+    const box = canvas.getBoundingClientRect()
+    const x = box.left + box.width / 2
+    const y = box.top + box.height / 2
+    const событие = (тип) => new PointerEvent(тип, { clientX: x, clientY: y, bubbles: true });
+
+    canvas.dispatchEvent(событие('pointerdown'))
+    await new Promise((r) => setTimeout(r, 1200)) // держим больше секунды
+    canvas.dispatchEvent(событие('pointerup'))
+
+    expect(colours().filter((c, i) => c !== было[i]).length,
+      'долгое нажатие не сработало — снова считаем нажатием только быстрое').toBeGreaterThan(0)
+  }, 120000)
+
+  itWithModels(['TrafficLight.glb'], 'нажатие СО СДВИГОМ — это вращение, не нажатие', async () => {
+    await viewer.load('/TrafficLight.glb')
+    const было = colours()
+    const box = canvas.getBoundingClientRect()
+    const x = box.left + box.width / 2
+    const y = box.top + box.height / 2
+    canvas.dispatchEvent(new PointerEvent('pointerdown', { clientX: x, clientY: y, bubbles: true }))
+    canvas.dispatchEvent(new PointerEvent('pointerup', { clientX: x + 60, clientY: y + 40, bubbles: true }))
+
+    expect(colours().filter((c, i) => c !== было[i]).length,
+      'вращение модели запустило отклик').toBe(0)
+  }, 120000)
+})
