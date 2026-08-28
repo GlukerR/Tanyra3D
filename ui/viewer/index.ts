@@ -366,7 +366,9 @@ class DualViewport {
     this._lodIndex = null;    // и показанный уровень детализации
     this._cameraIndex = null; // и выбранный ракурс автора (см. _applyCameraSelection)
     this._lightMode = 'studio'; // и чей свет показываем
-    this._interactiveOn = false; // и обводка интерактива снята
+    // Обводка интерактива показана по умолчанию: её задача — ответить на вопрос «где
+    // тут интерактив» до того, как человек начнёт его искать.
+    this._interactiveOn = true;
     this._exposure = 1;      // 1.0 — как отдаёт three.js без поправки
     // Кольцевые буферы замера отрисовки; заполняются в _pushPerf каждый кадр.
     this._perf = {
@@ -591,7 +593,9 @@ class DualViewport {
   getInteractivity() {
     const info = this.left?.viewer?.getInteractivityInfo?.()
       || { count: 0, names: [] as string[], shown: false };
-    return { ...info, shown: this._interactiveOn };
+    // `shown` — из ВЬЮЕРА, а не из нашей памяти: у модели без интерактива обводки нет,
+    // сколько бы её ни просили, и кнопка обязана показывать то, что есть на экране.
+    return { ...info, shown: info.shown };
   }
 
   /** Обвести нажимаемые части В ОБОИХ окнах — или снять обводку. */
@@ -833,6 +837,7 @@ class DualViewport {
     this._applyLodSelection();
     this._applyCameraSelection();
     this._applyLightSelection();
+    this._applyInteractivity();
     this._applyExposure();
     this._applyDisplayMaterial();
     this._startLoop();
@@ -909,6 +914,16 @@ class DualViewport {
     this._cameraIndex = null;
     this.left?.viewer?.setCamera?.(null);
     this.right?.viewer?.setCamera?.(null);
+  }
+
+  /**
+   * То же для обводки интерактива: вьюер каждой загрузки включает её сам, а помним мы
+   * ОТКАЗ. Снял человек обводку — она не должна возвращаться после каждой пересборки.
+   */
+  _applyInteractivity() {
+    if (this._interactiveOn) return;
+    this.left?.viewer?.setInteractivityMarks?.(false);
+    this.right?.viewer?.setInteractivityMarks?.(false);
   }
 
   /** То же для света: своего света у пересобранной модели может не оказаться. */

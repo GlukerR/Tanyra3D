@@ -122,6 +122,8 @@ core/engine.mjs
 core/engine.d.mts
 core/lod-grouping.mjs
 core/lod-grouping.d.mts
+core/interactivity-rules.mjs
+core/interactivity-rules.d.mts
 addons/gltf/metrics.mjs
 addons/gltf/metrics.d.mts
 addons/gltf/tools.mjs

@@ -22,6 +22,8 @@
 
 import * as THREE from "three";
 
+import { isClickable } from "../../core/interactivity-rules.mjs";
+
 /** Часть модели, которая откликается на нажатие. */
 export interface InteractivePart {
   /** Имя узла из файла. Переводу не подлежит — данные автора (Правило 8). */
@@ -48,14 +50,11 @@ export function findInteractive(gltf: {
   const assoc = gltf.parser?.associations;
   if (!json?.nodes || !assoc || !gltf.scene) return [];
 
+  // Правило «что считается нажимаемым» общее с движком (`core/interactivity-rules.mts`):
+  // разойдись они — отчёт и окно назовут разные числа, как это уже случилось с MagicBall.
   const нажимаемые = new Set<number>();
   json.nodes.forEach((node, i) => {
-    const ext = (node['extensions'] as Record<string, unknown> | undefined)?.['KHR_node_selectability'];
-    if (!ext || typeof ext !== 'object') return;
-    // Умолчание расширения — «да»: поле есть, значит узел объявлен нажимаемым, пока
-    // автор прямо не написал обратное.
-    if ((ext as { selectable?: unknown }).selectable === false) return;
-    нажимаемые.add(i);
+    if (isClickable(node['extensions'])) нажимаемые.add(i);
   });
   if (!нажимаемые.size) return [];
 

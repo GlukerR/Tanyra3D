@@ -26,6 +26,8 @@
 // 42 остановки; TrafficLight — 2 нажимаемых, 2 отклика, 12 смен свойств; Calculator —
 // 16 нажимаемых и 15 откликов.
 
+import { isClickable } from '../../core/interactivity-rules.mjs';
+
 /** Что удалось прочитать про интерактив. Все числа — из файла, ни одно не выведено. */
 export interface Interactivity {
   /** Узлов, на которые можно нажать. */
@@ -87,13 +89,15 @@ export function readInteractivity(json: unknown): Interactivity | null {
     }
   }
 
-  // Нажимаемые узлы — отдельное расширение на самих узлах, не часть графа.
+  // Нажимаемые узлы — отдельное расширение на самих узлах, не часть графа. Решает общее
+  // правило: `"selectable": false` — это тоже решение автора, и считать такой узел
+  // нажимаемым значит соврать. Первая редакция считала ЛЮБОЙ помеченный узел, и на
+  // `MagicBall` отчёт обещал 21 нажимаемую часть там, где их одна.
   let clickable = 0;
   const nodes = root['nodes'];
   if (Array.isArray(nodes)) {
     for (const n of nodes) {
-      const marks = (n as { extensions?: Record<string, unknown> } | null)?.extensions;
-      if (marks && 'KHR_node_selectability' in marks) clickable++;
+      if (isClickable((n as { extensions?: unknown } | null)?.extensions)) clickable++;
     }
   }
 

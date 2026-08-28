@@ -27,7 +27,7 @@ const PLAIN = 'Dirty Cube 01.glb'
 // ответ уже известен и отсутствующая модель становится честным skip, а не падением:
 // на 404 сервер отдаёт страницу, three.js разбирает её как GLB и умирает с
 // «RangeError: Invalid typed array length» — по такому сообщению причину не угадать.
-const present = new Map(await Promise.all([MODEL, PLAIN].map(async (file) => {
+const present = new Map(await Promise.all([MODEL, PLAIN, 'MagicBall.glb', 'Calculator.glb'].map(async (file) => {
   try {
     const res = await fetch('/' + encodeURIComponent(file), { method: 'HEAD' })
     return [file, res.ok]
@@ -71,12 +71,16 @@ describe('интерактив виден в окне', () => {
     const info = viewer.getInteractivityInfo()
     // Семь узлов помечены выбираемыми — замер по самому файлу 2026-08-28.
     expect(info.count, 'нажимаемые части не найдены').toBe(7)
-    expect(info.shown, 'обводка показана до того, как её попросили').toBe(false)
+    // Показана СРАЗУ, без нажатия: «мне важно что бы видно было интерактивные элементы»
+    // (Александр, 2026-08-28). Он загрузил модель, не нашёл кнопку и не увидел ничего.
+    expect(info.shown, 'обводку опять надо включать вручную').toBe(true)
     expect(info.names.every((n) => typeof n === 'string')).toBe(true)
   })
 
   itWithModels([MODEL], '2. обводка МЕНЯЕТ КАДР, а снятие возвращает его', async () => {
     await viewer.load('/' + MODEL)
+    // Снимаем, чтобы получить кадр БЕЗ неё: после загрузки она уже стоит.
+    viewer.setInteractivityMarks(false)
     viewer.renderFrame()
     const без = snapshotPixels(viewer)
 
@@ -129,5 +133,28 @@ describe('интерактив виден в окне', () => {
     // Отказ, а не пустая рамка: показанная кнопка, которая ничего не делает, запрещена
     // (Правило 12), и движок обязан честно ответить «нечего».
     expect(viewer.setInteractivityMarks(true)).toBe(false)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Одно число на два места
+//
+// Отчёт и окно отвечают на ОДИН вопрос — сколько частей откликается на нажатие, — и
+// обязаны отвечать одинаково. 2026-08-28 они разошлись на глазах у Александра:
+// `MagicBall` помечает 21 узел, но у двадцати стоит `"selectable": false`. Окно
+// обводило один шар, отчёт обещал 21. Правило свели в `core/interactivity-rules.mts`.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('запрет автора уважается', () => {
+  itWithModels(['MagicBall.glb'], 'MagicBall: нажимаемый ОДИН, остальные двадцать запрещены', async () => {
+    await viewer.load('/MagicBall.glb')
+    const info = viewer.getInteractivityInfo()
+    expect(info.count, 'узлы с `selectable: false` снова считаются нажимаемыми').toBe(1)
+    expect(info.names[0]).toMatch(/Ball/)
+  })
+
+  itWithModels(['Calculator.glb'], 'Calculator: пятнадцать кнопок обведены', async () => {
+    await viewer.load('/Calculator.glb')
+    expect(viewer.getInteractivityInfo().count).toBe(15)
   })
 })
