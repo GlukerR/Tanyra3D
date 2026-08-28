@@ -8,11 +8,12 @@
 // него что-то, чего мы не умеем. Что в файле есть работающий интерактив и сколько его —
 // не узнавал ниоткуда.
 //
-// ГРАНИЦА, И ОНА ЗДЕСЬ ВАЖНЕЕ ОБЫЧНОГО (Правило 11). Мы ЧИТАЕМ граф, чтобы посчитать и
-// назвать. Мы его НЕ ИСПОЛНЯЕМ: проигрывание графа поведения — это интерпретатор с
-// событиями, переменными и потоком управления, отдельная работа другого размера
-// (ROADMAP §6д). «Считает, измеряет, предупреждает, объясняет — наша работа» ровно про
-// этот модуль.
+// ГРАНИЦА, И ОНА ЗДЕСЬ ВАЖНЕЕ ОБЫЧНОГО (Правило 11). Движок граф ЧИТАЕТ, чтобы посчитать
+// и назвать, и не исполняет его: сборке всё равно, что делает нажатие, ей важно довезти
+// его целым. Проигрывает граф ОКНО — `ui/viewer/interactivity-graph.ts` с
+// `interactivity-runtime.ts`. Разделение не случайное: сборка идёт без экрана и без сцены,
+// а исполнять граф не над чем. «Считает, измеряет, предупреждает, объясняет — наша
+// работа» ровно про этот модуль.
 //
 // ЧТО СЧИТАЕМ И ПОЧЕМУ ИМЕННО ЭТО. Не «узлов графа 595» — это число ничего не говорит
 // художнику. Человеческие величины три, и все они отвечают на вопросы, которые он
@@ -20,11 +21,12 @@
 //
 //   • на что можно нажать — узлы, помеченные выбираемыми (`KHR_node_selectability`);
 //   • сколько откликов на нажатие — узлы графа типа `event/onSelect`;
-//   • что при этом происходит — запуск и остановка анимаций, смена свойств.
+//   • что при этом происходит — запуск и остановка анимаций, смена свойств;
+//   • сколько нажимаемых частей осталось БЕЗ отклика — см. `silent` ниже.
 //
-// Замер по набору Khronos 2026-08-28: WhackAMole — 7 нажимаемых, 21 запуск анимации,
-// 42 остановки; TrafficLight — 2 нажимаемых, 2 отклика, 12 смен свойств; Calculator —
-// 16 нажимаемых и 15 откликов.
+// Замер по набору Khronos 2026-08-28: WhackAMole — 7 нажимаемых, 7 откликов, 21 запуск
+// анимации, 42 остановки; TrafficLight — 2 нажимаемых, 2 отклика, 12 смен свойств;
+// Calculator — 15 нажимаемых и 15 откликов; MagicBall — 1 и 1. Пустых нет нигде.
 
 import { isClickable } from '../../core/interactivity-rules.mjs';
 
@@ -40,6 +42,16 @@ export interface Interactivity {
   changes: number;
   /** Узлов графа всего — для логов, человеку не показывается. */
   graphNodes: number;
+  /**
+   * Нажимаемых частей, на которые в графе нет ни одного отклика.
+   *
+   * ВОПРОС АЛЕКСАНДРА, 2026-08-28: «там есть неработающие пустые интерактивные элементы?
+   * ты видишь это?» Вопрос законный: обведённая часть обещает нажатие (Правило 12), и
+   * если автор обещание не подкрепил, человек должен узнать это от нас, а не выяснять
+   * тыканьем. Замер по набору Khronos в тот же день: пустых нет ни в одной из пяти
+   * моделей — у калькулятора все пятнадцать кнопок со своим откликом.
+   */
+  silent: number;
 }
 
 /** Тип узла графа: `declarations[i].op`, например `event/onSelect`. */
@@ -71,6 +83,8 @@ export function readInteractivity(json: unknown): Interactivity | null {
   let animations = 0;
   let changes = 0;
   let graphNodes = 0;
+  // Номера узлов сцены, которых граф слушает: `configuration.nodeIndex`.
+  const слушают = new Set<number>();
 
   for (const g of graphs) {
     if (!g || typeof g !== 'object') continue;
@@ -83,7 +97,12 @@ export function readInteractivity(json: unknown): Interactivity | null {
       const op = opOf(graph, n as Record<string, unknown>);
       // Отклик на действие человека. `onHover` считаем наравне с `onSelect`: для того,
       // кто смотрит модель, это тот же вопрос — «оно откликается на меня».
-      if (op === 'event/onSelect' || op === 'event/onHover') handlers++;
+      if (op === 'event/onSelect' || op === 'event/onHover') {
+        handlers++;
+        const at = ((n as { configuration?: Record<string, { value?: unknown[] }> }).configuration)
+          ?.['nodeIndex']?.value?.[0];
+        if (typeof at === 'number') слушают.add(at);
+      }
       else if (op === 'animation/start' || op === 'animation/stop') animations++;
       else if (op === 'pointer/set') changes++;
     }
@@ -94,12 +113,15 @@ export function readInteractivity(json: unknown): Interactivity | null {
   // нажимаемым значит соврать. Первая редакция считала ЛЮБОЙ помеченный узел, и на
   // `MagicBall` отчёт обещал 21 нажимаемую часть там, где их одна.
   let clickable = 0;
+  let silent = 0;
   const nodes = root['nodes'];
   if (Array.isArray(nodes)) {
-    for (const n of nodes) {
-      if (isClickable((n as { extensions?: unknown } | null)?.extensions)) clickable++;
-    }
+    nodes.forEach((n, i) => {
+      if (!isClickable((n as { extensions?: unknown } | null)?.extensions)) return;
+      clickable++;
+      if (!слушают.has(i)) silent++;
+    });
   }
 
-  return { clickable, handlers, animations, changes, graphNodes };
+  return { clickable, handlers, animations, changes, graphNodes, silent };
 }

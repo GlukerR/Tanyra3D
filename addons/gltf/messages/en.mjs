@@ -130,11 +130,13 @@ export default {
   // Догадка, а не факт, и первое слово об этом говорит. Две строки на два способа:
   // подпись автора весит больше нашего измерения, и мешать их в одну нельзя.
   // Интерактив: наблюдение, а не находка-дефект. Числа человеческие, и прямо сказано,
-  // что предпросмотр его не проигрывает — иначе человек счёл бы модель сломанной.
+  // что окно его проигрывает, — иначе человек не догадается нажать.
   'interactivity.found': ({ clickable, handlers, actions }) =>
     `The file carries interactivity: ${clickable} clickable part${clickable === 1 ? '' : 's'}, ${handlers} click handler${handlers === 1 ? '' : 's'}, ${actions} action${actions === 1 ? '' : 's'}. The clickable parts are outlined in the viewport — click one and the model responds. All of it survives the build.`,
   'interactivity.foundNoClicks': ({ handlers, actions }) =>
     `The file carries interactivity that runs on its own, with nothing to click: ${handlers} handler${handlers === 1 ? '' : 's'}, ${actions} action${actions === 1 ? '' : 's'}. All of it survives the build.`,
+  'interactivity.silentParts': ({ n }) =>
+    `${n} clickable part${n === 1 ? '' : 's'} with no handler. The author marked ${n === 1 ? 'it' : 'them'} clickable, but the graph says nothing about ${n === 1 ? 'it' : 'them'} — clicking changes nothing, here or on a site.`,
   'lod.likelyNames': ({ nodes, levels }) =>
     `The file looks like it carries levels of detail: ${nodes} part${nodes === 1 ? '' : 's'} with up to ${levels} levels each. Neighbouring nodes are named LOD, but nothing links them together — so here and on a site every level is drawn at once, one through another.`,
   'lod.likelyMeasured': ({ nodes, levels }) =>

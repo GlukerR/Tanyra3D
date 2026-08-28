@@ -27,7 +27,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import type { CameraState, LoadOptions, ViewerLike } from "./contract.js";
 import { buildUvPointerDriver, stripUvTransformTracks, type UvPointerDriver } from "./pointer-uv.js";
 import { detectLods, showLod, type LodSet } from "./lod.js";
-import { findInteractive, InteractivityHighlight, type InteractivePart } from "./interactivity.js";
+import { applyNodeVisibility, findInteractive, InteractivityHighlight, type InteractivePart } from "./interactivity.js";
 import { InteractivityRuntime } from "./interactivity-runtime.js";
 import { GLTFDiffuseTransmissionExtension } from "./diffuse-transmission.js";
 
@@ -646,6 +646,9 @@ export class Viewer implements ViewerLike {
     // габаритам, а они считаются по мировым матрицам.
     this._lods = await detectLods(gltf as never);
     this._lod = null;
+    // Спрятанное автором прячем ДО того, как считать габариты и строить рамки: узел,
+    // которого в файле не видно, не должен ни показываться, ни попадать в кадр.
+    applyNodeVisibility(gltf as never);
     // Нажимаемые части. Ищем ПОСЛЕ добавления модели в сцену — рамки строятся по мировым
     // габаритам, а до этого их не посчитать.
     this._interactiveAll = findInteractive(gltf as never);
@@ -1603,6 +1606,8 @@ export class Viewer implements ViewerLike {
   /** Обновить контролы и отрисовать один кадр (цикл гонит dual-viewport.js). */
   renderFrame() {
     this._advanceBehaviourAnimations();
+    // Рамки идут за деталями: граф двигает и гасит их прямо во время показа.
+    this._interactiveMarks?.sync();
     // Через камеру автора орбита не работает: она увела бы её с места, куда автор
     // поставил. update() зовём только когда смотрим своей.
     if (this.controls.enabled) this.controls.update();

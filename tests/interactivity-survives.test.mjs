@@ -32,6 +32,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import fs from 'node:fs';
 
 import { optimizeFile } from '../optimize2.mjs';
+import { readInteractivity } from '../addons/gltf/interactivity.mjs';
 import { modelPath, isPresent } from './helpers/model-files.mjs';
 import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 
@@ -135,4 +136,49 @@ describe('модели Khronos с KHR_interactivity доезжают целым�
     expect(before.every((n) => typeof n === 'string' && n),
       'в исходнике появился безымянный узел — доказательство по именам перестало работать').toBe(true);
   }, 300000);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Пустые нажимаемые части — вопрос Александра, 2026-08-28
+//
+// «там есть неработающие пустые интерактивные элементы? ты видишь это?» Вопрос про
+// калькулятор, у которого пятнадцать кнопок, а видимого действия от них немного. Ответ по
+// замеру: пустых нет ни одной — каждая кнопка со своим откликом, просто модель считает не
+// то, чего от неё ждёшь (одно число в диапазоне −99…99, а не выражение).
+//
+// Сторож нужен не ради этого ответа, а ради самого умения его дать: обведённая часть
+// обещает нажатие (Правило 12), и расхождение обещания с файлом человек должен видеть в
+// отчёте.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('нажимаемые части без отклика видны в отчёте', () => {
+  const калькуляторIt = isPresent('Calculator.glb') ? it : it.skip;
+
+  it('часть помечена нажимаемой, а в графе про неё ничего — считается пустой', () => {
+    const found = readInteractivity({
+      nodes: [
+        { name: 'Кнопка', extensions: { KHR_node_selectability: { selectable: true } } },
+        { name: 'Пустышка', extensions: { KHR_node_selectability: { selectable: true } } },
+      ],
+      extensions: {
+        KHR_interactivity: {
+          graphs: [{
+            declarations: [{ op: 'event/onSelect' }],
+            nodes: [{ declaration: 0, configuration: { nodeIndex: { value: [0] } } }],
+          }],
+        },
+      },
+    });
+    expect(found.clickable).toBe(2);
+    expect(found.handlers).toBe(1);
+    expect(found.silent, 'вторая часть ни на что не откликается, а мы этого не заметили').toBe(1);
+  });
+
+  калькуляторIt('Calculator — все пятнадцать кнопок со своим откликом', () => {
+    const found = readInteractivity(glbJson(modelPath('Calculator.glb')));
+    expect(found.clickable).toBe(15);
+    expect(found.handlers).toBe(15);
+    expect(found.silent, 'у калькулятора нашлась пустая кнопка — замер 2026-08-28 говорил обратное')
+      .toBe(0);
+  });
 });

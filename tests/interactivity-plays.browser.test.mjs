@@ -299,3 +299,121 @@ describe('6. нажатие отвечает', () => {
     expect(пойманное, 'промах записан как нажатие').toEqual([])
   }, 120000)
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 7. Три поломки, названные Александром по отдельности
+//
+// «у крота они пропадают и появляются в разных местах. а ты этого не ловишь совершенно»
+// «у магического шара появляется обводка но сама модель не меняется»
+// «у калькулятора… только цифры меняются на калькуляторе и всё»
+//                                                     (Александр, 2026-08-28)
+//
+// Причины разные, и потому проверок три, а не одна:
+//
+//   • рамки строились один раз и не шли за деталью;
+//   • `KHR_node_visibility` не применялось при загрузке — все двадцать предсказаний шара
+//     висели на экране сразу, и показывать было нечего;
+//   • память вычисления жила всю активацию, и ветка показа читала переменную ДО того, как
+//     кнопка её меняла; плюс запись в переменную искала сокет с именем «0», хотя он
+//     назван номером переменной.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('7. показ согласован с файлом', () => {
+  /** Виден ли объект на самом деле: `visible` у него самого молчит про родителей. */
+  const видно = (o) => {
+    for (let p = o; p; p = p.parent) if (!p.visible) return false
+    return true
+  }
+
+  /**
+   * Части шара, спрятанные автором. Ищем по имени: узлы в файле так и названы.
+   *
+   * Берём ВЕРХНИЕ объекты с этим именем — узел и его меш названы одинаково, а прячется
+   * узел; считать оба значило бы удвоить счёт.
+   */
+  const предсказания = () => {
+    const out = []
+    viewer.model.traverse((o) => {
+      if (o.name.startsWith('FortuneWords') && !o.parent?.name.startsWith('FortuneWords')) out.push(o)
+    })
+    return out
+  }
+
+  itWithModels(['MagicBall.glb'], 'шар: спрятанное автором спрятано и у нас', async () => {
+    await viewer.load('/MagicBall.glb')
+    const слова = предсказания()
+    expect(слова.length, 'в шаре не нашлось предсказаний').toBeGreaterThan(10)
+    expect(слова.filter(видно).map((o) => o.name),
+      'предсказания видны все разом — файл говорит обратное').toEqual([])
+  }, 120000)
+
+  itWithModels(['MagicBall.glb'], 'шар: нажатие открывает РОВНО ОДНО предсказание', async () => {
+    await viewer.load('/MagicBall.glb')
+    viewer._behaviour.select(viewer._interactive[0].nodeIndex)
+    expect(предсказания().filter(видно).length,
+      'после нажатия видно не одно предсказание').toBe(1)
+  }, 120000)
+
+  itWithModels(['Calculator.glb'], 'калькулятор: считающая кнопка меняет число на экране', async () => {
+    // Цифровые кнопки кладут в переменную готовое число и работали всегда. Ломались
+    // именно считающие — «×2», «÷2», «+1», «−1»: они СНАЧАЛА читают переменную.
+    await viewer.load('/Calculator.glb')
+    // Загрузчик three.js правит имена под свои пути анимации: пробел становится
+    // подчёркиванием. Ищем по имени, приведённому к общему виду, а не по букве файла.
+    const ключ = (s) => s.replace(/[\s_]+/g, ' ').trim()
+    const части = Object.fromEntries(viewer._interactive.map((p) => [ключ(p.name), p]))
+    const четыре = части['Button 4']
+    const умножить = части['Button multiply']
+    expect(четыре && умножить, 'в калькуляторе не нашлись кнопки «4» и «×»').toBeTruthy()
+
+    const карты = []
+    viewer.model.traverse((o) => { if (o.isMesh && o.material?.map) карты.push(o.material.map) })
+    viewer._behaviour.select(четыре.nodeIndex)
+    const было = карты.map((m) => `${m.offset.x},${m.offset.y}`)
+
+    viewer._behaviour.select(умножить.nodeIndex)
+    const стало = карты.map((m) => `${m.offset.x},${m.offset.y}`)
+    expect(стало.some((v, i) => v !== было[i]),
+      'после «×2» на экране осталось прежнее число — считающие кнопки не работают').toBe(true)
+  }, 120000)
+
+  itWithModels(['WhackAMole.glb'], 'обводка идёт за деталью, а не стоит где была', async () => {
+    await viewer.load('/WhackAMole.glb')
+    expect(viewer._interactiveMarks, 'обводки нет — проверять нечего').toBeTruthy()
+    const THREE = await import('three')
+    const часть = viewer._interactive[0]
+    const рамка = viewer._interactiveMarks.children.find((c) => c._part === часть)
+    expect(рамка, 'у части нет своей рамки').toBeTruthy()
+
+    // Центр по вершинам рамки, а не через `Box3.setFromObject`: у того габарит геометрии
+    // кэшируется, и он вернул бы прежние числа даже у обновлённой рамки.
+    const центр = () => {
+      const p = рамка.geometry.attributes.position
+      const c = new THREE.Vector3()
+      for (let i = 0; i < p.count; i++) c.add(new THREE.Vector3().fromBufferAttribute(p, i))
+      return c.divideScalar(p.count)
+    }
+    viewer.renderFrame()
+    const было = центр()
+
+    часть.object.position.y += 1
+    часть.object.updateMatrixWorld(true)
+    viewer.renderFrame()
+
+    expect(центр().distanceTo(было), 'деталь уехала, а рамка осталась на месте')
+      .toBeGreaterThan(0.5)
+  }, 120000)
+
+  itWithModels(['WhackAMole.glb'], 'спрятанная деталь не обводится', async () => {
+    await viewer.load('/WhackAMole.glb')
+    const часть = viewer._interactive[0]
+    const рамка = viewer._interactiveMarks.children.find((c) => c._part === часть)
+    часть.object.visible = false
+    viewer.renderFrame()
+    expect(рамка.visible, 'рамка обещает нажатие на то, чего не видно').toBe(false)
+
+    часть.object.visible = true
+    viewer.renderFrame()
+    expect(рамка.visible, 'деталь вернулась, а рамка не вернулась').toBe(true)
+  }, 120000)
+})

@@ -3,10 +3,10 @@
 // ЗАКАЗ (Александр, 2026-08-28): «я не вижу вообще никаких интерактивов. должен видеть.
 // мы можем добавить в движок виденье интерактивных элементов?»
 //
-// ЧТО ЭТО И ЧЕГО ЗДЕСЬ НЕТ. Модуль ПОКАЗЫВАЕТ, где интерактив, и не исполняет его.
-// Проигрывание графа поведения — интерпретатор с событиями, переменными и потоком
-// управления, работа другого размера (ROADMAP §6д). Нажатие на подсвеченную часть здесь
-// ничего не запускает, и обещать этого нельзя.
+// ЧТО ЭТО И ЧЕГО ЗДЕСЬ НЕТ. Модуль ПОКАЗЫВАЕТ, где интерактив, и держит показ в согласии
+// с файлом: обводит нажимаемое, прячет спрятанное автором, ведёт рамки за деталями.
+// Исполняет граф поведения СОСЕД — `interactivity-graph.ts` с `interactivity-runtime.ts`;
+// сюда его логика не заходит, здесь только глаза.
 //
 // ПОЧЕМУ РАМКАМИ, А НЕ ПОДМЕНОЙ МАТЕРИАЛА. Материал в этом вьюпорте уже занят: им
 // переключаются три способа показа (сетка, глина, материалы файла). Подсветка через
@@ -22,7 +22,13 @@
 
 import * as THREE from "three";
 
-import { isClickable } from "../../core/interactivity-rules.mjs";
+import { isClickable, isHiddenInFile } from "../../core/interactivity-rules.mjs";
+
+/** Виден ли предок: `visible` у самого объекта ничего не знает о родителях. */
+function hiddenByParent(obj: THREE.Object3D): boolean {
+  for (let p = obj.parent; p; p = p.parent) if (!p.visible) return true;
+  return false;
+}
 
 /** Часть модели, которая откликается на нажатие. */
 export interface InteractivePart {
@@ -71,6 +77,40 @@ export function findInteractive(gltf: {
     });
   });
   return parts;
+}
+
+/**
+ * Спрятать узлы, спрятанные автором в файле (`KHR_node_visibility`).
+ *
+ * Загрузчик three.js этого расширения не читает и показывает всё подряд. Возвращаем
+ * число спрятанных: ноль — расширения в файле нет либо всё в нём видимое.
+ *
+ * ЭТО НЕ ПРАВКА МОДЕЛИ. Мы приводим ПОКАЗ к тому, что записано в файле, — ровно как с
+ * уровнями детализации: спрятанный узел остаётся в сцене и в собранном файле, его просто
+ * не рисуют, пока граф поведения не скажет обратного.
+ */
+export function applyNodeVisibility(gltf: {
+  parser?: { json?: Record<string, unknown>; associations?: Map<unknown, Association> };
+  scene?: THREE.Object3D;
+}): number {
+  const json = gltf.parser?.json as { nodes?: Array<Record<string, unknown>> } | undefined;
+  const assoc = gltf.parser?.associations;
+  if (!json?.nodes || !assoc || !gltf.scene) return 0;
+
+  const спрятанные = new Set<number>();
+  json.nodes.forEach((node, i) => {
+    if (isHiddenInFile(node['extensions'])) спрятанные.add(i);
+  });
+  if (!спрятанные.size) return 0;
+
+  let n = 0;
+  gltf.scene.traverse((obj) => {
+    const at = assoc.get(obj)?.nodes;
+    if (at === undefined || !спрятанные.has(at)) return;
+    obj.visible = false;
+    n += 1;
+  });
+  return n;
 }
 
 /**
@@ -123,6 +163,32 @@ export class InteractivityHighlight extends THREE.Group {
     setTimeout(() => {
       if (box.parent) material.color.setHex(this.color);
     }, ms);
+  }
+
+  /**
+   * Подтянуть рамки к деталям: где они сейчас и видно ли их.
+   *
+   * ЗОВЁТСЯ КАЖДЫЙ КАДР, и иначе нельзя. `BoxHelper` считает габарит один раз при
+   * создании — а граф поведения двигает детали и гасит их. У `WhackAMole` кроты
+   * появляются и прячутся по очереди в разных лунках: рамки стояли там, где кроты были в
+   * миг загрузки, и висели над пустыми лунками (Александр, 2026-08-28: «у крота они
+   * пропадают и появляются в разных местах. а ты этого не ловишь совершенно»).
+   *
+   * Спрятанная деталь не обводится: обводка обещает нажатие, а нажать на то, чего не
+   * видно, человек не может.
+   *
+   * Цена — обход по числу нажимаемых частей за кадр. Он мал по построению: обводятся
+   * только помеченные автором узлы, у самой богатой модели набора их пятнадцать.
+   */
+  sync(): void {
+    for (const child of this.children) {
+      const box = child as THREE.BoxHelper & { _part?: InteractivePart };
+      const obj = box._part?.object;
+      if (!obj) continue;
+      const видно = obj.visible && !hiddenByParent(obj);
+      box.visible = видно;
+      if (видно) box.update();
+    }
   }
 
   /** Освободить рамки. Сцена живёт всё время работы, мусор в ней копится молча. */

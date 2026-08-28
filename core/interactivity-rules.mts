@@ -29,3 +29,28 @@ export function isClickable(extensions: unknown): boolean {
   if (!mark || typeof mark !== 'object') return false;
   return (mark as { selectable?: unknown }).selectable !== false;
 }
+
+/**
+ * Спрятан ли узел в самом файле.
+ *
+ * `KHR_node_visibility` — соседнее расширение той же семьи, и вопрос у него такой же:
+ * что автор написал про этот узел. `"visible": false` значит «не показывать, пока граф
+ * не разрешит».
+ *
+ * ЗАЧЕМ ЭТО НАМ. Загрузчик three.js расширения не читает и показывает ВСЁ. У `MagicBall`
+ * двадцать предсказаний лежат друг на друге внутри шара, все спрятанные автором, — и все
+ * двадцать были видны сразу. Нажатие открывало одно из них, но открывать было нечего:
+ * они уже висели на экране. Со стороны это выглядело как «обводка есть, а модель не
+ * меняется» (Александр, 2026-08-28).
+ *
+ * Это НЕ правка модели (Правило 11): мы показываем ровно то состояние, которое автор
+ * записал в файл, а не своё мнение о нём. В собранный файл значение уезжает нетронутым.
+ *
+ * @param extensions содержимое поля `extensions` у узла — из файла или из сцены
+ */
+export function isHiddenInFile(extensions: unknown): boolean {
+  if (!extensions || typeof extensions !== 'object') return false;
+  const mark = (extensions as Record<string, unknown>)['KHR_node_visibility'];
+  if (!mark || typeof mark !== 'object') return false;
+  return (mark as { visible?: unknown }).visible === false;
+}

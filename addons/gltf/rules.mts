@@ -667,7 +667,7 @@ export const RULES: GltfRule[] = [
     analyze(ctx) {
       const found = readInteractivity(assetJson(ctx));
       if (!found) return [];
-      const { clickable, handlers, animations, changes } = found;
+      const { clickable, handlers, animations, changes, silent } = found;
       // Запуск анимации и смена свойства — для человека одно и то же: «что-то
       // происходит». Раздельные числа давали в строке нули (у Calculator анимаций нет
       // вовсе), а ноль в перечислении читается как поломка, а не как факт.
@@ -677,10 +677,14 @@ export const RULES: GltfRule[] = [
       // что, — это другое утверждение, а не то же с нулём: у неё интерактив работает сам
       // (по времени, по загрузке), и обещать человеку кнопки было бы враньём.
       const actions = animations + changes;
-      if (clickable) {
-        return [{ messageId: 'interactivity.found', data: { clickable, handlers, actions } }];
-      }
-      return [{ messageId: 'interactivity.foundNoClicks', data: { handlers, actions } }];
+      const out: Finding[] = [];
+      if (clickable) out.push({ messageId: 'interactivity.found', data: { clickable, handlers, actions } });
+      else out.push({ messageId: 'interactivity.foundNoClicks', data: { handlers, actions } });
+      // Отдельная строка на отдельное утверждение, и появляется она только когда есть о
+      // чём говорить. Пустая часть — это не «подробность про интерактив», а расхождение
+      // между обещанием и файлом: обведена, а откликнуться нечем.
+      if (silent) out.push({ messageId: 'interactivity.silentParts', data: { n: silent } });
+      return out;
     },
   },
 

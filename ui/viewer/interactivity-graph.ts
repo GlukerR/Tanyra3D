@@ -95,7 +95,24 @@ export class InteractivityGraph {
   private readonly graph: RawGraph;
   private readonly host: GraphHost;
   private readonly vars = new Map<string, GraphValue>();
-  /** Память вычисления на ОДНУ активацию: узел считается один раз за шаг потока. */
+  /**
+   * Память вычисления на ОДИН шаг потока — и ни мгновением дольше.
+   *
+   * ПОЧЕМУ ИМЕННО ТАК, а не «на одну активацию», как было сначала. Считающие узлы тянутся
+   * по цепочке и часто переиспользуются: без памяти ромб в графе считался бы дважды, вчетверо,
+   * дальше по возрастающей. Но переменная за время одной активации МЕНЯЕТСЯ, и значение,
+   * посчитанное до её изменения, после него — враньё.
+   *
+   * Так и сломался калькулятор. Нажатие на «÷» пишет в переменную floor(x/2), а следом
+   * общая ветка показа читает ту же переменную, чтобы выставить цифры. Память на всю
+   * активацию отдавала ей СТАРОЕ значение, оно тут же записывалось обратно поверх нового —
+   * и деление, умножение, плюс и минус не делали ничего. Работали только кнопки цифр: они
+   * пишут в переменную готовое число, ничего перед этим не читая. Александр, 2026-08-28:
+   * «многие кнопки не работают, только цифры меняются на калькуляторе и всё».
+   *
+   * Шаг потока — естественная граница: узел берёт свои входы, они между собой согласованы,
+   * и на этом память кончается.
+   */
   private memo = new Map<string, GraphValue>();
   /** Стражи от зацикливания: граф с петлёй не должен вешать вкладку. */
   private steps = 0;
@@ -104,7 +121,13 @@ export class InteractivityGraph {
     this.graph = graph;
     this.host = host;
     for (const v of graph.variables || []) {
-      if (typeof v.id === 'string') this.vars.set(v.id, (v.value as number[]) ?? [0]);
+      if (typeof v.id !== 'string') continue;
+      const raw = v.value as unknown[] | undefined;
+      // Ссылка (`ref`) записана строкой-адресом: `["/nodes/10"]`. Разворачиваем её так же,
+      // как это делает `input()` для значения, написанного прямо в сокете, — иначе одна и
+      // та же ссылка приходила бы к адресату в двух разных видах.
+      if (Array.isArray(raw) && typeof raw[0] === 'string') this.vars.set(v.id, raw[0]);
+      else this.vars.set(v.id, (raw as number[]) ?? [0]);
     }
   }
 
@@ -176,6 +199,9 @@ export class InteractivityGraph {
     const node = this.graph.nodes?.[nodeIndex];
     if (!node) return;
     const op = this.opOf(node);
+    // Новый шаг потока — новое вычисление. Предыдущий шаг мог изменить переменную или
+    // сцену, и всё посчитанное до него устарело.
+    this.memo = new Map();
 
     switch (op) {
       case 'pointer/set': {
@@ -187,7 +213,14 @@ export class InteractivityGraph {
       }
       case 'variable/set': {
         const id = this.variableId(node, 'variables');
-        if (id) this.vars.set(id, this.input(nodeIndex, '0'));
+        // Сокет со значением назван НОМЕРОМ переменной, а не нулём. У калькулятора
+        // переменная одна и номер её ноль — оттого первая редакция и работала на нём, и
+        // молчала на `MagicBall`, где переменных тридцать две: запись в первую попадала,
+        // все остальные читали пустой сокет и клали в переменную ничто. Шар из-за этого
+        // не показывал предсказание вовсе.
+        const at = node.configuration?.['variables']?.value?.[0];
+        const socket = typeof at === 'number' && node.values?.[String(at)] ? String(at) : '0';
+        if (id) this.vars.set(id, this.input(nodeIndex, socket));
         this.runFlow(nodeIndex, 'out');
         return;
       }
