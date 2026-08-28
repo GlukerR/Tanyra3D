@@ -628,10 +628,18 @@ export const RULES: GltfRule[] = [
       // одной строкой с переменной значило бы прятать её (Правило 8 §3).
       const found = scanLods(ctx.document);
       if (!found) return [];
-      return [{
-        messageId: found.source === 'names' ? 'lod.likelyNames' : 'lod.likelyMeasured',
-        data: { nodes: found.nodes, levels: found.levels },
-      }];
+      const data = { nodes: found.nodes, levels: found.levels };
+      // Ключи названы ПРЯМО, а не выбраны тернарником в поле messageId. Сторож
+      // ключей-сирот (tests/engine-contract.test.mjs, раздел 3) читает исходник и ищет
+      // это поле вместе с ключом в кавычках; вычисленное имя он не видит, и оба ключа
+      // повисли бы сиротами в каталогах. Поймано полным прогоном 2026-08-28 — и поймано
+      // по делу: ключ, которого не видно в коде, не найдёт и человек.
+      //
+      // Образец ключа в комментарий не вписывать: тот же разбор прочтёт его как ссылку
+      // из кода и потребует такой ключ в каталоге. На этом сторож покраснел второй раз,
+      // уже на объяснении самого себя.
+      if (found.source === 'names') return [{ messageId: 'lod.likelyNames', data }];
+      return [{ messageId: 'lod.likelyMeasured', data }];
     },
   },
 
