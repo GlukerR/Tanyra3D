@@ -1099,9 +1099,9 @@ export class Viewer implements ViewerLike {
     if (!set) return { count: 0, source: null, names: [] as string[], triangles: [] as number[], current: null };
     return {
       count: set.levels.length,
-      // Откуда узнали: 'extension' — автор связал уровни как положено; 'names' — узнали
-      // по именам соседних узлов, то есть это ДОГАДКА. Интерфейс обязан их различать:
-      // выдавать догадку за факт нечестно.
+      // Откуда узнали: 'extension' — автор связал уровни как положено; 'names' и
+      // 'measured' — соседние узлы, то есть ДОГАДКА (с подписью «LOD» и без неё).
+      // Интерфейс обязан отличать факт от догадки: выдавать одно за другое нечестно.
       source: set.source,
       names: set.levels.map((l) => l.name),
       triangles: set.levels.map((l) => l.triangles),

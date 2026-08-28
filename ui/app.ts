@@ -5605,8 +5605,9 @@
   // (Правило 11 — мы показываем, а не редактируем).
   //
   // Подпись у списка меняется по тому, ОТКУДА мы знаем про уровни. Автор связал их
-  // расширением — это факт, говорим «Детализация». Узнали по именам соседних узлов —
-  // это догадка, и выдавать её за факт нечестно: подпись становится «Похоже на уровни».
+  // расширением — это факт, говорим «Детализация». Узнали по соседним узлам — измерением
+  // или измерением с подписью «LOD», неважно, — это догадка, и выдавать её за факт
+  // нечестно: подпись становится «Похоже на уровни».
   function refreshLodUI() {
     if (!lodControls || !window.OptiViewer || !window.OptiViewer.getLods) return;
     const info = window.OptiViewer.getLods();
@@ -5614,7 +5615,7 @@
     lodControls.classList.toggle('hidden', !has);
     if (!has || !lodSel) return;
 
-    setText(lodLabel, info.source === 'names' ? 'vp.lod.guess' : 'vp.lod');
+    setText(lodLabel, info.source === 'extension' ? 'vp.lod' : 'vp.lod.guess');
 
     const signature = info.source + ':' + info.names.join(' ');
     if (lodSel.dataset.signature !== signature) {

@@ -79,11 +79,12 @@ interface OptiViewerApi {
   selectAnimationClip(i: number): void;
   /**
    * Уровни детализации. `source`: 'extension' — автор связал их расширением (факт);
-   * 'names' — узнали по именам соседних узлов (догадка). Интерфейс обязан их различать.
+   * 'names' и 'measured' — узнали по соседним узлам (догадка, с подписью и без).
+   * Интерфейс обязан отличать факт от догадки.
    */
   getLods(): {
     count: number;
-    source: 'extension' | 'names' | null;
+    source: 'extension' | 'names' | 'measured' | null;
     names: string[];
     triangles: number[];
     current: number | 'all' | null;
