@@ -77,8 +77,12 @@
         <select id="render-background" class="menu-select" data-i18n-aria="menu.render.background" aria-label="Background"></select>
 
         <!-- Неактивна, пока в правом окне нет собранной модели: пункт, который ничего не
-             делает, хуже отсутствующего (то же решение, что у «Download result»). -->
-        <button class="menu-item" type="button" id="render-go" disabled data-i18n="menu.render.go">Render the picture</button>
+             делает, хуже отсутствующего (то же решение, что у «Download result»).
+
+             Крупная и цветная, а не строкой списка: в этой панели она одна ДЕЙСТВУЕТ,
+             остальное — настройки к ней (Александр, 2026-08-28: «кнопка рендер картинки
+             должна быть крупной, синей и посередине»). -->
+        <button class="menu-cta" type="button" id="render-go" disabled data-i18n="menu.render.go">Render the picture</button>
       </div>
     </div>
     <div class="menu">
@@ -244,8 +248,26 @@
            анимированная, и рассмотреть её иначе нельзя. Одна на оба вьюпорта —
            разная яркость слева и справа читалась бы как разница обработки. -->
       <span class="vp-sep" aria-hidden="true"></span>
-      <span class="vp-ctl-label" data-i18n-title="vp.exposure" title="Exposure">☀</span>
-      <input id="exposure-slider" class="vp-slider" type="range" min="10" max="300" value="100" step="5" data-i18n-aria="vp.exposure" aria-label="Exposure">
+
+      <!-- Солнышко — ВСЁ про свет: выпадающим меню выбор источника, ползунком рядом
+           яркость. Переехало сюда снизу справа по слову Александра (2026-08-28): «свет
+           переносим вообще снизу слева, на верх по центру. где экспозиция туда же. на
+           значок солнышка выпадающим меню».
+
+           Подписи у значка нет намеренно — его прямое требование там же: «только значок
+           солнышка никак не надо подписывать». Что выбрано, видно в самом списке.
+
+           Значок стоит ВСЕГДА, а не только у моделей со своим светом: выключить свет
+           можно у любой модели, и это первое, ради чего меню и заводилось. Пункт «из
+           файла» появляется только там, где источники есть (Правило 12). -->
+      <div id="light-controls" class="vp-group">
+        <button class="vp-tool vp-group-btn" type="button" aria-expanded="false" data-i18n-title="vp.light" data-i18n-aria="vp.light" title="Lighting" aria-label="Lighting">☀<span class="vp-caret" aria-hidden="true">▾</span></button>
+        <div class="vp-pop vp-pop-down">
+          <select id="light-select" class="vp-anim-clip" data-i18n-aria="vp.light" aria-label="Lighting"></select>
+        </div>
+      </div>
+
+      <input id="exposure-slider" class="vp-slider" type="range" min="10" max="300" value="100" step="5" data-i18n-aria="vp.exposure" data-i18n-title="vp.exposure" title="Exposure" aria-label="Exposure">
       <span id="exposure-value" class="vp-ctl-value">1.0</span>
 
     </div>
@@ -314,17 +336,6 @@
         </div>
       </div>
 
-
-      <!-- Свет: наш студийный или тот, что принесла сама модель (KHR_lights_punctual).
-           Значка нет у моделей без своих источников — там «свет из файла» означал бы
-           темноту, а не замысел автора. -->
-      <div id="light-controls" class="vp-group hidden">
-        <button class="vp-tool vp-group-btn" type="button" aria-expanded="false" data-i18n-title="vp.light" data-i18n-aria="vp.light" title="Lighting" aria-label="Lighting">☼</button>
-        <div class="vp-pop">
-          <span class="vp-ctl-label" data-i18n="vp.light">Lighting</span>
-          <select id="light-select" class="vp-anim-clip" data-i18n-aria="vp.light" aria-label="Lighting"></select>
-        </div>
-      </div>
 
       <!-- Анимация. Оба вьюпорта идут по одному времени, поэтому ползунок и выбор
            клипа общие, а не по одному на панель. -->

@@ -157,3 +157,139 @@ describe('модель без своих источников', () => {
     expect(viewer._key.visible, 'отказ погасил наш свет — модели стало нечем светиться').toBe(true)
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// «Без света» — третий режим, и он тоже выбор, а не отсутствие выбора
+//
+// ЗАКАЗ (Александр, 2026-08-28): «лайтинг стуидио\ничего. что бы модель могла
+// рендерится чёрной. или если например у текстуры есть эмишн и он светится, мы же не
+// выбираем свет встроенный в картинку. а хотелось бы его наверняка увидеть».
+//
+// Отсюда два требования, и второе легко потерять. Первое — гаснет ВСЁ: и наш ключевой,
+// и авторские источники, и окружение. Второе — светящаяся карта при этом ОСТАЁТСЯ
+// видна: она и есть единственное, ради чего режим заводился, а любой посторонний свет
+// её забивает.
+//
+// Окружение гасится ДО НУЛЯ, а не до остатка, как в режиме файла. Металл и стекло
+// станут чёрными — и это ровно то, что просили. Оговорка про FILE_MODE_ENV сюда не
+// относится: там речь о чужом замысле, здесь — о прямом выборе человека (Правило 12).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('свет можно выключить совсем', () => {
+  let studio
+  let none
+
+  /** Две пластины рядом: одна обычная, вторая светится сама. */
+  function modelWithGlow() {
+    const group = new THREE.Group()
+    const plain = new THREE.Mesh(
+      new THREE.PlaneGeometry(2, 2),
+      new THREE.MeshStandardMaterial({ color: 0xb0b0b0, roughness: 0.8, metalness: 0 }),
+    )
+    plain.position.set(-1.2, 0, 0)
+    group.add(plain)
+
+    // Светящаяся деталь МАЛЕНЬКАЯ — так она и бывает: лампа, экран, шов. Заодно это
+    // делает измеримым главное: почернел весь кадр, кроме неё.
+    const glow = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.6, 0.6),
+      new THREE.MeshStandardMaterial({ color: 0x000000, emissive: 0x00ff00, emissiveIntensity: 1 }),
+    )
+    glow.position.set(1.2, 0, 0)
+    group.add(glow)
+    return group
+  }
+
+  /** Доля непрозрачных пикселей, которые почти чёрные. */
+  const darkPct = ({ w, h, px }) => {
+    let dark = 0
+    let n = 0
+    for (let i = 0; i < w * h * 4; i += 4) {
+      if (px[i + 3] < 200) continue
+      n++
+      if (0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2] < 10) dark++
+    }
+    return n ? (dark / n) * 100 : 0
+  }
+
+  /**
+   * Сколько пикселей ЯРКИЕ. По яркости, а не по зелёному цвету: кадр проходит через
+   * тональную кривую и sRGB, и чистый зелёный доезжает приглушённым — первая редакция
+   * искала `g > 120 && r < 90` и не находила ничего, хотя эмиссия была на месте.
+   */
+  const litPixels = ({ w, h, px }) => {
+    let n = 0
+    for (let i = 0; i < w * h * 4; i += 4) {
+      if (px[i + 3] < 200) continue
+      if (0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2] > 40) n++
+    }
+    return n
+  }
+
+  beforeAll(() => {
+    // Сцена общая на весь файл, и предыдущие разделы оставили в ней свои заготовки —
+    // вместе с авторским солнцем силой 683. Не убрав их, мы мерили бы чужой свет и
+    // «полная темнота» не наступила бы никогда.
+    for (const o of [...viewer.scene.children]) if (o.isGroup) viewer.scene.remove(o)
+
+    const group = modelWithGlow()
+    viewer.scene.add(group)
+    viewer.model = group
+    viewer._modelLights = viewer._collectModelLights()
+    viewer.camera.position.set(0, 0, 5)
+    viewer.camera.lookAt(0, 0, 0)
+
+    viewer.setLightMode('studio')
+    viewer.renderFrame()
+    studio = snapshotPixels(viewer)
+
+    viewer.setLightMode('none')
+    viewer.renderFrame()
+    none = snapshotPixels(viewer)
+  })
+
+  afterAll(() => {
+    viewer.setLightMode('studio')
+    viewer.model = null
+  })
+
+  it('работает и у модели без своих источников — гасить есть что всегда', () => {
+    // В отличие от «из файла»: тот у такой модели отклоняется, потому что означал бы
+    // необъяснённую темноту. Здесь темнота как раз и заказана.
+    expect(viewer._modelLights.length).toBe(0)
+    expect(viewer.setLightMode('none'), 'выключение света отклонено').toBe(true)
+    expect(viewer.getLightInfo().mode).toBe('none')
+  })
+
+  it('гаснет ВСЁ, включая окружение', () => {
+    viewer.setLightMode('none')
+    expect(viewer._key.visible, 'наш ключевой продолжает светить').toBe(false)
+    // Окружение — не свет, а то, что отражается; в режиме файла оно приглушается до
+    // остатка. Здесь остатка быть не должно: «свет вырубить» значит вырубить.
+    expect(viewer.scene.environmentIntensity, 'окружение осталось подсвечивать модель').toBe(0)
+  })
+
+  it('КАДР становится чёрным', () => {
+    expect(darkPct(studio), 'студийный кадр и так чёрный — заготовка не та').toBeLessThan(50)
+    expect(darkPct(none),
+      `без света кадр не почернел (${darkPct(none).toFixed(0)}% тёмных против `
+      + `${darkPct(studio).toFixed(0)}% в студии)`).toBeGreaterThan(80)
+  })
+
+  it('светящаяся карта видна — ради неё режим и заведён', () => {
+    const lit = litPixels(none)
+    expect(lit, 'эмиссия погасла вместе со светом — смотреть в этом режиме нечего')
+      .toBeGreaterThan(0)
+    // И светится ТОЛЬКО она. Если бы яркой осталась половина кадра, значит свет никуда
+    // не делся, а тест меряет не то.
+    expect(lit, 'ярким остался весь кадр, а не одна светящаяся деталь')
+      .toBeLessThan(litPixels(studio) * 0.4)
+  })
+
+  it('переключение обратимо', () => {
+    viewer.setLightMode('none')
+    expect(viewer.setLightMode('studio')).toBe(true)
+    expect(viewer._key.visible).toBe(true)
+    expect(viewer.scene.environmentIntensity).toBe(1)
+  })
+})

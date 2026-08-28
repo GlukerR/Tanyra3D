@@ -3873,20 +3873,10 @@
       const own = (info?.count ?? 0) > 0;
       if (renderLightNote) renderLightNote.classList.toggle('hidden', own);
       if (renderLight) {
-        // У модели без своих источников выбирать не из чего: «как в файле» означало бы
-        // темноту. Показываем один пункт и строку с причиной — не серую кнопку.
-        renderLight.disabled = !own;
-        const modes = own ? ['studio', 'file'] : ['studio'];
-        if (renderLight.dataset.filled !== String(modes.length)) {
-          renderLight.dataset.filled = String(modes.length);
-          renderLight.textContent = '';
-          for (const mode of modes) {
-            const opt = document.createElement('option');
-            opt.value = mode;
-            setText(opt, mode === 'studio' ? 'viewer.light.studio' : 'viewer.light.file');
-            renderLight.appendChild(opt);
-          }
-        }
+        // Список ровно тот же, что на солнышке наверху, и собирается тем же кодом: это
+        // ОДИН переключатель с двумя входами, а не два похожих. Строка с причиной выше
+        // объясняет, почему у этой модели пункта «как в файле» нет.
+        fillLightSelect(renderLight, own);
         if (info?.mode && renderLight.value !== info.mode) renderLight.value = info.mode;
       }
 
@@ -3918,7 +3908,7 @@
     // получит, до нажатия, а не после.
     if (renderLight) {
       renderLight.addEventListener('change', () => {
-        window.OptiViewer?.selectLightMode?.(renderLight.value === 'file' ? 'file' : 'studio');
+        window.OptiViewer?.selectLightMode?.(renderLight.value as 'studio' | 'file' | 'none');
         refreshLightUI();
       });
     }
@@ -5713,31 +5703,57 @@
   }
 
   // ---------------------------------------------------------------
-  // Свет — наш студийный или авторский
+  // Свет — студийный, никакой или авторский
   //
-  // Значок появляется только у моделей, которые принесли СВОИ источники
-  // (KHR_lights_punctual). У остальных «свет из файла» означал бы темноту, поэтому
-  // выбирать там не из чего и предлагать нечего.
+  // Живёт на солнышке в верхней панели, рядом с экспозицией: там всё про свет.
+  //
+  // Значок стоит ВСЕГДА, а не только у моделей со своим светом. Погасить свет можно у
+  // любой модели, и это первое, ради чего меню и заводилось (Александр, 2026-08-28:
+  // «что бы модель могла рендерится чёрной… если например у текстуры есть эмишн и он
+  // светится… а хотелось бы его наверняка увидеть»). Пункт «из файла» — другое дело: у
+  // модели без своих источников он означал бы ту же темноту, только необъяснённую, и в
+  // списке его нет вовсе (Правило 12 — показанное обязано работать).
   //
   // Почему это вообще нужно: до 2026-08-15 наш направленный источник светил ПОВЕРХ
   // авторского, и увидеть модель так, как её ставил автор, было нельзя.
-  function refreshLightUI() {
-    if (!lightControls || !window.OptiViewer || !window.OptiViewer.getLight) return;
-    const info = window.OptiViewer.getLight();
-    const has = info.count > 0;
-    lightControls.classList.toggle('hidden', !has);
-    if (!has || !lightSel) return;
+  const LIGHT_LABEL: Record<string, string> = {
+    studio: 'viewer.light.studio',
+    none: 'viewer.light.none',
+    file: 'viewer.light.file',
+  };
 
-    if (!lightSel.dataset.filled) {
-      lightSel.dataset.filled = '1';
-      for (const mode of ['studio', 'file']) {
-        const opt = document.createElement('option');
-        opt.value = mode;
-        setText(opt, mode === 'studio' ? 'viewer.light.studio' : 'viewer.light.file');
-        lightSel.appendChild(opt);
-      }
+  /** Что предлагать: третий пункт — только там, где источники есть. */
+  const lightModes = (own: boolean) => (own ? ['studio', 'none', 'file'] : ['studio', 'none']);
+
+  /**
+   * Наполнить список режимов света. Общий для солнышка и для панели рендера — это ОДИН
+   * переключатель с двумя входами, и собирать его дважды двумя способами значило бы
+   * заводить два разных списка под одно состояние.
+   */
+  function fillLightSelect(sel: HTMLSelectElement, own: boolean) {
+    const signature = own ? 'own' : 'plain';
+    if (sel.dataset.filled === signature) return;
+    sel.dataset.filled = signature;
+    sel.textContent = '';
+    for (const mode of lightModes(own)) {
+      const opt = document.createElement('option');
+      opt.value = mode;
+      setText(opt, LIGHT_LABEL[mode] ?? 'viewer.light.studio');
+      sel.appendChild(opt);
     }
-    if (lightSel.value !== info.mode) lightSel.value = info.mode;
+  }
+
+  function refreshLightUI() {
+    if (!lightControls || !lightSel) return;
+    // Вьюер спрашиваем ОСТОРОЖНО и список наполняем в любом случае. Раньше здесь стоял
+    // выход по `!window.OptiViewer`, и он был безобиден, пока значок появлялся вместе с
+    // моделью. Теперь значок стоит всегда — а на пустом экране модуль просмотра ещё не
+    // выполнился, и список оставался ПУСТЫМ: раскрывающийся значок, в котором нечего
+    // выбрать, — ровно та клавиша, что ничего не делает (Правило 12).
+    const info = window.OptiViewer?.getLight?.();
+    fillLightSelect(lightSel, (info?.count ?? 0) > 0);
+    const mode = info?.mode ?? 'studio';
+    if (lightSel.value !== mode) lightSel.value = mode;
   }
 
   // ---------------------------------------------------------------
@@ -5801,7 +5817,10 @@
   if (lightSel) {
     lightSel.addEventListener('change', () => {
       if (!window.OptiViewer) return;
-      window.OptiViewer.selectLightMode(lightSel.value === 'file' ? 'file' : 'studio');
+      window.OptiViewer.selectLightMode(lightSel.value as 'studio' | 'file' | 'none');
+      // Панель рендера показывает ТОТ ЖЕ переключатель и подтягивает его состояние при
+      // каждом открытии меню — догонять её отсюда нечем и незачем: пока человек в
+      // солнышке, панель закрыта.
     });
   }
 
@@ -5964,39 +5983,45 @@
   // Александра 2026-08-15 («схлопывается, но анимация-то не останавливается»),
   // и на это стоит сторож в браузерных тестах.
   //
-  // Обработчик ОДИН на всю полку, а не по одному на группу: групп будет больше
-  // (камеры автора, свет из файла), и каждая не должна тащить свою проводку.
-  const rail = document.querySelector('.vp-rail');
-  if (rail) {
-    rail.addEventListener('click', (e) => {
+  // Обработчик ОДИН на все группы, а не по одному на группу: групп будет больше, и
+  // каждая не должна тащить свою проводку.
+  //
+  // Хозяев у групп теперь двое: полка справа внизу и верхняя панель — туда переехал
+  // свет (Александр, 2026-08-28). Проводка от этого не удвоилась: обработчик всё так же
+  // один, просто слушает оба места.
+  const groupHosts = Array.from(document.querySelectorAll('.vp-rail, .vp-toolbar'));
+
+  /** Закрыть полочки. Открыта может быть одна: две выехали бы одна на другую. */
+  const closeGroups = () => {
+    for (const g of document.querySelectorAll('.vp-group.is-open')) {
+      g.classList.remove('is-open');
+      g.querySelector('.vp-group-btn')?.setAttribute('aria-expanded', 'false');
+    }
+  };
+
+  for (const host of groupHosts) {
+    host.addEventListener('click', (e) => {
       const btn = (e.target as HTMLElement | null)?.closest('.vp-group-btn');
       if (!btn) return;
       const group = btn.closest('.vp-group');
       if (!group) return;
       const wasOpen = group.classList.contains('is-open');
-      for (const g of rail.querySelectorAll('.vp-group.is-open')) {
-        g.classList.remove('is-open');
-        g.querySelector('.vp-group-btn')?.setAttribute('aria-expanded', 'false');
-      }
+      closeGroups();
       if (!wasOpen) {
         group.classList.add('is-open');
         btn.setAttribute('aria-expanded', 'true');
       }
     });
-    // Щелчок мимо полки закрывает полочку. По той же причине это только показ.
-    document.addEventListener('click', (e) => {
-      if (rail.contains(e.target as Node)) return;
-      for (const g of rail.querySelectorAll('.vp-group.is-open')) {
-        g.classList.remove('is-open');
-        g.querySelector('.vp-group-btn')?.setAttribute('aria-expanded', 'false');
-      }
-    });
   }
+  // Щелчок мимо закрывает полочку. По той же причине это только показ.
+  document.addEventListener('click', (e) => {
+    if (groupHosts.some((h) => h.contains(e.target as Node))) return;
+    closeGroups();
+  });
 
   /** Группа исчезла вместе с моделью — её полочка не должна остаться открытой. */
   function closeHiddenGroups() {
-    if (!rail) return;
-    for (const g of rail.querySelectorAll('.vp-group.hidden.is-open')) {
+    for (const g of document.querySelectorAll('.vp-group.hidden.is-open')) {
       g.classList.remove('is-open');
       g.querySelector('.vp-group-btn')?.setAttribute('aria-expanded', 'false');
     }

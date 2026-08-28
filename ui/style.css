@@ -147,6 +147,50 @@ body {
 }
 .menu-select:disabled { color: var(--outline); cursor: default; }
 
+/* Раскрытый список рисует СИСТЕМА, а не наш css.
+   Александр, 2026-08-28: «выпадающая строка выглядит ужасно. Они белые залитые и буквы
+   не видны». Так и есть: сама рамка `select` слушалась палитры, а список, который
+   раскрывается по щелчку, — нет. Он брал белую подложку у Windows, а цвет букв
+   наследовал наш, светлый: белым по белому.
+
+   `color-scheme` — единственный способ сказать движку, что тема тёмная, и он красит
+   раскрытый список сам. Цвета `option` рядом — на случай, когда движок этого не умеет.
+   Правило стоит на ВСЕХ списках, а не на списках меню рендера: белым по белому были и
+   уровни детализации, и варианты, и клипы — просто туда никто не заглядывал. Именной
+   случай оставил бы дыру ровно там же, где в прошлый раз (Правила интерфейса, §«Правило
+   вместо случая»). */
+select { color-scheme: dark; }
+option {
+  background: var(--surface-low);
+  color: var(--on-surface);
+}
+
+/* Кнопка-действие в панели меню: одна на панель, и она крупнее всего вокруг.
+   Александр, 2026-08-28: «кнопка рендер картинки должна быть крупной, синей и
+   посередине». Крупная и по центру — потому что в панели рендера всё остальное это
+   НАСТРОЙКИ к ней, а действие одно. */
+.menu-cta {
+  display: block;
+  width: calc(100% - 20px);
+  margin: 10px;
+  padding: 11px 12px;
+  background: var(--primary-container);
+  border: 0;
+  border-radius: var(--radius-lg);
+  color: var(--on-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+}
+.menu-cta:hover:not(:disabled) { background: var(--primary); }
+.menu-cta:disabled {
+  background: var(--surface-container-high);
+  color: var(--outline);
+  cursor: default;
+}
+
 .menu-radio {
   display: flex;
   gap: 8px;
@@ -793,8 +837,9 @@ body.resizing { cursor: col-resize; user-select: none; }
 }
 
 /* Двумя классами, а не одним: .vp-tool объявлен ниже по файлу и при равном весе
-   перебивал бы размер. */
-.vp-tool.vp-group-btn {
+   перебивал бы размер. Ограничено полкой: в верхней панели значок группы стоит в ряд с
+   ⤢ и ⇄ и обязан быть с ними одного роста. */
+.vp-rail .vp-tool.vp-group-btn {
   width: 32px;
   height: 32px;
   background: var(--surface-low);
@@ -806,6 +851,22 @@ body.resizing { cursor: col-resize; user-select: none; }
 .vp-group.is-open > .vp-group-btn {
   color: var(--primary-container);
   background: rgba(192, 193, 255, 0.10);
+}
+
+/* Значок с выпадающим меню в верхней панели: обычный значок плюс маленькая стрелка.
+   Стрелка нужна, чтобы по значку было видно, что он раскрывается, — сам по себе он
+   читался бы как кнопка-переключатель. */
+.vp-toolbar .vp-group-btn {
+  width: auto;
+  min-width: 28px;
+  padding: 0 4px;
+  gap: 1px;
+}
+
+.vp-caret {
+  font-size: 8px;
+  line-height: 1;
+  opacity: 0.7;
 }
 
 /* Полочка выезжает ВЛЕВО от значка: справа от него край вьюпорта.
@@ -831,6 +892,13 @@ body.resizing { cursor: col-resize; user-select: none; }
 }
 
 .vp-group.is-open > .vp-pop { display: flex; }
+
+/* Из верхней панели полочка падает ВНИЗ: слева от значка там соседи, а не край. */
+.vp-pop-down {
+  right: auto;
+  left: 0;
+  top: calc(100% + 6px);
+}
 
 .vp-tool {
   width: 28px;

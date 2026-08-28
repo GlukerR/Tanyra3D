@@ -413,8 +413,8 @@ export class Viewer implements ViewerLike {
   declare _key: THREE.DirectionalLight;
   /** Источники, которые принесла сама модель (KHR_lights_punctual). Пусто — своих нет. */
   declare _modelLights?: THREE.Light[];
-  /** Чей свет показываем: 'studio' — наш, 'file' — авторский. */
-  declare _lightMode?: 'studio' | 'file';
+  /** Чей свет показываем: 'studio' — наш, 'file' — авторский, 'none' — никакой. */
+  declare _lightMode?: 'studio' | 'file' | 'none';
   /** Камеры, которые автор положил в файл. Пусто — их нет. */
   declare _fileCameras?: FileCamera[];
   /** Через какую камеру смотрим: номер авторской либо null — через нашу орбитальную. */
@@ -1281,12 +1281,23 @@ export class Viewer implements ViewerLike {
   }
 
   /**
-   * Показать свет автора или вернуть студийный.
+   * Выбрать свет: наш студийный, авторский или никакой.
+   *
+   * `none` — темнота НАМЕРЕННАЯ (Александр, 2026-08-28): «лайтинг стуидио\ничего. что бы
+   * модель могла рендерится чёрной. или если например у текстуры есть эмишн и он
+   * светится, мы же не выбираем свет встроенный в картинку. а хотелось бы его наверняка
+   * увидеть». Светящаяся карта — единственное, что видно в этом режиме, и увидеть её
+   * иначе нельзя: любой посторонний свет её забивает.
+   *
+   * Поэтому в `none` окружение гасится ДО НУЛЯ, а не до остатка, как в режиме файла.
+   * Металл и стекло станут чёрными — и это ровно то, что просили: «свет вырубить».
+   * Оговорка про FILE_MODE_ENV сюда не относится, там речь о чужом замысле, а здесь —
+   * о прямом выборе человека (Правило 12).
    *
    * false = переключать нечего: своих источников модель не принесла, и «свет из файла»
-   * означал бы полную темноту.
+   * означал бы ту же темноту, только необъяснённую.
    */
-  setLightMode(mode: 'studio' | 'file') {
+  setLightMode(mode: 'studio' | 'file' | 'none') {
     const own = this._modelLights ?? [];
     if (mode === 'file' && !own.length) return false;
     const studio = mode === 'studio';
@@ -1303,8 +1314,8 @@ export class Viewer implements ViewerLike {
     //
     // Это ПОКАЗ, а не правка: `visible` живёт в сцене просмотра и в файл не попадает.
     // Собранная модель увозит оба источника целыми (Правило 11).
-    for (const l of own) l.visible = !studio;
-    this.scene.environmentIntensity = studio ? 1 : FILE_MODE_ENV;
+    for (const l of own) l.visible = mode === 'file';
+    this.scene.environmentIntensity = mode === 'studio' ? 1 : mode === 'file' ? FILE_MODE_ENV : 0;
     this._lightMode = mode;
     return true;
   }
