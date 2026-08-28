@@ -37,6 +37,9 @@ const PORT = (() => {
 const HOST = process.env.TANYRA_HOST || '127.0.0.1';
 
 const UI_DIR = path.join(__dirname, 'ui');
+// Ядро. Браузеру отдаётся не всё подряд: см. маршрут /core/ ниже — туда вынесены общие
+// правила, которые обязаны совпадать у движка и у вьюпорта.
+const CORE_DIR = path.join(__dirname, 'core');
 
 // Рабочая папка: загруженные модели и собранные результаты.
 //
@@ -550,6 +553,10 @@ function sendSSE(jobId: string, payload: unknown) {
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  // .mjs понадобился, когда общий модуль правил (core/lod-grouping.mjs) стал читаться и
+  // браузером тоже. Без строки он уезжал как application/octet-stream, и браузер
+  // отказывался исполнять модуль — отказ выглядел бы как «уровни перестали находиться».
+  '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -926,6 +933,21 @@ const server = http.createServer(async (req, res) => {
     // --- плагины к загрузчику, которых нет в three (из node_modules/three-gltf-extensions/) ---
     if (req.method === 'GET' && pathname.startsWith('/vendor/gltf-extensions/')) {
       await serveStatic(req, res, pathname, GLTF_EXT_DIR, '/vendor/gltf-extensions');
+      return;
+    }
+
+    // --- общие правила ядра, которые читает и вьюпорт (из core/) ---
+    //
+    // Единственный такой случай на сегодня — `core/lod-grouping.mjs`: что считается
+    // уровнями детализации, решается ОДИН раз на всю программу, а спрашивают об этом
+    // двое — отчёт в движке и переключатель во вьюпорте. Разойдись эти ответы, человек
+    // увидел бы уровни в окне и ни строчки о них в правой панели.
+    //
+    // Отдаём папку целиком, а не один файл: исходники ядра и так открыты (Apache-2.0), а
+    // именной список файлов пришлось бы дополнять при каждом следующем таком модуле —
+    // и его забыли бы дополнить.
+    if (req.method === 'GET' && pathname.startsWith('/core/')) {
+      await serveStatic(req, res, pathname, CORE_DIR, '/core');
       return;
     }
 

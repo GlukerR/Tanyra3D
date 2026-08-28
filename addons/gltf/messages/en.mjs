@@ -127,6 +127,12 @@ export default {
   // (так их называет художник в Blender), идентификатор расширения не упоминается.
   // Уровни детализации: наблюдение, а не находка-дефект. Говорим ЧТО в файле и ЧТО
   // человек сейчас видит; про создание уровней здесь ни слова — проект их не делает.
+  // Догадка, а не факт, и первое слово об этом говорит. Две строки на два способа:
+  // подпись автора весит больше нашего измерения, и мешать их в одну нельзя.
+  'lod.likelyNames': ({ nodes, levels }) =>
+    `The file looks like it carries levels of detail: ${nodes} part${nodes === 1 ? '' : 's'} with up to ${levels} levels each. Neighbouring nodes are named LOD, but nothing links them together — so here and on a site every level is drawn at once, one through another.`,
+  'lod.likelyMeasured': ({ nodes, levels }) =>
+    `The file looks like it carries levels of detail: ${nodes} part${nodes === 1 ? '' : 's'} with up to ${levels} levels each. Measured, not labelled: the same thing made several times coarser. Nothing links the levels together — so here and on a site every level is drawn at once, one through another.`,
   'lod.found': ({ nodes, levels }) =>
     `The file carries levels of detail: ${nodes} part${nodes === 1 ? '' : 's'} with up to ${levels} levels each. The preview shows the most detailed one; on a site the engine picks a simpler level when the object is small on screen.`,
   // Запасные формы меша. Две строки на два случая; разница между ними и есть смысл.

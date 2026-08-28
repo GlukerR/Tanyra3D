@@ -53,26 +53,28 @@ function stripComments(src) {
 /**
  * Группы СВОЙСТВ МОДЕЛИ: появляются только у той модели, где это свойство есть. У модели
  * без своих камер значка камер быть не должно — «камера автора» без камер бессмысленна.
+ * Живут на полке значков и стартуют скрытыми.
  */
 const GROUP_IDS = [
-  'lod-controls', 'variant-controls', 'camera-controls', 'light-controls', 'anim-controls',
+  'lod-controls', 'variant-controls', 'camera-controls', 'anim-controls',
 ];
 
 /**
- * Групп, стоящих ВСЕГДА, больше нет ни одной — и это не потеря, а упрощение.
+ * Группы в ВЕРХНЕЙ панели: то, что относится к любой модели и есть всегда.
  *
- * Такая группа была ровно одна: «Поверхность» (материалы модели или наша глина,
- * 2026-08-20). Полочка со списком из двух строк стоила двух нажатий там, где хватает
- * одного, и 2026-08-22 Александр это назвал: «пусть там будет не материал\глина а просто
- * шарик на который нажимаешь и меняется отображение». Теперь это кнопка-переключатель
- * `#display-toggle` прямо на полке, без полочки и без списка.
+ * Свет переехал сюда с полки 2026-08-28 по прямому слову Александра: «свет переносим
+ * вообще снизу слева, на верх по центру. где экспозиция туда же. на значок солнышка
+ * выпадающим меню».
  *
- * Список оставлен пустым НАМЕРЕННО, а не удалён: постоянная группа — законный род, и
- * появись она снова, ей есть куда встать.
+ * Правилу «верхняя панель не растёт» это не противоречит, и вот почему. Панель не
+ * пускает к себе СВОЙСТВА МОДЕЛИ — их число растёт с каждой новой возможностью, и
+ * строка расползалась именно от них. Свет свойством модели быть перестал: погасить его
+ * можно у любой модели, и значок стоит всегда. А заодно панель не прибавила места: он
+ * встал НА солнышко экспозиции, которое там и было.
  */
-const ALWAYS_GROUP_IDS = [];
+const TOOLBAR_GROUP_IDS = ['light-controls'];
 
-const ALL_GROUP_IDS = [...GROUP_IDS, ...ALWAYS_GROUP_IDS];
+const ALL_GROUP_IDS = [...GROUP_IDS, ...TOOLBAR_GROUP_IDS];
 
 describe('панели вьюпорта — устройство', () => {
   it('верхняя панель держит только общее: групп свойств модели в ней нет', () => {
@@ -90,11 +92,15 @@ describe('панели вьюпорта — устройство', () => {
     }
   });
 
-  it('каждая группа живёт на полке значков', () => {
+  it('каждая группа живёт там, где ей положено', () => {
     const rail = html.indexOf('class="vp-rail"');
     const tail = html.slice(rail);
-    for (const id of ALL_GROUP_IDS) {
+    for (const id of GROUP_IDS) {
       expect(tail.includes(`id="${id}"`), `${id} не на полке значков`).toBe(true);
+    }
+    const between = html.slice(html.indexOf('class="vp-toolbar"'), rail);
+    for (const id of TOOLBAR_GROUP_IDS) {
+      expect(between.includes(`id="${id}"`), `${id} не в верхней панели`).toBe(true);
     }
   });
 
@@ -102,22 +108,38 @@ describe('панели вьюпорта — устройство', () => {
     // Разница видна ровно здесь. Группа свойства модели обязана стартовать скрытой:
     // до загрузки модели неизвестно, есть ли у неё это свойство, а показанный пустой
     // значок обещал бы то, чего нет (Правило 12). Постоянная группа, наоборот, скрытой
-    // быть не должна — иначе способ показа стал бы недоступен на пустом экране.
+    // быть не должна — иначе свет стал бы недоступен на пустом экране.
     for (const id of GROUP_IDS) {
       const tag = html.slice(html.indexOf(`id="${id}"`));
       expect(tag.slice(0, 120).includes('hidden'), `${id} не скрыт до загрузки модели`).toBe(true);
     }
-    for (const id of ALWAYS_GROUP_IDS) {
+    for (const id of TOOLBAR_GROUP_IDS) {
       const start = html.indexOf(`id="${id}"`);
       const tag = html.slice(start, html.indexOf('>', start));
       expect(tag.includes('hidden'), `${id} спрятан, хотя должен стоять всегда`).toBe(false);
     }
   });
 
+  it('солнышко открывает меню сразу — без списка внутри и без подписи', () => {
+    // Два требования Александра 2026-08-28, оба дословные. Первое: «только значок
+    // солнышка никак не надо подписывать». Второе, час спустя, про первую редакцию:
+    // «сейчас получается окно в окне… нажал на солнышко, сразу всё меню выпадает и то
+    // что выбрано просто изначально подсвечено… не нужно из солнышка делать ещё папку
+    // ради папки».
+    const start = html.indexOf('id="light-controls"');
+    const block = html.slice(start, html.indexOf('id="exposure-slider"', start));
+    expect(block.includes('vp-ctl-label'), 'у солнышка появилась подпись словом').toBe(false);
+    expect(block.includes('<select'), 'внутри полочки снова список — окно в окне').toBe(false);
+    expect(block.includes('vp-pop-menu'), 'полочка солнышка перестала быть меню').toBe(true);
+    // Стрелка обязана быть: без неё значок читается как кнопка-переключатель, а он
+    // раскрывает меню.
+    expect(block.includes('vp-caret'), 'у солнышка нет стрелки выпадающего меню').toBe(true);
+  });
+
   it('у каждой группы есть свой значок с подписью из каталога', () => {
-    const rail = html.slice(html.indexOf('class="vp-rail"'));
-    const buttons = [...rail.matchAll(/<button[^>]*vp-group-btn[^>]*>/g)].map((m) => m[0]);
-    expect(buttons.length, 'значков на полке не столько, сколько групп').toBe(ALL_GROUP_IDS.length);
+    const zone = html.slice(html.indexOf('class="vp-toolbar"'));
+    const buttons = [...zone.matchAll(/<button[^>]*vp-group-btn[^>]*>/g)].map((m) => m[0]);
+    expect(buttons.length, 'значков не столько, сколько групп').toBe(ALL_GROUP_IDS.length);
     for (const btn of buttons) {
       // Правило 8: у значка нет текста, подпись берётся по ключу — иначе он немой.
       expect(/data-i18n-title="/.test(btn), `значок без data-i18n-title: ${btn}`).toBe(true);
@@ -130,7 +152,7 @@ describe('панели вьюпорта — устройство', () => {
   // просмотра там быть не должно ни в каком виде.
   it('закрытие полочки не трогает движок просмотра — анимация продолжает идти', () => {
     const code = stripComments(app);
-    const start = code.indexOf("document.querySelector('.vp-rail')");
+    const start = code.indexOf("document.querySelectorAll('.vp-rail, .vp-toolbar')");
     const end = code.indexOf('window.onOptiViewerModelLoaded =');
     expect(start, 'не нашёл проводку полки — якорь сменился').toBeGreaterThan(-1);
     expect(end, 'не нашёл якорь конца проводки').toBeGreaterThan(start);

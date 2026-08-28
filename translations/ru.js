@@ -58,6 +58,7 @@ window.I18N_CATALOGS.ru = {
   'vp.display.wire': 'Сетка',
   'vp.light': 'Свет',
   'viewer.light.studio': 'Студийный',
+  'viewer.light.none': 'Без света',
   'viewer.light.file': 'Из файла',
   'vp.camera': 'Камера',
   'viewer.camera.free': 'Свободная',

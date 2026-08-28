@@ -64,6 +64,7 @@ window.I18N_CATALOGS.en = {
   // Свет. Появляется только у моделей, которые несут свои источники.
   'vp.light': 'Lighting',
   'viewer.light.studio': 'Studio',
+  'viewer.light.none': 'No light',
   'viewer.light.file': 'From the file',
   // Камеры автора. Первый пункт — наша свободная орбита, остальные его ракурсы.
   'vp.camera': 'Camera',

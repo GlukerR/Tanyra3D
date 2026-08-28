@@ -338,7 +338,7 @@ class DualViewport {
   /** Выбранный ракурс автора; null — своя орбита. Переживает сборку, но не смену модели. */
   declare _cameraIndex: number | null;
   /** Чей свет показываем. Тоже переживает сборку, но не смену модели. */
-  declare _lightMode: 'studio' | 'file';
+  declare _lightMode: 'studio' | 'file' | 'none';
   declare _exposure: number;
   /** Материал показа, один на оба окна. См. setDisplayMaterial. */
   declare _display: DisplayMode;
@@ -586,7 +586,11 @@ class DualViewport {
    * должен отчёт, а не молча погасшая кнопка.
    */
   getLight() {
-    const info = this.left?.viewer?.getLightInfo?.() || { count: 0, mode: 'studio' as const };
+    // Пока модели нет, спрашивать некого — отвечаем ТЕМ, ЧТО ПОМНИМ. Иначе меню света
+    // на пустом экране показывало бы «студийный» после того, как человек выбрал другое:
+    // выбор молча не прилипал бы (Правило 12). При загрузке модели режим сбрасывается в
+    // студийный намеренно (loadOriginal), и меню об этом честно узнаёт тут же.
+    const info = this.left?.viewer?.getLightInfo?.() || { count: 0, mode: this._lightMode };
     return {
       ...info,
       // По сторонам — по той же причине, что у камер: разный свет слева и справа
@@ -603,7 +607,7 @@ class DualViewport {
    * Выбор НЕ запоминается между моделями, в отличие от клипа и варианта: у следующей
    * модели своего света может не быть вовсе, и она открылась бы почти чёрной.
    */
-  selectLightMode(mode: 'studio' | 'file') {
+  selectLightMode(mode: 'studio' | 'file' | 'none') {
     this._lightMode = mode;
     this.left?.viewer?.setLightMode?.(mode);
     this.right?.viewer?.setLightMode?.(mode);
@@ -884,9 +888,11 @@ class DualViewport {
 
   /** То же для света: своего света у пересобранной модели может не оказаться. */
   _applyLightSelection() {
-    if (this._lightMode !== 'file') return;
-    const okLeft = this.left?.viewer ? this.left.viewer.setLightMode('file') : true;
-    const okRight = this.right?.viewer ? this.right.viewer.setLightMode('file') : true;
+    const mode = this._lightMode;
+    // Студийный — то, с чем вьюпорт и так открывается; применять нечего.
+    if (mode === 'studio') return;
+    const okLeft = this.left?.viewer ? this.left.viewer.setLightMode(mode) : true;
+    const okRight = this.right?.viewer ? this.right.viewer.setLightMode(mode) : true;
     if (okLeft && okRight) return;
     this._lightMode = 'studio';
     this.left?.viewer?.setLightMode?.('studio');

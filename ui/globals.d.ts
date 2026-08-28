@@ -79,11 +79,12 @@ interface OptiViewerApi {
   selectAnimationClip(i: number): void;
   /**
    * Уровни детализации. `source`: 'extension' — автор связал их расширением (факт);
-   * 'names' — узнали по именам соседних узлов (догадка). Интерфейс обязан их различать.
+   * 'names' и 'measured' — узнали по соседним узлам (догадка, с подписью и без).
+   * Интерфейс обязан отличать факт от догадки.
    */
   getLods(): {
     count: number;
-    source: 'extension' | 'names' | null;
+    source: 'extension' | 'names' | 'measured' | null;
     names: string[];
     triangles: number[];
     current: number | 'all' | null;
@@ -103,9 +104,9 @@ interface OptiViewerApi {
    * Свет модели. `count` — сколько источников принесла САМА модель; ноль означает, что
    * переключать нечего и значка быть не должно: «свет из файла» без источников — тьма.
    */
-  getLight(): { count: number; mode: 'studio' | 'file' };
-  /** Показать авторский свет или вернуть студийный — в ОБОИХ вьюпортах. */
-  selectLightMode(mode: 'studio' | 'file'): void;
+  getLight(): { count: number; mode: 'studio' | 'file' | 'none' };
+  /** Выбрать свет — в ОБОИХ вьюпортах: студийный, авторский или никакой. */
+  selectLightMode(mode: 'studio' | 'file' | 'none'): void;
   /**
    * Камеры автора. `current: null` — смотрим своей орбитальной. Имена ИЗ ФАЙЛА,
    * пустое имя остаётся пустым: подпись безымянной придумывает интерфейс.
