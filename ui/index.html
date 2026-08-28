@@ -262,9 +262,12 @@
            файла» появляется только там, где источники есть (Правило 12). -->
       <div id="light-controls" class="vp-group">
         <button class="vp-tool vp-group-btn" type="button" aria-expanded="false" data-i18n-title="vp.light" data-i18n-aria="vp.light" title="Lighting" aria-label="Lighting">☀<span class="vp-caret" aria-hidden="true">▾</span></button>
-        <div class="vp-pop vp-pop-down">
-          <select id="light-select" class="vp-anim-clip" data-i18n-aria="vp.light" aria-label="Lighting"></select>
-        </div>
+        <!-- Полочка САМА и есть меню: нажал солнышко — сразу видны все режимы, выбранный
+             подсвечен. Первая редакция клала внутрь список, и Александр это отверг в тот
+             же час (2026-08-28): «сейчас получается окно в окне… не нужно из солнышка
+             делать ещё папку ради папки». Пункты рисует app.ts: их состав зависит от
+             модели (свой свет есть не у всех). -->
+        <div id="light-menu" class="vp-pop vp-pop-down vp-pop-menu" role="menu" data-i18n-aria="vp.light" aria-label="Lighting"></div>
       </div>
 
       <input id="exposure-slider" class="vp-slider" type="range" min="10" max="300" value="100" step="5" data-i18n-aria="vp.exposure" data-i18n-title="vp.exposure" title="Exposure" aria-label="Exposure">

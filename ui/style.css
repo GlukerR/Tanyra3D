@@ -893,6 +893,30 @@ body.resizing { cursor: col-resize; user-select: none; }
 
 .vp-group.is-open > .vp-pop { display: flex; }
 
+/* Полочка-МЕНЮ: пункты столбиком, выбранный подсвечен. Не список внутри полочки —
+   это было бы окно в окне (Александр, 2026-08-28). */
+.vp-pop-menu {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px;
+}
+
+.vp-pop-item {
+  padding: 5px 10px;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--on-surface-variant);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.vp-pop-item:hover { background: var(--surface-container-high); color: var(--on-surface); }
+/* Выбранный отмечен так же, как нажатая кнопка: одно значение — один вид. */
+.vp-pop-item.is-on { color: var(--primary-container); background: rgba(192, 193, 255, 0.10); }
+
 /* Из верхней панели полочка падает ВНИЗ: слева от значка там соседи, а не край. */
 .vp-pop-down {
   right: auto;

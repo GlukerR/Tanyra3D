@@ -86,7 +86,7 @@
   const displayClayBtn = $('display-clay');
   const displayWireBtn = $('display-wire');
   const lightControls = $('light-controls');
-  const lightSel = $('light-select') as HTMLSelectElement;
+  const lightMenu = $('light-menu');
   const cameraControls = $('camera-controls');
   const cameraSel = $('camera-select') as HTMLSelectElement;
   const animPlayBtn = $('anim-play-btn');
@@ -5726,9 +5726,8 @@
   const lightModes = (own: boolean) => (own ? ['studio', 'none', 'file'] : ['studio', 'none']);
 
   /**
-   * Наполнить список режимов света. Общий для солнышка и для панели рендера — это ОДИН
-   * переключатель с двумя входами, и собирать его дважды двумя способами значило бы
-   * заводить два разных списка под одно состояние.
+   * Наполнить СПИСОК режимов — для панели рендера, где список уместен: он стоит в ряду
+   * других настроек кадра.
    */
   function fillLightSelect(sel: HTMLSelectElement, own: boolean) {
     const signature = own ? 'own' : 'plain';
@@ -5743,17 +5742,58 @@
     }
   }
 
+  /** Закрыть полочку солнышка: выбор сделан, держать её открытой не за чем. */
+  function closeLightMenu() {
+    lightControls?.classList.remove('is-open');
+    lightControls?.querySelector('.vp-group-btn')?.setAttribute('aria-expanded', 'false');
+  }
+
+  /**
+   * Нарисовать МЕНЮ режимов на солнышке.
+   *
+   * Пунктами, а не списком внутри полочки: полочка сама и есть меню. Список делал из
+   * значка «папку ради папки» — нажми солнышко, потом ещё раз, чтобы увидеть, из чего
+   * выбирать (Александр, 2026-08-28).
+   *
+   * Что предлагать, решает `lightModes` — тот же источник, что у панели рендера: это
+   * ОДИН переключатель с двумя входами, и расходиться его половинам нельзя.
+   */
   function refreshLightUI() {
-    if (!lightControls || !lightSel) return;
-    // Вьюер спрашиваем ОСТОРОЖНО и список наполняем в любом случае. Раньше здесь стоял
-    // выход по `!window.OptiViewer`, и он был безобиден, пока значок появлялся вместе с
+    if (!lightControls || !lightMenu) return;
+    // Вьюер спрашиваем ОСТОРОЖНО и меню рисуем в любом случае. Раньше здесь стоял выход
+    // по `!window.OptiViewer`, и он был безобиден, пока значок появлялся вместе с
     // моделью. Теперь значок стоит всегда — а на пустом экране модуль просмотра ещё не
-    // выполнился, и список оставался ПУСТЫМ: раскрывающийся значок, в котором нечего
+    // выполнился, и меню оставалось ПУСТЫМ: раскрывающийся значок, в котором нечего
     // выбрать, — ровно та клавиша, что ничего не делает (Правило 12).
     const info = window.OptiViewer?.getLight?.();
-    fillLightSelect(lightSel, (info?.count ?? 0) > 0);
-    const mode = info?.mode ?? 'studio';
-    if (lightSel.value !== mode) lightSel.value = mode;
+    const modes = lightModes((info?.count ?? 0) > 0);
+    const current = info?.mode ?? 'studio';
+
+    const signature = modes.join(',');
+    if (lightMenu.dataset.filled !== signature) {
+      lightMenu.dataset.filled = signature;
+      lightMenu.textContent = '';
+      for (const mode of modes) {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'vp-pop-item';
+        item.dataset.mode = mode;
+        item.setAttribute('role', 'menuitemradio');
+        setText(item, LIGHT_LABEL[mode] ?? 'viewer.light.studio');
+        item.addEventListener('click', () => {
+          window.OptiViewer?.selectLightMode?.(mode as 'studio' | 'file' | 'none');
+          refreshLightUI();
+          closeLightMenu();
+        });
+        lightMenu.appendChild(item);
+      }
+    }
+    // Выбранное просто подсвечено — состояние, а не отдельная надпись.
+    for (const item of lightMenu.querySelectorAll('.vp-pop-item')) {
+      const on = (item as HTMLElement).dataset.mode === current;
+      item.classList.toggle('is-on', on);
+      item.setAttribute('aria-checked', String(on));
+    }
   }
 
   // ---------------------------------------------------------------
@@ -5814,15 +5854,9 @@
     });
   }
 
-  if (lightSel) {
-    lightSel.addEventListener('change', () => {
-      if (!window.OptiViewer) return;
-      window.OptiViewer.selectLightMode(lightSel.value as 'studio' | 'file' | 'none');
-      // Панель рендера показывает ТОТ ЖЕ переключатель и подтягивает его состояние при
-      // каждом открытии меню — догонять её отсюда нечем и незачем: пока человек в
-      // солнышке, панель закрыта.
-    });
-  }
+  // Проводки у пунктов меню своей нет: она ставится там же, где они рождаются, —
+  // в refreshLightUI. Панель рендера показывает ТОТ ЖЕ переключатель и подтягивает его
+  // состояние при каждом открытии меню, догонять её отсюда незачем.
 
   // ---------------------------------------------------------------
   // Камеры автора
