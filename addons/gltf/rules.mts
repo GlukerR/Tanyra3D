@@ -64,6 +64,7 @@ import { instanceStatic, unbakeCopies } from './instance.mjs';
 import { type Ceiling, probeWebpCeiling, readCeiling, targetQuality } from './source-quality.mjs';
 import { readSourceJson } from './source-json.mjs';
 import { importNote } from './import-notes.mjs';
+import { scanLods } from './lod-scan.mjs';
 import { collectMetrics, countTriangles, effectiveSkins, listSemantics, textureSize } from './metrics.mjs';
 import { HAS_GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 import { hasOpaqueExtension } from './carry.mjs';
@@ -578,6 +579,16 @@ export const RULES: GltfRule[] = [
     // ВЕРНАЯ, чинить нечего. Не хватало только слова: человек не знал, что в файле есть
     // ещё уровни и что показан из них один.
     //
+    // ВТОРОЙ И ТРЕТИЙ СЛУЧАЙ (2026-08-28). Расширение экспортируют единицы. Куда чаще
+    // уровни лежат просто соседними узлами: у Sketchfab подписанными «LOD», у прочих не
+    // подписанными никак. Их отчёт не видел вовсе — при том что переключатель уровней
+    // над моделью для них уже появлялся. Один вопрос — два разных ответа в двух местах,
+    // ровно то, что запрещают Правила интерфейса §1. Слово Александра прямое: «надо что
+    // бы в правой панели тоже показывало».
+    //
+    // Решение принимает `core/lod-grouping.mts` — тот же модуль, что и во вьюпорте.
+    // Здесь только повод его спросить.
+    //
     // Создание уровней в задачи проекта не входит (Александр, 2026-08-15), поэтому здесь
     // нет и не будет `fix`. Правило существует ради одной строки в «Анализе».
     meta: {
@@ -587,27 +598,40 @@ export const RULES: GltfRule[] = [
       enabled: () => true, // наблюдение, а не оптимизация: не зависит ни от одной галочки
     },
     analyze(ctx) {
+      // ── Способ первый: расширение. Это ФАКТ, и он старше любой догадки. ──────────
+      //
       // Читаем ИСХОДНЫЙ файл, а не документ: gltf-transform про MSFT_lod не знает, и в
       // документе расширения нет вовсе (docs/EXTENDING.md §5c — истина в первоисточнике).
       // Через общий assetJson: тот же файл читает сторож незнакомых расширений, а весит
       // он бывает сотни мегабайт.
       const json = assetJson(ctx);
-      if (!json || !(json.extensionsUsed || []).includes('MSFT_lod')) return [];
-
-      // Считаем УЗЛЫ с уровнями и максимальную глубину списка, а не сумму по всем узлам:
-      // «в файле 47 уровней» ничего не значит, а «у 12 частей до 3 уровней» — значит.
-      let nodes = 0;
-      let deepest = 0;
-      for (const node of (json.nodes || []) as Array<{ extensions?: Record<string, { ids?: unknown[] }> }>) {
-        const ids = node.extensions?.['MSFT_lod']?.ids;
-        if (!Array.isArray(ids) || !ids.length) continue;
-        nodes++;
-        // +1 — сам узел: он и есть самый подробный уровень, список перечисляет запасные.
-        deepest = Math.max(deepest, ids.length + 1);
+      if (json && (json.extensionsUsed || []).includes('MSFT_lod')) {
+        // Считаем УЗЛЫ с уровнями и максимальную глубину списка, а не сумму по всем
+        // узлам: «в файле 47 уровней» ничего не значит, а «у 12 частей до 3» — значит.
+        let nodes = 0;
+        let deepest = 0;
+        for (const node of (json.nodes || []) as Array<{ extensions?: Record<string, { ids?: unknown[] }> }>) {
+          const ids = node.extensions?.['MSFT_lod']?.ids;
+          if (!Array.isArray(ids) || !ids.length) continue;
+          nodes++;
+          // +1 — сам узел: он и есть самый подробный уровень, список перечисляет запасные.
+          deepest = Math.max(deepest, ids.length + 1);
+        }
+        // Одна запись на класс (Правило 9): узлов бывают десятки, строка одна.
+        if (nodes) return [{ messageId: 'lod.found', data: { nodes, levels: deepest } }];
       }
-      if (!nodes) return [];
-      // Одна запись на класс (Правило 9): узлов бывают десятки, строка одна.
-      return [{ messageId: 'lod.found', data: { nodes, levels: deepest } }];
+
+      // ── Способы второй и третий: соседние узлы. Это ДОГАДКА, и говорим о ней так. ─
+      //
+      // Разные сообщения на две догадки, а не одно с подстановкой: разница между
+      // «автор подписал» и «мы измерили» — это разный вес утверждения, и склеивать их
+      // одной строкой с переменной значило бы прятать её (Правило 8 §3).
+      const found = scanLods(ctx.document);
+      if (!found) return [];
+      return [{
+        messageId: found.source === 'names' ? 'lod.likelyNames' : 'lod.likelyMeasured',
+        data: { nodes: found.nodes, levels: found.levels },
+      }];
     },
   },
 

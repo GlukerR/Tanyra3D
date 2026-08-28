@@ -49,8 +49,16 @@
 //
 // Догадка (и мягкая, и строгая) НИЧЕГО не меняет в файле — только предлагает посмотреть
 // по одному, и интерфейс называет её догадкой (`source`).
+//
+// ГДЕ ЛЕЖИТ САМО ПРАВИЛО. Не здесь: в `core/lod-grouping.mts`. Тот же вопрос задаёт
+// отчёт (`addons/gltf/rules.mts`), и данные у него другие — документ gltf-transform
+// вместо сцены three.js. Разойдись эти два ответа, человек увидел бы переключатель
+// уровней во вьюпорте и ни строчки про них в правой панели. Здесь остаётся МЕРКА:
+// перевести объекты three.js в числа и вернуть решение обратно на объекты.
 
 import * as THREE from "three";
+
+import { groupLevels, type LodCandidate } from "../../core/lod-grouping.mjs";
 
 /** Один уровень: что показывать и чем он отличается от соседей. */
 export interface LodLevel {
@@ -83,29 +91,10 @@ export interface LodSet {
   levels: LodLevel[];
 }
 
-/** Кандидат в уровни: узел вместе со всем, что о нём измерено. */
-interface Candidate {
+/** Кандидат в уровни: измерения для `core/lod-grouping.mts` плюс сам объект сцены. */
+interface Candidate extends LodCandidate {
   obj: THREE.Object3D;
-  name: string;
-  triangles: number;
-  texturePixels: number;
-  /** Габарит по убыванию: [самая длинная сторона, средняя, самая короткая]. */
-  size: [number, number, number];
-  center: THREE.Vector3;
 }
-
-const AXES = ['x', 'y', 'z'] as const;
-
-/**
- * Насколько грубее обязан быть следующий уровень при СТРОГОМ измерении.
- *
- * Двойка — не «красивое число», а граница между двумя разными вещами. Уровень
- * детализации делают кратно грубее, иначе он не экономит ничего: у Stone Well шаги
- * 6.8×, 4.4×, 4.6×, 3.8×, 63×. А соседние ЧАСТИ одного предмета отличаются подробностью
- * случайно и понемногу — переднее колесо от заднего на проценты. Требование кратности
- * отсекает «части», не трогая настоящие уровни.
- */
-const STEP = 2;
 
 const triangleCount = (root: THREE.Object3D): number => {
   let tri = 0;
@@ -154,130 +143,17 @@ function measure(obj: THREE.Object3D): Candidate | null {
   if (triangles <= 0) return null;
   const box = new THREE.Box3().setFromObject(obj);
   const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
   return {
     obj,
     name: obj.name || '',
     triangles,
     texturePixels: texturePixels(obj),
-    size: [size.x, size.y, size.z].sort((a, b) => b - a) as [number, number, number],
-    center: box.getCenter(new THREE.Vector3()),
+    // Габарит отдаём КАК ИЗМЕРЕН: сортирует его сам `core/lod-grouping.mts`, и делать
+    // это дважды значило бы держать порядок сторон в двух местах.
+    size: [size.x, size.y, size.z],
+    center: [center.x, center.y, center.z],
   };
-}
-
-// Имя уровня: LOD3, lod_3, Stone_Well_LOD3_1. Номер вытаскиваем, но ПОРЯДКОМ он не
-// служит: у автора Stone Well `LOD0` — самый грубый, а бывает и наоборот. Порядок
-// решается подробностью — измеримым фактом, а не соглашением об именах.
-const LOD_NAME = /(?:^|[^a-z])lod[_\s-]?(\d+)/i;
-
-/**
- * Уровни ЗАМЕЩАЮТ друг друга, а части СКЛАДЫВАЮТСЯ. Это и проверяем.
- *
- * Два законных расположения, и оба встречаются в живых файлах:
- *
- *   • в одной точке — уровни надеты друг на друга, как их и рисует движок;
- *   • ровным рядом — автор выложил их витриной, чтобы сравнить (замер на Stone Well
- *     2026-08-15: перенос 1.5, 3, 4.5, 6, 7.5 вдоль X).
- *
- * Ряд проверяем по РОВНОСТИ шага и только по одной оси. Части предмета тоже стоят
- * каждая на своём месте, но их места — не арифметическая прогрессия вдоль оси.
- *
- * @param span самая длинная сторона самого подробного уровня — мерка допуска
- */
-function placedAsLevels(centers: THREE.Vector3[], span: number): boolean {
-  const slack = span * 0.2;
-  const spread = AXES.map((a) => {
-    const v = centers.map((c) => c[a]);
-    return Math.max(...v) - Math.min(...v);
-  });
-
-  if (spread.every((s) => s <= slack)) return true; // все в одной точке
-
-  const wide = spread.filter((s) => s > slack);
-  if (wide.length !== 1) return false; // разъехались по двум осям — это раскладка частей
-  const axis = AXES[spread.indexOf(wide[0]!)]!;
-
-  // Ряд сортируем ПО КООРДИНАТЕ, а не по подробности: у Sketchfab порядок выкладки свой
-  // (`Stone_Well_LOD5_5`, `Stone_Well_LOD0_3`) и с порядком уровней не совпадает.
-  const line = centers.map((c) => c[axis]).sort((a, b) => a - b);
-  const steps: number[] = [];
-  for (let i = 1; i < line.length; i++) steps.push(line[i]! - line[i - 1]!);
-  const mean = steps.reduce((a, b) => a + b, 0) / steps.length;
-  if (!(mean > 0)) return false;
-  return steps.every((s) => Math.abs(s - mean) <= mean * 0.25);
-}
-
-/**
- * Решить, уровни ли это, и выстроить их от подробного к грубому.
- *
- * @param strict подписи «LOD» в именах нет — меры те же, требования выше
- */
-function оценить(cands: Candidate[], strict: boolean): LodLevel[] | null {
-  // Двух уровней хватает, когда автор их подписал. Без подписи двух мало: «крупная
-  // часть плюс мелкая» встречается в любой модели, а лестница из трёх ступеней случайно
-  // не складывается.
-  if (cands.length < (strict ? 3 : 2)) return null;
-
-  // Порядок — по подробности: сначала сетка, при равной сетке — картинки. Имя в порядке
-  // не участвует вовсе.
-  const order = [...cands].sort(
-    (a, b) => b.triangles - a.triangles || b.texturePixels - a.texturePixels,
-  );
-
-  // (1) Уровни обязаны РАЗЛИЧАТЬСЯ подробностью. Одинаковые куски — это части модели
-  //     (четыре колеса), а не её версии.
-  const seen = new Set(order.map((c) => c.triangles + '/' + c.texturePixels));
-  if (seen.size !== order.length) return null;
-
-  const ref = order[0]!;
-  if (!ref.size[0]) return null;
-
-  if (strict) {
-    for (let i = 1; i < order.length; i++) {
-      const выше = order[i - 1]!;
-      const ниже = order[i]!;
-
-      // (2) Кратная лестница. Считаем по той мере, которая изменилась: сетка та же —
-      //     значит уровень отличается картинками, и кратность спрашиваем с них.
-      const step = выше.triangles === ниже.triangles
-        ? (ниже.texturePixels ? выше.texturePixels / ниже.texturePixels : Infinity)
-        : (ниже.triangles ? выше.triangles / ниже.triangles : Infinity);
-      if (step < STEP) return null;
-
-      // (3) Обе меры смотрят в одну сторону. Узел с более грубой сеткой, но БОЛЬШЕЙ
-      //     картинкой — не огрубление той же вещи, а другая вещь.
-      if (ниже.texturePixels > выше.texturePixels) return null;
-    }
-  }
-
-  // (4) Одна и та же вещь — значит совпадает ПО РАЗМЕРУ. Именно по размеру, а не по
-  //     месту: место проверяет `placedAsLevels`.
-  //
-  // Сравниваем САМУЮ ДЛИННУЮ сторону — и только её. Остальные проверять нельзя, и это
-  // тот же замер на Stone Well: самый грубый уровень оказался плоским биллбордом
-  // 1.282 × 0.719 × 0.000 против 1.302 × 0.705 × 1.302 у подробного. Схлопнулась не
-  // «третья» сторона, а одна из двух горизонтальных: силуэт колодца сохранён, объём
-  // выброшен целиком. Так и работает огрубление до плоскости («колодец в конце
-  // становится просто плейном вдалеке»), и требовать от него сохранности второго
-  // габарита значит не узнавать самый грубый уровень никогда.
-  //
-  // Вторую сторону всё же держим — но односторонне: ей позволено СХЛОПНУТЬСЯ и
-  // запрещено вырасти. Уровень, который стал ШИРЕ подробного, — уже не огрубление.
-  const tol = strict ? 0.1 : 0.2;
-  for (const c of order) {
-    const longestMatches = Math.abs(c.size[0] - ref.size[0]) <= Math.max(c.size[0], ref.size[0]) * tol;
-    if (!longestMatches) return null;
-    if (c.size[1] > ref.size[1] * (1 + tol)) return null;
-  }
-
-  // (5) Замещение, а не сложение.
-  if (strict && !placedAsLevels(order.map((c) => c.center), ref.size[0])) return null;
-
-  return order.map((c) => ({
-    name: c.name,
-    triangles: c.triangles,
-    texturePixels: c.texturePixels,
-    objects: [c.obj],
-  }));
 }
 
 /**
@@ -350,7 +226,7 @@ function nodeFilter(assoc?: Map<unknown, Association>): (o: THREE.Object3D) => b
 }
 
 /**
- * Уровни как отдельные узлы-соседи: измерением, а имя — только улика.
+ * Уровни как отдельные узлы-соседи. Меряем здесь, решает `core/lod-grouping.mts`.
  *
  * Подписанный набор сильнее неподписанного, поэтому обход не останавливается на первой
  * же строгой находке: подпись где-то глубже перевесит её. Наоборот — нет, подписанный
@@ -371,18 +247,24 @@ function fromSiblings(scene: THREE.Object3D, isNode: (o: THREE.Object3D) => bool
       const m = measure(child);
       if (m) cands.push(m);
     }
-    if (cands.length < 2) return;
 
-    const подписанные = cands.filter((c) => LOD_NAME.test(c.name));
-    if (подписанные.length >= 2) {
-      const levels = оценить(подписанные, false);
-      if (levels) { named = { source: 'names', levels }; return; }
-    }
+    const group = groupLevels(cands);
+    if (!group) return;
 
-    if (!measured) {
-      const levels = оценить(cands, true);
-      if (levels) measured = { source: 'measured', levels };
-    }
+    const set: LodSet = {
+      source: group.source,
+      levels: group.order.map((i) => {
+        const c = cands[i]!;
+        return {
+          name: c.name,
+          triangles: c.triangles,
+          texturePixels: c.texturePixels,
+          objects: [c.obj],
+        };
+      }),
+    };
+    if (group.source === 'names') named = set;
+    else if (!measured) measured = set;
   });
 
   return named ?? measured;

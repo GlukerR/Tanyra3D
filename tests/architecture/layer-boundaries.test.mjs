@@ -13,7 +13,9 @@
 //   server.mjs    → верхний шов: node:*, ./optimize2.mjs, ./core/i18n.mjs,
 //                   ./assistant.mjs (динамически).
 //   assistant.mjs → node:*, ./messages/*. Запрещено: optimize2.mjs (контракт §4c).
-//   ui/*          → three, three/addons/*, ./ (свои). Запрещено: core, addons.
+//   ui/*          → three, three/addons/*, ./ (свои). Запрещено: core, addons —
+//                   кроме поимённого списка ОБЩИХ ПРАВИЛ без единого импорта
+//                   (UI_SHARED_RULES ниже; сегодня там один файл).
 //
 // Плюс правило composition root: импортировать И core, И addons имеет право
 // только optimize2.mjs (server.mjs — через optimize2). И ни один слой не имеет
@@ -122,6 +124,30 @@ const ZERO_IMPORT_LAYERS = new Set(['messages']);
  */
 const DYNAMIC_CATALOG_LOADERS = new Set(['core/i18n.mjs', 'assistant.mjs']);
 
+/**
+ * Модули ядра, которые вправе читать и слой ui. Список закрытый и ПРОВЕРЯЕМЫЙ.
+ *
+ * Появилось 2026-08-28 вместе с `core/lod-grouping.mjs` — тем, что решает, считать ли
+ * соседние узлы уровнями детализации. Спрашивают об этом двое: отчёт (движок, документ
+ * gltf-transform) и переключатель над моделью (браузер, сцена three.js). Данные разные,
+ * а правило обязано быть одно: разойдись они — человек увидит уровни в окне и ни строчки
+ * про них в правой панели. Ровно этот класс расхождений и запрещают Правила интерфейса §1
+ * («один вопрос — один ответ в одном месте»), и повод для исключения именно он, а не
+ * экономия строк.
+ *
+ * ПРИЗНАК, ПО КОТОРОМУ ПУСКАЕТСЯ, И ОН ПРОВЕРЯЕТСЯ ОТДЕЛЬНЫМ ТЕСТОМ: у модуля НОЛЬ
+ * импортов. Чистое решение, числа на входе, числа на выходе. Поэтому впустить через него
+ * в браузер движок нельзя физически — не за что зацепиться. Разреши мы вместо этого
+ * «слой ui → слой core», и завтра во вьюпорт приехал бы `core/engine.mjs`, а сторож
+ * промолчал бы: он сводит импорт к слою и разницы не увидел бы.
+ *
+ * Обратное направление (любой слой → ui) остаётся запрещённым без исключений.
+ */
+const UI_SHARED_RULES = new Set(['core/lod-grouping.mjs']);
+
+/** Путь файла относительно корня, всегда через прямые слэши. */
+const relOf = (file) => path.relative(PROJECT_ROOT, file).split(path.sep).join('/');
+
 // Нормализованное имя пакета: scoped-пакеты (@scope/name) — два сегмента.
 function packageName(spec) {
   const parts = spec.split('/');
@@ -159,6 +185,25 @@ describe('layer-boundaries — границы слоёв (таблица §2.4)'
     expect(DYNAMIC_CATALOG_LOADERS.size,
       'список исключений вырос. Каждый вычисленный import() — слепое пятно гейта; '
       + 'новый пускается только с разбором, почему статического пути нет').toBe(2);
+  });
+
+  it('общее правило, открытое слою ui, остаётся ЧИСТЫМ', async () => {
+    // Признак, по которому выдано исключение, проверяется, а не описан в комментарии.
+    // Ноль импортов — значит через этот модуль в браузер не приедет ни ядро, ни
+    // gltf-transform, ни что-либо ещё. Появится у него первый импорт — тест покраснеет,
+    // и решать придётся человеку, а не сторожу.
+    const files = productionFiles();
+    for (const rel of UI_SHARED_RULES) {
+      const file = files.find((f) => relOf(f) === rel);
+      expect(file, `${rel} назван в исключении, но такого файла в production-коде нет`).toBeTruthy();
+      const imports = await parseImports(file);
+      expect(imports.map((i) => i.specifier),
+        `${rel} обзавёлся импортами — он больше не чистое правило, и слою ui его нельзя`)
+        .toEqual([]);
+    }
+    expect(UI_SHARED_RULES.size,
+      'список общих правил вырос. Каждое такое правило — шов между браузером и движком; '
+      + 'новое пускается только с разбором, почему один ответ нужен обеим сторонам').toBe(1);
   });
 
   it('ни один импорт не нарушает allow-list своего слоя', async () => {
@@ -203,6 +248,8 @@ describe('layer-boundaries — границы слоёв (таблица §2.4)'
             continue;
           }
           const targetLayer = layerOfFile(target);
+          // Поимённое исключение: общее правило, у которого нет собственных импортов.
+          if (sourceLayer === 'ui' && UI_SHARED_RULES.has(relOf(target))) continue;
           const allowed = ALLOWED_RELATIVE[sourceLayer];
           if (!allowed || !allowed.has(targetLayer)) {
             violations.push(`${rel} → ${targetLayer}: импорт '${specifier}' запрещён для слоя ${sourceLayer}`);

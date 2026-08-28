@@ -120,6 +120,8 @@ core/i18n.mjs
 core/i18n.d.mts
 core/engine.mjs
 core/engine.d.mts
+core/lod-grouping.mjs
+core/lod-grouping.d.mts
 addons/gltf/metrics.mjs
 addons/gltf/metrics.d.mts
 addons/gltf/tools.mjs
@@ -148,6 +150,8 @@ addons/gltf/import-obj.mjs
 addons/gltf/import-obj.d.mts
 addons/gltf/carry.mjs
 addons/gltf/carry.d.mts
+addons/gltf/lod-scan.mjs
+addons/gltf/lod-scan.d.mts
 addons/gltf/media.mjs
 addons/gltf/media.d.mts
 addons/gltf/instance.mjs

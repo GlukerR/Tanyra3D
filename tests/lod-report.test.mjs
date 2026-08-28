@@ -14,6 +14,9 @@
 
 import { describe, it, expect, afterAll } from 'vitest';
 import fs from 'node:fs';
+import path from 'node:path';
+
+import { Document, NodeIO } from '@gltf-transform/core';
 
 import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 import { optimizeFile } from '../optimize2.mjs';
@@ -94,4 +97,114 @@ describe('ядро — находка правила без починки до�
     expect(src, 'вернулась передача finding.text — наблюдения снова пропадут молча')
       .not.toContain('addFound(rule.meta, finding.text)');
   });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// РАЗДЕЛ 3 · Уровни БЕЗ расширения — то, ради чего правило переписано
+//
+// ЗАКАЗ (Александр, 2026-08-28): «надо что бы в правой панели тоже показывало».
+//
+// До этого дня отчёт видел ровно `MSFT_lod` — способ правильный, но его экспортируют
+// единицы. Куда чаще уровни лежат просто соседними узлами: у Sketchfab подписанными
+// «LOD», у прочих не подписанными никак. Про них отчёт молчал — при том что
+// переключатель уровней над моделью для них уже появлялся. Один вопрос — два разных
+// ответа в двух местах.
+//
+// ПОЧЕМУ ЗАГОТОВКА, А НЕ МОДЕЛЬ ИЗ КОРПУСА. Модель с уровнями-соседями в корпусе одна
+// (StoneWellLodsFlat), и её, как и все модели, в git нет (Правило 0) — на CI проверка
+// не выполнилась бы ни разу. Лесенка строится здесь же за миллисекунды и работает на
+// любом клоне. Настоящий колодец проверяется ниже, когда он на диске есть.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Собрать GLB с лестницей подробности: три соседних узла одного габарита, каждый
+ * следующий кратно грубее.
+ *
+ * Треугольники считаются по числу вершин (индексов нет), габарит — по самим вершинам.
+ * Первые две вершины ставят углы коробки, поэтому габарит у всех трёх одинаковый — как
+ * у настоящих уровней одной и той же вещи.
+ */
+async function ladderGlb(dir, vertexCounts, names) {
+  const doc = new Document();
+  const buffer = doc.createBuffer();
+  const scene = doc.createScene();
+  const rig = doc.createNode('rig');
+  scene.addChild(rig);
+
+  vertexCounts.forEach((verts, i) => {
+    const data = new Float32Array(verts * 3);
+    data.set([0, 0, 0, 1, 1, 1], 0);
+    for (let v = 2; v < verts; v++) {
+      data[v * 3] = (v % 7) / 7;
+      data[v * 3 + 1] = (v % 5) / 5;
+      data[v * 3 + 2] = (v % 3) / 3;
+    }
+    const pos = doc.createAccessor().setType('VEC3').setArray(data).setBuffer(buffer);
+    const prim = doc.createPrimitive().setAttribute('POSITION', pos);
+    const mesh = doc.createMesh('m' + i).addPrimitive(prim);
+    rig.addChild(doc.createNode(names[i]).setMesh(mesh));
+  });
+
+  const file = path.join(dir, 'ladder.glb');
+  await new NodeIO().write(file, doc);
+  return file;
+}
+
+describe('уровни-соседи доходят до правой панели', () => {
+  it('лестница без подписи названа догадкой, а не фактом', async () => {
+    const dir = tmpOutDir();
+    const file = await ladderGlb(dir, [300, 30, 9], ['well', 'well_far', 'Plane.003']);
+    const result = await optimizeFile(file, { advancedFeatures: ['safe'], outDir: tmpOutDir() });
+    const lines = linesOf(result, 'ru');
+
+    expect(lines.length, 'про уровни в отчёте по-прежнему ни строчки').toBe(1);
+    // «Похоже» — не украшение: это ДОГАДКА по измерению, и выдавать её за факт нельзя.
+    expect(lines[0].text).toMatch(/Похоже/);
+    expect(lines[0].text, 'не сказано, сколько уровней найдено').toMatch(/до 3/);
+    // И сказано главное следствие: связи между уровнями нет, значит рисуются все сразу.
+    expect(lines[0].text).toMatch(/все сразу/);
+  });
+
+  it('подписанная лестница названа подписью, а не измерением', async () => {
+    // Разный вес утверждения — разные строки. Автор, подписавший узлы, сказал прямо;
+    // измерение только догадалось.
+    const dir = tmpOutDir();
+    const file = await ladderGlb(dir, [300, 30, 9], ['w_LOD0', 'w_LOD1', 'w_LOD2']);
+    const result = await optimizeFile(file, { advancedFeatures: ['safe'], outDir: tmpOutDir() });
+    const lines = linesOf(result, 'ru');
+
+    expect(lines.length).toBe(1);
+    expect(lines[0].text, 'подпись LOD не названа источником').toMatch(/подписаны LOD/);
+  });
+
+  it('строка переживает смену языка — она собирается из ключа', () => {
+    // Правило 8: готовый отчёт обязан переводиться БЕЗ пересборки.
+    const dir = tmpOutDir();
+    return ladderGlb(dir, [300, 30, 9], ['a', 'b', 'c'])
+      .then((file) => optimizeFile(file, { advancedFeatures: ['safe'], outDir: tmpOutDir() }))
+      .then((result) => {
+        expect(linesOf(result, 'ru')[0].text).toMatch(/Похоже/);
+        expect(linesOf(result, 'en')[0].text).toMatch(/looks like/);
+      });
+  });
+
+  it('обычные части моделью с уровнями не становятся', async () => {
+    // Сторож догадки. Три узла одинаковой подробности — это части, а не версии.
+    const dir = tmpOutDir();
+    const file = await ladderGlb(dir, [300, 300, 300], ['left', 'middle', 'right']);
+    const result = await optimizeFile(file, { advancedFeatures: ['safe'], outDir: tmpOutDir() });
+    expect(linesOf(result, 'ru').length, 'части приняты за уровни').toBe(0);
+  });
+
+  // Настоящая выгрузка Sketchfab — когда она есть на диске. Шесть уровней соседями,
+  // расширения в файле нет вовсе.
+  const FLAT = 'StoneWellLodsFlat.glb';
+  const flatIt = isPresent(FLAT) ? it : it.skip;
+  flatIt('StoneWellLodsFlat — шесть уровней названы в отчёте', async () => {
+    const result = await runOn(FLAT);
+    const lines = linesOf(result, 'ru');
+    expect(lines.length, 'про шесть уровней колодца отчёт молчит').toBe(1);
+    expect(lines[0].text).toMatch(/до 6/);
+    expect(lines[0].text).toMatch(/подписаны LOD/);
+  }, 120000);
 });
