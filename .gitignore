@@ -152,6 +152,8 @@ addons/gltf/carry.mjs
 addons/gltf/carry.d.mts
 addons/gltf/lod-scan.mjs
 addons/gltf/lod-scan.d.mts
+addons/gltf/interactivity.mjs
+addons/gltf/interactivity.d.mts
 addons/gltf/media.mjs
 addons/gltf/media.d.mts
 addons/gltf/instance.mjs
@@ -172,5 +174,6 @@ ui/viewer/index.js
 ui/viewer/viewer.js
 ui/viewer/contract.js
 ui/viewer/pointer-uv.js
+ui/viewer/interactivity.js
 ui/viewer/lod.js
 ui/viewer/diffuse-transmission.js

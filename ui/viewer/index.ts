@@ -339,6 +339,8 @@ class DualViewport {
   declare _cameraIndex: number | null;
   /** Чей свет показываем. Тоже переживает сборку, но не смену модели. */
   declare _lightMode: 'studio' | 'file' | 'none';
+  /** Показана ли обводка нажимаемых частей. Одна на оба окна. */
+  declare _interactiveOn: boolean;
   declare _exposure: number;
   /** Материал показа, один на оба окна. См. setDisplayMaterial. */
   declare _display: DisplayMode;
@@ -364,6 +366,7 @@ class DualViewport {
     this._lodIndex = null;    // и показанный уровень детализации
     this._cameraIndex = null; // и выбранный ракурс автора (см. _applyCameraSelection)
     this._lightMode = 'studio'; // и чей свет показываем
+    this._interactiveOn = false; // и обводка интерактива снята
     this._exposure = 1;      // 1.0 — как отдаёт three.js без поправки
     // Кольцевые буферы замера отрисовки; заполняются в _pushPerf каждый кадр.
     this._perf = {
@@ -576,6 +579,28 @@ class DualViewport {
     this._lodIndex = index;
     this.left?.viewer?.setLod?.(index);
     this.right?.viewer?.setLod?.(index);
+  }
+
+  /**
+   * Интерактив загруженной модели — для значка на полке.
+   *
+   * Спрашиваем ЛЕВЫЙ вьюпорт по той же причине, что уровни и свет: он показывает
+   * исходник, и состав в нём полный по определению. Пропавшая справа часть — находка
+   * про оптимизацию, и говорить о ней должен отчёт, а не молча укоротившийся список.
+   */
+  getInteractivity() {
+    const info = this.left?.viewer?.getInteractivityInfo?.()
+      || { count: 0, names: [] as string[], shown: false };
+    return { ...info, shown: this._interactiveOn };
+  }
+
+  /** Обвести нажимаемые части В ОБОИХ окнах — или снять обводку. */
+  toggleInteractivity(on?: boolean) {
+    const next = on === undefined ? !this._interactiveOn : on;
+    this._interactiveOn = next;
+    this.left?.viewer?.setInteractivityMarks?.(next);
+    this.right?.viewer?.setInteractivityMarks?.(next);
+    return next;
   }
 
   /**
@@ -993,6 +1018,10 @@ window.OptiViewer = {
   // Свет: наш студийный или тот, что принесла сама модель. Один на оба вьюпорта.
   getLight: () => dual.getLight(),
   selectLightMode: (mode) => dual.selectLightMode(mode),
+  // Интерактив: обводка нажимаемых частей. Показ, а не исполнение — граф поведения
+  // мы не проигрываем (ROADMAP §6д).
+  getInteractivity: () => dual.getInteractivity(),
+  toggleInteractivity: (on) => dual.toggleInteractivity(on),
   // Камеры автора: его ракурсы вместо нашей орбиты. Тоже один выбор на оба вьюпорта.
   getCameras: () => dual.getCameras(),
   selectCamera: (index) => dual.selectCamera(index),

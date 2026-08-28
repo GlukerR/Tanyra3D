@@ -65,6 +65,7 @@ import { type Ceiling, probeWebpCeiling, readCeiling, targetQuality } from './so
 import { readSourceJson } from './source-json.mjs';
 import { importNote } from './import-notes.mjs';
 import { scanLods } from './lod-scan.mjs';
+import { readInteractivity } from './interactivity.mjs';
 import { collectMetrics, countTriangles, effectiveSkins, listSemantics, textureSize } from './metrics.mjs';
 import { HAS_GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 import { hasOpaqueExtension } from './carry.mjs';
@@ -640,6 +641,46 @@ export const RULES: GltfRule[] = [
       // уже на объяснении самого себя.
       if (found.source === 'names') return [{ messageId: 'lod.likelyNames', data }];
       return [{ messageId: 'lod.likelyMeasured', data }];
+    },
+  },
+
+  {
+    // Интерактив: правило БЕЗ починки, только наблюдение.
+    //
+    // ЗАКАЗ (Александр, 2026-08-28): «я не вижу вообще никаких интерактивов. должен
+    // видеть». До этого дня про интерактив в отчёте было ровно пять строк, и все пять — в
+    // «Пропущено», где расширение называлось «тем, которого этот конвейер не понимает».
+    // Человек узнавал только это: у него в файле что-то, чего мы не умеем.
+    //
+    // Теперь он узнаёт то, что действительно важно: интерактив В ФАЙЛЕ ЕСТЬ, вот сколько
+    // его, и он доезжает целым. Числа человеческие — на что нажать, сколько откликов,
+    // что происходит, — а не «узлов графа 595».
+    //
+    // ПРОИГРЫВАНИЯ ЗДЕСЬ НЕТ И НЕ БУДЕТ без отдельного решения: граф поведения исполняет
+    // интерпретатор, это работа другого размера (§6д ROADMAP). Правило ЧИТАЕТ и НАЗЫВАЕТ.
+    meta: {
+      id: 'scene/interactivity', category: 'scene', title: 'Interactivity', titleKey: 'rule.sceneInteractivity',
+      severity: 'info', fixSafety: 'provable', tier: 'basic', runAfter: [], touches: [],
+      reversible: true, dataLoss: 'none',
+      enabled: () => true, // наблюдение, а не оптимизация: не зависит ни от одной галочки
+    },
+    analyze(ctx) {
+      const found = readInteractivity(assetJson(ctx));
+      if (!found) return [];
+      const { clickable, handlers, animations, changes } = found;
+      // Запуск анимации и смена свойства — для человека одно и то же: «что-то
+      // происходит». Раздельные числа давали в строке нули (у Calculator анимаций нет
+      // вовсе), а ноль в перечислении читается как поломка, а не как факт.
+      // Одна запись на класс (Правило 9): узлов графа бывают сотни, строка одна.
+      //
+      // Две строки на два случая, а не одна с подстановкой. Модель, где нажимать не на
+      // что, — это другое утверждение, а не то же с нулём: у неё интерактив работает сам
+      // (по времени, по загрузке), и обещать человеку кнопки было бы враньём.
+      const actions = animations + changes;
+      if (clickable) {
+        return [{ messageId: 'interactivity.found', data: { clickable, handlers, actions } }];
+      }
+      return [{ messageId: 'interactivity.foundNoClicks', data: { handlers, actions } }];
     },
   },
 

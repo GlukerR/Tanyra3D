@@ -57,6 +57,8 @@ window.I18N_CATALOGS.ru = {
   'vp.display.clay': 'Глина',
   'vp.display.wire': 'Сетка',
   'vp.light': 'Свет',
+  'vp.interactivity': 'Интерактивные части',
+  'vp.interactivity.count': ({ n }) => `Нажимаемых частей: ${n}. Показываем обводкой — сам интерактив предпросмотр не проигрывает.`,
   'viewer.light.studio': 'Студийный',
   'viewer.light.none': 'Без света',
   'viewer.light.file': 'Из файла',

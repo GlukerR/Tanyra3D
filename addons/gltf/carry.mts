@@ -115,7 +115,14 @@ export function hasOpaqueExtension(json: unknown, names: readonly string[]): str
     for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
       if (k === 'extensions' && val && typeof val === 'object') {
         for (const [имя, тело] of Object.entries(val as Record<string, unknown>)) {
-          if (искомые.has(имя) && arraysAddressedBy(тело) === null) непрозрачные.add(имя);
+          // Непрозрачно = «ссылки есть, но их не видно». Тело, которому адресовать
+          // нечем вовсе, непрозрачным не считается — иначе правила отказывались бы на
+          // `{"selectable":true}`, где ломаться нечему. Замер 2026-08-28: из-за этого
+          // `WhackAMole` не сваривалась совсем, а возврат расширения её уже пропускал —
+          // два места решали один вопрос по-разному.
+          if (!искомые.has(имя)) continue;
+          if (addressesNothing(тело)) continue;
+          if (arraysAddressedBy(тело) === null) непрозрачные.add(имя);
         }
       }
       walk(val);

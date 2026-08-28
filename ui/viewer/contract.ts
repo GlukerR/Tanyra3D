@@ -228,6 +228,13 @@ export interface ViewerLike {
   getCameraInfo(): CameraListInfo;
   /** Смотреть через камеру автора либо вернуться к своей орбитальной (null). */
   setCamera(index: number | null): boolean;
+  /**
+   * Части, откликающиеся на нажатие НА САЙТЕ (`KHR_node_selectability`), и показана ли
+   * сейчас их обводка. Показ, а не исполнение: граф поведения мы не проигрываем.
+   */
+  getInteractivityInfo(): { count: number; names: string[]; shown: boolean };
+  /** Обвести нажимаемые части или снять обводку. false = обводить нечего. */
+  setInteractivityMarks(on: boolean): boolean;
   /** Есть ли у модели свой свет и чей сейчас показан. */
   getLightInfo(): LightInfo;
   /** Выбрать свет: студийный, авторский или никакой. false = своего света у модели нет. */

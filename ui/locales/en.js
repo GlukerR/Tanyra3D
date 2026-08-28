@@ -63,6 +63,8 @@ window.I18N_CATALOGS.en = {
   'vp.display.wire': 'Wireframe',
   // Свет. Появляется только у моделей, которые несут свои источники.
   'vp.light': 'Lighting',
+  'vp.interactivity': 'Interactive parts',
+  'vp.interactivity.count': ({ n }) => `Interactive parts: ${n}. Shown as outlines — the preview does not play the interactivity.`,
   'viewer.light.studio': 'Studio',
   'viewer.light.none': 'No light',
   'viewer.light.file': 'From the file',

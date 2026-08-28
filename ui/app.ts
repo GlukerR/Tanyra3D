@@ -87,6 +87,7 @@
   const displayWireBtn = $('display-wire');
   const lightControls = $('light-controls');
   const lightMenu = $('light-menu');
+  const interactivityBtn = $('interactivity-toggle') as HTMLButtonElement | null;
   const cameraControls = $('camera-controls');
   const cameraSel = $('camera-select') as HTMLSelectElement;
   const animPlayBtn = $('anim-play-btn');
@@ -5703,6 +5704,35 @@
   }
 
   // ---------------------------------------------------------------
+  // Интерактив — обводка частей, откликающихся на нажатие
+  //
+  // Заказ Александра 2026-08-28: «я не вижу вообще никаких интерактивов. должен видеть».
+  //
+  // Кнопка появляется ТОЛЬКО у моделей, где интерактив есть: у остальных обводить нечего,
+  // а показанная кнопка, которая ничего не делает, запрещена (Правило 12).
+  //
+  // Подпись называет число и сразу оговаривает границу: мы ПОКАЗЫВАЕМ, где интерактив, и
+  // не проигрываем его. Без этой оговорки человек нажал бы на обведённую часть, ничего не
+  // получил и решил бы, что модель сломана.
+  function refreshInteractivityUI() {
+    if (!interactivityBtn) return;
+    const info = window.OptiViewer?.getInteractivity?.();
+    const has = (info?.count ?? 0) > 0;
+    interactivityBtn.classList.toggle('hidden', !has);
+    if (!has) return;
+    window.I18n.setTitle(interactivityBtn, 'vp.interactivity.count', { n: info.count });
+    interactivityBtn.classList.toggle('is-on', !!info.shown);
+    interactivityBtn.setAttribute('aria-pressed', String(!!info.shown));
+  }
+
+  if (interactivityBtn) {
+    interactivityBtn.addEventListener('click', () => {
+      window.OptiViewer?.toggleInteractivity?.();
+      refreshInteractivityUI();
+    });
+  }
+
+  // ---------------------------------------------------------------
   // Свет — студийный, никакой или авторский
   //
   // Живёт на солнышке в верхней панели, рядом с экспозицией: там всё про свет.
@@ -6068,7 +6098,7 @@
   // и список вариантов появляются и исчезают вместе с моделью, которая их несёт.
   window.onOptiViewerModelLoaded = () => {
     refreshAnimUI(); refreshVariantUI(); refreshLodUI();
-    refreshLightUI(); refreshCameraUI(); refreshDisplayUI(); closeHiddenGroups();
+    refreshLightUI(); refreshCameraUI(); refreshDisplayUI(); refreshInteractivityUI(); closeHiddenGroups();
   };
   refreshAnimUI();    // стартовое состояние: моделей нет — панелей нет
   refreshVariantUI();

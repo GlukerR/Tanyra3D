@@ -27,6 +27,7 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import type { CameraState, LoadOptions, ViewerLike } from "./contract.js";
 import { buildUvPointerDriver, stripUvTransformTracks, type UvPointerDriver } from "./pointer-uv.js";
 import { detectLods, showLod, type LodSet } from "./lod.js";
+import { findInteractive, InteractivityHighlight, type InteractivePart } from "./interactivity.js";
 import { GLTFDiffuseTransmissionExtension } from "./diffuse-transmission.js";
 
 // Пути к декодерам — тоже из node_modules/three через /vendor-роут сервера (server.mjs).
@@ -399,6 +400,11 @@ export class Viewer implements ViewerLike {
   declare _action?: THREE.AnimationAction | null;
   /** Привод развёрток текстур по указателю — вне AnimationMixer, см. pointer-uv.ts. */
   declare _uv?: UvPointerDriver | null;
+  /** Части, откликающиеся на нажатие. Пусто — интерактива в файле нет. См. interactivity.ts. */
+  declare _interactive?: InteractivePart[];
+  /** Рамки подсветки, пока они показаны. */
+  declare _interactiveMarks?: InteractivityHighlight | null;
+
   /** Уровни детализации загруженной модели; null — их нет. См. lod.ts. */
   declare _lods?: LodSet | null;
   /** Показанный уровень; null — как в файле. */
@@ -589,6 +595,10 @@ export class Viewer implements ViewerLike {
     // габаритам, а они считаются по мировым матрицам.
     this._lods = await detectLods(gltf as never);
     this._lod = null;
+    // Нажимаемые части. Ищем ПОСЛЕ добавления модели в сцену — рамки строятся по мировым
+    // габаритам, а до этого их не посчитать.
+    this._interactive = findInteractive(gltf as never);
+    this._interactiveMarks = null;
     // Свой свет модели считаем после добавления в сцену: загрузчик кладёт источники
     // внутрь модели, и до этого момента обходить нечего. Режим при новой модели всегда
     // студийный — иначе модель без своих источников открылась бы почти чёрной.
@@ -1087,6 +1097,40 @@ export class Viewer implements ViewerLike {
     this._variant = null;
   }
 
+  // ── Интерактив ─────────────────────────────────────────────────────────────
+  //
+  // ПОКАЗ, а не исполнение. Мы обводим части, которые откликаются на нажатие НА САЙТЕ,
+  // и ничего не запускаем: граф поведения исполняет интерпретатор, которого у нас нет
+  // (ROADMAP §6д). Нажатие по обведённой части здесь не делает ничего, и делать вид,
+  // что делает, нельзя.
+
+  /** Сколько частей откликается на нажатие и показаны ли они сейчас. */
+  getInteractivityInfo() {
+    const parts = this._interactive ?? [];
+    return {
+      count: parts.length,
+      names: parts.map((p) => p.name),
+      shown: !!this._interactiveMarks,
+    };
+  }
+
+  /** Обвести нажимаемые части или снять обводку. false = обводить нечего. */
+  setInteractivityMarks(on: boolean) {
+    const parts = this._interactive ?? [];
+    if (this._interactiveMarks) {
+      this.scene.remove(this._interactiveMarks);
+      this._interactiveMarks.dispose();
+      this._interactiveMarks = null;
+    }
+    if (!on || !parts.length || !this.model) return false;
+    const marks = new InteractivityHighlight(parts);
+    // К СЦЕНЕ, а не к модели: рамка считает габарит по мировым матрицам, и вложенная в
+    // модель она поехала бы вместе с её собственным преобразованием — дважды.
+    this.scene.add(marks);
+    this._interactiveMarks = marks;
+    return true;
+  }
+
   // ── Уровни детализации ─────────────────────────────────────────────────────
   //
   // Переключение — состояние ПОКАЗА, а не правка модели (Правило 11): спрятанный
@@ -1510,6 +1554,9 @@ export class Viewer implements ViewerLike {
     // сцену мог добавить показ. Не снять — и они переживут модель.
     this._lods = null;
     this._lod = null;
+    // Рамки держат ссылки на узлы ЭТОЙ модели. Не снять — переживут её и обведут пустоту.
+    this.setInteractivityMarks(false);
+    this._interactive = [];
     this._selectVariant = null;
     this._variants = [];
     this._variant = null;
