@@ -30,7 +30,7 @@ import { readSourceJson, sourceStamp } from './source-json.mjs';
 import { RULES } from './rules.mjs';
 import { TOKTX } from './tools.mjs';
 import { textureSlotsWire } from './media.mjs';
-import { arraysAddressedBy } from './carry.mjs';
+import { addressesNothing, arraysAddressedBy } from './carry.mjs';
 
 import type { Document, NodeIO as NodeIOType } from '@gltf-transform/core';
 import type { ExclusiveConflict, ReportArgs, ValidateArgs } from '../../core/types.mjs';
@@ -484,11 +484,35 @@ interface Carried {
   spots: CarriedSpot[];
   /** Длины логических массивов ИСХОДНИКА: 'materials' → 12. */
   shape: Record<string, number>;
+  /**
+   * Имена элементов тех же массивов ИСХОДНИКА, по порядку: 'nodes' → ['Body', 'Lid', …].
+   *
+   * Нужны, чтобы отличить ДОПИСАЛИ В КОНЕЦ от ПЕРЕСТАВИЛИ. Длина этого не различает —
+   * замер 2026-08-28 на наборе Khronos: `WhackAMole` уходит с `nodes 68 → 82`, и все
+   * 68 исходных остаются на своих местах, а сборка лишь дописывает новые. Указатель
+   * `/nodes/3/translation` при этом по-прежнему верен, а проверка по длинам объявляла
+   * его сломанным и теряла расширение целиком.
+   */
+  names: Record<string, Array<string | null>>;
 }
 
 const shapeOf = (json: Record<string, unknown>): Record<string, number> => {
   const out: Record<string, number> = {};
   for (const k of SHAPE_ARRAYS) out[k] = Array.isArray(json[k]) ? (json[k] as unknown[]).length : -1;
+  return out;
+};
+
+/** Имена элементов логических массивов по порядку. `null` — у элемента имени нет. */
+const namesOf = (json: Record<string, unknown>): Record<string, Array<string | null>> => {
+  const out: Record<string, Array<string | null>> = {};
+  for (const k of SHAPE_ARRAYS) {
+    const arr = json[k];
+    if (!Array.isArray(arr)) continue;
+    out[k] = arr.map((el) => {
+      const name = (el as { name?: unknown } | null)?.name;
+      return typeof name === 'string' && name ? name : null;
+    });
+  }
   return out;
 };
 
@@ -545,7 +569,7 @@ function collectCarried(json: Record<string, unknown>): Carried | null {
   // уровня документа (KHR_interactivity, KHR_lights_punctual) живёт именно там.
   walk(json, []);
 
-  return { used, required, spots, shape: shapeOf(json) };
+  return { used, required, spots, shape: shapeOf(json), names: namesOf(json) };
 }
 
 /** Общая механика правки JSON-чанка GLB: разобрать → поправить → пересобрать.
@@ -613,9 +637,43 @@ function restoreCarried(json: Record<string, unknown>, carried: Carried | undefi
   // Приклеить расширение к ЧУЖОМУ объекту по-прежнему хуже, чем потерять его: файл
   // выглядел бы целым и врал. Поэтому сверка не отменена, а сужена до предмета.
   const after = shapeOf(json);
-  const intact = (names: Set<string> | null) => {
+  const afterNames = namesOf(json);
+
+  /**
+   * Уцелели ли НОМЕРА в этом массиве.
+   *
+   * Двумя способами, и первый сильнее. Длины — грубая мера: они не различают «дописали
+   * в конец» и «переставили». Имена по порядку различают: если все исходные элементы
+   * стоят на прежних местах, номер `3` по-прежнему означает тот же объект, сколько бы
+   * элементов ни дописали после.
+   *
+   * Доказательство работает, только когда КАЖДЫЙ исходный элемент назван: у безымянных
+   * сравнивать нечего, и совпадение пустот доказательством не является (аксессоры имён
+   * обычно не носят вовсе). Не доказали префиксом — падаем на прежнюю сверку длин.
+   *
+   * Остаточный риск назван честно: два элемента с ОДИНАКОВЫМ именем, поменянные местами,
+   * такую проверку пройдут. Имена в живых моделях повторяются (`WhackAMole`: 68 узлов,
+   * 20 разных имён), но перестановка одноимённых соседей — не то, что делают наши
+   * правила: они дописывают в конец либо удаляют, а удаление ловится длиной.
+   */
+  const keepsIndexes = (k: string) => {
+    const было = carried.names[k];
+    const стало = afterNames[k];
+    if (было && стало && стало.length >= было.length
+      && было.every((n, i) => n !== null && n === стало[i])) return true;
+    return !(k in carried.shape) || carried.shape[k] === after[k];
+  };
+
+  const intact = (value: unknown) => {
+    // Ссылок нет вовсе — сверять нечего. Это не послабление: тело без единого числа и
+    // без строки-числа не может указывать на элемент массива в принципе, и любая
+    // перенумерация ему безразлична. Замер 2026-08-28: `WhackAMole.glb` из набора
+    // Khronos теряла семь мест `KHR_node_selectability` с телом `{"selectable":true}`
+    // из-за сдвига `accessors`, которых это тело не касается никак.
+    if (addressesNothing(value)) return true;
+    const names = arraysAddressedBy(value);
     const keys = names ? [...names] : SHAPE_ARRAYS;
-    return keys.every((k) => !(k in carried.shape) || carried.shape[k] === after[k]);
+    return keys.every(keepsIndexes);
   };
 
   const resolve = (at: Array<string | number>): Record<string, unknown> | null => {
@@ -634,7 +692,7 @@ function restoreCarried(json: Record<string, unknown>, carried: Carried | undefi
   let touched = false;
   let refused = 0;
   for (const spot of carried.spots) {
-    if (!intact(arraysAddressedBy(spot.value))) { refused++; continue; }
+    if (!intact(spot.value)) { refused++; continue; }
     const owner = resolve(spot.path);
     if (!owner) continue;
     const bag = (owner.extensions ||= {}) as Record<string, unknown>;
