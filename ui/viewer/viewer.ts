@@ -28,6 +28,7 @@ import type { CameraState, LoadOptions, ViewerLike } from "./contract.js";
 import { buildUvPointerDriver, stripUvTransformTracks, type UvPointerDriver } from "./pointer-uv.js";
 import { detectLods, showLod, type LodSet } from "./lod.js";
 import { findInteractive, InteractivityHighlight, type InteractivePart } from "./interactivity.js";
+import { InteractivityRuntime } from "./interactivity-runtime.js";
 import { GLTFDiffuseTransmissionExtension } from "./diffuse-transmission.js";
 
 // Пути к декодерам — тоже из node_modules/three через /vendor-роут сервера (server.mjs).
@@ -404,6 +405,8 @@ export class Viewer implements ViewerLike {
   declare _interactive?: InteractivePart[];
   /** Рамки подсветки, пока они показаны. */
   declare _interactiveMarks?: InteractivityHighlight | null;
+  /** Исполнитель графа поведения. null — графа нет либо мы за него не взялись. */
+  declare _behaviour?: InteractivityRuntime | null;
 
   /** Уровни детализации загруженной модели; null — их нет. См. lod.ts. */
   declare _lods?: LodSet | null;
@@ -442,6 +445,35 @@ export class Viewer implements ViewerLike {
     this._resizeObserver = new ResizeObserver(() => this._onResize());
     this._resizeObserver.observe(canvas.parentElement!);
     this._onResize();
+    this._initPicking();
+  }
+
+  /**
+   * Нажатие мышью по нажимаемой части — то, ради чего интерактив и проигрывается.
+   *
+   * ОТЛИЧАЕМ НАЖАТИЕ ОТ ВРАЩЕНИЯ. Тот же холст крутит камеру, и без этого различия
+   * каждый поворот модели запускал бы отклики. Считаем нажатием только то, что уложилось
+   * в пять пикселей и полсекунды: рука дрожит, а вращают заметно дальше.
+   *
+   * Слушаем ЗАХВАТ (`capture`) не нужно: орбита не отменяет событий, и порядок нам
+   * безразличен — мы ничего не глотаем, только смотрим.
+   */
+  _initPicking() {
+    let startX = 0;
+    let startY = 0;
+    let startedAt = 0;
+    this.canvas.addEventListener('pointerdown', (e) => {
+      startX = e.clientX;
+      startY = e.clientY;
+      startedAt = performance.now();
+    });
+    this.canvas.addEventListener('pointerup', (e) => {
+      const ушло = Math.hypot(e.clientX - startX, e.clientY - startY);
+      if (ушло > 5 || performance.now() - startedAt > 500) return;
+      const box = this.canvas.getBoundingClientRect();
+      if (!box.width || !box.height) return;
+      this.pickInteractive((e.clientX - box.left) / box.width, (e.clientY - box.top) / box.height);
+    });
   }
 
   _initRenderer() {
@@ -605,6 +637,7 @@ export class Viewer implements ViewerLike {
     // что кнопку надо было ещё найти и нажать. Показанное по умолчанию отвечает на
     // вопрос сразу; кнопка остаётся, чтобы обводку СНЯТЬ.
     if (this._interactive.length) this.setInteractivityMarks(true);
+    this._startBehaviour(gltf as never);
     // Свой свет модели считаем после добавления в сцену: загрузчик кладёт источники
     // внутрь модели, и до этого момента обходить нечего. Режим при новой модели всегда
     // студийный — иначе модель без своих источников открылась бы почти чёрной.
@@ -1110,6 +1143,84 @@ export class Viewer implements ViewerLike {
   // (ROADMAP §6д). Нажатие по обведённой части здесь не делает ничего, и делать вид,
   // что делает, нельзя.
 
+  /**
+   * Поднять исполнителя графа поведения.
+   *
+   * Карты «номер в файле → объект сцены» строим по разметке загрузчика
+   * (`parser.associations`), а не по именам: имена повторяются, номера — нет.
+   */
+  _startBehaviour(gltf: {
+    parser?: { json?: Record<string, unknown>; associations?: Map<unknown, { nodes?: number; materials?: number }> };
+    animations?: THREE.AnimationClip[];
+  }) {
+    this._behaviour = null;
+    const json = gltf.parser?.json as { extensions?: Record<string, unknown> } | undefined;
+    const ext = json?.extensions?.['KHR_interactivity'] as { graphs?: unknown[]; graph?: number } | undefined;
+    const graph = ext?.graphs?.[ext.graph ?? 0];
+    if (!graph || !this.model) return;
+
+    const assoc = gltf.parser?.associations;
+    const nodes = new Map<number, THREE.Object3D>();
+    const materials = new Map<number, THREE.Material>();
+    if (assoc) {
+      for (const [obj, at] of assoc) {
+        if (at?.nodes !== undefined && (obj as THREE.Object3D).isObject3D) {
+          nodes.set(at.nodes, obj as THREE.Object3D);
+        }
+        if (at?.materials !== undefined && (obj as THREE.Material).isMaterial) {
+          materials.set(at.materials, obj as THREE.Material);
+        }
+      }
+    }
+
+    const runtime = new InteractivityRuntime(graph, {
+      nodes,
+      materials,
+      clips: this.clips ?? [],
+      mixer: this._mixer ?? null,
+      redraw: () => this.renderFrame(),
+    });
+    if (runtime.refusal.length) {
+      // Отказ ЦЕЛИКОМ и вслух: половинчатое проигрывание хуже отсутствия. Человек
+      // увидит подсветку и узнает из журнала, почему нажатия не работают.
+      console.warn('KHR_interactivity: интерактив не проигрывается — не знаем: '
+        + runtime.refusal.join(', '));
+    }
+    this._behaviour = runtime;
+    runtime.start();
+  }
+
+  /**
+   * Нажали в точке экрана (0..1 по обеим осям). `true` — граф откликнулся.
+   *
+   * Луч пускаем ТОЛЬКО по нажимаемым частям: попасть в соседнюю деталь и запустить
+   * чужой отклик хуже, чем не сработать вовсе.
+   */
+  pickInteractive(x: number, y: number): boolean {
+    const parts = this._interactive ?? [];
+    if (!parts.length || !this._behaviour) return false;
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2(x * 2 - 1, -(y * 2 - 1)), this.camera);
+    const hits = ray.intersectObjects(parts.map((p) => p.object), true);
+    if (!hits.length) return false;
+
+    // От попавшего меша поднимаемся к той части, которая объявлена нажимаемой: у
+    // многопримитивного меша попадание придётся на кусок, а номер узла — у родителя.
+    for (let obj: THREE.Object3D | null = hits[0]!.object; obj; obj = obj.parent) {
+      const part = parts.find((p) => p.object === obj);
+      if (part) return this._behaviour.select(part.nodeIndex);
+    }
+    return false;
+  }
+
+  /** Проигрывается ли интерактив и почему нет. */
+  getBehaviourInfo() {
+    return {
+      playable: !!this._behaviour && !this._behaviour.refusal.length,
+      refusal: this._behaviour ? [...this._behaviour.refusal] : [],
+    };
+  }
+
   /** Сколько частей откликается на нажатие и показаны ли они сейчас. */
   getInteractivityInfo() {
     const parts = this._interactive ?? [];
@@ -1563,6 +1674,10 @@ export class Viewer implements ViewerLike {
     // Рамки держат ссылки на узлы ЭТОЙ модели. Не снять — переживут её и обведут пустоту.
     this.setInteractivityMarks(false);
     this._interactive = [];
+    // Исполнитель держит отложенные запуски. Не снять — они оживут над следующей
+    // моделью и подвинут её узлы (та же беда, что была у запасных уровней детализации).
+    this._behaviour?.dispose();
+    this._behaviour = null;
     this._selectVariant = null;
     this._variants = [];
     this._variant = null;

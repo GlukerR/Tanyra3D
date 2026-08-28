@@ -235,6 +235,12 @@ export interface ViewerLike {
   getInteractivityInfo(): { count: number; names: string[]; shown: boolean };
   /** Обвести нажимаемые части или снять обводку. false = обводить нечего. */
   setInteractivityMarks(on: boolean): boolean;
+  /**
+   * Проигрывается ли граф поведения и почему нет. `refusal` не пуст — в графе есть узлы
+   * или адреса, которых мы не знаем, и тогда интерактив не проигрывается ЦЕЛИКОМ:
+   * половинчатое проигрывание хуже отсутствия.
+   */
+  getBehaviourInfo(): { playable: boolean; refusal: string[] };
   /** Есть ли у модели свой свет и чей сейчас показан. */
   getLightInfo(): LightInfo;
   /** Выбрать свет: студийный, авторский или никакой. false = своего света у модели нет. */

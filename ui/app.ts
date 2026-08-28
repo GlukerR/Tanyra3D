@@ -5720,7 +5720,13 @@
     const has = (info?.count ?? 0) > 0;
     interactivityBtn.classList.toggle('hidden', !has);
     if (!has) return;
-    window.I18n.setTitle(interactivityBtn, 'vp.interactivity.count', { n: info.count });
+    // Подпись говорит правду про ЭТУ модель. Граф, где есть незнакомый нам узел, не
+    // проигрывается целиком — и обещать нажатие в таком случае нельзя (Правило 12).
+    window.I18n.setTitle(
+      interactivityBtn,
+      info.playable ? 'vp.interactivity.count' : 'vp.interactivity.shownOnly',
+      { n: info.count },
+    );
     interactivityBtn.classList.toggle('is-on', !!info.shown);
     interactivityBtn.setAttribute('aria-pressed', String(!!info.shown));
   }

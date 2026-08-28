@@ -28,6 +28,8 @@ import { isClickable } from "../../core/interactivity-rules.mjs";
 export interface InteractivePart {
   /** Имя узла из файла. Переводу не подлежит — данные автора (Правило 8). */
   name: string;
+  /** Номер узла в файле: им граф поведения и называет, на что нажали. */
+  nodeIndex: number;
   object: THREE.Object3D;
 }
 
@@ -62,7 +64,11 @@ export function findInteractive(gltf: {
   gltf.scene.traverse((obj) => {
     const at = assoc.get(obj)?.nodes;
     if (at === undefined || !нажимаемые.has(at)) return;
-    parts.push({ name: obj.name || (json.nodes?.[at]?.['name'] as string) || '', object: obj });
+    parts.push({
+      name: obj.name || (json.nodes?.[at]?.['name'] as string) || '',
+      nodeIndex: at,
+      object: obj,
+    });
   });
   return parts;
 }

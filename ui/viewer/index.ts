@@ -595,7 +595,8 @@ class DualViewport {
       || { count: 0, names: [] as string[], shown: false };
     // `shown` — из ВЬЮЕРА, а не из нашей памяти: у модели без интерактива обводки нет,
     // сколько бы её ни просили, и кнопка обязана показывать то, что есть на экране.
-    return { ...info, shown: info.shown };
+    const behaviour = this.left?.viewer?.getBehaviourInfo?.() || { playable: false, refusal: [] };
+    return { ...info, shown: info.shown, playable: behaviour.playable };
   }
 
   /** Обвести нажимаемые части В ОБОИХ окнах — или снять обводку. */

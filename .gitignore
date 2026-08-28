@@ -176,6 +176,8 @@ ui/viewer/index.js
 ui/viewer/viewer.js
 ui/viewer/contract.js
 ui/viewer/pointer-uv.js
+ui/viewer/interactivity-graph.js
+ui/viewer/interactivity-runtime.js
 ui/viewer/interactivity.js
 ui/viewer/lod.js
 ui/viewer/diffuse-transmission.js

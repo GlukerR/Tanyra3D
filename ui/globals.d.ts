@@ -109,7 +109,7 @@ interface OptiViewerApi {
    * Части, откликающиеся на нажатие НА САЙТЕ, и показана ли их обводка. Мы их только
    * ПОКАЗЫВАЕМ: граф поведения не проигрывается.
    */
-  getInteractivity(): { count: number; names: string[]; shown: boolean };
+  getInteractivity(): { count: number; names: string[]; shown: boolean; playable: boolean };
   /** Обвести нажимаемые части в обоих вьюпортах либо снять обводку. */
   toggleInteractivity(on?: boolean): boolean;
   /** Выбрать свет — в ОБОИХ вьюпортах: студийный, авторский или никакой. */

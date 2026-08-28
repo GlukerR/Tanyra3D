@@ -132,9 +132,9 @@ export default {
   // Интерактив: наблюдение, а не находка-дефект. Числа человеческие, и прямо сказано,
   // что предпросмотр его не проигрывает — иначе человек счёл бы модель сломанной.
   'interactivity.found': ({ clickable, handlers, actions }) =>
-    `The file carries interactivity: ${clickable} clickable part${clickable === 1 ? '' : 's'}, ${handlers} click handler${handlers === 1 ? '' : 's'}, ${actions} action${actions === 1 ? '' : 's'}. The preview does not play it — the model is shown as it is; on a site the interactivity works, and all of it survives the build.`,
+    `The file carries interactivity: ${clickable} clickable part${clickable === 1 ? '' : 's'}, ${handlers} click handler${handlers === 1 ? '' : 's'}, ${actions} action${actions === 1 ? '' : 's'}. The clickable parts are outlined in the viewport — click one and the model responds. All of it survives the build.`,
   'interactivity.foundNoClicks': ({ handlers, actions }) =>
-    `The file carries interactivity that runs on its own, with nothing to click: ${handlers} handler${handlers === 1 ? '' : 's'}, ${actions} action${actions === 1 ? '' : 's'}. The preview does not play it — the model is shown as it is; on a site the interactivity works, and all of it survives the build.`,
+    `The file carries interactivity that runs on its own, with nothing to click: ${handlers} handler${handlers === 1 ? '' : 's'}, ${actions} action${actions === 1 ? '' : 's'}. All of it survives the build.`,
   'lod.likelyNames': ({ nodes, levels }) =>
     `The file looks like it carries levels of detail: ${nodes} part${nodes === 1 ? '' : 's'} with up to ${levels} levels each. Neighbouring nodes are named LOD, but nothing links them together — so here and on a site every level is drawn at once, one through another.`,
   'lod.likelyMeasured': ({ nodes, levels }) =>
