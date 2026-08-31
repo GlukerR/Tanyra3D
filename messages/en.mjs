@@ -66,7 +66,7 @@ export default {
   'advice.overLimit': ({ name, actual, limit }) =>
     `${name}: ${actual} against the platform limit of ${limit}. Files above the limit are rejected or re-compressed by the platform without asking.`,
   'advice.triangles': ({ actual, warn }) =>
-    `${actual} triangles against a recommended ${warn}. Not an error — heavy scenes just load and render slower. Simplify the model on export if that matters here.`,
+    `${actual} triangles against a recommended ${warn}. Heavy scenes load and render slower. Simplify the model on export if that matters here.`,
   'advice.materials': ({ actual, warn }) =>
     `${actual} materials against a recommended ${warn}. Each material is a separate draw call; merging them on export lowers GPU load.`,
   'advice.drawCalls': ({ actual, warn }) =>
@@ -76,7 +76,7 @@ export default {
   'advice.textureSize': ({ actual, warn }) =>
     `The largest texture is ${actual} on its longer side, against ${warn} recommended. Every doubling of the side takes four times the video memory, and on a phone screen the difference is usually invisible.`,
   'advice.file': ({ actual, warn }) =>
-    `The file is ${actual} against a recommended ${warn}. Not a limit — just slower to load on a weak connection.`,
+    `The file is ${actual} against a recommended ${warn}. The heavier the file, the longer it takes to open on a weak connection.`,
 
   // --- предупреждения ---
   'warn.notApplied': ({ text, reason }) => `Not applied: ${text}${reason}`,

@@ -1004,6 +1004,14 @@ export interface CustomProfileInput {
   source?: string;
   budgets?: Record<string, unknown>;
   /**
+   * Совет или отказ — по одному ответу на каждый порог: `'warn'` либо `'limit'`.
+   *
+   * Отдельным полем, а не объектом внутри `budgets`, по одной причине: форма присылает
+   * числа строками из полей ввода, и подмешивать туда строгость значило бы менять форму
+   * уже принятых данных. Не названо — считается советом.
+   */
+  budgetKinds?: Record<string, unknown>;
+  /**
    * Что эта площадка НЕ читает — список id опций движка.
    *
    * Единственная форма, в которой площадке позволено говорить о возможностях:
@@ -1096,7 +1104,7 @@ export function saveCustomProfile(input: CustomProfileInput) {
     id = freeProfileId(slugFrom(title));
   }
 
-  const budgets: Record<string, { warn: number }> = {};
+  const budgets: Record<string, { warn: number } | { limit: number }> = {};
   for (const key of Object.keys(BUDGET_SPEC)) {
     const raw = input && input.budgets ? input.budgets[key] : undefined;
     // Пустое поле — законный ответ «порога нет»: метрика будет показана числом без
@@ -1104,10 +1112,18 @@ export function saveCustomProfile(input: CustomProfileInput) {
     if (raw == null || raw === '') continue;
     const n = Number(raw);
     if (!Number.isFinite(n) || n <= 0) throw new ProfileError('bad_number', key);
-    // Объектом, а не голым числом: рядом с warn человек дописывает limit руками, когда
-    // у его площадки есть настоящий отказ. Формат тот же, что у встроенных профилей, —
-    // файл остаётся пригодным для правки текстовым редактором.
-    budgets[key] = { warn: n };
+    // СОВЕТ ИЛИ ОТКАЗ — решает автор площадки, а не мы.
+    //
+    // До 2026-08-28 форма умела только `warn`, и своё число всегда становилось советом.
+    // Александр завёл площадку Ozon с порогом 20 МБ и получил в ответ «Это не предел —
+    // просто дольше загрузится на слабом соединении», хотя Ozon такую модель не пропустит
+    // вовсе. Его слова: «это ложное утверждение». И оно ложное именно потому, что мы
+    // ДОДУМАЛИ за профиль: числа он назвал, а строгость назвать не мог.
+    //
+    // Умолчание осталось прежним — совет. Незнакомое значение тоже читается советом, а не
+    // отказом: ошибиться в сторону «предупредили» безопаснее, чем в сторону «запретили».
+    const kind = input && input.budgetKinds ? input.budgetKinds[key] : undefined;
+    budgets[key] = kind === 'limit' ? { limit: n } : { warn: n };
   }
 
   // Что площадка не читает. Пустой список не пишем вовсе: `excludeExtensions: []` и
@@ -1162,10 +1178,16 @@ export function readCustomProfile(id: string, lang: string = DEFAULT_LANG): Cust
   if (!found) throw new ProfileError('unknown_profile');
   if (!found.custom) throw new ProfileError('builtin_id');
   const p = JSON.parse(fs.readFileSync(found.file, 'utf8'));
+  // Строгость возвращается в форму вместе с числом. Без неё правка чужого профиля
+  // молча превращала бы жёсткий предел в совет: человек открыл площадку, поменял
+  // название, нажал «Сохранить» — и отказ площадки стал рекомендацией.
   const budgets: Record<string, number> = {};
+  const budgetKinds: Record<string, 'warn' | 'limit'> = {};
   for (const key of Object.keys(BUDGET_SPEC)) {
     const entry = budgetEntry((p.budgets || {})[key]);
-    if (entry && entry.warn != null) budgets[key] = entry.warn;
+    if (!entry) continue;
+    if (entry.limit != null) { budgets[key] = entry.limit; budgetKinds[key] = 'limit'; }
+    else if (entry.warn != null) { budgets[key] = entry.warn; budgetKinds[key] = 'warn'; }
   }
   return {
     id: p.id,
@@ -1174,6 +1196,7 @@ export function readCustomProfile(id: string, lang: string = DEFAULT_LANG): Cust
     description: pick(p.description, lang),
     source: pick(p.source, lang),
     budgets,
+    budgetKinds,
     excludeExtensions: Array.isArray(p.excludeExtensions) ? p.excludeExtensions : [],
   };
 }

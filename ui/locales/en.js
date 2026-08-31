@@ -144,7 +144,9 @@ window.I18N_CATALOGS.en = {
   // все галочки стоят, а снятая означает «здесь это не работает».
   'profile.features.hint': 'Everything the engine can do is on. Switch off what this platform does not read — those options simply will not appear.',
   // Единственное, что стоит объяснить: пустое поле — это не ноль.
-  'profile.budgets.hint': 'Fill in only the numbers you know. An empty field means the metric is shown without any verdict.',
+  'profile.kind.warn': 'advice',
+  'profile.kind.limit': 'refusal',
+  'profile.budgets.hint': 'Fill in only the numbers you know. An empty field means the metric is shown without any verdict. "Advice" means the platform still accepts the model; "refusal" means it does not.',
   'profile.save': 'Save',
   'profile.delete': 'Delete',
   'profile.delete.confirm': 'Delete for good?',

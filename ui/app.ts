@@ -3428,7 +3428,18 @@
     return (await res.json()) as { dir: string; fields: BudgetFieldDto[] };
   }
 
-  function renderProfileFields(values: Record<string, unknown>) {
+  /**
+   * Поля порогов своей площадки: число и ответ на вопрос «это совет или отказ».
+   *
+   * ВТОРОЕ ПОЛЕ ЗАВЕДЕНО 2026-08-28 по прямому разбору Александра. Он сделал площадку
+   * Ozon с порогом 20 МБ и получил приписку «Это не предел — просто дольше загрузится на
+   * слабом соединении», хотя Ozon такую модель не принимает вовсе. Его слова: «это ложное
+   * утверждение». Форма умела только совет, и строгость мы ДОДУМЫВАЛИ за автора площадки.
+   *
+   * Умолчание — совет: у большинства площадок числа именно рекомендательные, а ошибка в
+   * сторону «предупредили» безопаснее, чем в сторону «запретили».
+   */
+  function renderProfileFields(values: Record<string, unknown>, kinds: Record<string, unknown> = {}) {
     profileBudgets.innerHTML = '';
     for (const f of profileFields) {
       const row = document.createElement('label');
@@ -3452,6 +3463,19 @@
         unit.textContent = f.unit;
         row.appendChild(unit);
       }
+      // Строгость порога. Поле выбора, а не галочка: у ответа два равноправных значения,
+      // и «не отмечено» здесь ничего не значит — порог всегда либо совет, либо отказ.
+      const kind = document.createElement('select');
+      kind.className = 'profile-kind';
+      kind.dataset.budgetKind = f.id;
+      for (const value of ['warn', 'limit']) {
+        const opt = document.createElement('option');
+        opt.value = value;
+        window.I18n.setText(opt, value === 'limit' ? 'profile.kind.limit' : 'profile.kind.warn');
+        kind.appendChild(opt);
+      }
+      kind.value = kinds[f.id] === 'limit' ? 'limit' : 'warn';
+      row.appendChild(kind);
       profileBudgets.appendChild(row);
     }
   }
@@ -3461,6 +3485,16 @@
     for (const el of profileBudgets.querySelectorAll('input[data-budget]')) {
       const input = el as HTMLInputElement;
       out[input.dataset.budget!] = input.value.trim();
+    }
+    return out;
+  }
+
+  /** Совет или отказ у каждого порога — второй ответ той же строки формы. */
+  function currentBudgetKinds(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const el of profileBudgets.querySelectorAll('select[data-budget-kind]')) {
+      const sel = el as HTMLSelectElement;
+      out[sel.dataset.budgetKind!] = sel.value;
     }
     return out;
   }
@@ -3574,7 +3608,7 @@
     profileDescription.value = form.description || '';
     profileSource.value = form.source || '';
     renderProfileEngines(form.engine || '');
-    renderProfileFields(form.budgets || {});
+    renderProfileFields(form.budgets || {}, form.budgetKinds || {});
     // Список опций у каждого движка свой — рисуем его под тот, что стоит в поле.
     renderProfileFeatures(profileEngine.value, form.excludeExtensions || []);
     // Кнопки удаления и выгрузки есть только у существующей площадки: у новой нечего
@@ -3646,6 +3680,7 @@
   // введённые числа остаются на месте (Правило 8).
   async function relabelProfileForm() {
     const typed = currentBudgetValues();
+    const kinds = currentBudgetKinds();
     const fail = profileFail;
     const excluded = currentExcluded();
     try {
@@ -3655,7 +3690,7 @@
     } catch (e) {
       return;
     }
-    renderProfileFields(typed);
+    renderProfileFields(typed, kinds);
     // Названия опций тоже приходят с сервера — перезапрашиваем их на новом языке,
     // сохранив снятые галочки.
     await renderProfileFeatures(profileEngine.value, excluded);
@@ -3687,6 +3722,7 @@
       description: profileDescription.value,
       source: profileSource.value,
       budgets: currentBudgetValues(),
+      budgetKinds: currentBudgetKinds(),
       excludeExtensions: currentExcluded(),
     };
     profileSave.disabled = true;
