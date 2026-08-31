@@ -376,6 +376,7 @@ window.I18N_CATALOGS.en = {
   'group.geometry': 'Geometry',
   'group.textures': 'Textures',
   'group.animation': 'Animation',
+  'group.interactivity': 'Interactivity',
 
   // --- значки у опций ---
   'ext.details': 'Details: {name}',

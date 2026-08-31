@@ -192,3 +192,79 @@ describe('нажимаемые части без отклика видны в о
       .toBe(0);
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Убрать лишний интерактив — единственная галочка, которая его трогает
+//
+// «единственная галочка — убрать нерабочий или лишний или пустой интерактив»
+//                                                     (Александр, 2026-08-28)
+//
+// УЗКОЕ ИСКЛЮЧЕНИЕ ПРАВИЛА 11, и сторожа здесь ровно на его условия: без галочки не
+// снимается НИЧЕГО (раздел 1), с галочкой снимается ТОЛЬКО пустое (раздел 2), а замысел
+// автора — рабочая часть и прямое «не нажимать» — не трогается никогда.
+//
+// Модель наша и лежит в git, поэтому пропусков нет: проверка работает на чистом клоне.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('пустые пометки нажатия снимаются только по просьбе', () => {
+  const МОДЕЛЬ = 'Dead Interactivity 01.glb';
+
+  /** Пометки нажатия в файле: `8:Кнопка живая=true`. */
+  const метки = (file) => (glbJson(file).nodes || [])
+    .map((n, i) => [i, n.name, n.extensions?.KHR_node_selectability])
+    .filter(([, , m]) => m !== undefined)
+    .map(([i, name, m]) => `${i}:${name}=${m.selectable}`);
+
+  const собрать = async (features) => {
+    const r = await optimizeFile(modelPath(МОДЕЛЬ), {
+      advancedFeatures: features, outDir: tmpOutDir(),
+    });
+    expect(r.status, `сборка не прошла: ${r.error || ''}`).not.toBe('fail');
+    return r;
+  };
+
+  it('без галочки не снимается ни одна пометка — даже вместе с safe', async () => {
+    // Главный сторож Правила 11: молча замысел автора не правим НИКОГДА. Пустая пометка
+    // остаётся пустой, пока человек сам не попросит её убрать.
+    const r = await собрать(['safe', 'meshopt']);
+    expect(метки(r.file.dst).length, 'без просьбы что-то исчезло').toBe(10);
+  }, 300000);
+
+  it('с галочкой уходят ровно восемь пустых, а замысел остаётся', async () => {
+    const r = await собрать(['strip-dead-interactivity']);
+    expect(метки(r.file.dst), 'сняли не то, что обещали').toEqual([
+      '8:Кнопка живая=true',   // рабочая — по метке от пустых неотличима, отличает граф
+      '9:Подставка=false',     // прямое «сюда не нажимать» от автора, не мусор
+    ]);
+  }, 300000);
+
+  it('сам граф поведения не трогается ни на узел', async () => {
+    // Убирать пустые пометки и трогать граф — разные вещи. Недостижимая связка узлов 2 и 3
+    // остаётся на месте: её удаление означало бы перенумерацию ссылок внутри графа.
+    const было = glbJson(modelPath(МОДЕЛЬ)).extensions.KHR_interactivity;
+    const r = await собрать(['safe', 'strip-dead-interactivity']);
+    const стало = glbJson(r.file.dst).extensions?.KHR_interactivity;
+    expect(стало, 'граф исчез вместе с пометками').toBeTruthy();
+    expect(JSON.stringify(стало), 'граф изменился').toBe(JSON.stringify(было));
+  }, 300000);
+
+  it('отчёт называет и сколько сняли, и сколько рабочих осталось', async () => {
+    const r = await собрать(['strip-dead-interactivity']);
+    const текст = [...(r.findings || []), ...(r.applied || []), ...(r.skipped || [])]
+      .map((f) => String(f.message || f.text || '')).join('\n');
+    expect(текст, 'о снятии не сказано ни слова').toMatch(/8/);
+    expect(текст).toMatch(/сняты|removed/i);
+  }, 300000);
+
+  it('нечего убирать — так и сказано, а не сделано вида, что убрали', async () => {
+    // Интерфейс такую галочку и не покажет (Правило 12), но по API прийти может что угодно.
+    if (!isPresent('TrafficLight.glb')) return;
+    const r = await optimizeFile(modelPath('TrafficLight.glb'), {
+      advancedFeatures: ['strip-dead-interactivity'], outDir: tmpOutDir(),
+    });
+    expect(r.status).not.toBe('fail');
+    const j = glbJson(r.file.dst);
+    const n = (j.nodes || []).filter((x) => x.extensions?.KHR_node_selectability).length;
+    expect(n, 'у модели без пустых пометок что-то исчезло').toBe(2);
+  }, 300000);
+});

@@ -54,6 +54,53 @@ export interface Interactivity {
   silent: number;
 }
 
+/**
+ * Номера узлов, которые ПОМЕЧЕНЫ нажимаемыми, а отклика на них в графе нет.
+ *
+ * ОДНО МЕСТО НА ПРОГРАММУ, и это существенно. Ответ нужен троим, и разойтись им нельзя:
+ * отчёт называет число, окно решает, показывать ли галочку, а сборка по этому же списку
+ * снимает метки. Скажи они разное — человек нажал бы на то, что уже убрано, или получил
+ * бы удаление не того, что ему обещали.
+ *
+ * Графа нет вовсе — мертвы ВСЕ метки: нажимать не на что по построению.
+ *
+ * `onHover` считаем откликом наравне с `onSelect`: часть, которая отзывается на
+ * наведение, работает — просто иначе.
+ */
+export function deadSelectabilityNodes(json: unknown): number[] {
+  if (!json || typeof json !== 'object') return [];
+  const root = json as Record<string, unknown>;
+  const nodes = root['nodes'];
+  if (!Array.isArray(nodes)) return [];
+
+  const слушают = new Set<number>();
+  const ext = (root['extensions'] as Record<string, unknown> | undefined)?.['KHR_interactivity'];
+  const graphs = (ext as { graphs?: unknown } | undefined)?.graphs;
+  if (Array.isArray(graphs)) {
+    for (const g of graphs) {
+      if (!g || typeof g !== 'object') continue;
+      const graph = g as Record<string, unknown>;
+      const list = graph['nodes'];
+      if (!Array.isArray(list)) continue;
+      for (const n of list) {
+        if (!n || typeof n !== 'object') continue;
+        const op = opOf(graph, n as Record<string, unknown>);
+        if (op !== 'event/onSelect' && op !== 'event/onHover') continue;
+        const at = ((n as { configuration?: Record<string, { value?: unknown[] }> }).configuration)
+          ?.['nodeIndex']?.value?.[0];
+        if (typeof at === 'number') слушают.add(at);
+      }
+    }
+  }
+
+  const out: number[] = [];
+  nodes.forEach((n, i) => {
+    if (!isClickable((n as { extensions?: unknown } | null)?.extensions)) return;
+    if (!слушают.has(i)) out.push(i);
+  });
+  return out;
+}
+
 /** Тип узла графа: `declarations[i].op`, например `event/onSelect`. */
 function opOf(graph: Record<string, unknown>, node: Record<string, unknown>): string {
   const decls = graph['declarations'];
@@ -70,21 +117,27 @@ function opOf(graph: Record<string, unknown>, node: Record<string, unknown>): st
  * Читаем ИСХОДНЫЙ JSON, а не документ: `gltf-transform` про `KHR_interactivity` не знает,
  * и в документе расширения нет вовсе — то же основание, что у правила уровней детализации
  * (docs/EXTENDING.md §5c, истина в первоисточнике).
+ *
+ * `null` означает «интерактива нет вовсе» — ни графа, ни единой пометки нажимаемости.
+ * ОДНИ ПОМЕТКИ БЕЗ ГРАФА — это не «нет интерактива», а самый крайний случай лишнего: все
+ * они обещают нажатие, которого никто не написал. Первая редакция уходила здесь в `null`
+ * и о таком файле не говорила ни слова.
  */
 export function readInteractivity(json: unknown): Interactivity | null {
   if (!json || typeof json !== 'object') return null;
   const root = json as Record<string, unknown>;
 
   const ext = (root['extensions'] as Record<string, unknown> | undefined)?.['KHR_interactivity'];
-  const graphs = (ext as { graphs?: unknown } | undefined)?.graphs;
-  if (!Array.isArray(graphs) || !graphs.length) return null;
+  const raw = (ext as { graphs?: unknown } | undefined)?.graphs;
+  const graphs = Array.isArray(raw) ? raw : [];
+  const помечено = Array.isArray(root['nodes'])
+    && (root['nodes'] as unknown[]).some((n) => isClickable((n as { extensions?: unknown } | null)?.extensions));
+  if (!graphs.length && !помечено) return null;
 
   let handlers = 0;
   let animations = 0;
   let changes = 0;
   let graphNodes = 0;
-  // Номера узлов сцены, которых граф слушает: `configuration.nodeIndex`.
-  const слушают = new Set<number>();
 
   for (const g of graphs) {
     if (!g || typeof g !== 'object') continue;
@@ -97,12 +150,7 @@ export function readInteractivity(json: unknown): Interactivity | null {
       const op = opOf(graph, n as Record<string, unknown>);
       // Отклик на действие человека. `onHover` считаем наравне с `onSelect`: для того,
       // кто смотрит модель, это тот же вопрос — «оно откликается на меня».
-      if (op === 'event/onSelect' || op === 'event/onHover') {
-        handlers++;
-        const at = ((n as { configuration?: Record<string, { value?: unknown[] }> }).configuration)
-          ?.['nodeIndex']?.value?.[0];
-        if (typeof at === 'number') слушают.add(at);
-      }
+      if (op === 'event/onSelect' || op === 'event/onHover') handlers++;
       else if (op === 'animation/start' || op === 'animation/stop') animations++;
       else if (op === 'pointer/set') changes++;
     }
@@ -113,15 +161,15 @@ export function readInteractivity(json: unknown): Interactivity | null {
   // нажимаемым значит соврать. Первая редакция считала ЛЮБОЙ помеченный узел, и на
   // `MagicBall` отчёт обещал 21 нажимаемую часть там, где их одна.
   let clickable = 0;
-  let silent = 0;
   const nodes = root['nodes'];
   if (Array.isArray(nodes)) {
-    nodes.forEach((n, i) => {
-      if (!isClickable((n as { extensions?: unknown } | null)?.extensions)) return;
-      clickable++;
-      if (!слушают.has(i)) silent++;
-    });
+    for (const n of nodes) {
+      if (isClickable((n as { extensions?: unknown } | null)?.extensions)) clickable++;
+    }
   }
+  // Пустые считает ОТДЕЛЬНАЯ функция, а не этот цикл: по тому же списку сборка снимает
+  // метки, и второй счёт разошёлся бы с первым молча.
+  const silent = deadSelectabilityNodes(json).length;
 
   return { clickable, handlers, animations, changes, graphNodes, silent };
 }

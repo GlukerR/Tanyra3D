@@ -501,7 +501,12 @@ for (const model of ['PotOfCoalsAnimationPointer.glb']) {
 
 it('правило истины: writeBytes принимает ИСХОДНЫЙ файл, а не только документ', () => {
   const src = fs.readFileSync(path.resolve(__dirname, '..', 'addons', 'gltf', 'index.mts'), 'utf8');
-  const sig = /const writeBytes = async \(io: NodeIOType, doc: Document, src\?: string\)/.test(src);
+  // Сверяем НАЛИЧИЕ довода `src`, а не всю подпись целиком. Подпись выросла 2026-08-28:
+  // четвёртым доводом пришли опции — часть решений принимается только на записи (снятие
+  // пустых пометок нажатия). Прежняя регулярка требовала закрывающую скобку сразу за
+  // `src?: string` и краснела на добавлении, которое сторожимое свойство не трогает.
+  // Стеречь надо `src` и чтение исходника по нему, а не число доводов.
+  const sig = /const writeBytes = async \(\s*io: NodeIOType,\s*doc: Document,\s*src\?: string/.test(src);
   expect(
     sig,
     'writeBytes потерял довод src — значит снова сверяется с промежуточным документом, '

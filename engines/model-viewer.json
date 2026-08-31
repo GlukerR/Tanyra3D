@@ -81,6 +81,12 @@
       }
     },
     {
+      "id": "strip-dead-interactivity",
+      "opts": {
+        "stripDeadInteractivity": true
+      }
+    },
+    {
       "id": "ktx2",
       "opts": {
         "noKtx": false

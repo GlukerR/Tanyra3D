@@ -1012,7 +1012,7 @@
   // Meshopt/Draco, обе выключены = не сжимать). Meshopt/Draco/KTX2/Instance требуют
   // подключить декодер на целевом сайте (пометка ⚠); остальное (Join/Safe/Remove colors)
   // работает на голом three.js.
-  const OPT_GROUPS: Array<{ titleKey: string; kind: string; ids?: string[] }> = [
+  const OPT_GROUPS: Array<{ titleKey: string; kind: string; ids?: string[]; when?: () => boolean }> = [
     { titleKey: 'group.cleanup', kind: 'checks', ids: ['safe', 'strip-colors'] },
     { titleKey: 'group.structural', kind: 'checks', ids: ['join', 'instance'] },
     { titleKey: 'group.geometry', kind: 'geometry' },
@@ -1024,7 +1024,34 @@
     // далее». Мельче сверху, крупнее ниже.
     { titleKey: 'group.textureSize', kind: 'textureSize', ids: ['resize-512', 'resize-1024', 'resize-2048', 'resize-4096'] },
     { titleKey: 'group.animation', kind: 'checks', ids: ['resample'] },
+    // Интерактив — СВОЙ раздел, а не добавка к анимации (слово Александра 2026-08-28:
+    // «это должно быть отдельной группой. не в группе анимаций. просто ниже»). И это
+    // верно по сути: анимация — движение по времени, интерактив — отклик на человека.
+    //
+    // Показывается, ТОЛЬКО когда в модели есть что убирать, — и это Правило 12, а не
+    // экономия места. Галочка «убрать пустые нажатия» у модели без единой пустой пометки
+    // выглядела бы работающей и не делала бы ничего. Законная альтернатива в таком случае
+    // ровно одна: опции не должно быть видно.
+    {
+      titleKey: 'group.interactivity',
+      kind: 'checks',
+      ids: ['strip-dead-interactivity'],
+      when: () => deadInteractiveParts() > 0,
+    },
   ];
+
+  // Сколько в загруженной модели нажимаемых частей БЕЗ отклика.
+  //
+  // Источник — движок (`/api/inspect`, поле `interactivity`), а не сцена вьюпорта. Тот же
+  // выбор и по той же причине, что у размера текстур: одно число на весь экран, посчитанное
+  // одним кодом. Спроси мы вьюпорт — у отчёта и у панели появились бы два счёта, и они
+  // разъехались бы молча (ровно это уже случилось с MagicBall: отчёт говорил 21, окно — 1).
+  //
+  // Ноль, пока модели нет: до неё мы не знаем о ней ничего, и показывать опцию не на чем.
+  function deadInteractiveParts(): number {
+    const info = modelInspect && (modelInspect as any).interactivity;
+    return info && typeof info.silent === 'number' ? info.silent : 0;
+  }
   // Кому нужен декодер — говорит ДВИЖОК (engines/<id>.json, поле needsDecoder), а не
   // интерфейс. До 2026-08-10 здесь лежал зашитый список ['meshopt','draco','ktx2',
   // 'instance']: он был верен ровно для одного движка, а у второго умолчания другие.
@@ -1164,6 +1191,7 @@
     infoTip.hide();
     const byId = Object.fromEntries(extensions.map((e) => [e.id, e]));
     for (const group of OPT_GROUPS) {
+      if (group.when && !group.when()) continue;
       const section = group.kind === 'geometry'
         ? renderGeometryGroup(byId)
         : group.kind === 'textureSize'

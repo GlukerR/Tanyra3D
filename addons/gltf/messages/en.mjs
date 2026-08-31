@@ -170,6 +170,13 @@ export default {
     ? 'the one repeated mesh here is moved by an animation — batching would freeze it in place'
     : `${n} repeated meshes are moved by animation — batching would freeze them in place`),
 
+  // --- interactivity/strip-dead ---
+  'interactivityStripDead.found': ({ n }) =>
+    `${n} clickable part${n === 1 ? '' : 's'} with no handler. They can be clicked, but the model does not say what should happen.`,
+  'interactivityStripDead.done': ({ n, left }) =>
+    `Empty clickable marks removed: ${n}. ${left} working part${left === 1 ? '' : 's'} left — neither they nor the behaviour graph were touched.`,
+  'interactivityStripDead.skipped.none': () => 'the model has no empty clickable marks — nothing to remove',
+
   // --- animation/resample ---
   'resample.done': ({ pct }) => `Redundant keyframes removed: animation data ${pct}% lighter — the motion is unchanged`,
   'resample.skipped.noAnimations': () => 'the model has no animations',
@@ -373,6 +380,7 @@ export default {
   'rule.sceneLodLevels': () => 'Levels of detail',
   'rule.sceneMorphTargets': () => 'Alternative shapes',
   'rule.sceneInstance': () => 'GPU instancing',
+  'rule.interactivityStripDead': () => 'Empty clickable marks',
   'rule.animationResample': () => 'Resample animations',
   'rule.structurePruneFinal': () => 'Cleanup of orphaned resources',
   'rule.texturesKtx2': () => 'Textures → KTX2/UASTC',

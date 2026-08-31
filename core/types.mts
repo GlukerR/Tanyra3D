@@ -271,8 +271,15 @@ export interface Addon {
   createIO: () => Promise<AddonIO>;
   /** Прочитать модель в память (рабочая копия). */
   load: (io: AddonIO, src: string) => Promise<AddonDocument>;
-  /** Сериализовать в байты (без записи на диск). */
-  writeBytes: (io: AddonIO, doc: AddonDocument, src?: string) => Promise<Uint8Array>;
+  /**
+   * Сериализовать в байты (без записи на диск).
+   *
+   * `opts` — аддитивный четвёртый параметр (§4c). Понадобился, когда появилось действие
+   * над тем, чего в документе НЕТ: незнакомые расширения живут только в переносе из
+   * исходника, и решение «перенести или убрать» принимается ровно здесь. Аддон, которому
+   * это не нужно, параметр просто не объявляет.
+   */
+  writeBytes: (io: AddonIO, doc: AddonDocument, src?: string, opts?: NormalizedOpts) => Promise<Uint8Array>;
   /** Прочитать модель из байтов (для after-метрик). */
   readBytes: (io: AddonIO, bytes: Uint8Array) => Promise<AddonDocument>;
   collectMetrics: (doc: AddonDocument, fileBytes: number) => Metrics;

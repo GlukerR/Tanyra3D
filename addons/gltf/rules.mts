@@ -65,7 +65,7 @@ import { type Ceiling, probeWebpCeiling, readCeiling, targetQuality } from './so
 import { readSourceJson } from './source-json.mjs';
 import { importNote } from './import-notes.mjs';
 import { scanLods } from './lod-scan.mjs';
-import { readInteractivity } from './interactivity.mjs';
+import { deadSelectabilityNodes, readInteractivity } from './interactivity.mjs';
 import { collectMetrics, countTriangles, effectiveSkins, listSemantics, textureSize } from './metrics.mjs';
 import { HAS_GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 import { hasOpaqueExtension } from './carry.mjs';
@@ -1591,6 +1591,56 @@ export const RULES: GltfRule[] = [
           data: { n: res.animatedSkipped },
         }],
       };
+    },
+  },
+
+  {
+    // ЕДИНСТВЕННОЕ правило, которое убирает интерактив, и убирает оно ровно одно:
+    // пометку нажатия у части, на которую в графе поведения нет ни одного отклика.
+    //
+    // ЗАКАЗ (Александр, 2026-08-28): «единственная галочка — убрать нерабочий или лишний
+    // или пустой интерактив».
+    //
+    // ЧТО ЭТО ТАКОЕ. `KHR_node_selectability` объявляет часть нажимаемой. Граф поведения
+    // отдельно говорит, что при нажатии произойдёт. Метка без отклика — обещание, которого
+    // никто не написал: на сайте под курсором появится рука, человек нажмёт, и не
+    // случится ничего.
+    //
+    // ЧЕГО ОНО НЕ ТРОГАЕТ, и это половина смысла:
+    //   • рабочие части — по метке они от пустых НЕ отличаются, отличает только граф;
+    //   • `"selectable": false` — прямое «сюда не нажимать» от автора, не мусор;
+    //   • сам граф поведения — он уезжает целым, включая недостижимые узлы: их удаление
+    //     означало бы перенумерацию ссылок внутри графа, а это уже другая работа.
+    //
+    // УЗКОЕ ИСКЛЮЧЕНИЕ ПРАВИЛА 11, и все три его условия выполнены: человек выбирает это
+    // сам отдельной галочкой в этом прогоне, цена названа до нажатия (книжечка опции) и
+    // записана в отчёт после, действие помечено необратимым. По умолчанию не горит
+    // никогда и внутрь `safe` не входит.
+    //
+    // ГДЕ ДЕЛАЕТСЯ САМА РАБОТА. Не здесь — в переносе (`collectCarried` в index.mts).
+    // Причина устройства, а не удобства: библиотека `KHR_node_selectability` не знает, в
+    // документе его нет вовсе, и живёт оно ровно в переносе из исходника. Не перенесли —
+    // значит убрали. Правило СЧИТАЕТ и ОТЧИТЫВАЕТСЯ; список пустых обе половины берут у
+    // одной функции (`deadSelectabilityNodes`), поэтому разойтись они не могут.
+    meta: {
+      id: 'interactivity/strip-dead', category: 'scene', title: 'Clickable marks with no handler', titleKey: 'rule.interactivityStripDead',
+      severity: 'info', fixSafety: 'provable', tier: 'advanced', runAfter: [], touches: ['node'],
+      reversible: false, dataLoss: 'significant',
+      feature: 'strip-dead-interactivity',
+      enabled: (o) => o.stripDeadInteractivity,
+    },
+    analyze(ctx) {
+      const dead = deadSelectabilityNodes(assetJson(ctx)).length;
+      if (!dead) return [];
+      return [{ messageId: 'interactivityStripDead.found', data: { n: dead } }];
+    },
+    canFix() { return { safe: true }; },
+    fix(finding, ctx) {
+      const json = assetJson(ctx);
+      const dead = deadSelectabilityNodes(json).length;
+      if (!dead) return { skipped: [{ messageId: 'interactivityStripDead.skipped.none', data: {} }] };
+      const left = (readInteractivity(json)?.clickable ?? 0) - dead;
+      return { details: [{ messageId: 'interactivityStripDead.done', data: { n: dead, left } }] };
     },
   },
 

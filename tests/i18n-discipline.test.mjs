@@ -356,6 +356,7 @@ const PHRASE_WHITELIST = {
   'join meshes / flatten scene — fewer draw calls (structural, irreversible)': 'ADVANCED_FEATURES — текст ошибки API',
   'GPU instancing (EXT_mesh_gpu_instancing) — repeated meshes as instances': 'ADVANCED_FEATURES — текст ошибки API',
   'resample animations — drop redundant keyframes (lossless)': 'ADVANCED_FEATURES — текст ошибки API',
+  'drop clickable marks with no handler in the behaviour graph (irreversible)': 'ADVANCED_FEATURES — текст ошибки API',
   'textures → KTX2 (needs browser/engine support)': 'ADVANCED_FEATURES — текст ошибки API',
   'textures → WebP (EXT_texture_webp; smaller file, video memory unchanged)': 'ADVANCED_FEATURES — текст ошибки API',
   'removal of painted vertex colors (lossy)': 'ADVANCED_FEATURES — текст ошибки API',

@@ -334,6 +334,7 @@ window.I18N_CATALOGS.ru = {
   'group.geometry': 'Геометрия',
   'group.textures': 'Текстуры',
   'group.animation': 'Анимация',
+  'group.interactivity': 'Интерактив',
 
   // --- значки у опций ---
   'ext.details': 'Подробнее: {name}',
