@@ -46,6 +46,11 @@ const ALLOWED_LATIN = new Set([
   'flatten',                           // из "flatten + join" в названии правила
   'strip-vertex-colors',               // CLI-флаг в skipped-сообщении
   'keep-parts',                        // CLI-флаг
+  // id фич в «advancedFeatures: ['…']» — то же основание, что у 'quantize' выше:
+  // это ИМЯ ФЛАГА, которое человек передаёт в вызов, а не слово русского языка.
+  // Переведи его — и подсказка станет неисполнимой (Правило 8, имена флагов не переводим).
+  'strip-dead-interactivity',
+  'keep-unused-uv',
 
   // --- Поля метрик / данных ---
   'vram', 'gpu', 'cpu', 'ram',

@@ -406,9 +406,26 @@ describe('Класс shared-geometry — join не разворачивает о
     const dstDoc = await io.read(r.file.dst);
     expect(countSharedMeshes(dstDoc)).toBe(sharedBefore);
 
-    // движок честно сказал, что оставил общую геометрию (join.keptShared)
-    const kept = r.skipped.filter((s) => s.i18n?.text?.messageId === 'join.keptShared');
-    expect(kept.length).toBeGreaterThan(0);
+    // Движок честно сказал, ЧТО СДЕЛАЛ С ОБЩЕЙ ГЕОМЕТРИЕЙ. Исходов два, и оба законные:
+    //
+    //   • склейка отработала и обошла общие меши — про это говорит `join.keptShared`;
+    //   • склейка не запускалась вовсе — так бывает у модели с незнакомым расширением
+    //     (`KHR_interactivity` и соседи): структурные правила там отказываются работать
+    //     целиком, потому что перенумерация порвала бы ссылки расширения молча.
+    //
+    // Дефект — это МОЛЧАНИЕ, а не второй исход. Первая редакция требовала `join.keptShared`
+    // всегда и краснела на трёх моделях набора Khronos, где склейка и не начиналась:
+    // проверка ловила не поломку, а собственное упрощение (найдено 2026-08-29).
+    const joinApplied = r.applied.some((a) => a.ruleId === 'scene/join');
+    const joinSkips = r.skipped.filter((s) => s.ruleId === 'scene/join');
+    if (joinApplied) {
+      const kept = r.skipped.filter((s) => s.i18n?.text?.messageId === 'join.keptShared');
+      expect(kept.length, 'склейка отработала, а про общую геометрию промолчала')
+        .toBeGreaterThan(0);
+    } else {
+      expect(joinSkips.length, 'склейка не отработала и не сказала почему')
+        .toBeGreaterThan(0);
+    }
   });
 });
 

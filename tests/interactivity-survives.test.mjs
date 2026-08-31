@@ -33,7 +33,7 @@ import fs from 'node:fs';
 
 import { optimizeFile } from '../optimize2.mjs';
 import { readInteractivity } from '../addons/gltf/interactivity.mjs';
-import { modelPath, isPresent } from './helpers/model-files.mjs';
+import { modelPath, isPresent, itIfModel } from './helpers/model-files.mjs';
 import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 
 afterAll(cleanupTmpOutDirs);
@@ -152,8 +152,6 @@ describe('модели Khronos с KHR_interactivity доезжают целым�
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('нажимаемые части без отклика видны в отчёте', () => {
-  const калькуляторIt = isPresent('Calculator.glb') ? it : it.skip;
-
   it('часть помечена нажимаемой, а в графе про неё ничего — считается пустой', () => {
     const found = readInteractivity({
       nodes: [
@@ -184,7 +182,7 @@ describe('нажимаемые части без отклика видны в о
     expect(found.silent, 'восемь пустых кнопок посчитаны неверно').toBe(8);
   });
 
-  калькуляторIt('Calculator — все пятнадцать кнопок со своим откликом', () => {
+  itIfModel('Calculator.glb', 'все пятнадцать кнопок со своим откликом', () => {
     const found = readInteractivity(glbJson(modelPath('Calculator.glb')));
     expect(found.clickable).toBe(15);
     expect(found.handlers).toBe(15);
@@ -256,9 +254,8 @@ describe('пустые пометки нажатия снимаются толь
     expect(текст).toMatch(/сняты|removed/i);
   }, 300000);
 
-  it('нечего убирать — так и сказано, а не сделано вида, что убрали', async () => {
+  itIfModel('TrafficLight.glb', 'нечего убирать — так и сказано, а не сделано вида, что убрали', async () => {
     // Интерфейс такую галочку и не покажет (Правило 12), но по API прийти может что угодно.
-    if (!isPresent('TrafficLight.glb')) return;
     const r = await optimizeFile(modelPath('TrafficLight.glb'), {
       advancedFeatures: ['strip-dead-interactivity'], outDir: tmpOutDir(),
     });

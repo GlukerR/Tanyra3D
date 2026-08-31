@@ -1640,7 +1640,12 @@ export const RULES: GltfRule[] = [
     },
     analyze(ctx) {
       const dead = deadSelectabilityNodes(assetJson(ctx)).length;
-      if (!dead) return [];
+      // ПУСТОЙ СПИСОК ЗДЕСЬ НЕДОПУСТИМ, и это не формальность. Правило включено галочкой
+      // человека; вернув «находок нет», оно исчезает из отчёта целиком — ни «сделал», ни
+      // «пропустил». Человек нажал и не узнал ничего (Правило 12, и ровно это ловит
+      // контракт движка, раздел «сделал-объяснил»). Нечего убирать — идём в fix и говорим
+      // об этом вслух, как это делает прореживание анимации.
+      if (!dead) return [{ messageId: 'pipeline', data: {} }];
       return [{ messageId: 'interactivityStripDead.found', data: { n: dead } }];
     },
     canFix() { return { safe: true }; },
