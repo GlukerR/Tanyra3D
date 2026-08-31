@@ -170,6 +170,8 @@ export default {
     ? 'the one repeated mesh here is moved by an animation — batching would freeze it in place'
     : `${n} repeated meshes are moved by animation — batching would freeze them in place`),
 
+  'prune.done.keptAttributes': () => 'UV and other vertex data were kept, including what no material reads right now',
+
   // --- interactivity/strip-dead ---
   'interactivityStripDead.found': ({ n }) =>
     `${n} clickable part${n === 1 ? '' : 's'} with no handler. They can be clicked, but the model does not say what should happen.`,

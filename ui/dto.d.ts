@@ -150,6 +150,8 @@ interface UiSelection {
   textureSizeChoice: string;
   ktx2Mode: string;
   checked: string[];
+  /** Просит ли человек оставить развёртку, которой не пользуется ни одна картинка. */
+  keepUnusedUv?: boolean;
   [key: string]: any;
 }
 

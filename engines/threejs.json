@@ -59,6 +59,12 @@
       }
     },
     {
+      "id": "keep-unused-uv",
+      "opts": {
+        "keepUnusedUv": true
+      }
+    },
+    {
       "id": "ktx2",
       "needsDecoder": true,
       "opts": {

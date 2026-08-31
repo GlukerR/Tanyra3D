@@ -56,6 +56,25 @@ export type GltfMetrics = {
    * надо в тех же единицах, в которых написан порог.
    */
   textureMaxSize: number;
+  /**
+   * Частей, у которых ЕСТЬ развёртка и НЕТ ни одной карты.
+   *
+   * Зачем считается. Безопасная чистка убирает развёртку, которой не пользуется ни один
+   * материал, — и это верно ровно до одного случая: модели для конфигуратора, где
+   * покрытие назначают уже на сайте. Александр, 2026-08-29: «там могут быть уже готовы
+   * юви, но не быть прикрепленной никакой текстуры… модель нужна нам для конфигуратора
+   * на сайте где клиент может выбирать кучи разных вариантов покрытия».
+   *
+   * По этому числу интерфейс решает, показывать ли подчинённую строку «оставить
+   * развёртку». Ноль — показывать нечего: сохранять нечего, и клавиша была бы пустой
+   * (Правило 12).
+   *
+   * Признак НАРОЧНО узкий: материала без единой карты достаточно, чтобы утверждать
+   * «эту развёртку сейчас не читает никто». Обратное — «у материала карты есть, но
+   * второй канал развёртки не читает ни одна» — сюда не входит: такой канал наплодил
+   * экспортёр, и сохранять его человек не просит.
+   */
+  uvWithoutTextures: number;
   meshes: number;
   materials: number;
   textures: number;
@@ -206,6 +225,36 @@ export function textureSize(image: Uint8Array | null, mime: string | null): numb
   }
 }
 
+/**
+ * Частей с развёрткой, у которых материал не несёт ни одной карты.
+ *
+ * Считается по примитивам, а не по мешам: материал живёт на примитиве, и у меша из двух
+ * частей одна может быть с картой, другая без.
+ *
+ * Примитив БЕЗ материала тоже считается: материала нет — карт нет, читать развёртку
+ * нечем.
+ */
+function uvWithoutTextures(doc: Document): number {
+  // Материалы, у которых есть хоть одна карта. Считаем ОТ ТЕКСТУР, а не перебором слотов
+  // материала: слоты приносят и расширения (лист, ткань, прозрачность), и список пришлось
+  // бы держать вторым, расходящимся с библиотекой. Ссылка же одна, и она видна с той
+  // стороны — texture.listParents().
+  const сКартами = new Set<unknown>();
+  for (const tex of doc.getRoot().listTextures()) {
+    for (const parent of tex.listParents()) сКартами.add(parent);
+  }
+
+  let n = 0;
+  for (const mesh of doc.getRoot().listMeshes()) {
+    for (const prim of mesh.listPrimitives()) {
+      if (!prim.listSemantics().some((s) => s.startsWith('TEXCOORD_'))) continue;
+      const material = prim.getMaterial();
+      if (!material || !сКартами.has(material)) n += 1;
+    }
+  }
+  return n;
+}
+
 export function collectMetrics(doc: Document, fileBytes: number): GltfMetrics {
   const root = doc.getRoot();
   const { drawCalls, triangles, vertices, morphTargets, attributes } = sceneGeometry(doc);
@@ -222,6 +271,7 @@ export function collectMetrics(doc: Document, fileBytes: number): GltfMetrics {
   }
   return {
     textureMaxSize: maxTextureSide(doc),
+    uvWithoutTextures: uvWithoutTextures(doc),
     verticesStored: storedVertices(doc),
     fileBytes,
     drawCalls,

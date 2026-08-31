@@ -1048,6 +1048,17 @@
   // разъехались бы молча (ровно это уже случилось с MagicBall: отчёт говорил 21, окно — 1).
   //
   // Ноль, пока модели нет: до неё мы не знаем о ней ничего, и показывать опцию не на чем.
+  /**
+   * Частей, у которых развёртка есть, а карт нет. Считает ДВИЖОК (`/api/inspect`).
+   *
+   * Ноль, пока модели нет: до неё мы не знаем о ней ничего, и подчинённой строки не будет.
+   * Тот же источник и та же причина, что у `deadInteractiveParts` ниже.
+   */
+  function uvWithoutTextures(): number {
+    const m = modelInspect && (modelInspect.metrics as any);
+    return m && typeof m.uvWithoutTextures === 'number' ? m.uvWithoutTextures : 0;
+  }
+
   function deadInteractiveParts(): number {
     const info = modelInspect && (modelInspect as any).interactivity;
     return info && typeof info.silent === 'number' ? info.silent : 0;
@@ -1607,6 +1618,56 @@
 
     row.appendChild(head);
 
+    // ЧИСТКА — один флажок, а под ним одна подчинённая строка: убирать ли развёртку,
+    // которой не пользуется ни одна картинка.
+    //
+    // ПОЧЕМУ ПОДЧИНЁННОЙ, а не отдельной галочкой в списке. Она уточняет силу уже
+    // выбранного действия — ровно как режим у KTX2 и качество у WebP, — и вне чистки не
+    // значит ничего: без неё развёртку никто не трогает. Отдельным флажком в списке она
+    // висела бы у всех и работала бы у части (Правило 12).
+    //
+    // ПОЧЕМУ ТОЛЬКО У ЭТОЙ МОДЕЛИ. Показывается, когда в файле есть часть с развёрткой и
+    // без единой карты. Нет такой — сохранять нечего, и строки нет.
+    //
+    // Заказ Александра, 2026-08-29: «если я готовлю для конфигуратора мебель или предметы,
+    // там могут быть уже готовы юви, но не быть прикрепленной никакой текстуры… сделать
+    // как у ktx2 снизу режимы и там всё выбрано и можно так же убрать выбор».
+    if (ext.id === 'safe' && uvWithoutTextures() > 0) {
+      const sub = extensions.find((e) => e.id === 'keep-unused-uv');
+      if (sub) {
+        const box = document.createElement('div');
+        box.className = 'ext-suboption';
+        box.classList.toggle('hidden', !checkbox.checked);
+
+        const subLabel = document.createElement('label');
+        subLabel.className = 'ext-label';
+        const keep = document.createElement('input');
+        keep.type = 'checkbox';
+        // КЛАСС ДРУГОЙ, и это не мелочь: `.ext-checkbox` собирается в список фич как
+        // есть, а эта строка ПЕРЕВЁРНУТАЯ — отмечена значит «делаем», снята значит
+        // «просим не делать». Собери её общим правилом, и снятая галочка молча ничего
+        // не сказала бы движку.
+        keep.className = 'ext-subcheck';
+        keep.id = SUB_UV_ID;
+        // ОТМЕЧЕНА ПО УМОЛЧАНИЮ: она показывает, что чистка это уже делает. Александр,
+        // 2026-08-29: «при включении безопасного режима всегда дополнительно внутри
+        // включается галочка про удаление лишних юви неиспользуемых. но выключение
+        // галочки удаления лишних юви не выключает сейф оптимизации».
+        keep.checked = true;
+        keep.addEventListener('change', () => { rememberSelection(); onOptionChanged(); });
+        const text = document.createElement('span');
+        text.textContent = sub.title || sub.id;
+        subLabel.append(keep, text);
+
+        box.appendChild(subLabel);
+        // Книжечка у подчинённой строки СВОЯ: вопрос «что это даст и чем плачу» у неё
+        // отдельный от вопроса про чистку целиком.
+        box.appendChild(infoButton(sub));
+        row.appendChild(box);
+        checkbox.addEventListener('change', toggleUvSubRow);
+      }
+    }
+
     // KTX2 — один флажок с раскрывающимся селектором режима. Отдельного чекбокса
     // ETC1S нет (future-proof). Что стоит предвыбранным — советует площадка, см.
     // defaultKtx2Mode(); интерфейс своего умолчания не назначает.
@@ -1707,6 +1768,13 @@
   }
 
   // Показать/скрыть селектор режима KTX2 (при авто-включении из detection).
+  /** Показать подчинённую строку чистки ровно тогда, когда включена сама чистка. */
+  function toggleUvSubRow() {
+    const box = subUvBox()?.closest('.ext-suboption');
+    const safe = document.getElementById('ext-safe') as HTMLInputElement | null;
+    if (box) box.classList.toggle('hidden', !safe?.checked);
+  }
+
   function toggleKtx2Mode(show: boolean) {
     const cb = document.getElementById('ext-ktx2');
     const row = cb && cb.closest('.ext-row');
@@ -1722,8 +1790,23 @@
     if (box) box.classList.toggle('hidden', !show);
   }
 
+  /**
+   * Подчинённая строка чистки: «убирать развёртку, которой не пользуется ни одна
+   * картинка». ОТМЕЧЕНА — чистка убирает (умолчание). СНЯТА — просим оставить, и вот эту
+   * просьбу движок и получает фичей `keep-unused-uv`.
+   *
+   * Переворот записан ЗДЕСЬ, в одном месте на все три вопроса (что отправить, что
+   * запомнить, что вернуть). Раскидай его по трём — и один из трёх однажды забудут.
+   */
+  const SUB_UV_ID = 'ext-keep-unused-uv';
+  const SUB_UV_FEATURE = 'keep-unused-uv';
+  const subUvBox = () => document.getElementById(SUB_UV_ID) as HTMLInputElement | null;
+  /** Просит ли человек ОСТАВИТЬ развёртку. Строки нет — не просит. */
+  const keepingUnusedUv = () => { const b = subUvBox(); return !!b && !b.checked; };
+
   function getSelectedFeatures() {
     const feats = [];
+    if (keepingUnusedUv()) feats.push(SUB_UV_FEATURE);
     if (geometryChoice === 'meshopt') feats.push('meshopt');
     else if (geometryChoice === 'draco') feats.push('draco');
     else if (geometryChoice === 'quantize') feats.push('quantize');
@@ -2330,6 +2413,11 @@
     toggleKtx2Mode(!!(document.getElementById('ext-ktx2') && (document.getElementById('ext-ktx2') as HTMLInputElement).checked));
     syncWebpQualityUI();
     toggleWebpQuality(!!(document.getElementById('ext-webp') && (document.getElementById('ext-webp') as HTMLInputElement).checked));
+    // Подчинённая строка чистки — тем же порядком. Её видимость нельзя выставить при
+    // сборке строки: флажок чистки в тот момент ещё пуст, а умолчания площадки ставятся
+    // ЗДЕСЬ, ниже по ходу. Без этой строки подчинённая была не видна ровно у того, кому
+    // она нужна, — у человека с включённой по умолчанию чисткой.
+    toggleUvSubRow();
     // Панель пересобрана заново (смена языка) — заморозку надо наложить снова: новые
     // элементы про идущую сборку ничего не знают и приходят доступными.
     freezeSettings(buildInFlight);
@@ -2448,6 +2536,8 @@
     for (const cb of extensionsList.querySelectorAll('.ext-checkbox')) {
       (cb as HTMLInputElement).checked = saved!.checked.includes((cb as HTMLInputElement).value);
     }
+    const sub = subUvBox();
+    if (sub) sub.checked = !saved!.keepUnusedUv;
   }
 
   // Снимок того, что сейчас стоит в панели. Это ВЕСЬ её изменяемый состав: флажки,
@@ -2460,6 +2550,9 @@
       ktx2Mode,
       webpQuality,
       checked: [...extensionsList.querySelectorAll<HTMLInputElement>('.ext-checkbox:checked')].map((cb) => cb.value),
+      // Хранится ПРОСЬБА, а не положение галочки: пересборка панели восстановит её сама,
+      // а смысл при этом не перевернётся.
+      keepUnusedUv: keepingUnusedUv(),
     };
   }
 

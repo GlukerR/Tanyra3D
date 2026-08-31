@@ -1981,6 +1981,24 @@ details[open] > .collapsible-summary::before {
 .model-alert { margin-left: 4px; }
 .model-alert.is-warn { color: var(--warning); }
 
+/* Подчинённая строка под флажком: уточняет силу уже выбранного действия и живёт вместе
+   с ним. Отступ слева ставит её ПОД родителем, а не рядом: глаз читает подчинение по
+   сдвигу, а не по рамке.
+
+   Складывать её в «details», как режим KTX2, не стали намеренно: пункт один, и папка
+   ради одного пункта — лишнее нажатие (слово Александра про солнышко, 2026-08-28:
+   «не нужно из солнышка делать ещё папку ради папки»). */
+.ext-suboption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0 22px;
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+.ext-suboption .ext-label { font-size: 12px; }
+
 /* KTX2 — раскрывающийся селектор режима (UASTC / ETC1S) */
 .ktx2-mode {
   margin: 8px 0 0 22px;

@@ -160,6 +160,7 @@ const ADVANCED_FEATURES = {
   instance: 'GPU instancing (EXT_mesh_gpu_instancing) — repeated meshes as instances',
   resample: 'resample animations — drop redundant keyframes (lossless)',
   'strip-dead-interactivity': 'drop clickable marks with no handler in the behaviour graph (irreversible)',
+  'keep-unused-uv': 'keep UV and other vertex data no material reads (for configurators)',
   ktx2: 'textures → KTX2 (needs browser/engine support)',
   webp: 'textures → WebP (EXT_texture_webp; smaller file, video memory unchanged)',
   'strip-colors': 'removal of painted vertex colors (lossy)',
@@ -367,6 +368,9 @@ function normalizeOpts(opts: RawOpts = {}): GltfOpts {
     join: (adv.includes('join') || !!opts.join) && !opts.keepParts, // склейка мешей — отдельный флажок
     instance: adv.includes('instance') || !!opts.instance, // GPU-инстансинг (нужен декодер на сайте)
     resample: adv.includes('resample') || !!opts.resample, // чистка кадров анимации (без потерь)
+    // ВЫКЛЮЧАТЕЛЬ внутри чистки, а не отдельное действие: по умолчанию false, то есть
+    // чистка работает как прежде. Тот же род флажка, что `keepParts` у склейки.
+    keepUnusedUv: adv.includes('keep-unused-uv') || !!opts.keepUnusedUv,
     // Снятие пустых меток нажатия. Только по прямой просьбе и никогда по умолчанию:
     // метку ставил автор, и убирать её без его согласия нельзя (Правило 11).
     stripDeadInteractivity: adv.includes('strip-dead-interactivity') || !!opts.stripDeadInteractivity,

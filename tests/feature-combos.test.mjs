@@ -58,7 +58,7 @@ const GEOMETRY_CODECS = ['meshopt', 'draco', 'quantize'];
 const TEXTURE_FORMATS = ['ktx2', 'webp'];
 const STRUCTURE = ['join', 'instance'];
 
-// Все пары поверх safe: ['safe', A, B] — C(8,2) = 28 пар.
+// Все пары поверх safe: ['safe', A, B] — C(n,2), где n растёт вместе с RULES.
 const PAIRS = [];
 for (let i = 0; i < FEATURES.length; i++) {
   for (let j = i + 1; j < FEATURES.length; j++) {
@@ -94,7 +94,7 @@ const hasApplied = (result, ruleId) => (result.applied || []).some((a) => a.rule
 const skippedOf = (result, ruleId) => (result.skipped || []).filter((s) => s.ruleId === ruleId);
 const appliedOf = (result, ruleId) => (result.applied || []).filter((a) => a.ruleId === ruleId);
 // ============================================================================
-// РАЗДЕЛ 1. Инварианты на всех парах ['safe', A, B] — 28 пар × корпус.
+// РАЗДЕЛ 1. Инварианты на всех парах ['safe', A, B] — все пары × корпус.
 // dryRun:true — файл на диск не пишем, отчёта достаточно.
 // ============================================================================
 // Корпус сокращён: репо-модели 11 → 5 (см. отчёт «что сократил»), локальные
@@ -518,9 +518,19 @@ describe('Сочетания фич — матрица растёт сама (ф
     for (const f of ['join', 'instance', 'resample', 'ktx2', 'webp', 'meshopt', 'draco', 'quantize']) {
       expect(FEATURES, `не хватает фичи ${f}`).toContain(f);
     }
-    expect(PAIRS.length).toBe(28);
-    expect(TRIPLES.length).toBe(12);
-    expect(MUTEX_PAIRS.length).toBe(4);
+    // Числа СЧИТАЮТСЯ, а не вписаны. Так и было задумано с самого начала («девятую
+    // фичу матрица подхватит автоматически»), но три magic-числа этому противоречили:
+    // 2026-08-29 в RULES пришла девятая фича (`strip-dead-interactivity`), и красным
+    // стал не дефект, а собственная арифметика теста.
+    //
+    // Утверждение осталось прежним по смыслу: пары — это ВСЕ сочетания по два, тройки —
+    // произведение трёх взаимоисключающих групп, взаимоисключающих пар — пара текстур
+    // плюс все пары кодеков.
+    const C2 = (n) => (n * (n - 1)) / 2;
+    expect(PAIRS.length, 'пары перестали быть всеми сочетаниями по два').toBe(C2(FEATURES.length));
+    expect(TRIPLES.length, 'тройки перестали быть произведением трёх групп')
+      .toBe(GEOMETRY_CODECS.length * TEXTURE_FORMATS.length * STRUCTURE.length);
+    expect(MUTEX_PAIRS.length).toBe(1 + C2(GEOMETRY_CODECS.length));
   });
 
   it('meta.feature из RULES входит в FEATURES целиком (девятая фича вырастет матрицу сама)', () => {

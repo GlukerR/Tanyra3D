@@ -863,7 +863,13 @@ export const RULES: GltfRule[] = [
       // Случай «карты приложили рядом» закрывается сам и раньше: подбор соседних карт
       // (import-textures.mts) идёт на ВВОЗЕ, до правил. К этому месту текстура уже
       // привязана к материалу, материал ссылается на развёртку — и чистка её не тронет.
-      await ctx.document.transform(fns.prune({ keepAttributes: false, keepLeaves: false }));
+      // `keepAttributes` — единственная ручка, которую даёт библиотека, и она общая на все
+      // атрибуты сразу: раздельной «оставь развёртку, но убери остальное» в ней нет.
+      // Поэтому просьба сохранить развёртку сохраняет и прочие данные вершин, которых не
+      // читает ни один материал. Это сказано человеку прямо в описании опции — обещать
+      // точность, которой у нас нет, нельзя.
+      const держимАтрибуты = !!ctx.opts.keepUnusedUv;
+      await ctx.document.transform(fns.prune({ keepAttributes: держимАтрибуты, keepLeaves: false }));
       const semAfter = listSemantics(ctx.document);
       const a = { tex: root.listTextures().length, mat: root.listMaterials().length, skins: root.listSkins().length, effSkins: effectiveSkins(ctx.document) };
       const out: { found: Message[]; details: Message[] } = { found: [], details: [] };
@@ -872,6 +878,9 @@ export const RULES: GltfRule[] = [
       // именем канала. Схлопывать их в интерфейсе нельзя честно: он видит готовые строки
       // и, сложив их в «TEXCOORD_1 … ×8», называет один канал, а имеет в виду восемь.
       // Правило знает весь список сразу — здесь это и есть правильное место.
+      // Просьбу выполнили — говорим об этом вслух. Правило 12: человек включил флажок и
+      // обязан увидеть след, а не догадываться, применилось ли.
+      if (держимАтрибуты) out.details.push({ messageId: 'prune.done.keptAttributes', data: {} });
       const removedSem = [...semBefore].filter((s) => !semAfter.has(s)); // listSemantics отдаёт Set
       if (removedSem.length === 1) {
         out.found.push({ messageId: 'prune.found.attribute', data: { sem: removedSem[0] } });
@@ -1682,7 +1691,12 @@ export const RULES: GltfRule[] = [
     async fix(finding, ctx) {
       const root = ctx.document.getRoot();
       const b = root.listAccessors().length;
-      await ctx.document.transform(fns.prune()); // как в v2: подчистка после всех проходов
+      // Умолчание библиотеки — `keepAttributes: false`, то есть эта финальная подчистка
+      // тоже сносит данные вершин, которых не читает ни один материал. Первая редакция
+      // просьбы «оставить развёртку» этого не знала: правило выше её сохраняло, а здесь
+      // она молча исчезала снова, и отчёт при этом рапортовал, что всё оставлено.
+      // Просьба человека обязана дойти до КОНЦА конвейера, а не до середины.
+      await ctx.document.transform(fns.prune({ keepAttributes: !!ctx.opts.keepUnusedUv }));
       const a = root.listAccessors().length;
       if (b > a) return { details: [{ messageId: 'pruneFinal.done', data: { n: b - a } }] };
       return {};
