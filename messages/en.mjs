@@ -66,7 +66,7 @@ export default {
   'advice.overLimit': ({ name, actual, limit }) =>
     `${name}: ${actual} against the platform limit of ${limit}. Files above the limit are rejected or re-compressed by the platform without asking.`,
   'advice.triangles': ({ actual, warn }) =>
-    `${actual} triangles against a recommended ${warn}. Not an error — heavy scenes just load and render slower. Simplify the model on export if that matters here.`,
+    `${actual} triangles against a recommended ${warn}. Heavy scenes load and render slower. Simplify the model on export if that matters here.`,
   'advice.materials': ({ actual, warn }) =>
     `${actual} materials against a recommended ${warn}. Each material is a separate draw call; merging them on export lowers GPU load.`,
   'advice.drawCalls': ({ actual, warn }) =>
@@ -76,7 +76,7 @@ export default {
   'advice.textureSize': ({ actual, warn }) =>
     `The largest texture is ${actual} on its longer side, against ${warn} recommended. Every doubling of the side takes four times the video memory, and on a phone screen the difference is usually invisible.`,
   'advice.file': ({ actual, warn }) =>
-    `The file is ${actual} against a recommended ${warn}. Not a limit — just slower to load on a weak connection.`,
+    `The file is ${actual} against a recommended ${warn}. The heavier the file, the longer it takes to open on a weak connection.`,
 
   // --- предупреждения ---
   'warn.notApplied': ({ text, reason }) => `Not applied: ${text}${reason}`,
@@ -97,6 +97,12 @@ export default {
   'option.instance.title': () => 'GPU instancing',
   'option.instance.description': () => 'Turns repeated meshes into copies drawn by the graphics card — fewer separate draws per frame. The target site has to support this.',
   'option.instance.impact': () => 'Fewer draw calls when the scene repeats meshes.',
+  'option.keep-unused-uv.title': () => 'Drop the unused UV',
+  'option.keep-unused-uv.description': () => 'Cleanup drops a UV layout no image uses — it only takes up space. Untick this when the finish is chosen on the site itself: a configurator for furniture, clothing or surfaces. The UV then survives the build, and so does other vertex data no material reads right now.',
+  'option.keep-unused-uv.impact': () => 'The file gets heavier: 14% to 65% in our measurements — other vertex data is kept along with the UV.',
+  'option.strip-dead-interactivity.title': () => 'Remove empty clicks',
+  'option.strip-dead-interactivity.description': () => 'A model can carry parts marked as clickable with no response written for them: on a site the cursor turns into a hand, the visitor clicks — and nothing happens. This removes those marks. Working parts and the behaviour itself are left alone.',
+  'option.strip-dead-interactivity.impact': () => 'The mark cannot be put back — only rebuilt from the original.',
   'option.resample.title': () => 'Resample',
   'option.resample.description': () => 'Removes redundant animation keyframes without changing the motion — smaller animation data.',
   'option.resample.impact': () => 'Smaller animations; no visible change.',

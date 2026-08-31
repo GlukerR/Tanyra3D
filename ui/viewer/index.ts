@@ -339,6 +339,8 @@ class DualViewport {
   declare _cameraIndex: number | null;
   /** Чей свет показываем. Тоже переживает сборку, но не смену модели. */
   declare _lightMode: 'studio' | 'file' | 'none';
+  /** Показана ли обводка нажимаемых частей. Одна на оба окна. */
+  declare _interactiveOn: boolean;
   declare _exposure: number;
   /** Материал показа, один на оба окна. См. setDisplayMaterial. */
   declare _display: DisplayMode;
@@ -364,6 +366,9 @@ class DualViewport {
     this._lodIndex = null;    // и показанный уровень детализации
     this._cameraIndex = null; // и выбранный ракурс автора (см. _applyCameraSelection)
     this._lightMode = 'studio'; // и чей свет показываем
+    // Обводка интерактива показана по умолчанию: её задача — ответить на вопрос «где
+    // тут интерактив» до того, как человек начнёт его искать.
+    this._interactiveOn = true;
     this._exposure = 1;      // 1.0 — как отдаёт three.js без поправки
     // Кольцевые буферы замера отрисовки; заполняются в _pushPerf каждый кадр.
     this._perf = {
@@ -576,6 +581,31 @@ class DualViewport {
     this._lodIndex = index;
     this.left?.viewer?.setLod?.(index);
     this.right?.viewer?.setLod?.(index);
+  }
+
+  /**
+   * Интерактив загруженной модели — для значка на полке.
+   *
+   * Спрашиваем ЛЕВЫЙ вьюпорт по той же причине, что уровни и свет: он показывает
+   * исходник, и состав в нём полный по определению. Пропавшая справа часть — находка
+   * про оптимизацию, и говорить о ней должен отчёт, а не молча укоротившийся список.
+   */
+  getInteractivity() {
+    const info = this.left?.viewer?.getInteractivityInfo?.()
+      || { count: 0, names: [] as string[], shown: false };
+    // `shown` — из ВЬЮЕРА, а не из нашей памяти: у модели без интерактива обводки нет,
+    // сколько бы её ни просили, и кнопка обязана показывать то, что есть на экране.
+    const behaviour = this.left?.viewer?.getBehaviourInfo?.() || { playable: false, refusal: [] };
+    return { ...info, shown: info.shown, playable: behaviour.playable };
+  }
+
+  /** Обвести нажимаемые части В ОБОИХ окнах — или снять обводку. */
+  toggleInteractivity(on?: boolean) {
+    const next = on === undefined ? !this._interactiveOn : on;
+    this._interactiveOn = next;
+    this.left?.viewer?.setInteractivityMarks?.(next);
+    this.right?.viewer?.setInteractivityMarks?.(next);
+    return next;
   }
 
   /**
@@ -808,6 +838,10 @@ class DualViewport {
     this._applyLodSelection();
     this._applyCameraSelection();
     this._applyLightSelection();
+    this._applyInteractivity();
+    // Слушателя нажатий переставляем после каждой загрузки: вьюеры пересоздаются, и
+    // подписка на старом объекте пропала бы молча.
+    if (this._onPick) this.setOnInteractivePick(this._onPick);
     this._applyExposure();
     this._applyDisplayMaterial();
     this._startLoop();
@@ -819,6 +853,20 @@ class DualViewport {
   }
 
   /** Подписка UI на «модель загружена/сменилась». Один слушатель — больше не нужно. */
+  /**
+   * Кому рассказывать о нажатии на интерактивную часть.
+   *
+   * Ставится на ОБА вьюпорта: человек нажимает то слева, то справа, и молчание одной из
+   * половин читалось бы как «эта не работает».
+   */
+  setOnInteractivePick(fn: ((part: { name: string; responded: boolean }) => void) | null) {
+    this._onPick = fn;
+    if (this.left?.viewer) this.left.viewer.onInteractivePick = fn;
+    if (this.right?.viewer) this.right.viewer.onInteractivePick = fn;
+  }
+
+  declare _onPick?: ((part: { name: string; responded: boolean }) => void) | null;
+
   setOnLoaded(fn: (() => void) | null) {
     this._onLoaded = typeof fn === 'function' ? fn : null;
   }
@@ -884,6 +932,16 @@ class DualViewport {
     this._cameraIndex = null;
     this.left?.viewer?.setCamera?.(null);
     this.right?.viewer?.setCamera?.(null);
+  }
+
+  /**
+   * То же для обводки интерактива: вьюер каждой загрузки включает её сам, а помним мы
+   * ОТКАЗ. Снял человек обводку — она не должна возвращаться после каждой пересборки.
+   */
+  _applyInteractivity() {
+    if (this._interactiveOn) return;
+    this.left?.viewer?.setInteractivityMarks?.(false);
+    this.right?.viewer?.setInteractivityMarks?.(false);
   }
 
   /** То же для света: своего света у пересобранной модели может не оказаться. */
@@ -993,6 +1051,10 @@ window.OptiViewer = {
   // Свет: наш студийный или тот, что принесла сама модель. Один на оба вьюпорта.
   getLight: () => dual.getLight(),
   selectLightMode: (mode) => dual.selectLightMode(mode),
+  // Интерактив: обводка нажимаемых частей. Показ, а не исполнение — граф поведения
+  // мы не проигрываем (ROADMAP §6д).
+  getInteractivity: () => dual.getInteractivity(),
+  toggleInteractivity: (on) => dual.toggleInteractivity(on),
   // Камеры автора: его ракурсы вместо нашей орбиты. Тоже один выбор на оба вьюпорта.
   getCameras: () => dual.getCameras(),
   selectCamera: (index) => dual.selectCamera(index),
@@ -1012,4 +1074,5 @@ window.OptiViewer = {
   // Уведомление «модель загрузилась/сменилась/сброшена» — по нему UI перестраивает
   // панели, вместо того чтобы опрашивать состав модели каждый кадр.
   setOnLoaded: (fn) => dual.setOnLoaded(fn),
+  setOnInteractivePick: (fn) => dual.setOnInteractivePick(fn),
 };

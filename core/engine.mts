@@ -536,7 +536,9 @@ async function runFile(
   log('    phase 4/5 · validation');
   // src — ИСХОДНЫЙ файл, не промежуточное состояние: аддон обязан сверяться с тем, что
   // человек положил на вход (правило Александра 2026-08-15). См. writeBytes в addons/gltf.
-  const glb = await addon.writeBytes(io, ctx.document, src); // байты будущего файла — в памяти, на диск пока ничего
+  // opts — четвёртым: часть решений принимается только на записи. Незнакомого расширения
+  // в документе нет вовсе, и «перенести пустые метки нажатия или убрать» решается здесь.
+  const glb = await addon.writeBytes(io, ctx.document, src, ctx.opts); // байты будущего файла — в памяти, на диск пока ничего
   const after = addon.collectMetrics(await addon.readBytes(io, glb), glb.byteLength);
   await addon.validate({
     ctx, before, after, glbBytes: glb, src, result,

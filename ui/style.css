@@ -1497,6 +1497,17 @@ body.resizing { cursor: col-resize; user-select: none; }
 
 .profile-number:focus { outline: none; border-color: var(--primary-container); }
 
+/* Совет или отказ — узкое поле справа от числа. Оно НЕ должно растягиваться, как поле
+   выбора движка выше: там ответ один на всю форму, здесь — по одному на каждую строку,
+   и растянутые они увели бы глаз с самих чисел. */
+.profile-field select.profile-kind {
+  flex: 0 0 auto;
+  width: 104px;
+  padding: 8px;
+  font-size: 12px;
+  color-scheme: dark;
+}
+
 /* Единица стоит справа от поля и не занимает места в сетке: у счётных метрик её нет,
    и колонка под неё пустовала бы. */
 .profile-unit {
@@ -1969,6 +1980,24 @@ details[open] > .collapsible-summary::before {
    читается и рисуется, — жёлтые (.is-warn). */
 .model-alert { margin-left: 4px; }
 .model-alert.is-warn { color: var(--warning); }
+
+/* Подчинённая строка под флажком: уточняет силу уже выбранного действия и живёт вместе
+   с ним. Отступ слева ставит её ПОД родителем, а не рядом: глаз читает подчинение по
+   сдвигу, а не по рамке.
+
+   Складывать её в «details», как режим KTX2, не стали намеренно: пункт один, и папка
+   ради одного пункта — лишнее нажатие (слово Александра про солнышко, 2026-08-28:
+   «не нужно из солнышка делать ещё папку ради папки»). */
+.ext-suboption {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0 22px;
+  font-size: 12px;
+  color: var(--on-surface-variant);
+}
+
+.ext-suboption .ext-label { font-size: 12px; }
 
 /* KTX2 — раскрывающийся селектор режима (UASTC / ETC1S) */
 .ktx2-mode {

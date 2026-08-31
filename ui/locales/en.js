@@ -63,6 +63,11 @@ window.I18N_CATALOGS.en = {
   'vp.display.wire': 'Wireframe',
   // Свет. Появляется только у моделей, которые несут свои источники.
   'vp.light': 'Lighting',
+  'vp.interactivity': 'Interactive parts',
+  'log.interactivity.hit': ({ name }) => `Clicked “${name}” — the model responded.`,
+  'log.interactivity.silent': ({ name }) => `Clicked “${name}” — the graph has no response for this part.`,
+  'vp.interactivity.count': ({ n }) => `Interactive parts: ${n}. Click an outlined part and the model responds.`,
+  'vp.interactivity.shownOnly': ({ n }) => `Interactive parts: ${n}. Outlined only: this graph uses nodes we do not know, so nothing is played.`,
   'viewer.light.studio': 'Studio',
   'viewer.light.none': 'No light',
   'viewer.light.file': 'From the file',
@@ -139,7 +144,9 @@ window.I18N_CATALOGS.en = {
   // все галочки стоят, а снятая означает «здесь это не работает».
   'profile.features.hint': 'Everything the engine can do is on. Switch off what this platform does not read — those options simply will not appear.',
   // Единственное, что стоит объяснить: пустое поле — это не ноль.
-  'profile.budgets.hint': 'Fill in only the numbers you know. An empty field means the metric is shown without any verdict.',
+  'profile.kind.warn': 'advice',
+  'profile.kind.limit': 'refusal',
+  'profile.budgets.hint': 'Fill in only the numbers you know. An empty field means the metric is shown without any verdict. "Advice" means the platform still accepts the model; "refusal" means it does not.',
   'profile.save': 'Save',
   'profile.delete': 'Delete',
   'profile.delete.confirm': 'Delete for good?',
@@ -371,6 +378,7 @@ window.I18N_CATALOGS.en = {
   'group.geometry': 'Geometry',
   'group.textures': 'Textures',
   'group.animation': 'Animation',
+  'group.interactivity': 'Interactivity',
 
   // --- значки у опций ---
   'ext.details': 'Details: {name}',

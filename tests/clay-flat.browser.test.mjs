@@ -161,3 +161,95 @@ describe('глина показывает плоские детали', () => {
     viewer.model = null
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Модель БЕЗ нормалей: глина досчитывает их для показа
+//
+// «в одном (исходном) модель выглядит нормально и с глубиной. а во втором случае (уже
+// оптимизированная) модель выглядит очень плоско» (Александр, 2026-08-28).
+//
+// Причина, найденная замером: у модели материал `unlit`, «не освещать», и чистка
+// справедливо убирает NORMAL — атрибут, которого не касается ни один материал, 12 байт на
+// вершину. Из шести проверенных текстурных моделей так теряют нормали ровно две:
+// `chibi_zenitsu` и `parkergirl`, обе unlit. НА САЙТЕ они выглядят как прежде — unlit и
+// раньше на нормали не смотрел, — а в нашем окне сравнения появлялась разница, которой в
+// продукте нет.
+//
+// Правило 11 не нарушено: считаем в СЦЕНЕ ПОКАЗА, в файл не уходит ни байта. Ровно тот же
+// род действия, что подмена материала на глину, — способ посмотреть, а не правка модели.
+//
+// Геометрия строится здесь: нужна пластина ГАРАНТИРОВАННО без нормалей, а искать такую
+// среди готовых моделей значило бы проверять не то (и `parkergirl` в git не едет).
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('глина у модели без нормалей', () => {
+  /** Та же пластина, но с начисто снятым атрибутом нормалей. */
+  const безНормалей = (x, z, tiltDeg) => {
+    const mesh = plate(x, z, tiltDeg)
+    mesh.geometry.deleteAttribute('normal')
+    return mesh
+  }
+
+  it('нормали досчитываются, и в файле модели их не прибавляется', () => {
+    const group = new THREE.Group()
+    const a = безНормалей(-1.1, 0, 0)
+    const b = безНормалей(1.1, 0, 5)
+    group.add(a)
+    group.add(b)
+    viewer.scene.add(group)
+    viewer.model = group
+
+    expect(a.geometry.attributes.normal, 'нормали были на месте — проверять нечего').toBeUndefined()
+    viewer.setDisplayMaterial('clay')
+    viewer.renderFrame()
+    expect(a.geometry.attributes.normal, 'глина не досчитала нормали — маткапу нечем шейдить')
+      .toBeTruthy()
+
+    viewer.scene.remove(group)
+    viewer.model = null
+  })
+
+  it('плоская и наклонённая грань различаются по тону, как и с родными нормалями', () => {
+    // Тот же замер, что в первом разделе, на той же геометрии. Числа обязаны сойтись:
+    // человек не должен видеть разницы между окнами там, где её нет в продукте.
+    const group = new THREE.Group()
+    group.add(безНормалей(-1.1, 0, 0))
+    group.add(безНормалей(1.1, 0, 5))
+    viewer.scene.add(group)
+    viewer.model = group
+    viewer.setDisplayMaterial('clay')
+    viewer.camera.position.set(0, 0, 6)
+    viewer.camera.lookAt(0, 0, 0)
+    viewer.controls.target.set(0, 0, 0)
+    viewer.renderFrame()
+
+    const shot = snapshotPixels(viewer)
+    const flat = meanLum(shot, 0.18, 0.42, 0.35, 0.65)
+    const tilted = meanLum(shot, 0.58, 0.82, 0.35, 0.65)
+    expect(flat.n, 'плоской пластины нет в кадре').toBeGreaterThan(500)
+    expect(tilted.n, 'наклонённой пластины нет в кадре').toBeGreaterThan(500)
+    expect(Math.abs(flat.lum - tilted.lum),
+      `без нормалей глина осталась плоской: ${flat.lum.toFixed(1)} и ${tilted.lum.toFixed(1)}`)
+      .toBeGreaterThan(12)
+
+    viewer.scene.remove(group)
+    viewer.model = null
+  })
+
+  it('«материалы из файла» ничего не досчитывают — модель показана как есть', () => {
+    // Граница Правила 11 с другой стороны: досчёт делается ДЛЯ ГЛИНЫ. В режиме файла
+    // модель показывается такой, какая она есть, и добавлять ей чужие данные нельзя.
+    const group = new THREE.Group()
+    const a = безНормалей(0, 0, 0)
+    group.add(a)
+    viewer.scene.add(group)
+    viewer.model = group
+    viewer.setDisplayMaterial('file')
+    viewer.renderFrame()
+    expect(a.geometry.attributes.normal, 'режим файла досчитал нормали за автора').toBeUndefined()
+
+    viewer.scene.remove(group)
+    viewer.model = null
+    viewer.setDisplayMaterial('clay')
+  })
+})

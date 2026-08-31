@@ -27,10 +27,11 @@ import {
 } from './metrics.mjs';
 import { importForeign, isImportFormat, IMPORT_FORMATS } from './importers.mjs';
 import { readSourceJson, sourceStamp } from './source-json.mjs';
+import { deadSelectabilityNodes, readInteractivity } from './interactivity.mjs';
 import { RULES } from './rules.mjs';
 import { TOKTX } from './tools.mjs';
 import { textureSlotsWire } from './media.mjs';
-import { arraysAddressedBy } from './carry.mjs';
+import { addressesNothing, arraysAddressedBy } from './carry.mjs';
 
 import type { Document, NodeIO as NodeIOType } from '@gltf-transform/core';
 import type { ExclusiveConflict, ReportArgs, ValidateArgs } from '../../core/types.mjs';
@@ -158,6 +159,8 @@ const ADVANCED_FEATURES = {
   join: 'join meshes / flatten scene — fewer draw calls (structural, irreversible)',
   instance: 'GPU instancing (EXT_mesh_gpu_instancing) — repeated meshes as instances',
   resample: 'resample animations — drop redundant keyframes (lossless)',
+  'strip-dead-interactivity': 'drop clickable marks with no handler in the behaviour graph (irreversible)',
+  'keep-unused-uv': 'keep UV and other vertex data no material reads (for configurators)',
   ktx2: 'textures → KTX2 (needs browser/engine support)',
   webp: 'textures → WebP (EXT_texture_webp; smaller file, video memory unchanged)',
   'strip-colors': 'removal of painted vertex colors (lossy)',
@@ -365,6 +368,12 @@ function normalizeOpts(opts: RawOpts = {}): GltfOpts {
     join: (adv.includes('join') || !!opts.join) && !opts.keepParts, // склейка мешей — отдельный флажок
     instance: adv.includes('instance') || !!opts.instance, // GPU-инстансинг (нужен декодер на сайте)
     resample: adv.includes('resample') || !!opts.resample, // чистка кадров анимации (без потерь)
+    // ВЫКЛЮЧАТЕЛЬ внутри чистки, а не отдельное действие: по умолчанию false, то есть
+    // чистка работает как прежде. Тот же род флажка, что `keepParts` у склейки.
+    keepUnusedUv: adv.includes('keep-unused-uv') || !!opts.keepUnusedUv,
+    // Снятие пустых меток нажатия. Только по прямой просьбе и никогда по умолчанию:
+    // метку ставил автор, и убирать её без его согласия нельзя (Правило 11).
+    stripDeadInteractivity: adv.includes('strip-dead-interactivity') || !!opts.stripDeadInteractivity,
     // KTX2-режим: UASTC по умолчанию (самый безопасный/качественный для новичков);
     // ETC1S (максимальное сжатие) — texMode:'mixed' (ETC1S цвет + UASTC data-карты).
     texMode: opts.texMode === 'mixed' ? 'mixed' : 'uastc',
@@ -484,11 +493,35 @@ interface Carried {
   spots: CarriedSpot[];
   /** Длины логических массивов ИСХОДНИКА: 'materials' → 12. */
   shape: Record<string, number>;
+  /**
+   * Имена элементов тех же массивов ИСХОДНИКА, по порядку: 'nodes' → ['Body', 'Lid', …].
+   *
+   * Нужны, чтобы отличить ДОПИСАЛИ В КОНЕЦ от ПЕРЕСТАВИЛИ. Длина этого не различает —
+   * замер 2026-08-28 на наборе Khronos: `WhackAMole` уходит с `nodes 68 → 82`, и все
+   * 68 исходных остаются на своих местах, а сборка лишь дописывает новые. Указатель
+   * `/nodes/3/translation` при этом по-прежнему верен, а проверка по длинам объявляла
+   * его сломанным и теряла расширение целиком.
+   */
+  names: Record<string, Array<string | null>>;
 }
 
 const shapeOf = (json: Record<string, unknown>): Record<string, number> => {
   const out: Record<string, number> = {};
   for (const k of SHAPE_ARRAYS) out[k] = Array.isArray(json[k]) ? (json[k] as unknown[]).length : -1;
+  return out;
+};
+
+/** Имена элементов логических массивов по порядку. `null` — у элемента имени нет. */
+const namesOf = (json: Record<string, unknown>): Record<string, Array<string | null>> => {
+  const out: Record<string, Array<string | null>> = {};
+  for (const k of SHAPE_ARRAYS) {
+    const arr = json[k];
+    if (!Array.isArray(arr)) continue;
+    out[k] = arr.map((el) => {
+      const name = (el as { name?: unknown } | null)?.name;
+      return typeof name === 'string' && name ? name : null;
+    });
+  }
   return out;
 };
 
@@ -515,13 +548,26 @@ const shapeOf = (json: Record<string, unknown>): Record<string, number> => {
 // осталось только имя, под которым его знает остальной файл.
 const sourceJson = readSourceJson;
 
-/** Обойти документ и собрать всё, что относится к незнакомым расширениям. */
-function collectCarried(json: Record<string, unknown>): Carried | null {
+/**
+ * Обойти документ и собрать всё, что относится к незнакомым расширениям.
+ *
+ * `dropDeadSelectability` — просьба человека убрать пустые метки нажатия
+ * (`interactivity/strip-dead`). Снимается это ЗДЕСЬ, а не правилом, по устройству:
+ * `KHR_node_selectability` библиотеке неизвестно, в документе его нет вовсе, и живёт оно
+ * ровно в этом переносе. Не перенесли — значит убрали, и никакого второго механизма
+ * удаления заводить не пришлось.
+ *
+ * Список пустых считает `deadSelectabilityNodes` — та же функция, по которой отчёт
+ * называет число, а окно решает, показывать ли галочку. Здесь она зовётся от ТОГО ЖЕ
+ * исходного JSON, что и там, поэтому расхождение невозможно по построению.
+ */
+function collectCarried(json: Record<string, unknown>, dropDeadSelectability = false): Carried | null {
   const known = new Set(ALL_EXTENSIONS.map((e) => e.EXTENSION_NAME));
   const used = ((json.extensionsUsed as string[]) || []).filter((n) => !known.has(n));
   if (!used.length) return null;
   const unknown = new Set(used);
   const required = ((json.extensionsRequired as string[]) || []).filter((n) => unknown.has(n));
+  const мертвы = dropDeadSelectability ? new Set(deadSelectabilityNodes(json)) : null;
 
   const spots: CarriedSpot[] = [];
   const walk = (value: unknown, at: Array<string | number>) => {
@@ -534,7 +580,13 @@ function collectCarried(json: Record<string, unknown>): Carried | null {
     const ext = obj.extensions;
     if (ext && typeof ext === 'object') {
       for (const [name, payload] of Object.entries(ext as Record<string, unknown>)) {
-        if (unknown.has(name)) spots.push({ path: at, name, value: payload });
+        if (!unknown.has(name)) continue;
+        // Пустая метка нажатия не переносится — это и есть её удаление. Адрес узла берём
+        // из пути (`['nodes', 7]`), а не из тела: тело у метки одно на всех.
+        if (мертвы && name === 'KHR_node_selectability'
+          && at.length === 2 && at[0] === 'nodes' && typeof at[1] === 'number'
+          && мертвы.has(at[1])) continue;
+        spots.push({ path: at, name, value: payload });
       }
     }
     for (const [k, v] of Object.entries(obj)) {
@@ -545,7 +597,19 @@ function collectCarried(json: Record<string, unknown>): Carried | null {
   // уровня документа (KHR_interactivity, KHR_lights_punctual) живёт именно там.
   walk(json, []);
 
-  return { used, required, spots, shape: shapeOf(json) };
+  // Убрали ВСЕ метки до одной — убираем и объявление: файл не должен обещать
+  // способность, которой в нём больше нет.
+  //
+  // Фильтр узкий намеренно — только это имя и только по просьбе человека. Общее правило
+  // здесь ОБРАТНОЕ: объявленное, но ни разу не использованное расширение переносится как
+  // есть, потому что passthrough обещает вернуть файл каким он был, а не каким он был бы
+  // разумнее (`Unknown Ext Pointer 01` — ровно такой файл, и он под сторожем).
+  const снято = мертвы && !spots.some((sp) => sp.name === 'KHR_node_selectability');
+  const без = (list: string[]) => (снято ? list.filter((n) => n !== 'KHR_node_selectability') : list);
+
+  return {
+    used: без(used), required: без(required), spots, shape: shapeOf(json), names: namesOf(json),
+  };
 }
 
 /** Общая механика правки JSON-чанка GLB: разобрать → поправить → пересобрать.
@@ -613,9 +677,43 @@ function restoreCarried(json: Record<string, unknown>, carried: Carried | undefi
   // Приклеить расширение к ЧУЖОМУ объекту по-прежнему хуже, чем потерять его: файл
   // выглядел бы целым и врал. Поэтому сверка не отменена, а сужена до предмета.
   const after = shapeOf(json);
-  const intact = (names: Set<string> | null) => {
+  const afterNames = namesOf(json);
+
+  /**
+   * Уцелели ли НОМЕРА в этом массиве.
+   *
+   * Двумя способами, и первый сильнее. Длины — грубая мера: они не различают «дописали
+   * в конец» и «переставили». Имена по порядку различают: если все исходные элементы
+   * стоят на прежних местах, номер `3` по-прежнему означает тот же объект, сколько бы
+   * элементов ни дописали после.
+   *
+   * Доказательство работает, только когда КАЖДЫЙ исходный элемент назван: у безымянных
+   * сравнивать нечего, и совпадение пустот доказательством не является (аксессоры имён
+   * обычно не носят вовсе). Не доказали префиксом — падаем на прежнюю сверку длин.
+   *
+   * Остаточный риск назван честно: два элемента с ОДИНАКОВЫМ именем, поменянные местами,
+   * такую проверку пройдут. Имена в живых моделях повторяются (`WhackAMole`: 68 узлов,
+   * 20 разных имён), но перестановка одноимённых соседей — не то, что делают наши
+   * правила: они дописывают в конец либо удаляют, а удаление ловится длиной.
+   */
+  const keepsIndexes = (k: string) => {
+    const было = carried.names[k];
+    const стало = afterNames[k];
+    if (было && стало && стало.length >= было.length
+      && было.every((n, i) => n !== null && n === стало[i])) return true;
+    return !(k in carried.shape) || carried.shape[k] === after[k];
+  };
+
+  const intact = (value: unknown) => {
+    // Ссылок нет вовсе — сверять нечего. Это не послабление: тело без единого числа и
+    // без строки-числа не может указывать на элемент массива в принципе, и любая
+    // перенумерация ему безразлична. Замер 2026-08-28: `WhackAMole.glb` из набора
+    // Khronos теряла семь мест `KHR_node_selectability` с телом `{"selectable":true}`
+    // из-за сдвига `accessors`, которых это тело не касается никак.
+    if (addressesNothing(value)) return true;
+    const names = arraysAddressedBy(value);
     const keys = names ? [...names] : SHAPE_ARRAYS;
-    return keys.every((k) => !(k in carried.shape) || carried.shape[k] === after[k]);
+    return keys.every(keepsIndexes);
   };
 
   const resolve = (at: Array<string | number>): Record<string, unknown> | null => {
@@ -634,7 +732,7 @@ function restoreCarried(json: Record<string, unknown>, carried: Carried | undefi
   let touched = false;
   let refused = 0;
   for (const spot of carried.spots) {
-    if (!intact(arraysAddressedBy(spot.value))) { refused++; continue; }
+    if (!intact(spot.value)) { refused++; continue; }
     const owner = resolve(spot.path);
     if (!owner) continue;
     const bag = (owner.extensions ||= {}) as Record<string, unknown>;
@@ -742,10 +840,15 @@ function dropEmptyArrays(json: GltfJson, hasBinChunk: boolean): boolean {
  * GLB заголовок и ровно один чанк, поэтому на модели в 600 МБ это по-прежнему
  * килобайты (см. её же комментарий).
  */
-const writeBytes = async (io: NodeIOType, doc: Document, src?: string) => {
+const writeBytes = async (
+  io: NodeIOType,
+  doc: Document,
+  src?: string,
+  opts?: { stripDeadInteractivity?: boolean },
+) => {
   const bytes = await io.writeBinary(doc);
   const json = src ? sourceJson(src) : null;
-  const carried = (json && collectCarried(json)) || undefined;
+  const carried = (json && collectCarried(json, !!opts?.stripDeadInteractivity)) || undefined;
   // Один проход по JSON-чанку на обе правки: раньше каждая сама разбирала и
   // пересобирала контейнер, и один и тот же JSON гонялся через parse→rebuild дважды.
   return withGlbJson(bytes, (out, hasBinChunk) => {
@@ -1268,6 +1371,13 @@ async function inspect(srcPath: string): Promise<Record<string, unknown>> {
   // и панель «Метаданные» показывала бы килобайты у модели на шестьдесят мегабайт.
   try { metrics = collectMetrics(doc, sourceBytes(srcPath)); } catch { /* экзотика — цифр не будет, таблицы останутся */ }
 
+  // Интерактив — из СЫРОГО json, по той же функции, что и отчёт. Нужен интерфейсу до
+  // сборки: группа «Интерактив» показывается, только если в файле есть что убирать
+  // (Правило 12 — показанная галочка обязана работать). Без этого поля интерфейсу
+  // пришлось бы спрашивать сцену вьюпорта, то есть завести второй источник правды.
+  let interactivity = null;
+  try { interactivity = readInteractivity(parseGltfJson(bytes)); } catch { /* не GLB или битый JSON */ }
+
   return {
     format: 'gltf',
     asset: { version: asset.version || '', generator: rawGenerator || asset.generator || '' },
@@ -1275,6 +1385,7 @@ async function inspect(srcPath: string): Promise<Record<string, unknown>> {
     metadata,
     metrics,
     validation,
+    interactivity,
   };
 }
 

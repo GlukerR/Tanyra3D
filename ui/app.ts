@@ -87,6 +87,7 @@
   const displayWireBtn = $('display-wire');
   const lightControls = $('light-controls');
   const lightMenu = $('light-menu');
+  const interactivityBtn = $('interactivity-toggle') as HTMLButtonElement | null;
   const cameraControls = $('camera-controls');
   const cameraSel = $('camera-select') as HTMLSelectElement;
   const animPlayBtn = $('anim-play-btn');
@@ -1011,7 +1012,7 @@
   // Meshopt/Draco, обе выключены = не сжимать). Meshopt/Draco/KTX2/Instance требуют
   // подключить декодер на целевом сайте (пометка ⚠); остальное (Join/Safe/Remove colors)
   // работает на голом three.js.
-  const OPT_GROUPS: Array<{ titleKey: string; kind: string; ids?: string[] }> = [
+  const OPT_GROUPS: Array<{ titleKey: string; kind: string; ids?: string[]; when?: () => boolean }> = [
     { titleKey: 'group.cleanup', kind: 'checks', ids: ['safe', 'strip-colors'] },
     { titleKey: 'group.structural', kind: 'checks', ids: ['join', 'instance'] },
     { titleKey: 'group.geometry', kind: 'geometry' },
@@ -1023,7 +1024,45 @@
     // далее». Мельче сверху, крупнее ниже.
     { titleKey: 'group.textureSize', kind: 'textureSize', ids: ['resize-512', 'resize-1024', 'resize-2048', 'resize-4096'] },
     { titleKey: 'group.animation', kind: 'checks', ids: ['resample'] },
+    // Интерактив — СВОЙ раздел, а не добавка к анимации (слово Александра 2026-08-28:
+    // «это должно быть отдельной группой. не в группе анимаций. просто ниже»). И это
+    // верно по сути: анимация — движение по времени, интерактив — отклик на человека.
+    //
+    // Показывается, ТОЛЬКО когда в модели есть что убирать, — и это Правило 12, а не
+    // экономия места. Галочка «убрать пустые нажатия» у модели без единой пустой пометки
+    // выглядела бы работающей и не делала бы ничего. Законная альтернатива в таком случае
+    // ровно одна: опции не должно быть видно.
+    {
+      titleKey: 'group.interactivity',
+      kind: 'checks',
+      ids: ['strip-dead-interactivity'],
+      when: () => deadInteractiveParts() > 0,
+    },
   ];
+
+  // Сколько в загруженной модели нажимаемых частей БЕЗ отклика.
+  //
+  // Источник — движок (`/api/inspect`, поле `interactivity`), а не сцена вьюпорта. Тот же
+  // выбор и по той же причине, что у размера текстур: одно число на весь экран, посчитанное
+  // одним кодом. Спроси мы вьюпорт — у отчёта и у панели появились бы два счёта, и они
+  // разъехались бы молча (ровно это уже случилось с MagicBall: отчёт говорил 21, окно — 1).
+  //
+  // Ноль, пока модели нет: до неё мы не знаем о ней ничего, и показывать опцию не на чем.
+  /**
+   * Частей, у которых развёртка есть, а карт нет. Считает ДВИЖОК (`/api/inspect`).
+   *
+   * Ноль, пока модели нет: до неё мы не знаем о ней ничего, и подчинённой строки не будет.
+   * Тот же источник и та же причина, что у `deadInteractiveParts` ниже.
+   */
+  function uvWithoutTextures(): number {
+    const m = modelInspect && (modelInspect.metrics as any);
+    return m && typeof m.uvWithoutTextures === 'number' ? m.uvWithoutTextures : 0;
+  }
+
+  function deadInteractiveParts(): number {
+    const info = modelInspect && (modelInspect as any).interactivity;
+    return info && typeof info.silent === 'number' ? info.silent : 0;
+  }
   // Кому нужен декодер — говорит ДВИЖОК (engines/<id>.json, поле needsDecoder), а не
   // интерфейс. До 2026-08-10 здесь лежал зашитый список ['meshopt','draco','ktx2',
   // 'instance']: он был верен ровно для одного движка, а у второго умолчания другие.
@@ -1163,6 +1202,7 @@
     infoTip.hide();
     const byId = Object.fromEntries(extensions.map((e) => [e.id, e]));
     for (const group of OPT_GROUPS) {
+      if (group.when && !group.when()) continue;
       const section = group.kind === 'geometry'
         ? renderGeometryGroup(byId)
         : group.kind === 'textureSize'
@@ -1578,6 +1618,56 @@
 
     row.appendChild(head);
 
+    // ЧИСТКА — один флажок, а под ним одна подчинённая строка: убирать ли развёртку,
+    // которой не пользуется ни одна картинка.
+    //
+    // ПОЧЕМУ ПОДЧИНЁННОЙ, а не отдельной галочкой в списке. Она уточняет силу уже
+    // выбранного действия — ровно как режим у KTX2 и качество у WebP, — и вне чистки не
+    // значит ничего: без неё развёртку никто не трогает. Отдельным флажком в списке она
+    // висела бы у всех и работала бы у части (Правило 12).
+    //
+    // ПОЧЕМУ ТОЛЬКО У ЭТОЙ МОДЕЛИ. Показывается, когда в файле есть часть с развёрткой и
+    // без единой карты. Нет такой — сохранять нечего, и строки нет.
+    //
+    // Заказ Александра, 2026-08-29: «если я готовлю для конфигуратора мебель или предметы,
+    // там могут быть уже готовы юви, но не быть прикрепленной никакой текстуры… сделать
+    // как у ktx2 снизу режимы и там всё выбрано и можно так же убрать выбор».
+    if (ext.id === 'safe' && uvWithoutTextures() > 0) {
+      const sub = extensions.find((e) => e.id === 'keep-unused-uv');
+      if (sub) {
+        const box = document.createElement('div');
+        box.className = 'ext-suboption';
+        box.classList.toggle('hidden', !checkbox.checked);
+
+        const subLabel = document.createElement('label');
+        subLabel.className = 'ext-label';
+        const keep = document.createElement('input');
+        keep.type = 'checkbox';
+        // КЛАСС ДРУГОЙ, и это не мелочь: `.ext-checkbox` собирается в список фич как
+        // есть, а эта строка ПЕРЕВЁРНУТАЯ — отмечена значит «делаем», снята значит
+        // «просим не делать». Собери её общим правилом, и снятая галочка молча ничего
+        // не сказала бы движку.
+        keep.className = 'ext-subcheck';
+        keep.id = SUB_UV_ID;
+        // ОТМЕЧЕНА ПО УМОЛЧАНИЮ: она показывает, что чистка это уже делает. Александр,
+        // 2026-08-29: «при включении безопасного режима всегда дополнительно внутри
+        // включается галочка про удаление лишних юви неиспользуемых. но выключение
+        // галочки удаления лишних юви не выключает сейф оптимизации».
+        keep.checked = true;
+        keep.addEventListener('change', () => { rememberSelection(); onOptionChanged(); });
+        const text = document.createElement('span');
+        text.textContent = sub.title || sub.id;
+        subLabel.append(keep, text);
+
+        box.appendChild(subLabel);
+        // Книжечка у подчинённой строки СВОЯ: вопрос «что это даст и чем плачу» у неё
+        // отдельный от вопроса про чистку целиком.
+        box.appendChild(infoButton(sub));
+        row.appendChild(box);
+        checkbox.addEventListener('change', toggleUvSubRow);
+      }
+    }
+
     // KTX2 — один флажок с раскрывающимся селектором режима. Отдельного чекбокса
     // ETC1S нет (future-proof). Что стоит предвыбранным — советует площадка, см.
     // defaultKtx2Mode(); интерфейс своего умолчания не назначает.
@@ -1678,6 +1768,13 @@
   }
 
   // Показать/скрыть селектор режима KTX2 (при авто-включении из detection).
+  /** Показать подчинённую строку чистки ровно тогда, когда включена сама чистка. */
+  function toggleUvSubRow() {
+    const box = subUvBox()?.closest('.ext-suboption');
+    const safe = document.getElementById('ext-safe') as HTMLInputElement | null;
+    if (box) box.classList.toggle('hidden', !safe?.checked);
+  }
+
   function toggleKtx2Mode(show: boolean) {
     const cb = document.getElementById('ext-ktx2');
     const row = cb && cb.closest('.ext-row');
@@ -1693,8 +1790,23 @@
     if (box) box.classList.toggle('hidden', !show);
   }
 
+  /**
+   * Подчинённая строка чистки: «убирать развёртку, которой не пользуется ни одна
+   * картинка». ОТМЕЧЕНА — чистка убирает (умолчание). СНЯТА — просим оставить, и вот эту
+   * просьбу движок и получает фичей `keep-unused-uv`.
+   *
+   * Переворот записан ЗДЕСЬ, в одном месте на все три вопроса (что отправить, что
+   * запомнить, что вернуть). Раскидай его по трём — и один из трёх однажды забудут.
+   */
+  const SUB_UV_ID = 'ext-keep-unused-uv';
+  const SUB_UV_FEATURE = 'keep-unused-uv';
+  const subUvBox = () => document.getElementById(SUB_UV_ID) as HTMLInputElement | null;
+  /** Просит ли человек ОСТАВИТЬ развёртку. Строки нет — не просит. */
+  const keepingUnusedUv = () => { const b = subUvBox(); return !!b && !b.checked; };
+
   function getSelectedFeatures() {
     const feats = [];
+    if (keepingUnusedUv()) feats.push(SUB_UV_FEATURE);
     if (geometryChoice === 'meshopt') feats.push('meshopt');
     else if (geometryChoice === 'draco') feats.push('draco');
     else if (geometryChoice === 'quantize') feats.push('quantize');
@@ -2301,6 +2413,11 @@
     toggleKtx2Mode(!!(document.getElementById('ext-ktx2') && (document.getElementById('ext-ktx2') as HTMLInputElement).checked));
     syncWebpQualityUI();
     toggleWebpQuality(!!(document.getElementById('ext-webp') && (document.getElementById('ext-webp') as HTMLInputElement).checked));
+    // Подчинённая строка чистки — тем же порядком. Её видимость нельзя выставить при
+    // сборке строки: флажок чистки в тот момент ещё пуст, а умолчания площадки ставятся
+    // ЗДЕСЬ, ниже по ходу. Без этой строки подчинённая была не видна ровно у того, кому
+    // она нужна, — у человека с включённой по умолчанию чисткой.
+    toggleUvSubRow();
     // Панель пересобрана заново (смена языка) — заморозку надо наложить снова: новые
     // элементы про идущую сборку ничего не знают и приходят доступными.
     freezeSettings(buildInFlight);
@@ -2419,6 +2536,8 @@
     for (const cb of extensionsList.querySelectorAll('.ext-checkbox')) {
       (cb as HTMLInputElement).checked = saved!.checked.includes((cb as HTMLInputElement).value);
     }
+    const sub = subUvBox();
+    if (sub) sub.checked = !saved!.keepUnusedUv;
   }
 
   // Снимок того, что сейчас стоит в панели. Это ВЕСЬ её изменяемый состав: флажки,
@@ -2431,6 +2550,9 @@
       ktx2Mode,
       webpQuality,
       checked: [...extensionsList.querySelectorAll<HTMLInputElement>('.ext-checkbox:checked')].map((cb) => cb.value),
+      // Хранится ПРОСЬБА, а не положение галочки: пересборка панели восстановит её сама,
+      // а смысл при этом не перевернётся.
+      keepUnusedUv: keepingUnusedUv(),
     };
   }
 
@@ -3399,7 +3521,18 @@
     return (await res.json()) as { dir: string; fields: BudgetFieldDto[] };
   }
 
-  function renderProfileFields(values: Record<string, unknown>) {
+  /**
+   * Поля порогов своей площадки: число и ответ на вопрос «это совет или отказ».
+   *
+   * ВТОРОЕ ПОЛЕ ЗАВЕДЕНО 2026-08-28 по прямому разбору Александра. Он сделал площадку
+   * Ozon с порогом 20 МБ и получил приписку «Это не предел — просто дольше загрузится на
+   * слабом соединении», хотя Ozon такую модель не принимает вовсе. Его слова: «это ложное
+   * утверждение». Форма умела только совет, и строгость мы ДОДУМЫВАЛИ за автора площадки.
+   *
+   * Умолчание — совет: у большинства площадок числа именно рекомендательные, а ошибка в
+   * сторону «предупредили» безопаснее, чем в сторону «запретили».
+   */
+  function renderProfileFields(values: Record<string, unknown>, kinds: Record<string, unknown> = {}) {
     profileBudgets.innerHTML = '';
     for (const f of profileFields) {
       const row = document.createElement('label');
@@ -3423,6 +3556,19 @@
         unit.textContent = f.unit;
         row.appendChild(unit);
       }
+      // Строгость порога. Поле выбора, а не галочка: у ответа два равноправных значения,
+      // и «не отмечено» здесь ничего не значит — порог всегда либо совет, либо отказ.
+      const kind = document.createElement('select');
+      kind.className = 'profile-kind';
+      kind.dataset.budgetKind = f.id;
+      for (const value of ['warn', 'limit']) {
+        const opt = document.createElement('option');
+        opt.value = value;
+        window.I18n.setText(opt, value === 'limit' ? 'profile.kind.limit' : 'profile.kind.warn');
+        kind.appendChild(opt);
+      }
+      kind.value = kinds[f.id] === 'limit' ? 'limit' : 'warn';
+      row.appendChild(kind);
       profileBudgets.appendChild(row);
     }
   }
@@ -3432,6 +3578,16 @@
     for (const el of profileBudgets.querySelectorAll('input[data-budget]')) {
       const input = el as HTMLInputElement;
       out[input.dataset.budget!] = input.value.trim();
+    }
+    return out;
+  }
+
+  /** Совет или отказ у каждого порога — второй ответ той же строки формы. */
+  function currentBudgetKinds(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const el of profileBudgets.querySelectorAll('select[data-budget-kind]')) {
+      const sel = el as HTMLSelectElement;
+      out[sel.dataset.budgetKind!] = sel.value;
     }
     return out;
   }
@@ -3545,7 +3701,7 @@
     profileDescription.value = form.description || '';
     profileSource.value = form.source || '';
     renderProfileEngines(form.engine || '');
-    renderProfileFields(form.budgets || {});
+    renderProfileFields(form.budgets || {}, form.budgetKinds || {});
     // Список опций у каждого движка свой — рисуем его под тот, что стоит в поле.
     renderProfileFeatures(profileEngine.value, form.excludeExtensions || []);
     // Кнопки удаления и выгрузки есть только у существующей площадки: у новой нечего
@@ -3617,6 +3773,7 @@
   // введённые числа остаются на месте (Правило 8).
   async function relabelProfileForm() {
     const typed = currentBudgetValues();
+    const kinds = currentBudgetKinds();
     const fail = profileFail;
     const excluded = currentExcluded();
     try {
@@ -3626,7 +3783,7 @@
     } catch (e) {
       return;
     }
-    renderProfileFields(typed);
+    renderProfileFields(typed, kinds);
     // Названия опций тоже приходят с сервера — перезапрашиваем их на новом языке,
     // сохранив снятые галочки.
     await renderProfileFeatures(profileEngine.value, excluded);
@@ -3658,6 +3815,7 @@
       description: profileDescription.value,
       source: profileSource.value,
       budgets: currentBudgetValues(),
+      budgetKinds: currentBudgetKinds(),
       excludeExtensions: currentExcluded(),
     };
     profileSave.disabled = true;
@@ -5703,6 +5861,51 @@
   }
 
   // ---------------------------------------------------------------
+  // Интерактив — обводка частей, откликающихся на нажатие
+  //
+  // Заказ Александра 2026-08-28: «я не вижу вообще никаких интерактивов. должен видеть».
+  //
+  // Кнопка появляется ТОЛЬКО у моделей, где интерактив есть: у остальных обводить нечего,
+  // а показанная кнопка, которая ничего не делает, запрещена (Правило 12).
+  //
+  // Подпись называет число и сразу оговаривает границу: мы ПОКАЗЫВАЕМ, где интерактив, и
+  // не проигрываем его. Без этой оговорки человек нажал бы на обведённую часть, ничего не
+  // получил и решил бы, что модель сломана.
+  function refreshInteractivityUI() {
+    if (!interactivityBtn) return;
+    const info = window.OptiViewer?.getInteractivity?.();
+    const has = (info?.count ?? 0) > 0;
+    interactivityBtn.classList.toggle('hidden', !has);
+    if (!has) return;
+    // Подпись говорит правду про ЭТУ модель. Граф, где есть незнакомый нам узел, не
+    // проигрывается целиком — и обещать нажатие в таком случае нельзя (Правило 12).
+    window.I18n.setTitle(
+      interactivityBtn,
+      info.playable ? 'vp.interactivity.count' : 'vp.interactivity.shownOnly',
+      { n: info.count },
+    );
+    interactivityBtn.classList.toggle('is-on', !!info.shown);
+    interactivityBtn.setAttribute('aria-pressed', String(!!info.shown));
+  }
+
+  // Нажатие на интерактивную часть говорит о себе в журнал. Без этого тихий отклик
+  // (цвет лампы, сдвиг развёртки, анимация через секунду) неотличим от промаха, и
+  // человек не понимает, попал он или интерактив не работает вовсе.
+  window.OptiViewer?.setOnInteractivePick?.(({ name, responded }) => {
+    logMessage(
+      responded ? 'info' : 'warn',
+      t(responded ? 'log.interactivity.hit' : 'log.interactivity.silent', { name: name || '—' }),
+    );
+  });
+
+  if (interactivityBtn) {
+    interactivityBtn.addEventListener('click', () => {
+      window.OptiViewer?.toggleInteractivity?.();
+      refreshInteractivityUI();
+    });
+  }
+
+  // ---------------------------------------------------------------
   // Свет — студийный, никакой или авторский
   //
   // Живёт на солнышке в верхней панели, рядом с экспозицией: там всё про свет.
@@ -6068,7 +6271,7 @@
   // и список вариантов появляются и исчезают вместе с моделью, которая их несёт.
   window.onOptiViewerModelLoaded = () => {
     refreshAnimUI(); refreshVariantUI(); refreshLodUI();
-    refreshLightUI(); refreshCameraUI(); refreshDisplayUI(); closeHiddenGroups();
+    refreshLightUI(); refreshCameraUI(); refreshDisplayUI(); refreshInteractivityUI(); closeHiddenGroups();
   };
   refreshAnimUI();    // стартовое состояние: моделей нет — панелей нет
   refreshVariantUI();

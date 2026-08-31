@@ -57,6 +57,8 @@ const BROWSER_GLOBALS = {
   FormData: 'readonly',
   Image: 'readonly',
   createImageBitmap: 'readonly',
+  // Нажатие мышью проверяется настоящим событием: браузерный тест шлёт его холсту сам.
+  PointerEvent: 'readonly',
   performance: 'readonly',
   requestAnimationFrame: 'readonly',
   cancelAnimationFrame: 'readonly',

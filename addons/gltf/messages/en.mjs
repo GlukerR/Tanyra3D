@@ -129,6 +129,14 @@ export default {
   // человек сейчас видит; про создание уровней здесь ни слова — проект их не делает.
   // Догадка, а не факт, и первое слово об этом говорит. Две строки на два способа:
   // подпись автора весит больше нашего измерения, и мешать их в одну нельзя.
+  // Интерактив: наблюдение, а не находка-дефект. Числа человеческие, и прямо сказано,
+  // что окно его проигрывает, — иначе человек не догадается нажать.
+  'interactivity.found': ({ clickable, handlers, actions }) =>
+    `The file carries interactivity: ${clickable} clickable part${clickable === 1 ? '' : 's'}, ${handlers} click handler${handlers === 1 ? '' : 's'}, ${actions} action${actions === 1 ? '' : 's'}. The clickable parts are outlined in the viewport — click one and the model responds. All of it survives the build.`,
+  'interactivity.foundNoClicks': ({ handlers, actions }) =>
+    `The file carries interactivity that runs on its own, with nothing to click: ${handlers} handler${handlers === 1 ? '' : 's'}, ${actions} action${actions === 1 ? '' : 's'}. All of it survives the build.`,
+  'interactivity.silentParts': ({ n }) =>
+    `${n} clickable part${n === 1 ? '' : 's'} with no handler. The author marked ${n === 1 ? 'it' : 'them'} clickable, but the graph says nothing about ${n === 1 ? 'it' : 'them'} — clicking changes nothing, here or on a site.`,
   'lod.likelyNames': ({ nodes, levels }) =>
     `The file looks like it carries levels of detail: ${nodes} part${nodes === 1 ? '' : 's'} with up to ${levels} levels each. Neighbouring nodes are named LOD, but nothing links them together — so here and on a site every level is drawn at once, one through another.`,
   'lod.likelyMeasured': ({ nodes, levels }) =>
@@ -161,6 +169,15 @@ export default {
   'instance.skipped.animated': ({ n }) => (n === 1
     ? 'the one repeated mesh here is moved by an animation — batching would freeze it in place'
     : `${n} repeated meshes are moved by animation — batching would freeze them in place`),
+
+  'prune.done.keptAttributes': () => 'UV and other vertex data were kept, including what no material reads right now',
+
+  // --- interactivity/strip-dead ---
+  'interactivityStripDead.found': ({ n }) =>
+    `${n} clickable part${n === 1 ? '' : 's'} with no handler. They can be clicked, but the model does not say what should happen.`,
+  'interactivityStripDead.done': ({ n, left }) =>
+    `Empty clickable marks removed: ${n}. ${left} working part${left === 1 ? '' : 's'} left — neither they nor the behaviour graph were touched.`,
+  'interactivityStripDead.skipped.none': () => 'the model has no empty clickable marks — nothing to remove',
 
   // --- animation/resample ---
   'resample.done': ({ pct }) => `Redundant keyframes removed: animation data ${pct}% lighter — the motion is unchanged`,
@@ -361,9 +378,11 @@ export default {
   'rule.geometryDegenerate': () => 'Degenerate triangles',
   'rule.geometryOrphan': () => 'Orphan vertices',
   'rule.sceneJoin': () => 'Mesh join (flatten + join)',
+  'rule.sceneInteractivity': () => 'Interactivity',
   'rule.sceneLodLevels': () => 'Levels of detail',
   'rule.sceneMorphTargets': () => 'Alternative shapes',
   'rule.sceneInstance': () => 'GPU instancing',
+  'rule.interactivityStripDead': () => 'Empty clickable marks',
   'rule.animationResample': () => 'Resample animations',
   'rule.structurePruneFinal': () => 'Cleanup of orphaned resources',
   'rule.texturesKtx2': () => 'Textures → KTX2/UASTC',
