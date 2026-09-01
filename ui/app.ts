@@ -530,6 +530,10 @@
   // Пользователь тронул флажок/радио — состояние кнопки + запись в логи, чтобы по логам
   // было видно, с какими настройками собиралась каждая версия.
   function onOptionChanged() {
+    // Первым делом: подчинённая строка развёртки зависит от чистки в целом (safe, склейка,
+    // сжатие геометрии), а не от одного флажка. Пересчитать её ДО того, как ниже соберётся
+    // список фич, — иначе в журнал уедет прежний состав.
+    toggleUvSubRow();
     updateRunButtonState();
     // Значок «В модели» здесь не пересчитывается намеренно: он говорит о ЗАГРУЖЕННОМ
     // ФАЙЛЕ, а не о выборе человека. Флажок сняли — в файле от этого ничего не
@@ -1769,10 +1773,28 @@
 
   // Показать/скрыть селектор режима KTX2 (при авто-включении из detection).
   /** Показать подчинённую строку чистки ровно тогда, когда включена сама чистка. */
+  /**
+   * Будет ли вообще чистка данных вершин. От этого, а не от одного `safe`, зависит смысл
+   * подчинённой строки.
+   *
+   * Замер 2026-09-01: `structure/prune-final` включается от `safe`, склейки ИЛИ сжатия
+   * геометрии — и без `safe` тоже сносит развёртку, которой не пользуется ни одна
+   * картинка. Прогон панели через meshopt без safe: `POSITION` на выходе, развёртки нет.
+   * Значит вопрос «оставить её?» живой и там, а привязка строки к `safe` прятала от
+   * человека работающую возможность.
+   */
+  // ОБЪЯВЛЕНИЕ ФУНКЦИИ, а не `const`: её зовёт `onOptionChanged`, который написан ВЫШЕ
+  // по файлу. Стрелка в `const` до своей строки не существует, и порядок вызовов стал бы
+  // условием работоспособности — молчаливым и легко ломающимся при переносе кода.
+  function чисткаБудет(): boolean {
+    return !!(document.getElementById('ext-safe') as HTMLInputElement | null)?.checked
+      || !!(document.getElementById('ext-join') as HTMLInputElement | null)?.checked
+      || geometryChoice !== 'none';
+  }
+
   function toggleUvSubRow() {
     const box = subUvBox()?.closest('.ext-suboption');
-    const safe = document.getElementById('ext-safe') as HTMLInputElement | null;
-    if (box) box.classList.toggle('hidden', !safe?.checked);
+    if (box) box.classList.toggle('hidden', !чисткаБудет());
   }
 
   function toggleKtx2Mode(show: boolean) {
@@ -1801,8 +1823,21 @@
   const SUB_UV_ID = 'ext-keep-unused-uv';
   const SUB_UV_FEATURE = 'keep-unused-uv';
   const subUvBox = () => document.getElementById(SUB_UV_ID) as HTMLInputElement | null;
-  /** Просит ли человек ОСТАВИТЬ развёртку. Строки нет — не просит. */
-  const keepingUnusedUv = () => { const b = subUvBox(); return !!b && !b.checked; };
+  /**
+   * Просит ли человек ОСТАВИТЬ развёртку. Строки нет или она СКРЫТА — не просит.
+   *
+   * Проверка скрытости здесь не перестраховка, а единственное место, где просьба
+   * привязана к тому, что человек ВИДИТ. Дефект ревью 2026-09-01: строка пряталась
+   * классом `hidden`, состояние галочки при этом не менялось — и снятая когда-то
+   * галочка продолжала слать фичу с экрана, где её уже не было. Сборка шла не так, как
+   * показывала панель (Правило 12). Спрашивать разметку, а не хранить второй флаг:
+   * два условия однажды разойдутся, одно — нет.
+   */
+  const keepingUnusedUv = () => {
+    const b = subUvBox();
+    if (!b || b.checked) return false;
+    return !b.closest('.ext-suboption')?.classList.contains('hidden');
+  };
 
   function getSelectedFeatures() {
     const feats = [];

@@ -881,9 +881,12 @@ export const RULES: GltfRule[] = [
       // именем канала. Схлопывать их в интерфейсе нельзя честно: он видит готовые строки
       // и, сложив их в «TEXCOORD_1 … ×8», называет один канал, а имеет в виду восемь.
       // Правило знает весь список сразу — здесь это и есть правильное место.
-      // Просьбу выполнили — говорим об этом вслух. Правило 12: человек включил флажок и
-      // обязан увидеть след, а не догадываться, применилось ли.
-      if (держимРазвёртку) out.details.push({ messageId: 'prune.done.keptUv', data: {} });
+      // Строки «развёртка оставлена» здесь НЕТ намеренно, хотя просьбу исполняет и это
+      // правило. Она живёт в `structure/prune-final` — том, что включается ШИРЕ (safe,
+      // склейка ИЛИ сжатие) и идёт последним. Дефект ревью 2026-09-01: при снятом `safe`
+      // развёртку сохраняла только финальная подчистка, а сказать об этом было некому, и
+      // человек не видел следа своего флажка (Правило 12). Две строки на один флажок тоже
+      // нельзя — Правило 9; поэтому место ровно одно, и оно самое позднее.
       const removedSem = [...semBefore].filter((s) => !semAfter.has(s)); // listSemantics отдаёт Set
       if (removedSem.length === 1) {
         out.found.push({ messageId: 'prune.found.attribute', data: { sem: removedSem[0] } });
@@ -1713,8 +1716,15 @@ export const RULES: GltfRule[] = [
       if (держимРазвёртку) dropUnusedExceptUv(ctx.document);
       await ctx.document.transform(fns.prune({ keepAttributes: держимРазвёртку }));
       const a = root.listAccessors().length;
-      if (b > a) return { details: [{ messageId: 'pruneFinal.done', data: { n: b - a } }] };
-      return {};
+      const details: Message[] = [];
+      // Просьбу выполнили — говорим об этом вслух, и говорим ЗДЕСЬ. Правило 12: человек
+      // включил флажок и обязан увидеть след, а не догадываться, применилось ли. Это
+      // правило — единственное место, где след получается ровно один и во всех случаях:
+      // оно включается от safe, склейки И сжатия, а `structure/prune-unused` — только от
+      // safe (замер 2026-09-01: meshopt без safe развёртку сохранял молча).
+      if (держимРазвёртку) details.push({ messageId: 'prune.done.keptUv', data: {} });
+      if (b > a) details.push({ messageId: 'pruneFinal.done', data: { n: b - a } });
+      return details.length ? { details } : {};
     },
   },
 
