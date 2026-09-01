@@ -35,7 +35,9 @@ import sharp from 'sharp';
 import { Document } from '@gltf-transform/core';
 
 import { attachNeighbourTextures } from '../addons/gltf/import-textures.mjs';
-import { emptyNote } from '../addons/gltf/import-notes.mjs';
+import { emptyNote, setImportNote } from '../addons/gltf/import-notes.mjs';
+import { RULES } from '../addons/gltf/rules.mjs';
+import { render } from '../core/i18n.mjs';
 
 let tmp;
 beforeAll(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'import-tex-')); });
@@ -268,5 +270,83 @@ describe('таблица назначений карт объявлена оди
       expect(назначение(собранная, имя), `${имя}: шов и движок разошлись в назначении`)
         .toBe(назначение(TEXTURE_SLOTS, имя));
     }
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// РАЗДЕЛ 6 · Правило `import/textures-attached` доходит до отчёта
+//
+// ДЫРА, найденная замером 2026-08-31: из двадцати шести правил движка это было последним,
+// которое не называлось в наборе НИ РАЗУ. Разделы выше стерегут МЕХАНИЗМ — что карта
+// легла в нужный слот и не стёрла авторский множитель. А что человек об этом УЗНАЕТ —
+// не проверял никто.
+//
+// Молчание здесь дорогое. Раскладку по слотам предложили МЫ, прочитав имена файлов, — и
+// предложенное за человека он обязан видеть (шапка самого правила). Верни `analyze()`
+// пустой список, разойдись имена слотов с каталогом — и подбор станет молчаливым, а
+// набор останется зелёным.
+//
+// Модели тут не нужны вовсе: документ строится в памяти, записка о ввозе кладётся руками.
+// Значит проверка работает и на чистом клоне.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('правило import/textures-attached доходит до отчёта', () => {
+  const RULE_ID = 'import/textures-attached';
+  const analyze = (document) => RULES.find((r) => r.meta.id === RULE_ID).analyze({ document });
+
+  /** Документ с готовой запиской о ввозе: что подобрали среди соседей. */
+  const сЗапиской = (attached) => {
+    const doc = model();
+    setImportNote(doc, { ...emptyNote(), attached });
+    return doc;
+  };
+
+  it('на каждую подобранную карту — своя строка с файлом и слотом', async () => {
+    // Строка НА КАЖДУЮ карту — намеренное исключение из Правила 9, и оно записано в шапке
+    // правила: «приложено 6 карт» не даёт проверить, не села ли шероховатость в слот
+    // металла. Список сам и есть суть находки.
+    const out = analyze(сЗапиской([
+      { slot: 'baseColor', file: 'chair_BaseColor.png' },
+      { slot: 'normal', file: 'chair_Normal.png' },
+      { slot: 'roughness', file: 'chair_Roughness.png' },
+    ]));
+    expect(out.length, 'строк не столько, сколько карт').toBe(3);
+    expect(out.map((f) => f.data.file)).toEqual([
+      'chair_BaseColor.png', 'chair_Normal.png', 'chair_Roughness.png',
+    ]);
+    for (const f of out) expect(f.messageId).toBe('import.textureAttached');
+  });
+
+  it('имя слота — сообщение каталога, а не строка из кода', async () => {
+    // Правило 8: слово «Цвет» человеку показывает каталог. Пройди сюда голое `baseColor` —
+    // и в русском отчёте появится английское имя поля.
+    const out = analyze(сЗапиской([{ slot: 'baseColor', file: 'a.png' }]));
+    expect(out[0].data.slot).toEqual({ messageId: 'slot.baseColor', data: {} });
+  });
+
+  it('все шесть слотов подбора названы каталогом', async () => {
+    // Замер, который стоит держать: слотов ровно шесть, и каждый обязан иметь своё имя.
+    // Появится седьмой — эта проверка покраснеет раньше, чем человек увидит `emissive2`.
+    const слоты = ['baseColor', 'normal', 'roughness', 'metallic', 'occlusion', 'emissive'];
+    const out = analyze(сЗапиской(слоты.map((slot) => ({ slot, file: `${slot}.png` }))));
+    expect(out.map((f) => f.data.slot.messageId))
+      .toEqual(слоты.map((s) => `slot.${s}`));
+  });
+
+  it('строки переживают перевод и не остаются ключами', () => {
+    const out = analyze(сЗапиской([{ slot: 'metallic', file: 'wheel_Metallic.png' }]));
+    for (const язык of ['ru', 'en']) {
+      const текст = render(out[0].messageId, out[0].data, язык);
+      expect(текст, `на языке ${язык} в отчёт попал ключ`).not.toMatch(/^(import\.|slot\.)/);
+      expect(текст, 'имя файла потерялось').toContain('wheel_Metallic.png');
+      expect(текст.length, `на языке ${язык} пустая строка`).toBeGreaterThan(10);
+    }
+  });
+
+  it('ничего не подобрали — правило молчит', () => {
+    // Обратная половина: наблюдение не должно превращаться в строку-пустышку.
+    expect(analyze(сЗапиской([])), 'заговорили, не приложив ни одной карты').toEqual([]);
+    expect(analyze(model()), 'заговорили о модели, которая приехала не из чужого формата')
+      .toEqual([]);
   });
 });
