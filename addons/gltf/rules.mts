@@ -67,6 +67,7 @@ import { importNote } from './import-notes.mjs';
 import { scanLods } from './lod-scan.mjs';
 import { deadSelectabilityNodes, readInteractivity } from './interactivity.mjs';
 import { collectMetrics, countTriangles, effectiveSkins, listSemantics, textureSize } from './metrics.mjs';
+import { dropUnusedExceptUv } from './prune-attributes.mjs';
 import { HAS_GLTF_CLI, TOKTX, runCli } from './tools.mjs';
 import { hasOpaqueExtension } from './carry.mjs';
 
@@ -863,13 +864,15 @@ export const RULES: GltfRule[] = [
       // Случай «карты приложили рядом» закрывается сам и раньше: подбор соседних карт
       // (import-textures.mts) идёт на ВВОЗЕ, до правил. К этому месту текстура уже
       // привязана к материалу, материал ссылается на развёртку — и чистка её не тронет.
-      // `keepAttributes` — единственная ручка, которую даёт библиотека, и она общая на все
-      // атрибуты сразу: раздельной «оставь развёртку, но убери остальное» в ней нет.
-      // Поэтому просьба сохранить развёртку сохраняет и прочие данные вершин, которых не
-      // читает ни один материал. Это сказано человеку прямо в описании опции — обещать
-      // точность, которой у нас нет, нельзя.
-      const держимАтрибуты = !!ctx.opts.keepUnusedUv;
-      await ctx.document.transform(fns.prune({ keepAttributes: держимАтрибуты, keepLeaves: false }));
+      // `keepAttributes` — единственная ручка, которую даёт библиотека, и она общая на ВСЕ
+      // данные вершин сразу. Поэтому просьбу «оставь развёртку» мы исполняем в два шага:
+      // сами снимаем лишнее КРОМЕ развёртки (`prune-attributes.mts`), а библиотеке
+      // говорим атрибуты не трогать. Иначе за просьбу платили бы нормалями и
+      // касательными, которых человек не просил, — по замеру 2026-09-01 это и была почти
+      // вся надбавка (`parkergirl`: развёртка 2 КБ, прочее 210 КБ).
+      const держимРазвёртку = !!ctx.opts.keepUnusedUv;
+      if (держимРазвёртку) dropUnusedExceptUv(ctx.document);
+      await ctx.document.transform(fns.prune({ keepAttributes: держимРазвёртку, keepLeaves: false }));
       const semAfter = listSemantics(ctx.document);
       const a = { tex: root.listTextures().length, mat: root.listMaterials().length, skins: root.listSkins().length, effSkins: effectiveSkins(ctx.document) };
       const out: { found: Message[]; details: Message[] } = { found: [], details: [] };
@@ -880,7 +883,7 @@ export const RULES: GltfRule[] = [
       // Правило знает весь список сразу — здесь это и есть правильное место.
       // Просьбу выполнили — говорим об этом вслух. Правило 12: человек включил флажок и
       // обязан увидеть след, а не догадываться, применилось ли.
-      if (держимАтрибуты) out.details.push({ messageId: 'prune.done.keptAttributes', data: {} });
+      if (держимРазвёртку) out.details.push({ messageId: 'prune.done.keptUv', data: {} });
       const removedSem = [...semBefore].filter((s) => !semAfter.has(s)); // listSemantics отдаёт Set
       if (removedSem.length === 1) {
         out.found.push({ messageId: 'prune.found.attribute', data: { sem: removedSem[0] } });
@@ -1701,7 +1704,14 @@ export const RULES: GltfRule[] = [
       // просьбы «оставить развёртку» этого не знала: правило выше её сохраняло, а здесь
       // она молча исчезала снова, и отчёт при этом рапортовал, что всё оставлено.
       // Просьба человека обязана дойти до КОНЦА конвейера, а не до середины.
-      await ctx.document.transform(fns.prune({ keepAttributes: !!ctx.opts.keepUnusedUv }));
+      //
+      // Те же два шага, что и в `structure/prune-unused`, и по той же причине: между
+      // правилами атрибуты успевают осиротеть заново (склейка, уборка вершин), поэтому
+      // отбор «лишнее кроме развёртки» повторяется здесь на свежем состоянии, а не
+      // переносится из середины конвейера.
+      const держимРазвёртку = !!ctx.opts.keepUnusedUv;
+      if (держимРазвёртку) dropUnusedExceptUv(ctx.document);
+      await ctx.document.transform(fns.prune({ keepAttributes: держимРазвёртку }));
       const a = root.listAccessors().length;
       if (b > a) return { details: [{ messageId: 'pruneFinal.done', data: { n: b - a } }] };
       return {};

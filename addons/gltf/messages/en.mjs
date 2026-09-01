@@ -170,7 +170,7 @@ export default {
     ? 'the one repeated mesh here is moved by an animation — batching would freeze it in place'
     : `${n} repeated meshes are moved by animation — batching would freeze them in place`),
 
-  'prune.done.keptAttributes': () => 'UV and other vertex data were kept, including what no material reads right now',
+  'prune.done.keptUv': () => 'UV was kept, including the parts no image uses right now',
 
   // --- interactivity/strip-dead ---
   'interactivityStripDead.found': ({ n }) =>
