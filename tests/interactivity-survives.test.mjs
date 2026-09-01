@@ -31,6 +31,7 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import fs from 'node:fs';
 
+import { localizeResult } from '../core/i18n.mjs';
 import { optimizeFile } from '../optimize2.mjs';
 import { readInteractivity } from '../addons/gltf/interactivity.mjs';
 import { modelPath, isPresent, itIfModel } from './helpers/model-files.mjs';
@@ -263,5 +264,77 @@ describe('пустые пометки нажатия снимаются толь
     const j = glbJson(r.file.dst);
     const n = (j.nodes || []).filter((x) => x.extensions?.KHR_node_selectability).length;
     expect(n, 'у модели без пустых пометок что-то исчезло').toBe(2);
+  }, 300000);
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Правило `scene/interactivity` доходит до отчёта
+//
+// ДЫРА, найденная замером 2026-08-31: из двадцати шести правил движка ровно два ни разу
+// не назывались в наборе, и одно из них — это. Считающая функция (`readInteractivity`)
+// под сторожами с первого дня, а вот что правило её зовёт, кладёт находку в отчёт и
+// переживает перевод — не проверял никто.
+//
+// Разница не формальная. Правило `analyze()` может вернуть пустой список, потеряться в
+// порядке применения или разойтись с каталогом сообщений — и человек просто не увидит в
+// отчёте ни строчки про интерактив, а набор останется зелёным. Ровно так же тихо
+// исчезало из отчёта `interactivity/strip-dead`, и поймал его ДРУГОЙ сторож (контракт
+// движка), потому что своего у правила не было.
+//
+// Модель наша и лежит в git — проверка работает и на чистом клоне.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('правило scene/interactivity доходит до отчёта', () => {
+  const МОДЕЛЬ = 'Dead Interactivity 01.glb';
+
+  /** Находки этого правила, как их видит отчёт. */
+  const находки = async (model, features = []) => {
+    const r = await optimizeFile(modelPath(model), {
+      advancedFeatures: features, outDir: tmpOutDir(), locale: 'ru',
+    });
+    expect(r.status, `сборка не прошла: ${r.error || ''}`).not.toBe('fail');
+    return (r.findings || []).filter((f) => f.ruleId === 'scene/interactivity');
+  };
+
+  it('на модели с интерактивом правило называет числа', async () => {
+    const found = await находки(МОДЕЛЬ);
+    const main = found.find((f) => f.i18n?.text?.messageId === 'interactivity.found');
+    expect(main, 'правило не положило в отчёт ни одной находки').toBeTruthy();
+    // Числа — те же, что считает readInteractivity: девять нажимаемых, один отклик,
+    // три действия. Разойдись отчёт со счётом — человек прочитает не про свою модель.
+    expect(main.i18n.text.data).toEqual({ clickable: 9, handlers: 1, actions: 3 });
+    expect(main.severity, 'наблюдение, а не дефект').toBe('info');
+  }, 300000);
+
+  it('отдельной строкой сказано, сколько частей без отклика', async () => {
+    const found = await находки(МОДЕЛЬ);
+    const silent = found.find((f) => f.i18n?.text?.messageId === 'interactivity.silentParts');
+    expect(silent, 'про пустые нажимаемые части в отчёте ни слова').toBeTruthy();
+    expect(silent.i18n.text.data).toEqual({ n: 8 });
+  }, 300000);
+
+  it('строки переживают перевод и не остаются ключами', async () => {
+    // Правило 8: готовый отчёт обязан пересобираться на другом языке из рецепта.
+    // Ключ вместо фразы — самый частый способ это сломать.
+    const r = await optimizeFile(modelPath(МОДЕЛЬ), {
+      advancedFeatures: [], outDir: tmpOutDir(), locale: 'ru',
+    });
+    for (const язык of ['ru', 'en']) {
+      const текст = localizeResult(r, язык).findings
+        .filter((f) => f.ruleId === 'scene/interactivity')
+        .map((f) => f.text || '');
+      expect(текст.length, `на языке ${язык} находок не осталось`).toBe(2);
+      for (const t of текст) {
+        expect(t, `на языке ${язык} в отчёт попал ключ, а не фраза`).not.toMatch(/^interactivity\./);
+        expect(t.length, `на языке ${язык} пустая строка`).toBeGreaterThan(20);
+      }
+    }
+  }, 300000);
+
+  it('у модели без интерактива правило молчит', async () => {
+    // Обратная половина: наблюдение не должно превращаться в строку-пустышку у всех
+    // подряд. Правило 9 — отчёт не толпа одинаковых строк.
+    const found = await находки('Dirty Cube 01.glb');
+    expect(found, 'правило заговорило о модели, где интерактива нет').toEqual([]);
   }, 300000);
 });
