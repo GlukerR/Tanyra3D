@@ -501,6 +501,15 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 
 ## Status
 
+**0.2.25 — a hidden sub-option no longer asks for anything.** The "keep the unused UV" row
+hid itself when safe cleanup was unticked, but its checkbox kept its state — so a box
+switched off earlier went on requesting the change from a screen where it was no longer
+visible, and the build differed from what the panel showed. The request is now derived from
+whether the row is visible, so the two cannot disagree. The row also stopped hiding when it
+was still needed: attribute cleanup runs on join and geometry compression too, not just on
+safe, and it was silently dropping the UV there. The report line that says the UV was kept
+moved to the rule that covers all three cases, so the trace appears exactly once and always.
+
 **0.2.24 — keeping the UV no longer keeps everything else.** Ticking "keep the unused UV"
 (the configurator case) used to hand back normals, tangents and spare colour channels too:
 the library offers one switch for all vertex data at once. Measurement showed that was
