@@ -64,7 +64,7 @@ export default {
   'budget.recommended': ({ v }) => `recommended up to ${v}`,
   'budget.limit': ({ v }) => `platform limit ${v}`,
   'advice.overLimit': ({ name, actual, limit }) =>
-    `${name}: ${actual} against the platform limit of ${limit}. Files above the limit are rejected or re-compressed by the platform without asking.`,
+    `${name}: ${actual} against the platform limit of ${limit}. The platform rejects it.`,
   'advice.triangles': ({ actual, warn }) =>
     `${actual} triangles against a recommended ${warn}. Heavy scenes load and render slower. Simplify the model on export if that matters here.`,
   'advice.materials': ({ actual, warn }) =>
