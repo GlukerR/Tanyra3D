@@ -484,3 +484,120 @@ describe('8. пустая нажимаемая часть отличима от 
       .toBe(0)
   }, 120000)
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 9. Находки ревью 2026-08-31
+//
+// Три из пяти — про эту половину работы, и все три одного рода: код делал не то, что
+// обещал, а обещание нигде не проверялось.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('9. ревью: нажатие считается от той камеры, которой нарисован кадр', () => {
+  itWithModels(['TrafficLight.glb'], 'через камеру автора нажатие попадает по детали', async () => {
+    // Луч строился от ОРБИТАЛЬНОЙ камеры, а кадр рисуется активной. Стоило человеку
+    // выбрать камеру автора — и нажатия считались из другой точки зрения: промах либо
+    // отклик у соседней детали.
+    await viewer.load('/TrafficLight.glb')
+    const THREE = await import('three')
+    const часть = viewer._interactive[0]
+    const цель = new THREE.Vector3()
+    часть.object.getWorldPosition(цель)
+
+    // Своя камера смотрит В СТОРОНУ — если луч возьмут у неё, попадания не будет.
+    viewer.camera.position.set(цель.x + 50, цель.y + 50, цель.z + 50)
+    viewer.camera.lookAt(цель.x + 100, цель.y, цель.z)
+    viewer.camera.updateMatrixWorld(true)
+
+    // А «камера автора» наведена ровно на деталь.
+    const своя = new THREE.PerspectiveCamera(50, 1, 0.01, 100)
+    своя.position.set(цель.x, цель.y, цель.z + 1.5)
+    своя.lookAt(цель)
+    своя.updateMatrixWorld(true)
+    viewer._fileCameras = [своя]
+    viewer._cameraIndex = 0
+
+    expect(viewer.pickInteractive(0.5, 0.5), 'луч построен не от активной камеры').toBe(true)
+    viewer._cameraIndex = null
+    viewer._fileCameras = []
+  }, 120000)
+})
+
+describe('9б. ревью: чтение нажимаемости видит собственную запись графа', () => {
+  itWithModels(['Calculator.glb'], 'погасили узел — чтение отвечает «нет»', async () => {
+    // Чтение отвечало «да» всегда. Переключатель «нажал/отжал» устроен так: погасил,
+    // потом прочитал, чтобы решить, включать ли обратно, — и выбирал противоположное.
+    await viewer.load('/Calculator.glb')
+    const runtime = viewer._behaviour
+    expect(runtime, 'исполнителя нет').toBeTruthy()
+    const адрес = '/nodes/5/extensions/KHR_node_selectability/selectable'
+
+    expect(runtime.readPointer(адрес, 'bool'), 'до записи узел обязан считаться нажимаемым')
+      .toEqual([1])
+    runtime.writePointer(адрес, 'bool', [0])
+    expect(runtime.readPointer(адрес, 'bool'), 'чтение не увидело собственной записи')
+      .toEqual([0])
+    runtime.writePointer(адрес, 'bool', [1])
+    expect(runtime.readPointer(адрес, 'bool'), 'узел не вернулся в нажимаемые').toEqual([1])
+  }, 120000)
+})
+
+describe('9в. ревью: нечитаемая ссылка — отказ, а не первый попавшийся узел', () => {
+  it('шаблонный адрес без ссылки не пишет никуда', async () => {
+    // `num(null)` даёт 0, и адрес молча собирался на ПЕРВЫЙ узел сцены: граф двигал
+    // деталь, к которой не имел никакого отношения. Вычислитель проверяется без сцены —
+    // на подставном хозяине, ровно как обещает шапка его модуля.
+    const { InteractivityGraph } = await import('../ui/viewer/interactivity-graph.js')
+    const записи = []
+    const хозяин = {
+      readPointer: () => null,
+      writePointer: (path, type, value) => записи.push({ path, value }),
+      startAnimation: () => {},
+      stopAnimation: () => {},
+      delay: () => {},
+      log: () => {},
+    }
+    const граф = {
+      types: [{ signature: 'float3' }, { signature: 'ref' }],
+      declarations: [{ op: 'event/onSelect' }, { op: 'pointer/set' }],
+      nodes: [
+        { declaration: 0, configuration: { nodeIndex: { value: [7] } }, flows: { out: { node: 1, socket: 'in' } } },
+        {
+          declaration: 1,
+          configuration: { pointer: { value: ['/nodes/{nodeRef}/translation'] }, type: { value: [0] } },
+          // Сокет `nodeRef` НЕ ЗАПОЛНЕН — ровно тот случай, ради которого проверка.
+          values: { value: { type: 0, value: [0, 5, 0] } },
+        },
+      ],
+    }
+    new InteractivityGraph(граф, хозяин).select(7)
+    expect(записи, 'граф записал по выдуманному адресу вместо отказа').toEqual([])
+  })
+
+  it('ссылка на месте — адрес собирается и запись проходит', async () => {
+    // Обратная половина: отказ не должен превратиться в «не пишем никогда».
+    const { InteractivityGraph } = await import('../ui/viewer/interactivity-graph.js')
+    const записи = []
+    const хозяин = {
+      readPointer: () => null,
+      writePointer: (path, type, value) => записи.push({ path, value }),
+      startAnimation: () => {},
+      stopAnimation: () => {},
+      delay: () => {},
+      log: () => {},
+    }
+    const граф = {
+      types: [{ signature: 'float3' }, { signature: 'ref' }],
+      declarations: [{ op: 'event/onSelect' }, { op: 'pointer/set' }],
+      nodes: [
+        { declaration: 0, configuration: { nodeIndex: { value: [7] } }, flows: { out: { node: 1, socket: 'in' } } },
+        {
+          declaration: 1,
+          configuration: { pointer: { value: ['/nodes/{nodeRef}/translation'] }, type: { value: [0] } },
+          values: { value: { type: 0, value: [0, 5, 0] }, nodeRef: { type: 1, value: ['/nodes/12'] } },
+        },
+      ],
+    }
+    new InteractivityGraph(граф, хозяин).select(7)
+    expect(записи.map((z) => z.path)).toEqual(['/nodes/12/translation'])
+  })
+})

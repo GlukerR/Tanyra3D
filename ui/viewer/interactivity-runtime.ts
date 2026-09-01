@@ -71,6 +71,15 @@ export class InteractivityRuntime implements GraphHost {
   private readonly graph: InteractivityGraph;
   private readonly deps: RuntimeDeps;
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
+  /**
+   * Нажимаемость узлов, какой её сделал САМ ГРАФ. Умолчание — «нажимаема».
+   *
+   * Зачем помнить. Чтение `selectable` отвечало «да» всегда, не глядя на собственную
+   * запись, — а переключатель «нажал/отжал» устроен ровно так: погасил, потом прочитал,
+   * чтобы решить, включать ли обратно. Ветка выбиралась противоположная задуманной.
+   * Писатель здесь один, поэтому его память и есть истина.
+   */
+  private readonly selectable = new Map<number, boolean>();
   private dead = false;
 
   /** Почему интерактив не проигрывается. Пусто — проигрывается. */
@@ -140,7 +149,9 @@ export class InteractivityRuntime implements GraphHost {
         return [q.x, q.y, q.z, q.w];
       }
       if (path.endsWith('/visible')) return [obj.visible ? 1 : 0];
-      if (path.endsWith('/selectable')) return [1];
+      if (path.endsWith('/selectable')) {
+        return [this.selectable.get(indexOf(path, 'nodes')) === false ? 0 : 1];
+      }
       return null;
     }
     if (path.startsWith('/materials/')) {
@@ -167,7 +178,9 @@ export class InteractivityRuntime implements GraphHost {
       else if (path.endsWith('/rotation')) obj.quaternion.set(v[0] ?? 0, v[1] ?? 0, v[2] ?? 0, v[3] ?? 1);
       else if (path.endsWith('/visible')) obj.visible = truthy(value);
       else if (path.endsWith('/selectable')) {
-        this.deps.setClickable(indexOf(path, 'nodes'), truthy(value));
+        const at = indexOf(path, 'nodes');
+        this.selectable.set(at, truthy(value));
+        this.deps.setClickable(at, truthy(value));
       }
       this.deps.redraw();
       return;

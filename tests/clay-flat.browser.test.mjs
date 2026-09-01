@@ -253,3 +253,39 @@ describe('глина у модели без нормалей', () => {
     viewer.setDisplayMaterial('clay')
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Находка ревью 2026-08-31: досчитанные нормали переживали выход из глины
+//
+// «Материалы из файла» переставали значить «как в файле»: у модели без нормалей и с
+// обычным (не unlit) материалом three.js затеняет по граням, а после захода в глину —
+// гладко. Один и тот же режим показывал разное в зависимости от того, куда человек
+// заглядывал до этого.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('глина убирает за собой', () => {
+  it('выход из глины снимает досчитанные нормали, родные не трогает', () => {
+    const group = new THREE.Group()
+    const без = plate(-1.1, 0, 0)
+    без.geometry.deleteAttribute('normal')
+    const родные = plate(1.1, 0, 0)          // у этой нормали свои, из геометрии
+    group.add(без, родные)
+    viewer.scene.add(group)
+    viewer.model = group
+
+    viewer.setDisplayMaterial('clay')
+    viewer.renderFrame()
+    expect(без.geometry.attributes.normal, 'глина не досчитала').toBeTruthy()
+
+    viewer.setDisplayMaterial('file')
+    viewer.renderFrame()
+    expect(без.geometry.attributes.normal, 'досчитанные нормали пережили выход из глины')
+      .toBeUndefined()
+    expect(родные.geometry.attributes.normal, 'сняли ЧУЖИЕ нормали, а не только свои')
+      .toBeTruthy()
+
+    viewer.scene.remove(group)
+    viewer.model = null
+    viewer.setDisplayMaterial('clay')
+  })
+})

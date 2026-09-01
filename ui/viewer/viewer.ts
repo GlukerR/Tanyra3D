@@ -372,6 +372,8 @@ export class Viewer implements ViewerLike {
   declare _ktx2: KTX2Loader;
   declare _loader: GLTFLoader;
   declare _manager: THREE.LoadingManager;
+  /** Геометрии, которым нормали досчитала ГЛИНА. Снимаются при выходе из неё. */
+  declare _clayNormals?: Set<THREE.BufferGeometry>;
   /** Материал показа: 'file' — как в файле, 'clay' — глина, 'wire' — сетка. См. setDisplayMaterial. */
   declare _display: DisplayMode;
   /** Родные материалы мешей на время показа глиной. Ключ — меш, значение — что было. */
@@ -828,13 +830,33 @@ export class Viewer implements ViewerLike {
    */
   _ensureClayNormals() {
     if (!this.model) return;
+    const мои = this._clayNormals ?? (this._clayNormals = new Set<THREE.BufferGeometry>());
     this.model.traverse((o: MaybeMesh) => {
       if (!o.isMesh) return;
       const geometry = (o as unknown as THREE.Mesh).geometry as THREE.BufferGeometry | undefined;
       if (!geometry?.attributes || geometry.attributes['normal']) return;
       if (!geometry.attributes['position']) return;
       geometry.computeVertexNormals();
+      мои.add(geometry);
     });
+  }
+
+  /**
+   * Снять нормали, которые досчитала ГЛИНА, — при выходе из неё.
+   *
+   * Без этого «материалы из файла» переставали значить «как в файле»: у модели без
+   * нормалей и с обычным (не unlit) материалом three.js затеняет по граням, а после
+   * захода в глину — гладко. Один и тот же режим показывал разное в зависимости от того,
+   * куда человек заглядывал до этого.
+   *
+   * Снимаем ТОЛЬКО своё: множество помнит те геометрии, которым атрибут добавили мы.
+   * Родные нормали модели не трогаются никогда.
+   */
+  _dropClayNormals() {
+    const мои = this._clayNormals;
+    if (!мои?.size) return;
+    for (const geometry of мои) geometry.deleteAttribute('normal');
+    мои.clear();
   }
 
   _applyDisplayMaterial() {
@@ -844,8 +866,9 @@ export class Viewer implements ViewerLike {
     // забудет вернуть, а «Правило 11» проверяется именно тем, что модель уезжает такой,
     // какой пришла.
     // Нормали нужны ГЛИНЕ и только ей: сетка рисует рёбра, а родные материалы модели —
-    // дело самой модели, и досчитывать за неё там нечего.
+    // дело самой модели, и досчитывать за неё там нечего. Вышли из глины — своё убрали.
     if (this._display === 'clay') this._ensureClayNormals();
+    else this._dropClayNormals();
     if (this._display !== 'file') {
       this.model.traverse((o: MaybeMesh) => {
         if (!o.isMesh || !o.material) return;
@@ -1204,10 +1227,13 @@ export class Viewer implements ViewerLike {
 
   // ── Интерактив ─────────────────────────────────────────────────────────────
   //
-  // ПОКАЗ, а не исполнение. Мы обводим части, которые откликаются на нажатие НА САЙТЕ,
-  // и ничего не запускаем: граф поведения исполняет интерпретатор, которого у нас нет
-  // (ROADMAP §6д). Нажатие по обведённой части здесь не делает ничего, и делать вид,
-  // что делает, нельзя.
+  // ПОКАЗ И ИСПОЛНЕНИЕ. Обводим части, откликающиеся на нажатие, и проигрываем сам граф
+  // поведения — вычислитель живёт в `interactivity-graph.ts`, связь со сценой в
+  // `interactivity-runtime.ts` (ROADMAP §6д). Встретили незнакомый узел или адрес —
+  // гасим интерактив ЦЕЛИКОМ и говорим об этом: половинчатое проигрывание хуже отсутствия.
+  //
+  // Ничего из этого В ФАЙЛ НЕ ПОПАДАЕТ (Правило 11): сдвинутый узел, погашенная видимость,
+  // перекрашенный материал — состояние сцены показа, собранная модель увозит исходное.
 
   /**
    * Поднять исполнителя графа поведения.
@@ -1287,7 +1313,10 @@ export class Viewer implements ViewerLike {
     const parts = this._interactive ?? [];
     if (!parts.length || !this._behaviour) return false;
     const ray = new THREE.Raycaster();
-    ray.setFromCamera(new THREE.Vector2(x * 2 - 1, -(y * 2 - 1)), this.camera);
+    // Камера — ТА, КОТОРОЙ НАРИСОВАН КАДР, а не орбитальная. Через камеру автора орбита
+    // отключена, но нажимать человек продолжает по тому, что видит: луч из чужой точки
+    // зрения либо промахивается, либо попадает по соседней детали и запускает чужой отклик.
+    ray.setFromCamera(new THREE.Vector2(x * 2 - 1, -(y * 2 - 1)), this._activeCamera());
     const hits = ray.intersectObjects(parts.map((p) => p.object), true);
     if (!hits.length) return false;
 

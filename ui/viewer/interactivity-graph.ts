@@ -401,7 +401,12 @@ export class InteractivityGraph {
     for (const match of raw.matchAll(/\{([^}]+)\}/g)) {
       const socket = match[1] ?? '';
       const ref = this.input(nodeIndex, socket);
-      const at = typeof ref === 'string' ? /(\d+)\s*$/.exec(ref)?.[1] : String(num(ref));
+      // ССЫЛКИ НЕТ — ОТКАЗ, а не подстановка нуля. `num(null)` даёт 0, и адрес молча
+      // собирался на ПЕРВЫЙ узел или материал: граф двигал деталь, к которой не имел
+      // никакого отношения. Промолчать здесь дешевле, чем испортить чужую.
+      const at = typeof ref === 'string'
+        ? /(\d+)\s*$/.exec(ref)?.[1]
+        : (Array.isArray(ref) && typeof ref[0] === 'number' ? String(ref[0]) : undefined);
       if (at === undefined || at === null) return null;
       out = out.replace(match[0], at);
     }
