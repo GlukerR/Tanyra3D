@@ -501,6 +501,17 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 
 ## Status
 
+**0.2.24 — keeping the UV no longer keeps everything else.** Ticking "keep the unused UV"
+(the configurator case) used to hand back normals, tangents and spare colour channels too:
+the library offers one switch for all vertex data at once. Measurement showed that was
+almost the whole bill — on one model the UV weighs 2 KB and the rest 210 KB. The pipeline
+now does the selection itself and keeps only the UV; a guard compares its choice against
+the library's on every corpus model, so the two cannot drift apart in silence. Cost fell
+from +65% to +0.1% there, and the option states the new numbers. The corpus also gained a
+4.6 KB model whose behaviour graph really plays — four buttons, four different responses —
+so graph playback is now tested on a fresh clone rather than only on models that never
+enter the repository.
+
 **0.2.22 — interactivity plays, and clay stops lying.** A model carrying
 `KHR_interactivity` is no longer just "something the pipeline does not understand": the
 report counts its clickable parts, handlers and actions, the viewport outlines every
