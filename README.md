@@ -95,6 +95,7 @@ whether the result is good enough is the human's call, not the tool's.
 | Optimization | What it does | Data loss | Decoder needed on site |
 |---|---|---|:---:|
 | **safe** | Deduplicate materials and textures, drop unused data and UV channels, weld matching vertices, cut degenerate triangles | none | no |
+| **resize** | Downscale textures to 4096 / 2048 / 1024 / 512 px on the longer side | **yes**, opt-in only | no |
 | **join** | Merge meshes — fewer draw calls | none, but parts stop being separate objects | no |
 | **instance** | Repeated meshes → GPU instancing | none | no |
 | **meshopt** | Geometry compression | none | yes |
@@ -104,6 +105,8 @@ whether the result is good enough is the human's call, not the tool's.
 | **webp** | Textures to WebP | barely visible | no |
 | **resample** | Thin out redundant animation keyframes | none | no |
 | **strip-colors** | Remove vertex colors | **yes**, opt-in only | no |
+| **strip-dead-interactivity** | Drop clickable marks that no handler responds to | **yes**, opt-in only | no |
+| **keep-unused-uv** | Keep a UV layout no image uses — for site configurators | none, the file grows | no |
 
 None of them changes the polygon count. Mesh simplification is deliberately absent.
 
@@ -416,8 +419,9 @@ The repository ships a small corpus of models built specifically for testing —
 deliberately dirty cube, a grid of linked duplicates, unlinked copies of one mesh
 without normals, morph targets, vertex colors, already-compressed input, an
 already-instanced scene, a scene with no geometry, a file that is nothing but textures,
-two scenes in one file, a deliberately truncated file. Enough for the suite to be green
-straight after cloning.
+two scenes in one file, a deliberately truncated file, and a model whose interactivity is
+mostly dead — eight clickable parts nothing responds to, one that works and one the author
+marked "do not click". Enough for the suite to be green straight after cloning.
 
 Tests that need heavier models are reported as skipped with the reason stated — visible
 in the run output rather than dissolved into silence.
@@ -438,12 +442,24 @@ The honest list of what the tool doesn't do, or doesn't do fully.
   read from the image header (PNG, JPEG, WebP, KTX2) and checked against the platform
   threshold. Downscaling an oversized texture is a separate opt-in — the tool never
   discards pixels on its own.
-- **Two engines, three store targets.** The viewer renders through three.js or
-  model-viewer; the targets are Shopify, VNTANA and the Google Merchant Center 3D
-  listing, each with numbers taken from that platform's own documentation. A target is
+- **Two engines, three store targets — plus the ones you write.** The viewer renders
+  through three.js or model-viewer; the targets that ship are Shopify, VNTANA and the
+  Google Merchant Center 3D listing, each with numbers taken from that platform's own
+  documentation. A target of your own is filled in on a form, and each of its thresholds
+  says whether it is advice or a refusal — that is the platform's property, not ours to
+  assume. A target is
   an ADDRESS a model is sent to, not a class of device: the "mobile" and "Quest"
   profiles were deleted on 2026-08-18 because a phone browser and a headset browser are
   the same three.js, and their numbers were never confirmed by a primary source.
+- **Interactivity plays, but not every graph.** `KHR_interactivity` is executed in the
+  viewport — 38 node types and nine pointer shapes, enough for the whole Khronos
+  interactivity set. Meet a node or an address we do not know, and playback is refused as
+  a whole rather than half-done, with the button saying so: half-played interactivity
+  leaves you unable to tell a broken model from a broken tool. Hovering (`event/onHover`)
+  is counted in the report but never played — no model measured so far uses it, and
+  teaching the viewport blind would cost a ray through the scene on every mouse move.
+  Nothing about the interactivity is edited: the build carries the graph across byte for
+  byte, and only an explicit opt-in removes clickable marks that have no handler.
 - **Batches are built one model at a time, in sequence.** Drop a folder or fifty files,
   tick the ones you want, press build: the models are processed one after another, and
   the viewport shows whichever is being worked on. Nothing runs in parallel — one
@@ -482,6 +498,86 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 ---
 
 ## Status
+
+**0.2.22 — interactivity plays, and clay stops lying.** A model carrying
+`KHR_interactivity` is no longer just "something the pipeline does not understand": the
+report counts its clickable parts, handlers and actions, the viewport outlines every
+clickable part, and clicking one now runs the behaviour graph — all 38 node types and
+nine pointer shapes found across the Khronos interactivity set. A click answers: the
+outline flashes and a line lands in the journal, so a quiet response is not mistaken for
+a broken model. If the graph contains a node or an address we do not know, playback is
+refused as a whole and the button says so — half-played interactivity is worse than none.
+
+Three more things landed with it. The report names clickable parts that have no handler
+at all, and a separate opt-in removes those empty marks. Clay no longer shows a
+difference that does not exist in the product: a model whose material is `unlit` loses
+its normals to cleanup — correctly, since unlit never reads them — and clay, which shades
+by normals, used to render the optimized side flat; it now computes normals for display
+only, leaving the file untouched. A platform budget can be a hard refusal instead of
+advice, chosen per threshold when the target is created, and cleanup can keep a UV layout
+that no image uses — for configurators, where the finish is picked on the site itself.
+
+**0.2.21 — levels of detail are found by measurement.** Detail levels used to be
+recognised by the word "LOD" in a node name. Now the decision is made by measuring:
+triangle counts stepping down by half, textures shrinking with the mesh rather than
+growing, matching bounds, and levels placed where they replace one another. A name is
+still evidence — it relaxes the thresholds — but it no longer stands in for a measurement.
+Guessed levels are named in the analysis panel, not only the ones declared by `MSFT_lod`.
+Lighting moved to the sun icon in the top bar and gained a third mode: no light at all.
+
+**0.2.20 — render a picture, and a wireframe view.** The optimized model can be saved as
+a PNG — transparent or on a solid background, at 1×, 2× or 4× the viewport size. The
+frame is exactly what is on screen: material, variant, animation pose, camera, level of
+detail and exposure are already chosen by you, and the render takes them as they are.
+Wireframe joins clay and file materials as a third shading mode.
+
+**0.2.19 — diffuse transmission in the viewer.** `KHR_materials_diffuse_transmission`
+(leaves, lampshades, thin porcelain) is read and shown instead of silently falling back
+to an opaque surface. Animated UV transforms work on both of its texture slots.
+
+**0.2.18 — unknown extensions survive optimization intact.** An extension the library
+does not know is carried through the build rather than dropped, and the decision is made
+per object: an extension addressing materials is no longer lost because an unrelated
+array of accessors shifted.
+
+**0.2.17 — hardcode audit, six phases.** Platform profiles are found by id rather than by
+filename; a language is added by dropping files in, with no code changes; the codec list,
+the texture-slot table, MIME and accessor types are each declared once. Advice carries
+its own source, and an unknown budget key no longer fails silently.
+
+**0.2.13–0.2.16 — the model list belongs to you.** Checkboxes stop being reset by the
+model; re-building only happens when the settings genuinely differ; one checkbox replaces
+the All / None buttons, and a cross removes every ticked model after asking. The source
+badge marks every technology found in the imported file — WebP, quantization and GPU
+instancing were missing before.
+
+**0.2.12 — instancing recognises copies by shape.** Identical copies are found by their
+geometry, not by whether they happen to share a reference, and a model's own animation no
+longer cancels instancing for the whole file.
+
+**0.2.11 — OBJ on input.** With its neighbouring `.mtl`, so a coloured original does not
+arrive white. This closes the trio of import formats: FBX, STL, OBJ.
+
+**0.2.10 — the viewer stops overwriting the author's work.** Clay used to switch itself on
+for any model without textures, on the assumption that no images means no colour. The
+assumption was wrong: a material with a colour and no textures is still the author's work.
+The model is now shown as it is in the file, and clay is a mode you choose — one that
+keeps the author's colour.
+
+**0.2.9 — FBX on input, parsed locally.** No internet involved. UV is flipped (glTF counts
+V from the top, FBX from the bottom) and materials are carried across as they are —
+roughness and metalness are not invented. Maps lying next to the model are picked up by
+filename, and each multiplier now yields only to its own map, so a black base colour out
+of Blender no longer kills the texture attached to it.
+
+**0.2.6–0.2.8 — batch building.** Drop a folder or a pile of files: each gets a checkbox,
+they are built one after another, and the viewport shows the current one. The summary
+table carries every model — before, after, difference, video memory, triangles, the
+platform verdict — with a CSV export; it computes nothing of its own, taking every number
+from the models' own reports. Large files stream to disk instead of passing through
+memory: measured on 300 MB, half the memory growth and eighteen times faster to accept.
+Degenerate triangles are removed by us rather than left to the Draco encoder, and the
+space bar starts and stops animation.
 
 **0.2.5 — a target need not name an engine.** A target profile may leave `engine` empty,
 and then it fits any engine — the way an empty engine field means "no preference". Two

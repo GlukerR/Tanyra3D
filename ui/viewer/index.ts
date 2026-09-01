@@ -1051,8 +1051,8 @@ window.OptiViewer = {
   // Свет: наш студийный или тот, что принесла сама модель. Один на оба вьюпорта.
   getLight: () => dual.getLight(),
   selectLightMode: (mode) => dual.selectLightMode(mode),
-  // Интерактив: обводка нажимаемых частей. Показ, а не исполнение — граф поведения
-  // мы не проигрываем (ROADMAP §6д).
+  // Интерактив: обводка нажимаемых частей и проигрывание графа поведения
+  // (`interactivity-graph.ts` + `interactivity-runtime.ts`, ROADMAP §6д).
   getInteractivity: () => dual.getInteractivity(),
   toggleInteractivity: (on) => dual.toggleInteractivity(on),
   // Камеры автора: его ракурсы вместо нашей орбиты. Тоже один выбор на оба вьюпорта.

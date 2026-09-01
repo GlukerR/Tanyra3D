@@ -132,7 +132,7 @@ export default {
   // Интерактив: наблюдение, а не находка-дефект. Числа человеческие, и прямо сказано,
   // что окно его проигрывает, — иначе человек не догадается нажать.
   'interactivity.found': ({ clickable, handlers, actions }) =>
-    `The file carries interactivity: ${clickable} clickable part${clickable === 1 ? '' : 's'}, ${handlers} click handler${handlers === 1 ? '' : 's'}, ${actions} action${actions === 1 ? '' : 's'}. The clickable parts are outlined in the viewport — click one and the model responds. All of it survives the build.`,
+    `The file carries interactivity: ${clickable} clickable part${clickable === 1 ? '' : 's'}, ${handlers} handler${handlers === 1 ? '' : 's'}, ${actions} action${actions === 1 ? '' : 's'}. The clickable parts are outlined in the viewport — click one and the model responds. All of it survives the build.`,
   'interactivity.foundNoClicks': ({ handlers, actions }) =>
     `The file carries interactivity that runs on its own, with nothing to click: ${handlers} handler${handlers === 1 ? '' : 's'}, ${actions} action${actions === 1 ? '' : 's'}. All of it survives the build.`,
   'interactivity.silentParts': ({ n }) =>
