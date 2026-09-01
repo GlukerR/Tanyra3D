@@ -24,7 +24,11 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { createViewer, disposeViewer } from '../tests/helpers/viewer-test-utils.mjs'
 
-const MODELS = ['TrafficLight.glb', 'Calculator.glb', 'WhackAMole.glb', 'MagicBall.glb', 'ConstructionSite.glb']
+// Своя модель идёт первой и не по алфавиту: она ЕДИНСТВЕННАЯ из списка лежит в
+// репозитории, и на чистом клоне только её проверки и прогонятся. Остальные — набор
+// Khronos, их там нет и не будет (Правило 0).
+const СВОЯ = 'Interactive Playback 01.glb'
+const MODELS = [СВОЯ, 'TrafficLight.glb', 'Calculator.glb', 'WhackAMole.glb', 'MagicBall.glb', 'ConstructionSite.glb']
 const PLAIN = 'Dirty Cube 01.glb'
 
 const present = new Map(await Promise.all([...MODELS, PLAIN].map(async (file) => {
@@ -600,4 +604,83 @@ describe('9в. ревью: нечитаемая ссылка — отказ, а 
     new InteractivityGraph(граф, хозяин).select(7)
     expect(записи.map((z) => z.path)).toEqual(['/nodes/12/translation'])
   })
+})
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// 10. Те же четыре отклика — на СВОЕЙ модели
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Раздел 2 проверяет четыре способа отклика на четырёх моделях Khronos, и ни одной из них
+// нет в репозитории: на чистом клоне он пропускается целиком, а это самая дорогая часть
+// работы над интерактивом. Александр, 2026-09-01: «можешь сам создать недостающие модели».
+//
+// `Interactive Playback 01.glb` (4,6 КБ, сделана `_work/make-interactive-playback-fixture.mjs`)
+// собирает те же четыре способа в одном своём файле. Это НИЖНЯЯ ГРАНИЦА, а не замена:
+// живые модели остаются и продолжают ловить то, чего синтетика не ловит — графы на сотни
+// узлов, чужие соглашения об именах, неожиданные сочетания.
+//
+// Кнопки бьют по ЧУЖИМ узлам (лампа, ползун) намеренно: отклик, меняющий саму нажатую
+// часть, не отличил бы «граф сработал» от «кто-то тронул то, на что нажали».
+
+describe('10. четыре отклика на своей модели', () => {
+  // Имя из ФАЙЛА и имя в СЦЕНЕ — не одна и та же строка: загрузчик three.js прогоняет
+  // его через `PropertyBinding.sanitizeNodeName`, и пробелы становятся подчёркиваниями
+  // («Кнопка цвета» → «Кнопка_цвета»). Ищем с оглядкой на это, а не подгоняем имена в
+  // модели под загрузчик: имя узла — данные автора, и коверкать их ради удобства теста
+  // значило бы проверять не ту модель, которую человек принесёт.
+  const тоЖеИмя = (a, b) => String(a).replace(/\s/g, '_') === b.replace(/\s/g, '_')
+
+  /** Нажимаемая часть по имени из файла. Номер в списке — не адрес: это порядок обхода. */
+  const кнопка = (имя) => {
+    const part = viewer._interactive.find((p) => тоЖеИмя(p.name, имя))
+    expect(part, `нет нажимаемой части «${имя}»; в модели: ${viewer._interactive.map((p) => p.name).join(', ') || '—'}`)
+      .toBeTruthy()
+    return part
+  }
+  const узел = (имя) => {
+    let out = null
+    viewer.model.traverse((o) => { if (тоЖеИмя(o.name, имя)) out = o })
+    expect(out, `в сцене нет узла «${имя}»`).toBeTruthy()
+    return out
+  }
+
+  itWithModels([СВОЯ], 'цвет: нажатие красит материал кнопки', async () => {
+    await viewer.load('/' + encodeURIComponent(СВОЯ))
+    const было = colours()
+    expect(viewer._behaviour.select(кнопка('Кнопка цвета').nodeIndex), 'граф не отозвался').toBe(true)
+    expect(colours().filter((c, i) => c !== было[i]).length, 'ни один материал не изменился')
+      .toBeGreaterThan(0)
+  }, 120000)
+
+  itWithModels([СВОЯ], 'видимость: нажатие прячет ДРУГОЙ узел', async () => {
+    await viewer.load('/' + encodeURIComponent(СВОЯ))
+    const лампа = узел('Лампа')
+    expect(лампа.visible, 'лампа спрятана ещё до нажатия — проверять нечего').toBe(true)
+    viewer._behaviour.select(кнопка('Кнопка видимости').nodeIndex)
+    expect(лампа.visible, 'лампа не спряталась — запись видимости не дошла').toBe(false)
+  }, 120000)
+
+  itWithModels([СВОЯ], 'развёртка: нажатие двигает текстуру, а не меняет материал', async () => {
+    await viewer.load('/' + encodeURIComponent(СВОЯ))
+    const карты = []
+    viewer.model.traverse((o) => { if (o.isMesh && o.material?.map) карты.push(o.material.map) })
+    expect(карты.length, 'в модели нет ни одной текстуры').toBeGreaterThan(0)
+    const было = карты.map((m) => `${m.offset.x},${m.offset.y}`)
+    viewer._behaviour.select(кнопка('Кнопка развёртки').nodeIndex)
+    expect(карты.map((m) => `${m.offset.x},${m.offset.y}`).some((v, i) => v !== было[i]), 'развёртка не сдвинулась')
+      .toBe(true)
+  }, 120000)
+
+  itWithModels([СВОЯ], 'задержка: шаг доходит ПОСЛЕ паузы, а не сразу', async () => {
+    // Две половины одного утверждения, и вторая не менее важна первой: «сразу тоже
+    // сработало» означало бы, что паузу мы попросту не исполняем.
+    await viewer.load('/' + encodeURIComponent(СВОЯ))
+    const ползун = узел('Ползун')
+    const было = ползун.position.clone()
+    viewer._behaviour.select(кнопка('Кнопка задержки').nodeIndex)
+    expect(ползун.position.distanceTo(было), 'ползун поехал сразу — паузу не исполнили').toBe(0)
+    await new Promise((r) => setTimeout(r, 600))
+    expect(ползун.position.distanceTo(было), 'ползун не поехал и после паузы').toBeGreaterThan(0)
+  }, 120000)
 })

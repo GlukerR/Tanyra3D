@@ -106,7 +106,7 @@ whether the result is good enough is the human's call, not the tool's.
 | **resample** | Thin out redundant animation keyframes | none | no |
 | **strip-colors** | Remove vertex colors | **yes**, opt-in only | no |
 | **strip-dead-interactivity** | Drop clickable marks that no handler responds to | **yes**, opt-in only | no |
-| **keep-unused-uv** | Keep a UV layout no image uses — for site configurators | none, the file grows | no |
+| **keep-unused-uv** | Keep a UV layout no image uses — for site configurators. Only the UV is kept; everything else unused is still cleaned away | none, the file grows by the UV itself | no |
 
 None of them changes the polygon count. Mesh simplification is deliberately absent.
 
@@ -419,9 +419,11 @@ The repository ships a small corpus of models built specifically for testing —
 deliberately dirty cube, a grid of linked duplicates, unlinked copies of one mesh
 without normals, morph targets, vertex colors, already-compressed input, an
 already-instanced scene, a scene with no geometry, a file that is nothing but textures,
-two scenes in one file, a deliberately truncated file, and a model whose interactivity is
+two scenes in one file, a deliberately truncated file, a model whose interactivity is
 mostly dead — eight clickable parts nothing responds to, one that works and one the author
-marked "do not click". Enough for the suite to be green straight after cloning.
+marked "do not click" — and a model whose behaviour graph actually plays: four buttons,
+four different responses (material colour, another node's visibility, a UV shift, a
+delayed step). Enough for the suite to be green straight after cloning.
 
 Tests that need heavier models are reported as skipped with the reason stated — visible
 in the run output rather than dissolved into silence.

@@ -18,6 +18,14 @@
 //      второй проход сносил её снова. Отчёт при этом рапортовал, что всё оставлено, —
 //      то есть врал. Ловится только сквозным прогоном, поэтому проверка сквозная.
 //   3. Метрика, по которой интерфейс решает, показывать ли строку вообще (Правило 12).
+//   4. ТОЧЕЧНОСТЬ просьбы и согласие с библиотекой. Первая редакция оставляла вместе с
+//      развёрткой всё прочее — нормали, касательные, лишние цветовые каналы, — потому что
+//      ручка у библиотеки одна на все данные вершин. Человек платил за то, чего не
+//      просил: у `parkergirl` развёртка весит 2 КБ из 212. Александр, 2026-09-01: «мы
+//      ранее когда просто сейф оптимизацию делали всё лишнее сносили. мы не можем сделать
+//      так же, но оставлять юви неиспользуемую?» Теперь отбор наш (`prune-attributes.mts`),
+//      и у своей копии чужого счёта ровно один способ навредить — разойтись с оригиналом
+//      МОЛЧА. Против этого стоит раздел «согласие с библиотекой».
 //
 // Модель строится здесь: нужна панель С развёрткой и БЕЗ единой карты, а искать такую
 // среди готовых значило бы проверять не то.
@@ -27,32 +35,54 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { NodeIO } from '@gltf-transform/core';
+import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
+import * as fns from '@gltf-transform/functions';
+
 import { optimizeFile, inspectFile } from '../optimize2.mjs';
+import { dropUnusedExceptUv } from '../addons/gltf/prune-attributes.mjs';
+import { REPO_MODELS, modelPath } from './helpers/model-files.mjs';
 
 const мусор = [];
 afterAll(() => {
   for (const d of мусор) fs.rmSync(d, { recursive: true, force: true });
 });
 
-/** Панель конфигуратора: развёртка есть, материал с цветом, ни одной картинки. */
-function панель() {
+/**
+ * Панель конфигуратора: развёртка есть, материал с цветом, ни одной картинки.
+ *
+ * `сНормалями` добавляет НОРМАЛИ и делает материал несветящимся (`KHR_materials_unlit`).
+ * Такому материалу нормали не нужны ни для чего — это второй класс лишних данных вершин,
+ * и он нужен, чтобы отличить «оставили развёртку» от «оставили вообще всё».
+ */
+function панель({ сНормалями = false } = {}) {
   const pos = new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0]);
   const uv = new Float32Array([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1]);
-  const bin = Buffer.concat([Buffer.from(pos.buffer), Buffer.from(uv.buffer)]);
+  const nrm = new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]);
+  const куски = [Buffer.from(pos.buffer), Buffer.from(uv.buffer)];
+  if (сНормалями) куски.push(Buffer.from(nrm.buffer));
+  const bin = Buffer.concat(куски);
+  const attributes = { POSITION: 0, TEXCOORD_0: 1 };
+  if (сНормалями) attributes.NORMAL = 2;
+  const material = { name: 'Дуб', pbrMetallicRoughness: { baseColorFactor: [0.6, 0.45, 0.3, 1], metallicFactor: 0, roughnessFactor: 0.7 } };
+  if (сНормалями) material.extensions = { KHR_materials_unlit: {} };
   const json = {
     asset: { version: '2.0', generator: 'Tanyra3D test (configurator panel)' },
+    ...(сНормалями ? { extensionsUsed: ['KHR_materials_unlit'] } : {}),
     scene: 0,
     scenes: [{ nodes: [0] }],
     nodes: [{ mesh: 0, name: 'Панель' }],
-    meshes: [{ name: 'Панель', primitives: [{ attributes: { POSITION: 0, TEXCOORD_0: 1 }, material: 0 }] }],
-    materials: [{ name: 'Дуб', pbrMetallicRoughness: { baseColorFactor: [0.6, 0.45, 0.3, 1], metallicFactor: 0, roughnessFactor: 0.7 } }],
+    meshes: [{ name: 'Панель', primitives: [{ attributes, material: 0 }] }],
+    materials: [material],
     accessors: [
       { bufferView: 0, componentType: 5126, count: 6, type: 'VEC3', min: [0, 0, 0], max: [1, 1, 0] },
       { bufferView: 1, componentType: 5126, count: 6, type: 'VEC2', min: [0, 0], max: [1, 1] },
+      ...(сНормалями ? [{ bufferView: 2, componentType: 5126, count: 6, type: 'VEC3', min: [0, 0, 1], max: [0, 0, 1] }] : []),
     ],
     bufferViews: [
       { buffer: 0, byteOffset: 0, byteLength: pos.byteLength, target: 34962 },
       { buffer: 0, byteOffset: pos.byteLength, byteLength: uv.byteLength, target: 34962 },
+      ...(сНормалями ? [{ buffer: 0, byteOffset: pos.byteLength + uv.byteLength, byteLength: nrm.byteLength, target: 34962 }] : []),
     ],
     buffers: [{ byteLength: bin.length }],
   };
@@ -123,5 +153,89 @@ describe('развёртка без картинок', () => {
     // сохранять нечего — строки нет.
     const insp = await inspectFile(панель());
     expect(insp.metrics.uvWithoutTextures, 'панель без карт не посчитана').toBe(1);
+  }, 300000);
+});
+
+
+// ============================================================================
+// 4. Точечность: просьба про развёртку — просьба ТОЛЬКО про развёртку.
+// ============================================================================
+
+describe('просьба точечная, а не «оставь всё»', () => {
+  it('нормали у несветящегося материала уходят, развёртка остаётся', async () => {
+    // Первая редакция оставляла и то и другое: ручка у библиотеки одна на все данные
+    // вершин. Человек просил развёртку, а платил нормалями — у `parkergirl` это +65%
+    // при развёртке в 2 КБ. Здесь красное означает возврат к тому поведению.
+    const r = await собрать(панель({ сНормалями: true }), ['safe', 'keep-unused-uv']);
+    expect(атрибуты(r.file.dst), 'вместе с развёрткой оставили и то, чего не просили')
+      .toEqual(['POSITION', 'TEXCOORD_0']);
+  }, 300000);
+
+  it('без просьбы уходит и то и другое — умолчание не поехало', async () => {
+    const r = await собрать(панель({ сНормалями: true }), ['safe']);
+    expect(атрибуты(r.file.dst), 'умолчание перестало убирать лишнее').toEqual(['POSITION']);
+  }, 300000);
+});
+
+// ============================================================================
+// 5. Согласие с библиотекой.
+// ============================================================================
+// Правила «что материал действительно читает» библиотека наружу не отдаёт, поэтому в
+// `addons/gltf/prune-attributes.mts` они ПОВТОРЕНЫ. Своя копия чужого счёта опасна ровно
+// одним: она может разойтись с оригиналом молча — библиотека обновится, а мы продолжим
+// считать по-старому и начнём сносить нужное или хранить лишнее.
+//
+// Сторож сверяет ИТОГ, а не код: на каждой модели корпуса гоняется библиотечная чистка и
+// наша, и остаток данных вершин обязан совпасть — с точностью до развёртки, которую мы
+// как раз и оставляем намеренно.
+
+/** Что осталось у каждого примитива, кроме развёртки: `мешN/примM` → отсортированный список. */
+function остаток(doc) {
+  const out = new Map();
+  doc.getRoot().listMeshes().forEach((mesh, mi) => {
+    mesh.listPrimitives().forEach((prim, pi) => {
+      out.set(`меш${mi}/прим${pi}`, prim.listSemantics().filter((sem) => !sem.startsWith('TEXCOORD_')).sort());
+    });
+  });
+  return out;
+}
+
+describe('согласие с библиотекой', () => {
+  it('наш отбор совпадает с библиотечным с точностью до развёртки', async () => {
+    const io2 = new NodeIO().registerExtensions(ALL_EXTENSIONS);
+    const расхождения = [];
+    let сверено = 0;
+
+    for (const name of [...REPO_MODELS].sort()) {
+      let исходный;
+      try {
+        исходный = await io2.read(modelPath(name));
+      } catch {
+        // Модель, которую не открыть без внешнего декодера (meshopt) или битая нарочно.
+        // Пропуск здесь безопасен: снизу стоит порог на число реально сверенных.
+        continue;
+      }
+
+      const наш = fns.cloneDocument(исходный);
+      dropUnusedExceptUv(наш);
+      await наш.transform(fns.prune({ keepAttributes: true, keepLeaves: false }));
+
+      const библиотечный = fns.cloneDocument(исходный);
+      await библиотечный.transform(fns.prune({ keepAttributes: false, keepLeaves: false }));
+
+      const a = остаток(наш);
+      const b = остаток(библиотечный);
+      const ключи = new Set([...a.keys(), ...b.keys()]);
+      for (const k of ключи) {
+        const наше = (a.get(k) || []).join(',');
+        const их = (b.get(k) || []).join(',');
+        if (наше !== их) расхождения.push(`${name} ${k}: у нас [${наше}], у библиотеки [${их}]`);
+      }
+      сверено += 1;
+    }
+
+    expect(расхождения, 'наш счёт разошёлся с библиотечным').toEqual([]);
+    // Сверять оказалось не на чем — тест зелёный и бесполезный. Порог держит его честным.
+    expect(сверено, 'ни одной модели корпуса не удалось прочитать').toBeGreaterThanOrEqual(10);
   }, 300000);
 });
