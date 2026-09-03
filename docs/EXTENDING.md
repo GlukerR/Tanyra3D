@@ -38,15 +38,19 @@ carries the long tail of formats and rules — the way three.js, ESLint and Roll
 Different plugins have different contracts, and forcing them into one uniform API does not
 work:
 
-| Extension point | Contract (simplified) |
-|---|---|
-| Importer | `bytes → Document` |
-| Exporter | `Document → bytes` (target format) |
-| Rule / Optimizer | `analyze / canFix / fix` over a `Document` |
-| Validator | `Document/bytes → issues[]` |
-| Reporter | `RunResult → string` (md / json / html / sarif) |
-| Profile | data: budgets, weights, rule set |
-| Viewer | inspecting a `Document` (read-only) |
+| Extension point | Contract (simplified) | Today (checked 2026-09-01) |
+|---|---|---|
+| Importer | `bytes → Document` | **built** — `addons/gltf/importers.mts` (FBX, OBJ, STL, PLY) |
+| Exporter | `Document → bytes` (target format) | **glTF only** — `writeBytes`. Other targets are the wall described in `ROADMAP.md` §5, not a missing hook |
+| Rule / Optimizer | `analyze / canFix / fix` over a `Document` | **built** — 26 rules in `addons/gltf/rules.mts` |
+| Validator | `Document/bytes → issues[]` | **built** — `validate` |
+| Reporter | `RunResult → string` (md / json / html / sarif) | **built** — `writeReport`; md and json only |
+| Profile | data: budgets, weights, rule set | **built** — `profiles/*.json`, no code needed for a new platform |
+| Viewer | inspecting a `Document` (read-only) | **built** — `inspect`, plus the engine contract in `ui/viewer/contract.ts` |
+
+*The "Today" column was added by the 2026-09-01 revision. The table read as a description of
+what exists; four of the seven rows are indeed built, one is deliberately walled off, and a
+reader had no way to tell which was which.*
 
 What they share is the **envelope**: a manifest plus registration with the core. This is
 exactly what ESLint does (rules / formatters / parsers are different interfaces) and what
@@ -54,9 +58,16 @@ Rollup does (a plugin with a set of optional hooks).
 
 ---
 
-## 3. The plugin manifest
+## 3. The plugin manifest — the shape that switches on at Plugin API v1
 
-Every plugin declares:
+> **Tense matters here, and the 2026-09-01 revision corrected it.** This section was written
+> in the present tense — "every plugin declares…" — and read as a description of today.
+> Nothing declares any of it. Someone writing a second addon would have followed this and
+> produced fields the core does not read. §4 below is the reason: before 1.0 the plugin shape
+> is deliberately internal, and this discipline switches on only when Plugin API v1 is
+> declared.
+
+When that moment comes, every plugin will declare:
 - its name;
 - its version;
 - the Plugin API version it is compatible with;
@@ -65,6 +76,14 @@ Every plugin declares:
 
 (Real-world equivalents: `engines` / `peerDependencies` in package.json, and API versions in
 ESLint plugins.)
+
+**What the single real addon declares today** (`addons/gltf/index.mts`, the object at the
+bottom of the file): `formats`, `rules`, `BASELINE_METRICS`, `ADVANCED_FEATURES`,
+`exclusiveGroups`, `textureSlots`, plus the functions the core calls — `outputName`,
+`normalizeOpts`, `createIO`, `load`, `writeBytes`, `readBytes`, `collectMetrics`, `validate`,
+`writeReport`, `inspect`. No name, no version, no capability list: the core imports it
+directly (`optimize2.mts`) and there is exactly one. The shape it must satisfy is the `Addon`
+interface in `core/types.mts` — write against that, not against the list above.
 
 ---
 
