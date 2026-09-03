@@ -551,3 +551,64 @@ describe('эталон берётся из файла, а не с экрана',
       .toBeGreaterThan(c.зелёный)
   })
 })
+
+describe('память переживает переключение режимов', () => {
+  // Александр 2026-09-01: «выхожу из 4 режима в 3 и обратно, и опять очень долго
+  // грузится… чтобы обновление было только после билда новой оптимизации и не более того».
+  //
+  // Память была заведена сразу, но не работала: обвязка зовёт `setDiffReference` при
+  // КАЖДОМ применении режима, а он безусловно чистил всё посчитанное. Прежняя проверка
+  // этого не ловила — она звала установку эталона ОДИН раз, а живой путь другой.
+
+  it('повторная установка ТОГО ЖЕ эталона не выбрасывает посчитанное', () => {
+    const model = new THREE.Group()
+    const деталь = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshStandardMaterial({ map: однотонная(8, '#000000') }),
+    )
+    деталь.name = 'Кузов'
+    model.add(деталь)
+    viewer.model = model
+
+    // Обвязка держит ОДИН массив, пока не сменилась модель, — повторяем это.
+    const эталон = [{ map: однотонная(8, '#ffffff') }]
+
+    viewer.setDiffReference(эталон)
+    viewer.setDisplayMaterial('texdiff')
+    let первая = null
+    viewer.model.traverse((o) => { if (o.isMesh && o.material?.map) первая = o.material.map })
+
+    // Ушли в сетку и вернулись — ровно то, что делает человек.
+    viewer.setDisplayMaterial('wire')
+    viewer.setDiffReference(эталон)
+    viewer.setDisplayMaterial('texdiff')
+    let вторая = null
+    viewer.model.traverse((o) => { if (o.isMesh && o.material?.map) вторая = o.material.map })
+
+    expect(первая, 'карта не построилась').toBeTruthy()
+    expect(вторая, 'после возврата в режим карта пересчитана заново — память не пережила переключение')
+      .toBe(первая)
+  })
+
+  it('новый эталон память всё-таки сбрасывает', () => {
+    // Обратная половина: «после билда новой оптимизации» пересчёт обязан быть.
+    const model = new THREE.Group()
+    const деталь = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshStandardMaterial({ map: однотонная(8, '#000000') }),
+    )
+    model.add(деталь)
+    viewer.model = model
+
+    viewer.setDiffReference([{ map: однотонная(8, '#ffffff') }])
+    viewer.setDisplayMaterial('texdiff')
+    let было = null
+    viewer.model.traverse((o) => { if (o.isMesh && o.material?.map) было = o.material.map })
+
+    viewer.setDiffReference([{ map: однотонная(8, '#ffffff') }])  // ДРУГОЙ массив
+    let стало = null
+    viewer.model.traverse((o) => { if (o.isMesh && o.material?.map) стало = o.material.map })
+
+    expect(стало, 'новый эталон обязан приводить к пересчёту').not.toBe(было)
+  })
+})
