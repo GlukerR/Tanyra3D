@@ -844,6 +844,31 @@
     host.appendChild(infoButton(item as ExtensionDto));
   }
 
+  /**
+   * Значок «в профиле есть непонятое» — рядом с книжечкой площадки.
+   *
+   * ПОЧЕМУ ЗНАЧКОМ, А НЕ СТРОКОЙ В КНИЖЕЧКЕ. Правило 10а: книжечка отвечает на «что это
+   * даст и чем платишь», и дописывать туда предупреждение значит смешивать два разных
+   * вопроса. Значок рядом с полем — уже принятая в этой панели идиома (так же устроено
+   * предупреждение о декодере).
+   *
+   * ПОЧЕМУ ВООБЩЕ ЕСТЬ. Профиль пишет человек руками, и до 2026-09-01 незнакомое в нём
+   * проходило молча: порог `vertices` не применялся ни разу, а ошибки не было. Правило
+   * проекта — «нет проверки, нет совета»; непонятое поле обязано назваться.
+   *
+   * Показывается ТОЛЬКО когда есть что сказать: значок, который горит всегда, перестают
+   * замечать.
+   */
+  function unknownMark(names: string[]) {
+    const w = document.createElement('span');
+    w.className = 'ext-decoder-warn icon-badge';
+    w.textContent = '?';
+    const note = t('platform.unknownFields', { list: names.join(', '), n: names.length });
+    w.title = note;
+    w.setAttribute('aria-label', note);
+    return w;
+  }
+
   function updatePlatformDescription() {
     if (!platformSelect.value) {
       // У прочерка своя книжечка: там сказано, что жёлтые числа — общие рекомендации
@@ -856,6 +881,9 @@
     }
     const p = platforms.find((x) => x.id === platformSelect.value);
     renderFieldInfo(platformInfo, p || null);
+    // Порядок важен: renderFieldInfo очищает узел, поэтому значок вешается ПОСЛЕ него.
+    const unknown = (p && Array.isArray(p.unknown) ? p.unknown : []) as string[];
+    if (unknown.length) platformInfo.appendChild(unknownMark(unknown));
   }
 
   // ---------------------------------------------------------------

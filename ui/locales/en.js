@@ -4,6 +4,9 @@
 
 window.I18N_CATALOGS = window.I18N_CATALOGS || {};
 window.I18N_CATALOGS.en = {
+  'platform.unknownFields': ({ list, n }) => n === 1
+    ? `This platform profile has a line the program does not understand: ${list}. It is not applied — the other thresholds work as usual. Fix it in the profile file.`
+    : `This platform profile has lines the program does not understand: ${list}. They are not applied — the other thresholds work as usual. Fix them in the profile file.`,
   'lang.switch': 'Language',
   'lang.name': 'English',
 

@@ -84,6 +84,14 @@ interface PlatformDto {
   id: string;
   title: string;
   description?: string;
+  /**
+   * Что в профиле этой площадки движок НЕ ПОНЯЛ: неизвестный порог (`vertices`) либо
+   * неизвестное значение пометки о происхождении числа (`fileMB.by`).
+   *
+   * Пустой массив — понято всё, и показывать нечего. Заполняется только у своих профилей
+   * на практике: встроенные сторожит `tests/profile-schema.test.mjs`.
+   */
+  unknown?: string[];
   [key: string]: any;
 }
 
