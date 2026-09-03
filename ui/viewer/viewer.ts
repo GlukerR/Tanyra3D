@@ -410,6 +410,11 @@ export class Viewer implements ViewerLike {
   declare _diffRef?: SlotMaps[] | null;
   /** Готовые карты различий по деталям. Чистится вместе со сменой эталона, то есть модели. */
   readonly _diffCache = new Map<THREE.Mesh, THREE.CanvasTexture>();
+  /**
+   * Общая шкала плотности на оба окна: `[самая редкая, самая плотная]`. Ставит обвязка.
+   * `null` — окно считает шкалу по себе (одиночный показ, без пары).
+   */
+  declare _densityScale?: [number, number] | null;
   /** Габарит модели для глубинного затемнения глины: центр и радиус. */
   declare _clayBounds?: { center: THREE.Vector3; radius: number } | null;
   /** Файлы брошенной пачки — их имена. См. setPackFiles. */
@@ -912,9 +917,36 @@ export class Viewer implements ViewerLike {
     const зелёный = () => new THREE.MeshBasicMaterial({
       color: 0x22c55e, side: THREE.DoubleSide, toneMapped: false,
     });
+    /**
+     * Деталь БЕЗ ЕДИНОЙ КАРТЫ — почти прозрачное стекло, а не зелёная заливка.
+     *
+     * Слово Александра 2026-09-01: «на машине есть стекло, стекло идёт материалом, там без
+     * разницы на текстуры. Как и диски. Если их убрать, будет проще смотреть внутри, что
+     * действительно меняется… сделать их очень прозрачными, как стекло, но без зелёного
+     * цвета».
+     *
+     * Он прав по сути: зелёный означает «сравнили и отклонений нет», а у детали без карт
+     * сравнивать было НЕЧЕГО. Красить её тем же зелёным — выдавать отсутствие вопроса за
+     * положительный ответ. Прозрачность отвечает честно: этой детали разговор не касается.
+     *
+     * Не прячем совсем, а гасим: убранная деталь оставила бы дыру, и человек искал бы, куда
+     * делось стекло. Сквозь погашенную видно то, ради чего режим и включали.
+     */
+    const стекло = () => new THREE.MeshBasicMaterial({
+      color: 0x9aa4ad, side: THREE.DoubleSide, toneMapped: false,
+      transparent: true, opacity: 0.12, depthWrite: false,
+    });
+    const безКарт = (m: THREE.Material | null | undefined) => {
+      const мат = m as THREE.MeshStandardMaterial | null | undefined;
+      return !Viewer.DIFF_SLOTS.some((k) => !!мат?.[k]);
+    };
+
     const эталоны = this._diffRef;
     if (!эталоны) return зелёный();
     const эталон = эталоны[номер];
+    // Ни у эталона, ни у результата нет ни одной карты — сравнивать нечего.
+    const эталонПуст = !эталон || !Viewer.DIFF_SLOTS.some((k) => !!эталон[k]);
+    if (эталонПуст && безКарт(родной)) return стекло();
     if (!эталон) return зелёный();
 
     // ПАМЯТЬ МЕЖДУ ВХОДАМИ В РЕЖИМ. Замечание Александра: «этот режим не должен сразу
@@ -952,6 +984,29 @@ export class Viewer implements ViewerLike {
       out.push(набор);
     });
     return out;
+  }
+
+  /**
+   * Разброс плотностей ЭТОЙ модели: `[самая редкая, самая плотная]`. Обвязка спрашивает у
+   * обоих окон и объединяет — иначе каждое красит по своему разбросу, и одинаковые по сути
+   * детали выходят разного цвета.
+   */
+  densityRange(): [number, number] | null {
+    if (!this.model) return null;
+    let min = Infinity;
+    let max = 0;
+    this.model.traverse((o: MaybeMesh) => {
+      if (!o.isMesh) return;
+      const v = this._densityOf(o as unknown as THREE.Mesh);
+      if (v > 0) { min = Math.min(min, v); max = Math.max(max, v); }
+    });
+    return Number.isFinite(min) && max > 0 ? [min, max] : null;
+  }
+
+  /** Общая шкала от обвязки. `null` — считать по себе. */
+  setDensityScale(range: [number, number] | null) {
+    this._densityScale = range;
+    if (this._display === 'wire') this._applyDisplayMaterial();
   }
 
   /** Есть ли уже посчитанные карты различий. По нему обвязка решает, показывать ли плашку. */
@@ -1144,12 +1199,33 @@ export class Viewer implements ViewerLike {
       // держится на том, что обе модели обходятся одинаково — см. `_texdiffFor`.
       let счётчик = 0;
       if (this._display === 'wire') {
-        this.model.traverse((o: MaybeMesh) => {
-          if (!o.isMesh) return;
-          const v = this._densityOf(o as unknown as THREE.Mesh);
-          if (v > 0) { min = Math.min(min, v); max = Math.max(max, v); }
-        });
-        if (!Number.isFinite(min)) min = 0;
+        // ШКАЛА ОБЩАЯ НА ОБА ОКНА, если обвязка её задала.
+        //
+        // ДЕФЕКТ, найденный Александром 2026-09-01: «на кар концепт теперь всё выглядит
+        // так, будто после оптимизации стало только хуже… это напугает человека и даст ему
+        // неверное понимание проблемы».
+        //
+        // Он был прав, и замер объяснил причину (`_work/probe-join-density.mjs`). Своя
+        // шкала у каждого окна растягивается по СОБСТВЕННОМУ разбросу. У `CarConcept` до
+        // склейки 97 деталей с разбросом в 4,1 порядка, после — 21 деталь с разбросом 1,7.
+        // На своих шкалах красными выходили 37 из 97 слева и 14 из 21 справа: доля
+        // красного росла с 38% до 67%, и правое окно читалось как «стало хуже».
+        //
+        // На ОБЩЕЙ шкале правда обратная: 37 из 97 против ОДНОЙ из 21. Склеенная деталь
+        // покрывает больший объём тем же числом треугольников, то есть становится реже, а
+        // не гуще. Своя шкала показывала не плотность, а разброс внутри модели.
+        const общая = this._densityScale;
+        if (общая) {
+          min = общая[0];
+          max = общая[1];
+        } else {
+          this.model.traverse((o: MaybeMesh) => {
+            if (!o.isMesh) return;
+            const v = this._densityOf(o as unknown as THREE.Mesh);
+            if (v > 0) { min = Math.min(min, v); max = Math.max(max, v); }
+          });
+          if (!Number.isFinite(min)) min = 0;
+        }
       }
       this.model.traverse((o: MaybeMesh) => {
         if (!o.isMesh || !o.material) return;

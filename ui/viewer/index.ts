@@ -805,6 +805,26 @@ class DualViewport {
     } else {
       правый?.setDiffReference?.(null);
     }
+    // ШКАЛА ПЛОТНОСТИ — ОДНА НА ОБА ОКНА, и считает её обвязка: окно видит только свою
+    // модель, а вопрос «плотнее ли стало ПОСЛЕ сборки» есть вопрос про пару.
+    //
+    // Без этого правое окно красилось по собственному разбросу и врало в самую опасную
+    // сторону: после склейки деталей меньше, разброс между ними уже, и доля красного
+    // РАСТЁТ — хотя каждая деталь стала реже. Замер на `CarConcept`: на своих шкалах 37 из
+    // 97 против 14 из 21 (38% → 67%, «стало хуже»), на общей — 37 из 97 против ОДНОЙ из 21.
+    if (mode === 'wire') {
+      const диапазоны = [
+        (this.left?.viewer as { densityRange?: () => [number, number] | null } | undefined)?.densityRange?.(),
+        (this.right?.viewer as { densityRange?: () => [number, number] | null } | undefined)?.densityRange?.(),
+      ].filter(Boolean) as Array<[number, number]>;
+      const общая: [number, number] | null = диапазоны.length
+        ? [Math.min(...диапазоны.map((d) => d[0])), Math.max(...диапазоны.map((d) => d[1]))]
+        : null;
+      for (const слот of [this.left, this.right]) {
+        (слот?.viewer as { setDensityScale?: (r: [number, number] | null) => void } | undefined)?.setDensityScale?.(общая);
+      }
+    }
+
     // ЛЕВОЕ ОКНО В ЭТОМ РЕЖИМЕ ПОКАЗЫВАЕТ МАТЕРИАЛЫ ФАЙЛА, а не ровный зелёный.
     //
     // Слово Александра 2026-09-01: «в левом вьюпорте пусть показывается просто вьюпорт с

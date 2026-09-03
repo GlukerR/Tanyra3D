@@ -501,6 +501,18 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 
 ## Status
 
+**0.2.30 — the viewport shows where a model is expensive, and what the build took from it.**
+Two answers the program could not give before. The wireframe view is now coloured by
+density — triangles against the surface they cover — so a part carrying far more geometry
+than its size warrants stands out as a hot patch; the eye weighs it without a table, because
+a dense thumbnail-sized handle is a speck while dense windscreen wipers are a large red
+field. And a fourth view compares textures before and after: the original on the left, a
+deviation map on the right, green where the pixels held and red where they moved. All six
+map slots count — base colour, normals, roughness, metalness, occlusion, emissive — averaged
+per pixel, so a normal map that fell apart no longer passes unnoticed. Comparison happens at
+the original resolution: a downscaled texture is laid over the larger one rather than both
+being reduced, because the loss from downscaling is real loss and worth seeing.
+
 **0.2.29 — a platform profile no longer hides what we did not understand.** Profiles are
 written by hand, and anything unfamiliar in them used to pass in silence: a threshold named
 `vertices` was never applied and never complained, so the author believed it worked. The
