@@ -37,6 +37,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import * as THREE from 'three'
 import { createViewer, disposeViewer } from '../tests/helpers/viewer-test-utils.mjs'
+import { DISPLAY_MODES } from '../ui/viewer/contract.js'
 
 let viewer
 let canvas
@@ -366,33 +367,43 @@ describe('память готовых карт', () => {
     expect(вторая, 'при повторном входе карта пересчитана заново, память не работает').toBe(первая)
   })
 
-  it('смена эталона даёт ДРУГУЮ карту, а не прежнюю из памяти', () => {
-    // Иначе новая модель показывала бы отклонения от чужой.
+  it('своя память у каждой пары моделей', () => {
+    // ЗАКАЗ Александра 2026-09-01: «если в аутлайнере десять моделей и я хочу одну модель
+    // проверить, потом другую, потом вторую оптимизировать заново и снова проверить
+    // первую — я не хочу, чтобы там всё грузилось 10 часов».
     //
-    // Проверяем именно РЕЗУЛЬТАТ, а не пустоту памяти: `setDiffReference` чистит её и тут
-    // же наполняет заново, потому что режим включён, — и «память пуста» было бы неверным
-    // утверждением о верном коде.
-    const g = new THREE.PlaneGeometry(1, 1)
-    const mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: однотонная(8, '#000000') }))
+    // Поэтому память живёт в ОБВЯЗКЕ и разложена по парам «исходник + результат», а окно
+    // получает ту карту, что относится к показанной сейчас паре. Свежесть даёт ключ:
+    // пересборка меняет адрес результата, значит и ключ, значит и карту.
     const model = new THREE.Group()
-    model.add(mesh)
+    const деталь = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshStandardMaterial({ map: однотонная(8, '#000000') }),
+    )
+    model.add(деталь)
     viewer.model = model
 
+    const памятьA = new Map()
+    viewer.useDiffStore(памятьA)
     viewer.setDiffReference([{ map: однотонная(8, '#ffffff') }])
     viewer.setDisplayMaterial('texdiff')
-    let было = null
-    viewer.model.traverse((o) => { if (o.isMesh && o.material?.map) было = o.material.map })
+    let вА = null
+    viewer.model.traverse((o) => { if (o.isMesh && o.material?.map) вА = o.material.map })
+    expect(вА, 'карта для первой пары не построилась').toBeTruthy()
+    expect(памятьA.size, 'посчитанное не легло в память пары').toBe(1)
 
-    // Новый эталон совпадает с результатом — отклонения нет, карта обязана позеленеть.
+    // Другая пара — своя память, свой расчёт.
+    const памятьB = new Map()
+    viewer.useDiffStore(памятьB)
     viewer.setDiffReference([{ map: однотонная(8, '#000000') }])
-    let стало = null
-    viewer.model.traverse((o) => { if (o.isMesh && o.material?.map) стало = o.material.map })
+    let вБ = null
+    viewer.model.traverse((o) => { if (o.isMesh && o.material?.map) вБ = o.material.map })
+    expect(вБ, 'вторая пара взяла карту первой').not.toBe(вА)
 
-    expect(стало, 'после смены эталона карта не пересчитана').not.toBe(было)
-    const c = среднийЦвет(стало)
-    expect(c.зелёный, `зелёного ${c.зелёный}, красного ${c.красный}: эталон совпал с результатом`)
-      .toBeGreaterThan(c.красный)
+    // И первая пара по-прежнему цела: возврат к ней ничего не пересчитает.
+    expect(памятьA.get(0), 'память первой пары уничтожена при переходе ко второй').toBe(вА)
   })
+
 })
 
 describe('общая шкала плотности на оба окна', () => {
@@ -540,6 +551,9 @@ describe('эталон берётся из файла, а не с экрана',
     стало.name = 'Кузов'
     чёрная.add(стало)
     viewer.model = чёрная
+    // Как делает обвязка: другая модель — своя карта памяти. Без этого расчёт нашёл бы по
+    // номеру детали карту ПРЕЖНЕЙ модели и показал чужие различия.
+    viewer.useDiffStore(new Map())
     viewer.setDiffReference(эталон)
     viewer.setDisplayMaterial('texdiff')
 
@@ -590,8 +604,9 @@ describe('память переживает переключение режим�
       .toBe(первая)
   })
 
-  it('новый эталон память всё-таки сбрасывает', () => {
-    // Обратная половина: «после билда новой оптимизации» пересчёт обязан быть.
+  it('возврат к прежней паре ничего не пересчитывает', () => {
+    // Обратная половина заказа: «обновление только после билда новой оптимизации и не
+    // более того». Одна и та же память + один и тот же эталон — расчёта быть не должно.
     const model = new THREE.Group()
     const деталь = new THREE.Mesh(
       new THREE.PlaneGeometry(1, 1),
@@ -600,15 +615,58 @@ describe('память переживает переключение режим�
     model.add(деталь)
     viewer.model = model
 
-    viewer.setDiffReference([{ map: однотонная(8, '#ffffff') }])
+    const память = new Map()
+    const эталон = [{ map: однотонная(8, '#ffffff') }]
+    viewer.useDiffStore(память)
+    viewer.setDiffReference(эталон)
     viewer.setDisplayMaterial('texdiff')
-    let было = null
-    viewer.model.traverse((o) => { if (o.isMesh && o.material?.map) было = o.material.map })
+    const первая = память.get(0)
 
-    viewer.setDiffReference([{ map: однотонная(8, '#ffffff') }])  // ДРУГОЙ массив
-    let стало = null
-    viewer.model.traverse((o) => { if (o.isMesh && o.material?.map) стало = o.material.map })
+    // Ушли в сетку и вернулись — как это делает человек.
+    viewer.setDisplayMaterial('wire')
+    viewer.useDiffStore(память)
+    viewer.setDiffReference(эталон)
+    viewer.setDisplayMaterial('texdiff')
 
-    expect(стало, 'новый эталон обязан приводить к пересчёту').not.toBe(было)
+    expect(память.get(0), 'при возврате к той же паре карта пересчитана заново').toBe(первая)
   })
+})
+
+describe('память различий не зависит от того, откуда пришли', () => {
+  // Замечание Александра 2026-09-01: «если у нас появятся новые варианты рендера, новые
+  // варианты окон, это тоже не должно сбрасываться… не должно быть хардкода, который бы
+  // относил работу 4 окна вообще к какому-либо другому варианту рендера».
+  //
+  // Память живёт в обвязке и разложена по ПАРАМ МОДЕЛЕЙ. От режима она не зависит ни в
+  // какую сторону, и проверяется это перебором ВСЕХ режимов из общего списка — не
+  // переписанного сюда руками. Появится пятый — он проверится сам.
+
+  const промежуточные = DISPLAY_MODES.filter((m) => m !== 'texdiff')
+
+  for (const режим of промежуточные) {
+    it(`через «${режим}» и обратно — расчёт не повторяется`, () => {
+      const model = new THREE.Group()
+      const деталь = new THREE.Mesh(
+        new THREE.PlaneGeometry(1, 1),
+        new THREE.MeshStandardMaterial({ map: однотонная(8, '#000000') }),
+      )
+      model.add(деталь)
+      viewer.model = model
+
+      const память = new Map()
+      const эталон = [{ map: однотонная(8, '#ffffff') }]
+      viewer.useDiffStore(память)
+      viewer.setDiffReference(эталон)
+      viewer.setDisplayMaterial('texdiff')
+      const первая = память.get(0)
+      expect(первая, 'карта не построилась').toBeTruthy()
+
+      viewer.setDisplayMaterial(режим)
+      viewer.useDiffStore(память)
+      viewer.setDiffReference(эталон)
+      viewer.setDisplayMaterial('texdiff')
+
+      expect(память.get(0), `после «${режим}» карта пересчитана заново`).toBe(первая)
+    })
+  }
 })
