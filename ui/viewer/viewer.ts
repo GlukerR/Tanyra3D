@@ -972,13 +972,35 @@ export class Viewer implements ViewerLike {
    * Пустые наборы (деталь без единой карты) сохраняются намеренно: номер детали и есть
    * ключ сопоставления, и сжать список значило бы сдвинуть все следующие пары.
    */
+  /**
+   * Материал детали КАК В ФАЙЛЕ, а не как сейчас на экране.
+   *
+   * ЕДИНСТВЕННОЕ место, где на этот вопрос отвечают, и это не про краткость. Ответ уже
+   * дважды понадобился в разных местах, и дважды на нём ошиблись одинаково:
+   *
+   *   2026-09-01, первый раз — `_texdiffFor` читал `o.material` и при переходе «сетка →
+   *   различия» получал материал ПОДСВЕТКИ, в котором ни карт, ни цвета автора. Александр:
+   *   «на 0 процентах сжатия вебп ABeautifulGame вся зелёная».
+   *
+   *   2026-09-01, второй раз — `textureRefs()` собирал ЭТАЛОН тем же способом, и та же
+   *   беда пришла с другой стороны: левое окно в режиме сетки отдавало пустые слоты, и
+   *   сравнивать оказывалось не с чем. Александр: «на машине при 0 компрессии вебп почти
+   *   всё зелёное».
+   *
+   * Третьего раза не будет: спрашивать надо здесь.
+   */
+  _родной(mesh: THREE.Mesh): THREE.MeshStandardMaterial | undefined {
+    const сохранён = this._origMaterials.get(mesh) ?? mesh.material;
+    const first = Array.isArray(сохранён) ? сохранён[0] : сохранён;
+    return first as THREE.MeshStandardMaterial | undefined;
+  }
+
   textureRefs(): SlotMaps[] {
     const out: SlotMaps[] = [];
     if (!this.model) return out;
     this.model.traverse((o: MaybeMesh) => {
       if (!o.isMesh || !o.material) return;
-      const first = Array.isArray(o.material) ? o.material[0] : o.material;
-      const m = first as THREE.MeshStandardMaterial | undefined;
+      const m = this._родной(o as unknown as THREE.Mesh);
       const набор: SlotMaps = {};
       for (const k of Viewer.DIFF_SLOTS) набор[k] = (m?.[k] as THREE.Texture | null) || null;
       out.push(набор);
@@ -1241,8 +1263,9 @@ export class Viewer implements ViewerLike {
         // авторский цвет при переходе из сетки.
         //
         // Сохранённое здесь и есть «как было в файле» — из него и берём.
-        const родной = this._origMaterials.get(mesh) ?? o.material!;
-        const first = Array.isArray(родной) ? родной[0] : родной;
+        // Материал как в файле — через общего помощника: см. `_родной`, там записано,
+        // почему на этот вопрос отвечают в одном месте.
+        const first = this._родной(mesh);
         if (this._display === 'wire') {
           const m = this._wireMaterial(mesh, min, max);
           this._densityMats.add(m);

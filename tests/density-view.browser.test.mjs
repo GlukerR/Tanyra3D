@@ -483,3 +483,71 @@ describe('деталь без единой карты в режиме разли
     expect(мат.transparent, 'деталь с картой гасить нельзя').not.toBe(true)
   })
 })
+
+describe('эталон берётся из файла, а не с экрана', () => {
+  // ДЕФЕКТ, найденный Александром 2026-09-01, ВТОРОЙ РАЗ ТОТ ЖЕ: «на машине при 0
+  // компрессии вебп почти всё зелёное, такого не должно быть».
+  //
+  // Первый раз ошибка была в `_texdiffFor` — он читал материал с экрана и при переходе
+  // «сетка → различия» получал материал подсветки. Починили там, но `textureRefs()`
+  // собирал ЭТАЛОН тем же способом, и беда пришла с другой стороны: левое окно в режиме
+  // сетки отдавало пустые слоты, сравнивать было не с чем, и всё выходило зелёным.
+  //
+  // Теперь на вопрос «каков материал в файле» отвечает один помощник (`_родной`).
+
+  it('после режима сетки эталон всё ещё содержит карты', () => {
+    const model = new THREE.Group()
+    const деталь = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshStandardMaterial({ map: однотонная(8, '#ffffff') }),
+    )
+    деталь.name = 'Кузов'
+    model.add(деталь)
+    viewer.model = model
+
+    // Побывали в сетке: материалы детали подменены подсветкой плотности.
+    viewer.setDisplayMaterial('wire')
+    const refs = viewer.textureRefs()
+
+    expect(refs.length, 'эталон пуст — деталь не попала в список').toBe(1)
+    expect(refs[0].map, 'эталон собран с ЭКРАНА, а не из файла: карта потерялась').toBeTruthy()
+  })
+
+  it('и сравнение после этого краснеет, а не зеленеет', () => {
+    // СКВОЗНАЯ половина того же, и эталон здесь собирается ИМЕННО `textureRefs()` — так,
+    // как это делает обвязка. Первая редакция строила его руками и потому настоящий путь
+    // не трогала: при возврате ошибки она оставалась зелёной, то есть ничего не стерегла.
+    const белая = new THREE.Group()
+    const было = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshStandardMaterial({ map: однотонная(8, '#ffffff') }),
+    )
+    было.name = 'Кузов'
+    белая.add(было)
+    viewer.model = белая
+
+    // Побывали в сетке — и только ПОСЛЕ этого сняли эталон, как делает обвязка.
+    viewer.setDisplayMaterial('wire')
+    const эталон = viewer.textureRefs()
+    viewer.setDisplayMaterial('file')
+
+    // Теперь «результат сборки»: та же деталь, но карта стала чёрной.
+    const чёрная = new THREE.Group()
+    const стало = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshStandardMaterial({ map: однотонная(8, '#000000') }),
+    )
+    стало.name = 'Кузов'
+    чёрная.add(стало)
+    viewer.model = чёрная
+    viewer.setDiffReference(эталон)
+    viewer.setDisplayMaterial('texdiff')
+
+    let карта = null
+    viewer.model.traverse((o) => { if (o.isMesh && o.material?.map) карта = o.material.map })
+    expect(карта, 'карты различий нет: эталон приехал пустым').toBeTruthy()
+    const c = среднийЦвет(карта)
+    expect(c.красный, `красного ${c.красный}, зелёного ${c.зелёный}: чёрное против белого обязано краснеть`)
+      .toBeGreaterThan(c.зелёный)
+  })
+})
