@@ -501,6 +501,15 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 
 ## Status
 
+**0.2.28 — dialogs stopped introducing themselves in English.** Eight dialogs carried a
+hardcoded English `aria-label` — Error, Metadata, Validation, Logs, Batch summary, Export
+result, Your own platform, Remove models — so a screen reader announced them in English
+while everything on screen was in the chosen language. The keys were already in the
+catalogue; one of them had been sitting unused precisely because the place it belonged to
+spelled the English out by hand. Every label and tooltip now comes from the catalogue, and
+a guard keeps it that way. Two more guards were added alongside: every engine option must
+appear in the capability doc, and every engine option must be reachable in the panel.
+
 **0.2.25 — a hidden sub-option no longer asks for anything.** The "keep the unused UV" row
 hid itself when safe cleanup was unticked, but its checkbox kept its state — so a box
 switched off earlier went on requesting the change from a screen where it was no longer
