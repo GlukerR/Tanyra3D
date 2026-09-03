@@ -64,7 +64,7 @@ window.I18N_CATALOGS.en = {
   // объяснять, что это matcap, ему незачем (Правило 10).
   'vp.display.file': 'Materials from the file',
   'vp.display.clay': 'Clay',
-  'vp.display.wire': 'Wireframe',
+  'vp.display.wire': 'Wireframe — coloured by density: red means many triangles for the surface they cover',
   // Свет. Появляется только у моделей, которые несут свои источники.
   'vp.light': 'Lighting',
   'vp.interactivity': 'Interactive parts',

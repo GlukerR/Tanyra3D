@@ -388,7 +388,12 @@ export class Viewer implements ViewerLike {
   /** Картинка шара для глины. Рисуется один раз при первом показе. */
   declare _clayMap?: THREE.Texture | null;
   /** Материал сетки. Один на всю модель: у сетки нет ни цвета автора, ни сторон. */
-  declare _wire?: THREE.MeshBasicMaterial | null;
+  /**
+   * Материалы подсветки плотности. Свой у КАЖДОЙ детали — цвет считается по её плотности,
+   * общего материала тут быть не может. Держим списком, чтобы освободить при выходе из
+   * режима: сцена живёт всё время работы, и мусор в ней копится молча.
+   */
+  readonly _densityMats = new Set<THREE.MeshBasicMaterial>();
   /** Габарит модели для глубинного затемнения глины: центр и радиус. */
   declare _clayBounds?: { center: THREE.Vector3; radius: number } | null;
   /** Файлы брошенной пачки — их имена. См. setPackFiles. */
@@ -715,20 +720,92 @@ export class Viewer implements ViewerLike {
   }
 
   /**
-   * Сетка — один материал на всю модель.
+   * Плотность детали: треугольников на единицу ПЛОЩАДИ её габаритной коробки.
    *
-   * У глины ключ составной («сторона + цвет автора»), у сетки ключа нет вовсе, и это не
-   * упрощение: сетка показывает РЁБРА, а у ребра нет ни лицевой стороны, ни цвета из
-   * файла. `DoubleSide` — чтобы задние рёбра были видны, как в Blender; без него
-   * половина каркаса пропадает и смотреть становится не на что.
+   * ПОЧЕМУ ПЛОЩАДЬ, А НЕ ОБЪЁМ. Замысел Александра звучал про объём («весь дом 100
+   * кубометров, окно один»), и в этом виде он НЕ РАБОТАЕТ — проверено замером 2026-09-01
+   * (`_work/density-measure.mjs`). У плоской детали объём коробки почти ноль, и плотность
+   * взрывается: первым шло стекло часов на 62 треугольника (0,06% модели), а настоящая
+   * тяжёлая деталь на 38 668 из топа выпадала.
+   *
+   * Треугольники покрывают ПОВЕРХНОСТЬ, поэтому делить надо на неё. С площадью замер
+   * сходится: у часов в первую пятёрку попали обе настоящие тяжёлые детали, у машины —
+   * дворники.
    */
-  _wireMaterial() {
-    if (!this._wire) {
-      this._wire = new THREE.MeshBasicMaterial({
-        wireframe: true, color: 0xdfe3e6, side: THREE.DoubleSide, toneMapped: false,
-      });
-    }
-    return this._wire;
+  _densityOf(mesh: THREE.Mesh): number {
+    const g = mesh.geometry as THREE.BufferGeometry;
+    if (!g) return 0;
+    const index = g.getIndex();
+    const pos = g.getAttribute('position');
+    if (!pos) return 0;
+    const треугольников = (index ? index.count : pos.count) / 3;
+    if (!g.boundingBox) g.computeBoundingBox();
+    const bb = g.boundingBox;
+    if (!bb) return 0;
+    // Нулевая сторона у плоской детали заменяется малой: иначе площадь нулевая и всё
+    // деление теряет смысл. Значение взято заведомо меньше любой осмысленной детали.
+    const сторона = (x: number) => Math.max(Number.isFinite(x) ? x : 0, 1e-4);
+    const dx = сторона(bb.max.x - bb.min.x);
+    const dy = сторона(bb.max.y - bb.min.y);
+    const dz = сторона(bb.max.z - bb.min.z);
+    const площадь = 2 * (dx * dy + dy * dz + dx * dz);
+    return площадь > 0 ? треугольников / площадь : 0;
+  }
+
+  /**
+   * Материал подсветки плотности для одной детали.
+   *
+   * ШКАЛА ЛОГАРИФМИЧЕСКАЯ и ОТНОСИТЕЛЬНАЯ — два решения, и оба обязательные.
+   *
+   * Логарифм: плотности расходятся на порядки (замер по `CarConcept`: от 1,4·10⁵ у самой
+   * плотной детали до сотых долей у самой редкой). На линейной шкале всё, кроме одной
+   * детали, слилось бы в один цвет, и подсветка перестала бы отвечать на вопрос.
+   *
+   * Относительность: абсолютного порога «сколько треугольников на метр — много» не
+   * существует, потому что метра у модели нет. Единицы задаёт автор: у одного дом в
+   * метрах, у другого тот же дом в сантиметрах. Поэтому шкала растягивается по САМОЙ
+   * МОДЕЛИ: самая плотная деталь — красная, самая редкая — зелёная. Это отвечает на
+   * вопрос «где дорого У МЕНЯ», а не «дорого ли это вообще».
+   *
+   * `MeshBasicMaterial`, как у сетки: цвет обязан читаться точно, а не через свет.
+   */
+  _densityFor(mesh: THREE.Mesh, min: number, max: number) {
+    const v = this._densityOf(mesh);
+    const lg = (x: number) => Math.log10(Math.max(x, 1e-9));
+    const a = lg(min);
+    const b = lg(max);
+    // Все детали одинаковой плотности — красить нечего, показываем ровный холодный цвет.
+    const t = b - a > 1e-6 ? Math.min(1, Math.max(0, (lg(v) - a) / (b - a))) : 0;
+    const color = new THREE.Color();
+    // Зелёный → жёлтый → красный: привычная тепловая шкала, читается без легенды.
+    color.setHSL((1 - t) * 0.33, 0.85, 0.5);
+    return new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, toneMapped: false });
+  }
+
+  /** Освободить материалы подсветки: они свои у каждой детали и живут только в режиме. */
+  _dropDensityMaterials() {
+    for (const m of this._densityMats) m.dispose();
+    this._densityMats.clear();
+  }
+
+  /**
+   * Сетка — рёбра, ПОКРАШЕННЫЕ ПО ПЛОТНОСТИ. Материал свой у каждой детали.
+   *
+   * Раньше здесь был ОДИН серый материал на всю модель: у ребра нет ни лицевой стороны, ни
+   * цвета из файла, и общего материала хватало. С 2026-09-01 цвет несёт смысл, поэтому
+   * общим он быть перестал.
+   *
+   * Слово Александра: «просто смотреть на сетку нет никакого смысла». Голая сетка
+   * показывала ту же плотность — только читать её приходилось по густоте штрихов; цвет
+   * отвечает прямо, а рёбра остаются на месте.
+   *
+   * `DoubleSide` — чтобы задние рёбра были видны, как в Blender; без него половина
+   * каркаса пропадает и смотреть становится не на что.
+   */
+  _wireMaterial(mesh: THREE.Mesh, min: number, max: number) {
+    const m = this._densityFor(mesh, min, max);
+    m.wireframe = true;
+    return m;
   }
 
   /**
@@ -871,15 +948,32 @@ export class Viewer implements ViewerLike {
     // дело самой модели, и досчитывать за неё там нечего. Вышли из глины — своё убрали.
     if (this._display === 'clay') this._ensureClayNormals();
     else this._dropClayNormals();
+    if (this._display !== 'wire') this._dropDensityMaterials();
     if (this._display !== 'file') {
+      // Границы шкалы плотности считаются ОДИН раз на всю модель и до обхода: цвет каждой
+      // детали зависит от того, какая в этой модели самая плотная и какая самая редкая.
+      let min = Infinity;
+      let max = 0;
+      if (this._display === 'wire') {
+        this.model.traverse((o: MaybeMesh) => {
+          if (!o.isMesh) return;
+          const v = this._densityOf(o as unknown as THREE.Mesh);
+          if (v > 0) { min = Math.min(min, v); max = Math.max(max, v); }
+        });
+        if (!Number.isFinite(min)) min = 0;
+      }
       this.model.traverse((o: MaybeMesh) => {
         if (!o.isMesh || !o.material) return;
         const mesh = o as unknown as THREE.Mesh;
         if (!this._origMaterials.has(mesh)) this._origMaterials.set(mesh, o.material!);
         const first = Array.isArray(o.material) ? o.material[0] : o.material;
-        o.material = this._display === 'wire'
-          ? this._wireMaterial()
-          : this._clayFor(first ? first.side : THREE.FrontSide, first);
+        if (this._display === 'wire') {
+          const m = this._wireMaterial(mesh, min, max);
+          this._densityMats.add(m);
+          o.material = m;
+          return;
+        }
+        o.material = this._clayFor(first ? first.side : THREE.FrontSide, first);
       });
       // Затемнение по глубине — свойство ГЛИНЫ, и внутри оно само проверяет режим.
       // Сетке туман не нужен: рёбра и так разведены пустотой между ними.

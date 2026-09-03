@@ -59,7 +59,7 @@ window.I18N_CATALOGS.ru = {
   // объяснять, что это matcap, ему незачем (Правило 10).
   'vp.display.file': 'Материалы из файла',
   'vp.display.clay': 'Глина',
-  'vp.display.wire': 'Сетка',
+  'vp.display.wire': 'Сетка — покрашена по плотности: красным те детали, у которых треугольников много на их же площадь',
   'vp.light': 'Свет',
   'vp.interactivity': 'Интерактивные части',
   'log.interactivity.hit': ({ name }) => `Нажата часть «${name}» — модель откликнулась.`,
