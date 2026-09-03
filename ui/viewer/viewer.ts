@@ -359,6 +359,12 @@ export type { DisplayMode } from "./contract.js";
  * Самодостаточный просмотрщик одной модели: рендерер, сцена, студийный IBL-свет,
  * орбитальные контролы, авто-кадрирование под размер модели.
  */
+/**
+ * Набор карт одного материала: то, что сравнивается в режиме различий. Пустые слоты
+ * законны — у материала может не быть ни нормалей, ни свечения.
+ */
+type SlotMaps = Partial<Record<(typeof Viewer.DIFF_SLOTS)[number], THREE.Texture | null>>;
+
 export class Viewer implements ViewerLike {
   // Только объявления: `declare` проверяется компилятором и не попадает в собранный
   // файл — значения по-прежнему присваивают конструктор и методы _init*().
@@ -401,7 +407,9 @@ export class Viewer implements ViewerLike {
    * `null` в этом поле у ЛЕВОГО окна — признак, что оно и есть эталон: красится ровно
    * зелёным, сравнивать ему не с чем.
    */
-  declare _diffRef?: THREE.Texture[] | null;
+  declare _diffRef?: SlotMaps[] | null;
+  /** Готовые карты различий по деталям. Чистится вместе со сменой эталона, то есть модели. */
+  readonly _diffCache = new Map<THREE.Mesh, THREE.CanvasTexture>();
   /** Габарит модели для глубинного затемнения глины: центр и радиус. */
   declare _clayBounds?: { center: THREE.Vector3; radius: number } | null;
   /** Файлы брошенной пачки — их имена. См. setPackFiles. */
@@ -791,40 +799,71 @@ export class Viewer implements ViewerLike {
   }
 
   /**
-   * Карта различий двух текстур: где пиксели те же — зелено, где ушли — красно.
+   * Слоты карт, которые сравниваются. Один список на весь режим — второй разошёлся бы.
    *
-   * РАЗРЕШЕНИЕ БЕРЁТСЯ У ЭТАЛОНА, и уменьшенная картинка растягивается на него без
-   * сглаживания. Решение Александра 2026-09-01: «приводить к меньшему из двух не нужно,
-   * просто накладывай новые пиксели на старые крупные». Так один пиксель тысячной
-   * текстуры ложится на четыре пикселя двухтысячной, и на карте видно ОБЕ потери — и от
-   * пережатия, и от уменьшения. Обе настоящие: «просишь уменьшить — нужно понимать, что
-   * будут потери».
+   * Замечание Александра 2026-09-01: «текстура нормал мапы точно не учитывается, а она
+   * тоже должна учитываться и должно усредняться значение». Он прав: базовый цвет — лишь
+   * одна из карт, и потеря в нормалях меняет вид модели не меньше.
    *
-   * `imageSmoothingEnabled = false` здесь обязателен. Со сглаживанием браузер придумал бы
-   * промежуточные цвета, которых в файле нет, и карта показала бы плавную разницу там, где
-   * на деле квадрат в четыре пикселя одного цвета.
+   * Имена трёхмерные (`normalMap`), а не из спецификации glTF (`normalTexture`): здесь мы
+   * работаем с уже загруженным материалом движка. `metalnessMap` и `roughnessMap` у glTF
+   * обычно одна и та же картинка — посчитается дважды, и это не беда: вес у слотов равный,
+   * а лишний одинаковый голос ничего не искажает.
    */
-  _diffTexture(эталон: THREE.Texture, стало: THREE.Texture | null): THREE.CanvasTexture | null {
-    const и1 = эталон.image as CanvasImageSource & { width?: number; height?: number };
-    if (!и1 || !и1.width || !и1.height) return null;
-    const w = и1.width;
-    const h = и1.height;
+  static readonly DIFF_SLOTS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap'] as const;
 
-    const снять = (t: THREE.Texture | null) => {
-      const img = t?.image as CanvasImageSource & { width?: number; height?: number } | undefined;
+  /**
+   * Карта различий: где пиксели те же — зелено, где ушли — красно. По ВСЕМ картам сразу.
+   *
+   * РАЗРЕШЕНИЕ — НАИБОЛЬШЕЕ среди эталонных карт, и вниз мы не приводим никогда. Решение
+   * Александра: «приводить к меньшему из двух не нужно, просто накладывай новые пиксели на
+   * старые крупные». Так один пиксель тысячной текстуры ложится на четыре пикселя
+   * двухтысячной, и видно ОБЕ потери — от пережатия и от уменьшения. Обе настоящие:
+   * «просишь уменьшить — нужно понимать, что будут потери».
+   *
+   * ВНУТРИ СЛОТА — максимум по каналам, МЕЖДУ СЛОТАМИ — среднее.
+   *
+   * Максимум внутри: среднее спрятало бы сдвиг одного цвета — красный, уехавший на треть,
+   * вместе с целыми зелёным и синим даёт «одну девятую», и карта промолчала бы о том, что
+   * человек видит глазами.
+   *
+   * Среднее между: иначе одна испорченная карта из шести красила бы деталь целиком, и
+   * стало бы не отличить «рассыпался нормал» от «рассыпалось всё».
+   */
+  _diffTexture(эталоны: SlotMaps, ставшие: SlotMaps): THREE.CanvasTexture | null {
+    const слоты = Viewer.DIFF_SLOTS.filter((k) => {
+      const и = эталоны[k]?.image as { width?: number } | undefined;
+      return !!и?.width;
+    });
+    if (!слоты.length) return null;
+
+    let w = 0;
+    let h = 0;
+    for (const k of слоты) {
+      const и = эталоны[k]!.image as { width: number; height: number };
+      if (и.width > w) { w = и.width; h = и.height; }
+    }
+
+    const снять = (t: THREE.Texture | null | undefined) => {
+      const img = t?.image as CanvasImageSource & { width?: number } | undefined;
       if (!img || !img.width) return null;
       const c = document.createElement('canvas');
       c.width = w; c.height = h;
       const ctx = c.getContext('2d', { willReadFrequently: true });
       if (!ctx) return null;
+      // Без сглаживания: иначе браузер придумает промежуточные цвета, которых в файле нет,
+      // и карта покажет плавную разницу там, где на деле квадрат одного цвета.
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(img, 0, 0, w, h);
       return ctx.getImageData(0, 0, w, h).data;
     };
 
-    const a = снять(эталон);
-    const b = снять(стало);
-    if (!a) return null;
+    const пары: Array<[Uint8ClampedArray, Uint8ClampedArray | null]> = [];
+    for (const k of слоты) {
+      const a = снять(эталоны[k]);
+      if (a) пары.push([a, снять(ставшие[k])]);
+    }
+    if (!пары.length) return null;
 
     const out = document.createElement('canvas');
     out.width = w; out.height = h;
@@ -832,23 +871,28 @@ export class Viewer implements ViewerLike {
     if (!ctx) return null;
     const карта = ctx.createImageData(w, h);
 
-    for (let i = 0; i < a.length; i += 4) {
-      // Отклонение — САМЫЙ ушедший канал, а не их среднее. Среднее прячет сдвиг одного
-      // цвета: красный, уехавший на треть, при усреднении с целыми зелёным и синим даёт
-      // «одну девятую», и карта промолчит о том, что человек увидит глазами.
-      let d = 0;
-      if (b) for (let k = 0; k < 3; k++) d = Math.max(d, Math.abs(a[i + k]! - b[i + k]!));
-      const t = d / 255;
-      // Тот же зелёный→красный, что и у плотности: одна шкала на всё приложение, человеку
-      // не приходится держать в голове две.
-      карта.data[i] = Math.round(255 * Math.min(1, t * 2));
-      карта.data[i + 1] = Math.round(255 * Math.min(1, (1 - t) * 2));
+    for (let i = 0; i < карта.data.length; i += 4) {
+      let сумма = 0;
+      for (const [a, b] of пары) {
+        let d = 0;
+        if (b) for (let k = 0; k < 3; k++) d = Math.max(d, Math.abs(a[i + k]! - b[i + k]!));
+        сумма += d;
+      }
+      // КОРЕНЬ, а не усиление вдвое. Первая редакция брала `min(1, t * 2)` — она упиралась
+      // в потолок уже на половине отклонения, и «испорчена половина карт» выглядело ровно
+      // так же, как «испорчены все». Поймал это сторож усреднения: оба случая давали 255.
+      //
+      // Корень поднимает малые потери (одна сотая становится десятой — видно) и при этом
+      // оставляет разницу у крупных: половина даёт 0,71, целое — 1.
+      const t = Math.sqrt(сумма / пары.length / 255);
+      карта.data[i] = Math.round(255 * t);
+      карта.data[i + 1] = Math.round(255 * (1 - t));
       карта.data[i + 2] = 40;
       карта.data[i + 3] = 255;
     }
     ctx.putImageData(карта, 0, 0);
     const tex = new THREE.CanvasTexture(out);
-    tex.flipY = эталон.flipY;
+    tex.flipY = эталоны[слоты[0]!]!.flipY;
     tex.needsUpdate = true;
     return tex;
   }
@@ -856,54 +900,65 @@ export class Viewer implements ViewerLike {
   /**
    * Материал одной детали в режиме различий.
    *
-   * ЛЕВОЕ ОКНО — ЭТАЛОН и красится ровно зелёным. Не «зелёной картинкой», а сплошным
-   * цветом: у эталона отклонений нет по определению, и рисовать ему карту значило бы
-   * тратить работу на ответ, который известен заранее.
+   * ЛЕВОЕ ОКНО — ЭТАЛОН и красится ровно зелёным: у него отклонений нет по определению, и
+   * считать ему карту значило бы тратить работу на известный заранее ответ.
    *
-   * ПРАВОЕ сравнивает свою карту с эталонной. Деталь без текстуры зелёная там и там:
-   * менять в ней нечего, и красить её было бы враньём.
-   *
-   * СОПОСТАВЛЕНИЕ ПО ПОРЯДКУ ОБХОДА, и это честная слабость. Обе модели — одна и та же
-   * сцена, и порядок деталей в них совпадает, пока сборка не меняет их состав. Склейка
-   * мешей его меняет: деталей становится меньше, и пара «эталон ↔ результат» разъезжается.
-   * В таком случае эталона на нужном месте просто нет, и деталь остаётся зелёной — то есть
-   * мы молчим, а не показываем чужую разницу. Врать хуже, чем не ответить.
+   * СОПОСТАВЛЕНИЕ ПО ПОРЯДКУ ОБХОДА, и это честная слабость. Обе модели — одна сцена, и
+   * порядок деталей совпадает, пока сборка не меняет их состав. Склейка мешей его меняет:
+   * пара «эталон ↔ результат» разъезжается, эталона на месте нет, и деталь остаётся
+   * зелёной. Мы молчим, а не показываем чужую разницу — врать хуже, чем не ответить.
    */
   _texdiffFor(mesh: THREE.Mesh, родной: THREE.Material | null, номер: number) {
     const зелёный = () => new THREE.MeshBasicMaterial({
       color: 0x22c55e, side: THREE.DoubleSide, toneMapped: false,
     });
     const эталоны = this._diffRef;
-    // Эталона нет — это левое окно либо деталь, которой в паре не нашлось.
     if (!эталоны) return зелёный();
-    const карта = (родной as THREE.MeshStandardMaterial | null)?.map || null;
-    const эталон = эталоны[номер] || null;
+    const эталон = эталоны[номер];
     if (!эталон) return зелёный();
-    const diff = this._diffTexture(эталон, карта);
+
+    // ПАМЯТЬ МЕЖДУ ВХОДАМИ В РЕЖИМ. Замечание Александра: «этот режим не должен сразу
+    // автоматически везде просчитываться». Он и не считается нигде, кроме этого режима, —
+    // но КАЖДЫЙ вход пересчитывал заново, а карт теперь до шести на деталь. Ключ — сама
+    // деталь: её пара «эталон ↔ результат» не меняется, пока не сменилась модель.
+    const готовая = this._diffCache.get(mesh);
+    if (готовая) return new THREE.MeshBasicMaterial({ map: готовая, side: THREE.DoubleSide, toneMapped: false });
+
+    const m = родной as THREE.MeshStandardMaterial | null;
+    const ставшие: SlotMaps = {};
+    for (const k of Viewer.DIFF_SLOTS) ставшие[k] = (m?.[k] as THREE.Texture | null) || null;
+
+    const diff = this._diffTexture(эталон, ставшие);
     if (!diff) return зелёный();
-    void mesh;
+    this._diffCache.set(mesh, diff);
     return new THREE.MeshBasicMaterial({ map: diff, side: THREE.DoubleSide, toneMapped: false });
   }
 
   /**
-   * Текстуры этой модели по порядку обхода — то, что обвязка передаёт второму окну.
+   * Карты этой модели по порядку обхода — то, что обвязка передаёт второму окну.
    *
-   * Дырки в списке (деталь без текстуры) сохраняются намеренно: номер детали и есть ключ
-   * сопоставления, и сжать список значило бы сдвинуть все следующие пары.
+   * Пустые наборы (деталь без единой карты) сохраняются намеренно: номер детали и есть
+   * ключ сопоставления, и сжать список значило бы сдвинуть все следующие пары.
    */
-  textureRefs(): THREE.Texture[] {
-    const out: THREE.Texture[] = [];
+  textureRefs(): SlotMaps[] {
+    const out: SlotMaps[] = [];
     if (!this.model) return out;
     this.model.traverse((o: MaybeMesh) => {
       if (!o.isMesh || !o.material) return;
       const first = Array.isArray(o.material) ? o.material[0] : o.material;
-      out.push((first as THREE.MeshStandardMaterial | undefined)?.map as THREE.Texture);
+      const m = first as THREE.MeshStandardMaterial | undefined;
+      const набор: SlotMaps = {};
+      for (const k of Viewer.DIFF_SLOTS) набор[k] = (m?.[k] as THREE.Texture | null) || null;
+      out.push(набор);
     });
     return out;
   }
 
   /** Эталон для режима различий. `null` — окно само является эталоном. */
-  setDiffReference(refs: THREE.Texture[] | null) {
+  setDiffReference(refs: SlotMaps[] | null) {
+    // Сменился эталон — прежние карты больше ни к чему не относятся.
+    for (const t of this._diffCache.values()) t.dispose();
+    this._diffCache.clear();
     this._diffRef = refs;
     if (this._display === 'texdiff') this._applyDisplayMaterial();
   }
