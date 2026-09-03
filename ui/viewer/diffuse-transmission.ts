@@ -50,7 +50,7 @@ import * as THREE from 'three';
 import type { GLTFParser } from 'three/addons/loaders/GLTFLoader.js';
 
 /** Имя расширения в glTF. Одно место, откуда его берут и плагин, и проверки. */
-export const DIFFUSE_TRANSMISSION = 'KHR_materials_diffuse_transmission';
+const DIFFUSE_TRANSMISSION = 'KHR_materials_diffuse_transmission';
 
 /** Атрибут развёртки по номеру набора: `texCoord` из glTF → имя attribute в three.js. */
 const UV_ATTRIBUTE = ['uv', 'uv1', 'uv2', 'uv3'] as const;
@@ -103,7 +103,7 @@ function channelOf(texture: THREE.Texture | null): number {
  * Наследник `MeshPhysicalMaterial`: всё остальное — базовый цвет, нормали, шероховатость,
  * прозрачность — работает ровно как раньше, добавлена одна доля отражения.
  */
-export class MeshDiffuseTransmissionMaterial extends THREE.MeshPhysicalMaterial {
+class MeshDiffuseTransmissionMaterial extends THREE.MeshPhysicalMaterial {
   readonly isMeshDiffuseTransmissionMaterial = true;
 
   /** @internal Набор для шейдера; сюда же смотрят все свойства ниже. */

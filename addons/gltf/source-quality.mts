@@ -82,7 +82,7 @@ export function jpegQuality(bytes: Uint8Array): number | null {
 }
 
 /** Байты обещают формат без потерь? mime не спрашиваем: он врёт (замер 2026-08-17). */
-export function isLosslessSource(bytes: Uint8Array): boolean {
+function isLosslessSource(bytes: Uint8Array): boolean {
   // PNG: 89 50 4E 47
   if (bytes.length > 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return true;
   // WebP без потерь: RIFF....WEBPVP8L. Лоссовый несёт VP8␣ либо VP8X.

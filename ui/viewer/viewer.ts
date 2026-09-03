@@ -24,7 +24,8 @@ import { MTLLoader } from "three/addons/loaders/MTLLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 // Контракт движка просмотра. Импорт типов, а не кода: в собранный файл он не попадает.
-import type { CameraState, LoadOptions, ViewerLike } from "./contract.js";
+import type { CameraState, DisplayMode, LoadOptions, ViewerLike } from "./contract.js";
+import { DISPLAY_MODES } from "./contract.js";
 import { buildUvPointerDriver, stripUvTransformTracks, type UvPointerDriver } from "./pointer-uv.js";
 import { detectLods, showLod, type LodSet } from "./lod.js";
 import { applyNodeVisibility, findInteractive, InteractivityHighlight, type InteractivePart } from "./interactivity.js";
@@ -350,8 +351,9 @@ type FileCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera;
  * Модель без материалов показывается белой сразу; глина и сетка — только по личному
  * выбору человека.
  */
-export const DISPLAY_MODES = ['wire', 'clay', 'file'] as const;
-export type DisplayMode = (typeof DISPLAY_MODES)[number];
+// Список и тип — из `contract.ts`: это часть контракта движка, а не свойство ЭТОГО
+// движка. Здесь их держать нельзя, иначе второй движок завёл бы свой (ревизия 2026-09-01).
+export type { DisplayMode } from "./contract.js";
 
 /**
  * Самодостаточный просмотрщик одной модели: рендерер, сцена, студийный IBL-свет,

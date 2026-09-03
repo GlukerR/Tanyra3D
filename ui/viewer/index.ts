@@ -15,6 +15,7 @@
 
 import { Viewer } from "./viewer.js";
 import type { CameraState, DisplayMode, PackEntry, SnapshotOptions, ViewerLike } from "./contract.js";
+import { DISPLAY_MODES } from "./contract.js";
 
 /**
  * Реализации движка просмотра, которые приложение действительно везёт с собой.
@@ -724,7 +725,9 @@ class DualViewport {
    * показ превратил бы сравнение оптимизации в сравнение способов рисовать.
    */
   setDisplayMaterial(mode: DisplayMode) {
-    this._display = mode === 'clay' || mode === 'wire' ? mode : 'file';
+    // Проверка — по общему списку, а не цепочкой сравнений: третья копия того же факта
+    // (ревизия 2026-09-01). Незнакомое значение приводится к материалам файла.
+    this._display = DISPLAY_MODES.includes(mode) ? mode : 'file';
     this._applyDisplayMaterial();
   }
 

@@ -63,7 +63,7 @@ export interface LodGroup {
  * бывает и наоборот. Порядок решается подробностью — измеримым фактом, а не соглашением
  * об именах.
  */
-export const LOD_NAME = /(?:^|[^a-z])lod[_\s-]?(\d+)/i;
+const LOD_NAME = /(?:^|[^a-z])lod[_\s-]?(\d+)/i;
 
 /**
  * Насколько грубее обязан быть следующий уровень при СТРОГОМ измерении.
@@ -74,11 +74,11 @@ export const LOD_NAME = /(?:^|[^a-z])lod[_\s-]?(\d+)/i;
  * случайно и понемногу — переднее колесо от заднего на проценты. Требование кратности
  * отсекает «части», не трогая настоящие уровни.
  */
-export const LOD_STEP = 2;
+const LOD_STEP = 2;
 
 /** Сколько уровней требуется без подписи и с ней. */
-export const LOD_MIN_STRICT = 3;
-export const LOD_MIN_NAMED = 2;
+const LOD_MIN_STRICT = 3;
+const LOD_MIN_NAMED = 2;
 
 const AXES = [0, 1, 2] as const;
 
@@ -99,7 +99,7 @@ const descending = (s: readonly [number, number, number]) =>
  *
  * @param span самая длинная сторона самого подробного уровня — мерка допуска
  */
-export function placedAsLevels(centers: ReadonlyArray<readonly [number, number, number]>, span: number): boolean {
+function placedAsLevels(centers: ReadonlyArray<readonly [number, number, number]>, span: number): boolean {
   const slack = span * 0.2;
   const spread = AXES.map((a) => {
     const v = centers.map((c) => c[a]);

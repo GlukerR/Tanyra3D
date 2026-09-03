@@ -306,7 +306,7 @@ export function effectiveSkins(doc: Document): number {
   return used.size;
 }
 
-export function sceneBounds(doc: Document): bbox | null {
+function sceneBounds(doc: Document): bbox | null {
   // bounding box сцены — для инварианта «модель не съехала и не схлопнулась»
   if (typeof gltfCore.getBounds !== 'function') return null;
   const root = doc.getRoot();
