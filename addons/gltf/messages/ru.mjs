@@ -28,12 +28,12 @@ export default {
   'prune.found.attributes': ({ n, list }) => `не используются ни одним материалом атрибутов: ${n} (${list})`,
   'prune.found.textures': ({ n }) => `неиспользуемых текстур: ${n}`,
   'prune.found.materials': ({ n }) => `неиспользуемых материалов: ${n}`,
-  'prune.found.emptySkins': ({ n }) => `пустых скинов (у мешей нет JOINTS/WEIGHTS): ${n}`,
+  'prune.found.emptySkins': ({ n }) => `пустых skin (у мешей нет JOINTS/WEIGHTS): ${n}`,
   'prune.done.attribute': ({ sem }) => `Атрибут ${sem}: не используется ни одним материалом — удалён`,
   'prune.done.attributes': ({ n, list }) => `Неиспользуемые атрибуты удалены: ${n} (${list})`,
   'prune.done.textures': ({ n }) => `Текстуры: удалено неиспользуемых — ${n}`,
   'prune.done.materials': ({ n }) => `Материалы: удалено неиспользуемых — ${n}`,
-  'prune.done.emptySkins': ({ n }) => `Удалено пустых скинов: ${n} — деформации нет, анимация идёт через иерархию узлов`,
+  'prune.done.emptySkins': ({ n }) => `Удалено пустых skin: ${n} — деформации нет, анимация идёт через иерархию узлов`,
 
   // --- attributes/vertex-colors ---
   'vertexColors.safe': () => 'белые каналы удаляются доказуемо безопасно, раскрашенные — только по флагу',
@@ -72,9 +72,9 @@ export default {
 
   // --- scene/skinned-mesh-root ---
   'skinnedRoot.safe': () => 'узел переносится, только если все преобразования над ним единичные — в сцене не меняется ни одно число',
-  'skinnedRoot.found': ({ n }) => `скиннутых мешей не в корне сцены: ${n}`,
+  'skinnedRoot.found': ({ n }) => `мешей со skin не в корне сцены: ${n}`,
   'skinnedRoot.done': ({ n }) => `Скиннутых мешей перенесено в корень сцены: ${n} — поза прежняя, просмотрщик больше не предупреждает`,
-  'skinnedRoot.skipped.notProvable': ({ n }) => `скиннутых мешей оставлено на месте: ${n} — над ними есть сдвиг, поворот или анимация, и перенос означал бы пересчёт позы`,
+  'skinnedRoot.skipped.notProvable': ({ n }) => `мешей со skin оставлено на месте: ${n} — над ними есть сдвиг, поворот или анимация, и перенос означал бы пересчёт позы`,
 
   // --- textures/resize ---
   // «Сторона» вместо «разрешения»: у неквадратной картинки разрешение это два числа, а
@@ -375,18 +375,18 @@ export default {
   'check.trianglesMismatch': ({ expected, got }) => `несовпадение треугольников: ожидалось ${expected}, получено ${got}`,
   'check.animationsPreserved': ({ n }) => `анимации: ${n}`,
   'check.animationsLost': ({ before, after }) => `анимации потеряны: было ${before}, стало ${after}`,
-  'check.skinsPreserved': ({ n }) => `действующих скинов: ${n}`,
-  'check.skinsLost': ({ before, after }) => `скины потеряны: было ${before}, стало ${after}`,
+  'check.skinsPreserved': ({ n }) => `действующих skin: ${n}`,
+  'check.skinsLost': ({ before, after }) => `skin потеряны: было ${before}, стало ${after}`,
   'check.scenesPreserved': ({ n }) => `иерархия сцен цела: ${n}`,
   'check.scenesLost': ({ before, after }) => `сцены потеряны: было ${before}, стало ${after}`,
   'check.boundsUnchanged': () => 'bounding box в пределах допуска',
   'check.boundsSkippedAfterInstance': () => 'проверка bounding box пропущена после GPU-инстансинга — getBounds() не поддерживает EXT_mesh_gpu_instancing',
-  'check.boundsSkinnedQuantized': () => 'проверка bounding box пропущена: модель скинованная и геометрия квантована — компенсация лежит в матрицах скина, а getBounds() их не читает. Форму и топологию подтверждают остальные проверки',
+  'check.boundsSkinnedQuantized': () => 'проверка bounding box пропущена: у модели есть skin и геометрия квантована — компенсация лежит в матрицах skin, а getBounds() их не читает. Форму и топологию подтверждают остальные проверки',
   'check.boundsChanged': () => 'bounding box изменился — модель смещена или разрушена',
   'check.boundsNotComputed': () => 'bounding box не вычислен (getBounds недоступна или нет сцены)',
   'check.boundsNoGeometry': () => 'проверка габаритов пропущена: в модели нет геометрии — измерять нечего',
   'check.materialsResolve': () => 'все материалы разрешаются',
-  'check.materialsBroken': () => 'примитив ссылается на удалённый материал',
+  'check.materialsBroken': () => 'primitive ссылается на удалённый материал',
   'check.validatorZeroErrors': () => 'gltf-validator (Khronos): 0 ошибок',
   // Согласование числа — часть языка: «1 ошибок осталось» читается как опечатка.
   'check.validatorErrorsRemain': ({ errs, inErrs }) => (errs === 1
