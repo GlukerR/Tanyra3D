@@ -359,6 +359,12 @@ export type { DisplayMode } from "./contract.js";
  * Самодостаточный просмотрщик одной модели: рендерер, сцена, студийный IBL-свет,
  * орбитальные контролы, авто-кадрирование под размер модели.
  */
+/**
+ * Набор карт одного материала: то, что сравнивается в режиме различий. Пустые слоты
+ * законны — у материала может не быть ни нормалей, ни свечения.
+ */
+type SlotMaps = Partial<Record<(typeof Viewer.DIFF_SLOTS)[number], THREE.Texture | null>>;
+
 export class Viewer implements ViewerLike {
   // Только объявления: `declare` проверяется компилятором и не попадает в собранный
   // файл — значения по-прежнему присваивают конструктор и методы _init*().
@@ -388,7 +394,22 @@ export class Viewer implements ViewerLike {
   /** Картинка шара для глины. Рисуется один раз при первом показе. */
   declare _clayMap?: THREE.Texture | null;
   /** Материал сетки. Один на всю модель: у сетки нет ни цвета автора, ни сторон. */
-  declare _wire?: THREE.MeshBasicMaterial | null;
+  /**
+   * Материалы подсветки плотности. Свой у КАЖДОЙ детали — цвет считается по её плотности,
+   * общего материала тут быть не может. Держим списком, чтобы освободить при выходе из
+   * режима: сцена живёт всё время работы, и мусор в ней копится молча.
+   */
+  readonly _densityMats = new Set<THREE.MeshBasicMaterial>();
+  /**
+   * Текстуры ЭТАЛОНА для режима различий, по порядку обхода сцены. Ставит обвязка: одно
+   * окно про другое не знает и знать не должно, сравнение — её работа (`ui/viewer/index.ts`).
+   *
+   * `null` в этом поле у ЛЕВОГО окна — признак, что оно и есть эталон: красится ровно
+   * зелёным, сравнивать ему не с чем.
+   */
+  declare _diffRef?: SlotMaps[] | null;
+  /** Готовые карты различий по деталям. Чистится вместе со сменой эталона, то есть модели. */
+  readonly _diffCache = new Map<THREE.Mesh, THREE.CanvasTexture>();
   /** Габарит модели для глубинного затемнения глины: центр и радиус. */
   declare _clayBounds?: { center: THREE.Vector3; radius: number } | null;
   /** Файлы брошенной пачки — их имена. См. setPackFiles. */
@@ -715,20 +736,262 @@ export class Viewer implements ViewerLike {
   }
 
   /**
-   * Сетка — один материал на всю модель.
+   * Плотность детали: треугольников на единицу ПЛОЩАДИ её габаритной коробки.
    *
-   * У глины ключ составной («сторона + цвет автора»), у сетки ключа нет вовсе, и это не
-   * упрощение: сетка показывает РЁБРА, а у ребра нет ни лицевой стороны, ни цвета из
-   * файла. `DoubleSide` — чтобы задние рёбра были видны, как в Blender; без него
-   * половина каркаса пропадает и смотреть становится не на что.
+   * ПОЧЕМУ ПЛОЩАДЬ, А НЕ ОБЪЁМ. Замысел Александра звучал про объём («весь дом 100
+   * кубометров, окно один»), и в этом виде он НЕ РАБОТАЕТ — проверено замером 2026-09-01
+   * (`_work/density-measure.mjs`). У плоской детали объём коробки почти ноль, и плотность
+   * взрывается: первым шло стекло часов на 62 треугольника (0,06% модели), а настоящая
+   * тяжёлая деталь на 38 668 из топа выпадала.
+   *
+   * Треугольники покрывают ПОВЕРХНОСТЬ, поэтому делить надо на неё. С площадью замер
+   * сходится: у часов в первую пятёрку попали обе настоящие тяжёлые детали, у машины —
+   * дворники.
    */
-  _wireMaterial() {
-    if (!this._wire) {
-      this._wire = new THREE.MeshBasicMaterial({
-        wireframe: true, color: 0xdfe3e6, side: THREE.DoubleSide, toneMapped: false,
-      });
+  _densityOf(mesh: THREE.Mesh): number {
+    const g = mesh.geometry as THREE.BufferGeometry;
+    if (!g) return 0;
+    const index = g.getIndex();
+    const pos = g.getAttribute('position');
+    if (!pos) return 0;
+    const треугольников = (index ? index.count : pos.count) / 3;
+    if (!g.boundingBox) g.computeBoundingBox();
+    const bb = g.boundingBox;
+    if (!bb) return 0;
+    // Нулевая сторона у плоской детали заменяется малой: иначе площадь нулевая и всё
+    // деление теряет смысл. Значение взято заведомо меньше любой осмысленной детали.
+    const сторона = (x: number) => Math.max(Number.isFinite(x) ? x : 0, 1e-4);
+    const dx = сторона(bb.max.x - bb.min.x);
+    const dy = сторона(bb.max.y - bb.min.y);
+    const dz = сторона(bb.max.z - bb.min.z);
+    const площадь = 2 * (dx * dy + dy * dz + dx * dz);
+    return площадь > 0 ? треугольников / площадь : 0;
+  }
+
+  /**
+   * Материал подсветки плотности для одной детали.
+   *
+   * ШКАЛА ЛОГАРИФМИЧЕСКАЯ и ОТНОСИТЕЛЬНАЯ — два решения, и оба обязательные.
+   *
+   * Логарифм: плотности расходятся на порядки (замер по `CarConcept`: от 1,4·10⁵ у самой
+   * плотной детали до сотых долей у самой редкой). На линейной шкале всё, кроме одной
+   * детали, слилось бы в один цвет, и подсветка перестала бы отвечать на вопрос.
+   *
+   * Относительность: абсолютного порога «сколько треугольников на метр — много» не
+   * существует, потому что метра у модели нет. Единицы задаёт автор: у одного дом в
+   * метрах, у другого тот же дом в сантиметрах. Поэтому шкала растягивается по САМОЙ
+   * МОДЕЛИ: самая плотная деталь — красная, самая редкая — зелёная. Это отвечает на
+   * вопрос «где дорого У МЕНЯ», а не «дорого ли это вообще».
+   *
+   * `MeshBasicMaterial`, как у сетки: цвет обязан читаться точно, а не через свет.
+   */
+  _densityFor(mesh: THREE.Mesh, min: number, max: number) {
+    const v = this._densityOf(mesh);
+    const lg = (x: number) => Math.log10(Math.max(x, 1e-9));
+    const a = lg(min);
+    const b = lg(max);
+    // Все детали одинаковой плотности — красить нечего, показываем ровный холодный цвет.
+    const t = b - a > 1e-6 ? Math.min(1, Math.max(0, (lg(v) - a) / (b - a))) : 0;
+    const color = new THREE.Color();
+    // Зелёный → жёлтый → красный: привычная тепловая шкала, читается без легенды.
+    color.setHSL((1 - t) * 0.33, 0.85, 0.5);
+    return new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, toneMapped: false });
+  }
+
+  /**
+   * Слоты карт, которые сравниваются. Один список на весь режим — второй разошёлся бы.
+   *
+   * Замечание Александра 2026-09-01: «текстура нормал мапы точно не учитывается, а она
+   * тоже должна учитываться и должно усредняться значение». Он прав: базовый цвет — лишь
+   * одна из карт, и потеря в нормалях меняет вид модели не меньше.
+   *
+   * Имена трёхмерные (`normalMap`), а не из спецификации glTF (`normalTexture`): здесь мы
+   * работаем с уже загруженным материалом движка. `metalnessMap` и `roughnessMap` у glTF
+   * обычно одна и та же картинка — посчитается дважды, и это не беда: вес у слотов равный,
+   * а лишний одинаковый голос ничего не искажает.
+   */
+  static readonly DIFF_SLOTS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap'] as const;
+
+  /**
+   * Карта различий: где пиксели те же — зелено, где ушли — красно. По ВСЕМ картам сразу.
+   *
+   * РАЗРЕШЕНИЕ — НАИБОЛЬШЕЕ среди эталонных карт, и вниз мы не приводим никогда. Решение
+   * Александра: «приводить к меньшему из двух не нужно, просто накладывай новые пиксели на
+   * старые крупные». Так один пиксель тысячной текстуры ложится на четыре пикселя
+   * двухтысячной, и видно ОБЕ потери — от пережатия и от уменьшения. Обе настоящие:
+   * «просишь уменьшить — нужно понимать, что будут потери».
+   *
+   * ВНУТРИ СЛОТА — максимум по каналам, МЕЖДУ СЛОТАМИ — среднее.
+   *
+   * Максимум внутри: среднее спрятало бы сдвиг одного цвета — красный, уехавший на треть,
+   * вместе с целыми зелёным и синим даёт «одну девятую», и карта промолчала бы о том, что
+   * человек видит глазами.
+   *
+   * Среднее между: иначе одна испорченная карта из шести красила бы деталь целиком, и
+   * стало бы не отличить «рассыпался нормал» от «рассыпалось всё».
+   */
+  _diffTexture(эталоны: SlotMaps, ставшие: SlotMaps): THREE.CanvasTexture | null {
+    const слоты = Viewer.DIFF_SLOTS.filter((k) => {
+      const и = эталоны[k]?.image as { width?: number } | undefined;
+      return !!и?.width;
+    });
+    if (!слоты.length) return null;
+
+    let w = 0;
+    let h = 0;
+    for (const k of слоты) {
+      const и = эталоны[k]!.image as { width: number; height: number };
+      if (и.width > w) { w = и.width; h = и.height; }
     }
-    return this._wire;
+
+    const снять = (t: THREE.Texture | null | undefined) => {
+      const img = t?.image as CanvasImageSource & { width?: number } | undefined;
+      if (!img || !img.width) return null;
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return null;
+      // Без сглаживания: иначе браузер придумает промежуточные цвета, которых в файле нет,
+      // и карта покажет плавную разницу там, где на деле квадрат одного цвета.
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0, w, h);
+      return ctx.getImageData(0, 0, w, h).data;
+    };
+
+    const пары: Array<[Uint8ClampedArray, Uint8ClampedArray | null]> = [];
+    for (const k of слоты) {
+      const a = снять(эталоны[k]);
+      if (a) пары.push([a, снять(ставшие[k])]);
+    }
+    if (!пары.length) return null;
+
+    const out = document.createElement('canvas');
+    out.width = w; out.height = h;
+    const ctx = out.getContext('2d');
+    if (!ctx) return null;
+    const карта = ctx.createImageData(w, h);
+
+    for (let i = 0; i < карта.data.length; i += 4) {
+      let сумма = 0;
+      for (const [a, b] of пары) {
+        let d = 0;
+        if (b) for (let k = 0; k < 3; k++) d = Math.max(d, Math.abs(a[i + k]! - b[i + k]!));
+        сумма += d;
+      }
+      // КОРЕНЬ, а не усиление вдвое. Первая редакция брала `min(1, t * 2)` — она упиралась
+      // в потолок уже на половине отклонения, и «испорчена половина карт» выглядело ровно
+      // так же, как «испорчены все». Поймал это сторож усреднения: оба случая давали 255.
+      //
+      // Корень поднимает малые потери (одна сотая становится десятой — видно) и при этом
+      // оставляет разницу у крупных: половина даёт 0,71, целое — 1.
+      const t = Math.sqrt(сумма / пары.length / 255);
+      карта.data[i] = Math.round(255 * t);
+      карта.data[i + 1] = Math.round(255 * (1 - t));
+      карта.data[i + 2] = 40;
+      карта.data[i + 3] = 255;
+    }
+    ctx.putImageData(карта, 0, 0);
+    const tex = new THREE.CanvasTexture(out);
+    tex.flipY = эталоны[слоты[0]!]!.flipY;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  /**
+   * Материал одной детали в режиме различий.
+   *
+   * ЛЕВОЕ ОКНО — ЭТАЛОН и красится ровно зелёным: у него отклонений нет по определению, и
+   * считать ему карту значило бы тратить работу на известный заранее ответ.
+   *
+   * СОПОСТАВЛЕНИЕ ПО ПОРЯДКУ ОБХОДА, и это честная слабость. Обе модели — одна сцена, и
+   * порядок деталей совпадает, пока сборка не меняет их состав. Склейка мешей его меняет:
+   * пара «эталон ↔ результат» разъезжается, эталона на месте нет, и деталь остаётся
+   * зелёной. Мы молчим, а не показываем чужую разницу — врать хуже, чем не ответить.
+   */
+  _texdiffFor(mesh: THREE.Mesh, родной: THREE.Material | null, номер: number) {
+    const зелёный = () => new THREE.MeshBasicMaterial({
+      color: 0x22c55e, side: THREE.DoubleSide, toneMapped: false,
+    });
+    const эталоны = this._diffRef;
+    if (!эталоны) return зелёный();
+    const эталон = эталоны[номер];
+    if (!эталон) return зелёный();
+
+    // ПАМЯТЬ МЕЖДУ ВХОДАМИ В РЕЖИМ. Замечание Александра: «этот режим не должен сразу
+    // автоматически везде просчитываться». Он и не считается нигде, кроме этого режима, —
+    // но КАЖДЫЙ вход пересчитывал заново, а карт теперь до шести на деталь. Ключ — сама
+    // деталь: её пара «эталон ↔ результат» не меняется, пока не сменилась модель.
+    const готовая = this._diffCache.get(mesh);
+    if (готовая) return new THREE.MeshBasicMaterial({ map: готовая, side: THREE.DoubleSide, toneMapped: false });
+
+    const m = родной as THREE.MeshStandardMaterial | null;
+    const ставшие: SlotMaps = {};
+    for (const k of Viewer.DIFF_SLOTS) ставшие[k] = (m?.[k] as THREE.Texture | null) || null;
+
+    const diff = this._diffTexture(эталон, ставшие);
+    if (!diff) return зелёный();
+    this._diffCache.set(mesh, diff);
+    return new THREE.MeshBasicMaterial({ map: diff, side: THREE.DoubleSide, toneMapped: false });
+  }
+
+  /**
+   * Карты этой модели по порядку обхода — то, что обвязка передаёт второму окну.
+   *
+   * Пустые наборы (деталь без единой карты) сохраняются намеренно: номер детали и есть
+   * ключ сопоставления, и сжать список значило бы сдвинуть все следующие пары.
+   */
+  textureRefs(): SlotMaps[] {
+    const out: SlotMaps[] = [];
+    if (!this.model) return out;
+    this.model.traverse((o: MaybeMesh) => {
+      if (!o.isMesh || !o.material) return;
+      const first = Array.isArray(o.material) ? o.material[0] : o.material;
+      const m = first as THREE.MeshStandardMaterial | undefined;
+      const набор: SlotMaps = {};
+      for (const k of Viewer.DIFF_SLOTS) набор[k] = (m?.[k] as THREE.Texture | null) || null;
+      out.push(набор);
+    });
+    return out;
+  }
+
+  /** Есть ли уже посчитанные карты различий. По нему обвязка решает, показывать ли плашку. */
+  hasDiffCache(): boolean {
+    return this._diffCache.size > 0;
+  }
+
+  /** Эталон для режима различий. `null` — окно само является эталоном. */
+  setDiffReference(refs: SlotMaps[] | null) {
+    // Сменился эталон — прежние карты больше ни к чему не относятся.
+    for (const t of this._diffCache.values()) t.dispose();
+    this._diffCache.clear();
+    this._diffRef = refs;
+    if (this._display === 'texdiff') this._applyDisplayMaterial();
+  }
+
+  /** Освободить материалы подсветки: они свои у каждой детали и живут только в режиме. */
+  _dropDensityMaterials() {
+    for (const m of this._densityMats) m.dispose();
+    this._densityMats.clear();
+  }
+
+  /**
+   * Сетка — рёбра, ПОКРАШЕННЫЕ ПО ПЛОТНОСТИ. Материал свой у каждой детали.
+   *
+   * Раньше здесь был ОДИН серый материал на всю модель: у ребра нет ни лицевой стороны, ни
+   * цвета из файла, и общего материала хватало. С 2026-09-01 цвет несёт смысл, поэтому
+   * общим он быть перестал.
+   *
+   * Слово Александра: «просто смотреть на сетку нет никакого смысла». Голая сетка
+   * показывала ту же плотность — только читать её приходилось по густоте штрихов; цвет
+   * отвечает прямо, а рёбра остаются на месте.
+   *
+   * `DoubleSide` — чтобы задние рёбра были видны, как в Blender; без него половина
+   * каркаса пропадает и смотреть становится не на что.
+   */
+  _wireMaterial(mesh: THREE.Mesh, min: number, max: number) {
+    const m = this._densityFor(mesh, min, max);
+    m.wireframe = true;
+    return m;
   }
 
   /**
@@ -871,15 +1134,52 @@ export class Viewer implements ViewerLike {
     // дело самой модели, и досчитывать за неё там нечего. Вышли из глины — своё убрали.
     if (this._display === 'clay') this._ensureClayNormals();
     else this._dropClayNormals();
+    if (this._display !== 'wire' && this._display !== 'texdiff') this._dropDensityMaterials();
     if (this._display !== 'file') {
+      // Границы шкалы плотности считаются ОДИН раз на всю модель и до обхода: цвет каждой
+      // детали зависит от того, какая в этой модели самая плотная и какая самая редкая.
+      let min = Infinity;
+      let max = 0;
+      // Порядковый номер детали: им же обвязка нумерует эталонные текстуры. Совпадение
+      // держится на том, что обе модели обходятся одинаково — см. `_texdiffFor`.
+      let счётчик = 0;
+      if (this._display === 'wire') {
+        this.model.traverse((o: MaybeMesh) => {
+          if (!o.isMesh) return;
+          const v = this._densityOf(o as unknown as THREE.Mesh);
+          if (v > 0) { min = Math.min(min, v); max = Math.max(max, v); }
+        });
+        if (!Number.isFinite(min)) min = 0;
+      }
       this.model.traverse((o: MaybeMesh) => {
         if (!o.isMesh || !o.material) return;
         const mesh = o as unknown as THREE.Mesh;
         if (!this._origMaterials.has(mesh)) this._origMaterials.set(mesh, o.material!);
-        const first = Array.isArray(o.material) ? o.material[0] : o.material;
-        o.material = this._display === 'wire'
-          ? this._wireMaterial()
-          : this._clayFor(first ? first.side : THREE.FrontSide, first);
+        // РОДНОЙ материал берётся из сохранённого, а НЕ из `o.material`.
+        //
+        // Дефект, найденный Александром 2026-09-01: «на 0 процентах сжатия вебп
+        // ABeautifulGame вся зелёная, она должна вся покраснеть». Причина — переход между
+        // режимами БЕЗ возврата к материалам файла: сетка уже подменила материал детали, и
+        // следующий режим читал у подменённого ни цвета автора, ни карты. Различия
+        // сравнивались с пустотой и выходили зелёными; глина по той же причине теряла
+        // авторский цвет при переходе из сетки.
+        //
+        // Сохранённое здесь и есть «как было в файле» — из него и берём.
+        const родной = this._origMaterials.get(mesh) ?? o.material!;
+        const first = Array.isArray(родной) ? родной[0] : родной;
+        if (this._display === 'wire') {
+          const m = this._wireMaterial(mesh, min, max);
+          this._densityMats.add(m);
+          o.material = m;
+          return;
+        }
+        if (this._display === 'texdiff') {
+          const m = this._texdiffFor(mesh, first ?? null, счётчик++);
+          this._densityMats.add(m);
+          o.material = m;
+          return;
+        }
+        o.material = this._clayFor(first ? first.side : THREE.FrontSide, first);
       });
       // Затемнение по глубине — свойство ГЛИНЫ, и внутри оно само проверяет режим.
       // Сетке туман не нужен: рёбра и так разведены пустотой между ними.

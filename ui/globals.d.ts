@@ -133,8 +133,8 @@ interface OptiViewerApi {
    * текстур. Выбор ОДИН на оба окна: разъехавшийся показ превратил бы сравнение «до и
    * после» в сравнение способов рисовать. Файл при этом не меняется никогда.
    */
-  setDisplayMaterial(mode: 'wire' | 'clay' | 'file'): void;
-  getDisplayMaterial(): 'wire' | 'clay' | 'file';
+  setDisplayMaterial(mode: 'wire' | 'clay' | 'file' | 'texdiff'): void;
+  getDisplayMaterial(): 'wire' | 'clay' | 'file' | 'texdiff';
   /**
    * Снимок ПРАВОГО окна как PNG — ровно того кадра, что человек видит.
    *

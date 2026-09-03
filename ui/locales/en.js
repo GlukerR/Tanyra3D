@@ -64,7 +64,8 @@ window.I18N_CATALOGS.en = {
   // объяснять, что это matcap, ему незачем (Правило 10).
   'vp.display.file': 'Materials from the file',
   'vp.display.clay': 'Clay',
-  'vp.display.wire': 'Wireframe',
+  'vp.display.texdiff': 'What changed in the textures — green where the pixels are the same, redder the further they moved. Left is the reference',
+  'vp.display.wire': 'Wireframe — coloured by density: red means many triangles for the surface they cover',
   // Свет. Появляется только у моделей, которые несут свои источники.
   'vp.light': 'Lighting',
   'vp.interactivity': 'Interactive parts',
@@ -84,6 +85,7 @@ window.I18N_CATALOGS.en = {
 
   // Подписи посреди панелей просмотра (ui/viewer/index.js). Ставятся из кода через
   // I18n.setText, поэтому переживают смену языка без перезагрузки модели.
+  'viewer.status.comparing': 'Comparing textures…',
   'viewer.status.loading': 'Loading…',
   // Одно сообщение с подстановкой, а не «Loading…» + число: место процента и пробел
   // перед знаком — часть языка (Правило 8 §3).
