@@ -756,6 +756,21 @@ class DualViewport {
 
   _applyDisplayMaterial() {
     const mode = this._display || 'file';
+    // Режим различий — единственный, где окна знают друг о друге, и связь наводит ОБВЯЗКА.
+    // Само окно про соседа не знает и знать не должно: оно показывает одну модель, а
+    // сравнение двух — задача того, кто держит обе (contract.ts, `texdiff`).
+    //
+    // Левое получает `null` — оно эталон, ему сравнивать не с чем. Правое получает список
+    // текстур левого по порядку обхода.
+    const левый = this.left?.viewer as { textureRefs?: () => unknown[]; setDiffReference?: (r: unknown[] | null) => void } | undefined;
+    const правый = this.right?.viewer as { setDiffReference?: (r: unknown[] | null) => void } | undefined;
+    if (mode === 'texdiff') {
+      левый?.setDiffReference?.(null);
+      правый?.setDiffReference?.(левый?.textureRefs?.() || []);
+    } else {
+      левый?.setDiffReference?.(null);
+      правый?.setDiffReference?.(null);
+    }
     this.left?.viewer?.setDisplayMaterial?.(mode);
     this.right?.viewer?.setDisplayMaterial?.(mode);
   }

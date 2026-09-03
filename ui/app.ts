@@ -85,6 +85,7 @@
   const displayFileBtn = $('display-file');
   const displayClayBtn = $('display-clay');
   const displayWireBtn = $('display-wire');
+  const displayTexdiffBtn = $('display-texdiff');
   const lightControls = $('light-controls');
   const lightMenu = $('light-menu');
   const interactivityBtn = $('interactivity-toggle') as HTMLButtonElement | null;
@@ -6088,6 +6089,10 @@
     [displayWireBtn, 'wire'],
     [displayClayBtn, 'clay'],
     [displayFileBtn, 'file'],
+    // Различия текстур — ЧЕТВЁРТАЯ и последняя. Первые три отвечают на вопрос «как эта
+    // модель выглядит», четвёртая — на другой: «что в ней изменила сборка». Она же
+    // единственная, которой нужны ОБА окна сразу (2026-09-01).
+    [displayTexdiffBtn, 'texdiff'],
   ] as const;
 
   /**

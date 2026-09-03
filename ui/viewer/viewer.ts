@@ -394,6 +394,14 @@ export class Viewer implements ViewerLike {
    * режима: сцена живёт всё время работы, и мусор в ней копится молча.
    */
   readonly _densityMats = new Set<THREE.MeshBasicMaterial>();
+  /**
+   * Текстуры ЭТАЛОНА для режима различий, по порядку обхода сцены. Ставит обвязка: одно
+   * окно про другое не знает и знать не должно, сравнение — её работа (`ui/viewer/index.ts`).
+   *
+   * `null` в этом поле у ЛЕВОГО окна — признак, что оно и есть эталон: красится ровно
+   * зелёным, сравнивать ему не с чем.
+   */
+  declare _diffRef?: THREE.Texture[] | null;
   /** Габарит модели для глубинного затемнения глины: центр и радиус. */
   declare _clayBounds?: { center: THREE.Vector3; radius: number } | null;
   /** Файлы брошенной пачки — их имена. См. setPackFiles. */
@@ -782,6 +790,124 @@ export class Viewer implements ViewerLike {
     return new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, toneMapped: false });
   }
 
+  /**
+   * Карта различий двух текстур: где пиксели те же — зелено, где ушли — красно.
+   *
+   * РАЗРЕШЕНИЕ БЕРЁТСЯ У ЭТАЛОНА, и уменьшенная картинка растягивается на него без
+   * сглаживания. Решение Александра 2026-09-01: «приводить к меньшему из двух не нужно,
+   * просто накладывай новые пиксели на старые крупные». Так один пиксель тысячной
+   * текстуры ложится на четыре пикселя двухтысячной, и на карте видно ОБЕ потери — и от
+   * пережатия, и от уменьшения. Обе настоящие: «просишь уменьшить — нужно понимать, что
+   * будут потери».
+   *
+   * `imageSmoothingEnabled = false` здесь обязателен. Со сглаживанием браузер придумал бы
+   * промежуточные цвета, которых в файле нет, и карта показала бы плавную разницу там, где
+   * на деле квадрат в четыре пикселя одного цвета.
+   */
+  _diffTexture(эталон: THREE.Texture, стало: THREE.Texture | null): THREE.CanvasTexture | null {
+    const и1 = эталон.image as CanvasImageSource & { width?: number; height?: number };
+    if (!и1 || !и1.width || !и1.height) return null;
+    const w = и1.width;
+    const h = и1.height;
+
+    const снять = (t: THREE.Texture | null) => {
+      const img = t?.image as CanvasImageSource & { width?: number; height?: number } | undefined;
+      if (!img || !img.width) return null;
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      if (!ctx) return null;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0, w, h);
+      return ctx.getImageData(0, 0, w, h).data;
+    };
+
+    const a = снять(эталон);
+    const b = снять(стало);
+    if (!a) return null;
+
+    const out = document.createElement('canvas');
+    out.width = w; out.height = h;
+    const ctx = out.getContext('2d');
+    if (!ctx) return null;
+    const карта = ctx.createImageData(w, h);
+
+    for (let i = 0; i < a.length; i += 4) {
+      // Отклонение — САМЫЙ ушедший канал, а не их среднее. Среднее прячет сдвиг одного
+      // цвета: красный, уехавший на треть, при усреднении с целыми зелёным и синим даёт
+      // «одну девятую», и карта промолчит о том, что человек увидит глазами.
+      let d = 0;
+      if (b) for (let k = 0; k < 3; k++) d = Math.max(d, Math.abs(a[i + k]! - b[i + k]!));
+      const t = d / 255;
+      // Тот же зелёный→красный, что и у плотности: одна шкала на всё приложение, человеку
+      // не приходится держать в голове две.
+      карта.data[i] = Math.round(255 * Math.min(1, t * 2));
+      карта.data[i + 1] = Math.round(255 * Math.min(1, (1 - t) * 2));
+      карта.data[i + 2] = 40;
+      карта.data[i + 3] = 255;
+    }
+    ctx.putImageData(карта, 0, 0);
+    const tex = new THREE.CanvasTexture(out);
+    tex.flipY = эталон.flipY;
+    tex.needsUpdate = true;
+    return tex;
+  }
+
+  /**
+   * Материал одной детали в режиме различий.
+   *
+   * ЛЕВОЕ ОКНО — ЭТАЛОН и красится ровно зелёным. Не «зелёной картинкой», а сплошным
+   * цветом: у эталона отклонений нет по определению, и рисовать ему карту значило бы
+   * тратить работу на ответ, который известен заранее.
+   *
+   * ПРАВОЕ сравнивает свою карту с эталонной. Деталь без текстуры зелёная там и там:
+   * менять в ней нечего, и красить её было бы враньём.
+   *
+   * СОПОСТАВЛЕНИЕ ПО ПОРЯДКУ ОБХОДА, и это честная слабость. Обе модели — одна и та же
+   * сцена, и порядок деталей в них совпадает, пока сборка не меняет их состав. Склейка
+   * мешей его меняет: деталей становится меньше, и пара «эталон ↔ результат» разъезжается.
+   * В таком случае эталона на нужном месте просто нет, и деталь остаётся зелёной — то есть
+   * мы молчим, а не показываем чужую разницу. Врать хуже, чем не ответить.
+   */
+  _texdiffFor(mesh: THREE.Mesh, родной: THREE.Material | null, номер: number) {
+    const зелёный = () => new THREE.MeshBasicMaterial({
+      color: 0x22c55e, side: THREE.DoubleSide, toneMapped: false,
+    });
+    const эталоны = this._diffRef;
+    // Эталона нет — это левое окно либо деталь, которой в паре не нашлось.
+    if (!эталоны) return зелёный();
+    const карта = (родной as THREE.MeshStandardMaterial | null)?.map || null;
+    const эталон = эталоны[номер] || null;
+    if (!эталон) return зелёный();
+    const diff = this._diffTexture(эталон, карта);
+    if (!diff) return зелёный();
+    void mesh;
+    return new THREE.MeshBasicMaterial({ map: diff, side: THREE.DoubleSide, toneMapped: false });
+  }
+
+  /**
+   * Текстуры этой модели по порядку обхода — то, что обвязка передаёт второму окну.
+   *
+   * Дырки в списке (деталь без текстуры) сохраняются намеренно: номер детали и есть ключ
+   * сопоставления, и сжать список значило бы сдвинуть все следующие пары.
+   */
+  textureRefs(): THREE.Texture[] {
+    const out: THREE.Texture[] = [];
+    if (!this.model) return out;
+    this.model.traverse((o: MaybeMesh) => {
+      if (!o.isMesh || !o.material) return;
+      const first = Array.isArray(o.material) ? o.material[0] : o.material;
+      out.push((first as THREE.MeshStandardMaterial | undefined)?.map as THREE.Texture);
+    });
+    return out;
+  }
+
+  /** Эталон для режима различий. `null` — окно само является эталоном. */
+  setDiffReference(refs: THREE.Texture[] | null) {
+    this._diffRef = refs;
+    if (this._display === 'texdiff') this._applyDisplayMaterial();
+  }
+
   /** Освободить материалы подсветки: они свои у каждой детали и живут только в режиме. */
   _dropDensityMaterials() {
     for (const m of this._densityMats) m.dispose();
@@ -948,12 +1074,15 @@ export class Viewer implements ViewerLike {
     // дело самой модели, и досчитывать за неё там нечего. Вышли из глины — своё убрали.
     if (this._display === 'clay') this._ensureClayNormals();
     else this._dropClayNormals();
-    if (this._display !== 'wire') this._dropDensityMaterials();
+    if (this._display !== 'wire' && this._display !== 'texdiff') this._dropDensityMaterials();
     if (this._display !== 'file') {
       // Границы шкалы плотности считаются ОДИН раз на всю модель и до обхода: цвет каждой
       // детали зависит от того, какая в этой модели самая плотная и какая самая редкая.
       let min = Infinity;
       let max = 0;
+      // Порядковый номер детали: им же обвязка нумерует эталонные текстуры. Совпадение
+      // держится на том, что обе модели обходятся одинаково — см. `_texdiffFor`.
+      let счётчик = 0;
       if (this._display === 'wire') {
         this.model.traverse((o: MaybeMesh) => {
           if (!o.isMesh) return;
@@ -966,9 +1095,26 @@ export class Viewer implements ViewerLike {
         if (!o.isMesh || !o.material) return;
         const mesh = o as unknown as THREE.Mesh;
         if (!this._origMaterials.has(mesh)) this._origMaterials.set(mesh, o.material!);
-        const first = Array.isArray(o.material) ? o.material[0] : o.material;
+        // РОДНОЙ материал берётся из сохранённого, а НЕ из `o.material`.
+        //
+        // Дефект, найденный Александром 2026-09-01: «на 0 процентах сжатия вебп
+        // ABeautifulGame вся зелёная, она должна вся покраснеть». Причина — переход между
+        // режимами БЕЗ возврата к материалам файла: сетка уже подменила материал детали, и
+        // следующий режим читал у подменённого ни цвета автора, ни карты. Различия
+        // сравнивались с пустотой и выходили зелёными; глина по той же причине теряла
+        // авторский цвет при переходе из сетки.
+        //
+        // Сохранённое здесь и есть «как было в файле» — из него и берём.
+        const родной = this._origMaterials.get(mesh) ?? o.material!;
+        const first = Array.isArray(родной) ? родной[0] : родной;
         if (this._display === 'wire') {
           const m = this._wireMaterial(mesh, min, max);
+          this._densityMats.add(m);
+          o.material = m;
+          return;
+        }
+        if (this._display === 'texdiff') {
+          const m = this._texdiffFor(mesh, first ?? null, счётчик++);
           this._densityMats.add(m);
           o.material = m;
           return;
