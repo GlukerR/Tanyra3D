@@ -94,7 +94,7 @@
     </div>
   </nav>
 
-  <div class="lang-switch" id="lang-switch" role="group" aria-label="Language"></div>
+  <div class="lang-switch" id="lang-switch" role="group" data-i18n-aria="lang.switch" aria-label="Language"></div>
 </header>
 
 <main class="workspace">
@@ -357,7 +357,7 @@
       <div id="anim-controls" class="vp-group hidden">
         <button class="vp-tool vp-group-btn" type="button" aria-expanded="false" data-i18n-title="vp.clip" data-i18n-aria="vp.clip" title="Animation" aria-label="Animation">▷</button>
         <div class="vp-pop">
-          <button id="anim-play-btn" class="vp-tool is-on" title="Pause animation" aria-label="Pause animation" aria-pressed="true">⏸</button>
+          <button id="anim-play-btn" class="vp-tool is-on" data-i18n-title="vp.pause" title="Pause animation" data-i18n-aria="vp.pause" aria-label="Pause animation" aria-pressed="true">⏸</button>
           <select id="anim-clip" class="vp-anim-clip" data-i18n-aria="vp.clip" aria-label="Animation clip"></select>
           <input id="anim-seek" class="vp-slider" type="range" min="0" max="1000" value="0" step="1" data-i18n-aria="vp.time" aria-label="Animation time">
           <span id="anim-time" class="vp-ctl-value">0.0s</span>
@@ -370,7 +370,7 @@
 
     <!-- Окно ошибки — закрываемое (×) и перетаскиваемое за заголовок.
          Базовый паттерн `.window` для всех будущих окон (ошибки/диалоги). -->
-    <div id="fail-banner" class="window window--error fail-banner hidden" role="dialog" aria-label="Error">
+    <div id="fail-banner" class="window window--error fail-banner hidden" role="dialog" data-i18n-aria="win.error" aria-label="Error">
       <div class="window-titlebar">
         <span class="window-title fail-title" data-i18n="fail.notWritten">File not written</span>
         <button type="button" class="window-close" data-i18n-aria="win.close" aria-label="Close">×</button>
@@ -386,7 +386,7 @@
     <!-- Подтверждение удаления пачки. Отдельное окно, а не «в два нажатия», как у своей
          площадки: там вопрос вставал бы поверх другого модального окна и его закрывали бы
          не читая, а здесь список на виду и число отмеченных — главное, что надо прочесть. -->
-    <div id="confirm-remove" class="window window--error hidden" role="dialog" aria-label="Remove models">
+    <div id="confirm-remove" class="window window--error hidden" role="dialog" data-i18n-aria="batch.remove.title" aria-label="Remove models">
       <div class="window-titlebar">
         <span class="window-title" data-i18n="batch.remove.title">Remove models</span>
         <button type="button" class="window-close" data-i18n-aria="win.close" aria-label="Close">×</button>
@@ -400,7 +400,7 @@
       </div>
     </div>
 
-    <div id="metadata-window" class="window window--wide window--glass hidden" role="dialog" aria-label="Metadata">
+    <div id="metadata-window" class="window window--wide window--glass hidden" role="dialog" data-i18n-aria="win.metadata" aria-label="Metadata">
       <div class="window-titlebar">
         <span class="window-title" data-i18n="win.metadata">Metadata</span>
         <button type="button" class="window-close" data-i18n-aria="win.close" aria-label="Close">×</button>
@@ -408,7 +408,7 @@
       <div class="window-body window-scroll" id="metadata-body"></div>
     </div>
 
-    <div id="validation-window" class="window window--wide window--glass hidden" role="dialog" aria-label="Validation">
+    <div id="validation-window" class="window window--wide window--glass hidden" role="dialog" data-i18n-aria="win.validation" aria-label="Validation">
       <div class="window-titlebar">
         <span class="window-title" data-i18n="win.validation">Validation</span>
         <button type="button" class="window-close" data-i18n-aria="win.close" aria-label="Close">×</button>
@@ -416,7 +416,7 @@
       <div class="window-body window-scroll" id="validation-body"></div>
     </div>
 
-    <div id="logs-window" class="window window--wide window--glass hidden" role="dialog" aria-label="Logs">
+    <div id="logs-window" class="window window--wide window--glass hidden" role="dialog" data-i18n-aria="win.logs" aria-label="Logs">
       <div class="window-titlebar">
         <span class="window-title" data-i18n="win.logs">Logs</span>
         <button type="button" id="logs-clear" class="window-action" data-i18n="logs.clear">Clear</button>
@@ -429,7 +429,7 @@
          общего — а спросить хочется простое: сколько всего сэкономили, кто не уложился
          в порог площадки, где сборка не прошла. Ни одной новой цифры здесь не считается:
          всё берётся из уже готовых отчётов моделей, иначе сводка разошлась бы с ними. -->
-    <div id="summary-window" class="window window--wide window--glass hidden" role="dialog" aria-label="Batch summary">
+    <div id="summary-window" class="window window--wide window--glass hidden" role="dialog" data-i18n-aria="win.summary" aria-label="Batch summary">
       <div class="window-titlebar">
         <span class="window-title" data-i18n="win.summary">Batch summary</span>
         <button type="button" id="summary-save" class="window-action" data-i18n="summary.save">Save as CSV</button>
@@ -440,7 +440,7 @@
 
     <!-- Единое окно экспорта (одна кнопка Download Result → выбор формата и имени).
          Новые экспортёры добавляются пунктами радио, интерфейс не меняется. -->
-    <div id="export-window" class="window window--glass hidden" role="dialog" aria-label="Export result">
+    <div id="export-window" class="window window--glass hidden" role="dialog" data-i18n-aria="win.export" aria-label="Export result">
       <div class="window-titlebar">
         <span class="window-title" data-i18n="win.export">Export result</span>
         <button type="button" class="window-close" data-i18n-aria="win.close" aria-label="Close">×</button>
@@ -494,7 +494,7 @@
 
          Поля порогов рисует app.js по ответу /api/profiles: их состав — это метрики
          бюджета, и второй копии этого списка в разметке быть не должно. -->
-    <div id="profile-window" class="window window--glass hidden" role="dialog" aria-label="Your own platform">
+    <div id="profile-window" class="window window--glass hidden" role="dialog" data-i18n-aria="win.profile" aria-label="Your own platform">
       <div class="window-titlebar">
         <span class="window-title" data-i18n="win.profile">Your own platform</span>
         <button type="button" class="window-close" data-i18n-aria="win.close" aria-label="Close">×</button>

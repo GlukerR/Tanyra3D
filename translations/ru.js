@@ -7,6 +7,7 @@
 
 window.I18N_CATALOGS = window.I18N_CATALOGS || {};
 window.I18N_CATALOGS.ru = {
+  'lang.switch': 'Язык',
   'lang.name': 'Русский',
 
   'unit.kb': 'КБ',

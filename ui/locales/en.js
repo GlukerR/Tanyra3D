@@ -4,6 +4,7 @@
 
 window.I18N_CATALOGS = window.I18N_CATALOGS || {};
 window.I18N_CATALOGS.en = {
+  'lang.switch': 'Language',
   'lang.name': 'English',
 
   // Единицы и формат чисел. 'unit.locale' — тег для Number.toLocaleString:
