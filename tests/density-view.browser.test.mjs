@@ -336,3 +336,61 @@ describe('в счёт идут все карты, а не только базо�
     expect(карта.image.width, 'взято не наибольшее разрешение среди карт').toBe(16)
   })
 })
+
+describe('память готовых карт', () => {
+  // Александр 2026-09-01: «на ABeautifulGame прям долго и тяжело идёт, и загружается
+  // повторно долго. То есть нужно как-то сохранять это».
+  //
+  // Память БЫЛА заведена сразу, но не работала: обвязка пересобирала эталон при каждом
+  // входе в режим, а смена эталона чистит память. Теперь эталон живёт до смены модели.
+
+  it('повторный вход не пересчитывает: карта та же самая', () => {
+    const g = new THREE.PlaneGeometry(1, 1)
+    const mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: однотонная(8, '#000000') }))
+    const model = new THREE.Group()
+    model.add(mesh)
+    viewer.model = model
+    const эталон = [{ map: однотонная(8, '#ffffff') }]
+
+    viewer.setDiffReference(эталон)
+    viewer.setDisplayMaterial('texdiff')
+    let первая = null
+    viewer.model.traverse((o) => { if (o.isMesh && o.material?.map) первая = o.material.map })
+
+    viewer.setDisplayMaterial('file')
+    viewer.setDisplayMaterial('texdiff')
+    let вторая = null
+    viewer.model.traverse((o) => { if (o.isMesh && o.material?.map) вторая = o.material.map })
+
+    expect(первая, 'карта не построилась').toBeTruthy()
+    expect(вторая, 'при повторном входе карта пересчитана заново, память не работает').toBe(первая)
+  })
+
+  it('смена эталона даёт ДРУГУЮ карту, а не прежнюю из памяти', () => {
+    // Иначе новая модель показывала бы отклонения от чужой.
+    //
+    // Проверяем именно РЕЗУЛЬТАТ, а не пустоту памяти: `setDiffReference` чистит её и тут
+    // же наполняет заново, потому что режим включён, — и «память пуста» было бы неверным
+    // утверждением о верном коде.
+    const g = new THREE.PlaneGeometry(1, 1)
+    const mesh = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ map: однотонная(8, '#000000') }))
+    const model = new THREE.Group()
+    model.add(mesh)
+    viewer.model = model
+
+    viewer.setDiffReference([{ map: однотонная(8, '#ffffff') }])
+    viewer.setDisplayMaterial('texdiff')
+    let было = null
+    viewer.model.traverse((o) => { if (o.isMesh && o.material?.map) было = o.material.map })
+
+    // Новый эталон совпадает с результатом — отклонения нет, карта обязана позеленеть.
+    viewer.setDiffReference([{ map: однотонная(8, '#000000') }])
+    let стало = null
+    viewer.model.traverse((o) => { if (o.isMesh && o.material?.map) стало = o.material.map })
+
+    expect(стало, 'после смены эталона карта не пересчитана').not.toBe(было)
+    const c = среднийЦвет(стало)
+    expect(c.зелёный, `зелёного ${c.зелёный}, красного ${c.красный}: эталон совпал с результатом`)
+      .toBeGreaterThan(c.красный)
+  })
+})

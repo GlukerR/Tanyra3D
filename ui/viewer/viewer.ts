@@ -954,6 +954,11 @@ export class Viewer implements ViewerLike {
     return out;
   }
 
+  /** Есть ли уже посчитанные карты различий. По нему обвязка решает, показывать ли плашку. */
+  hasDiffCache(): boolean {
+    return this._diffCache.size > 0;
+  }
+
   /** Эталон для режима различий. `null` — окно само является эталоном. */
   setDiffReference(refs: SlotMaps[] | null) {
     // Сменился эталон — прежние карты больше ни к чему не относятся.

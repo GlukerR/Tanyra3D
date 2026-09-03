@@ -345,6 +345,7 @@ class DualViewport {
   declare _exposure: number;
   /** Материал показа, один на оба окна. См. setDisplayMaterial. */
   declare _display: DisplayMode;
+  declare _diffRefs: unknown[] | null;
   declare _perf: { left: Float64Array; right: Float64Array; frame: Float64Array; i: number };
   // Эти два появляются позже конструктора и до тех пор отсутствуют — отсюда `?`:
   // снятие подписки заводится при связывании камер, слушатель загрузки — из UI.
@@ -352,6 +353,11 @@ class DualViewport {
   declare _onLoaded?: (() => void) | null;
 
   constructor() {
+    /**
+     * Эталонные карты левой модели для режима различий. Живут, пока не сменилась модель:
+     * пересборка обнуляла бы память готовых карт у правого окна.
+     */
+    this._diffRefs = null;
     this.left = null; // оригинал
     this.right = null; // оптимизировано
     this.linked = true; // связанные камеры: крутишь один — синхронно второй
@@ -765,13 +771,47 @@ class DualViewport {
     const левый = this.left?.viewer as { textureRefs?: () => unknown[]; setDiffReference?: (r: unknown[] | null) => void } | undefined;
     const правый = this.right?.viewer as { setDiffReference?: (r: unknown[] | null) => void } | undefined;
     if (mode === 'texdiff') {
-      левый?.setDiffReference?.(null);
-      правый?.setDiffReference?.(левый?.textureRefs?.() || []);
+      // Эталон собирается ОДИН РАЗ на загруженную пару моделей и держится здесь.
+      //
+      // Раньше он пересобирался при каждом входе в режим — и вместе с ним обнулялась
+      // память готовых карт у правого окна, то есть память не работала вовсе. На
+      // `ABeautifulGame` это стоило долгого пересчёта на каждое нажатие (Александр,
+      // 2026-09-01: «прям долго и тяжело идёт, и загружается повторно долго»).
+      //
+      // Сбрасывается там же, где меняются модели, — в `loadOriginal`/`loadOptimized`.
+      if (!this._diffRefs) this._diffRefs = левый?.textureRefs?.() || [];
+      правый?.setDiffReference?.(this._diffRefs);
+
+      // ПЛАШКА «идёт работа» — только когда работа ДЕЙСТВИТЕЛЬНО идёт.
+      //
+      // Александр 2026-09-01: «кубик загрузки показывать, но не оптимизация, а что-то
+      // другое написать, чтобы понятно было, что работа идёт и приложение не сдохло».
+      // На `ABeautifulGame` сравнение шести карт у каждой детали занимает секунды, и без
+      // плашки окно просто замирает.
+      //
+      // Показываем и УСТУПАЕМ КАДР: расчёт синхронный, и без паузы браузер нарисовал бы
+      // плашку уже после него — то есть никогда. Второй вход обходится памятью, работы
+      // нет, и плашка не мигает зря.
+      const тёплая = (правый as { hasDiffCache?: () => boolean } | undefined)?.hasDiffCache?.();
+      if (!тёплая) {
+        this.right?._setStatus('viewer.status.comparing');
+        requestAnimationFrame(() => {
+          this.left?.viewer?.setDisplayMaterial?.('file');
+          this.right?.viewer?.setDisplayMaterial?.(mode);
+          this.right?._setStatus(null);
+        });
+        return;
+      }
     } else {
-      левый?.setDiffReference?.(null);
       правый?.setDiffReference?.(null);
     }
-    this.left?.viewer?.setDisplayMaterial?.(mode);
+    // ЛЕВОЕ ОКНО В ЭТОМ РЕЖИМЕ ПОКАЗЫВАЕТ МАТЕРИАЛЫ ФАЙЛА, а не ровный зелёный.
+    //
+    // Слово Александра 2026-09-01: «в левом вьюпорте пусть показывается просто вьюпорт с
+    // текстурами обычный». Он прав: сравнивать красную карту не с чем, если рядом такая же
+    // условная заливка. Настоящая модель слева и карта отклонений справа — вот пара, в
+    // которой видно, ЧТО именно потерялось.
+    this.left?.viewer?.setDisplayMaterial?.(mode === 'texdiff' ? 'file' : mode);
     this.right?.viewer?.setDisplayMaterial?.(mode);
   }
 
@@ -811,6 +851,8 @@ class DualViewport {
    *  оптимизированный результат больше не соответствует новой исходной модели. */
   async loadOriginal(originalFile: File | null, pack?: PackEntry[] | null) {
     if (!this._init()) return null;
+    // Модель сменилась — прежние эталонные карты больше не о ней.
+    this._diffRefs = null;
     // ДРУГАЯ модель — ракурс автора и свет из файла забываем. Клип и вариант так не
     // делают намеренно (человек сравнивает модели в одном виде), а здесь наоборот:
     // «камера 5» у новой модели — совсем другая точка зрения, если она вообще есть,
@@ -838,6 +880,8 @@ class DualViewport {
    *  тот же) и применяем к результату — приближённая деталь остаётся на месте после
    *  любой сборки/ребилда. Левый (оригинал) не трогаем. */
   async loadOptimized(optimizedUrl: string | null) {
+    // Модель сменилась — прежние эталонные карты больше не о ней.
+    this._diffRefs = null;
     if (!this._init()) return;
     if (optimizedUrl) {
       const camera = this.left!.viewer ? this.left!.viewer.getCameraState() : null;
