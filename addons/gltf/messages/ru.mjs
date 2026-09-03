@@ -15,10 +15,10 @@ export default {
   'dedup.safe': () => 'объединение одинаковых ресурсов структурно безопасно',
   'dedup.found.textures': ({ n }) => `повторяющихся текстур: ${n}`,
   'dedup.found.materials': ({ n }) => `повторяющихся материалов: ${n}`,
-  'dedup.found.accessors': ({ n }) => `повторяющихся блоков данных: ${n}`,
+  'dedup.found.accessors': ({ n }) => `повторяющихся accessor: ${n}`,
   'dedup.done.textures': ({ n }) => `Одинаковые текстуры объединены (${n})`,
   'dedup.done.materials': ({ n }) => `Одинаковые материалы объединены (${n})`,
-  'dedup.done.accessors': ({ n }) => `Одинаковые блоки данных объединены (${n})`,
+  'dedup.done.accessors': ({ n }) => `Одинаковые accessor объединены (${n})`,
 
   // --- structure/prune-unused ---
   'prune.safe': () => 'удаляются только ресурсы, на которые не осталось ссылок',
@@ -212,7 +212,7 @@ export default {
 
   // --- structure/prune-final ---
   'pruneFinal.safe': () => 'удаляются только ресурсы, осиротевшие после предыдущих правок',
-  'pruneFinal.done': ({ n }) => `Финальная чистка: удалено осиротевших блоков данных — ${n}`,
+  'pruneFinal.done': ({ n }) => `Финальная чистка: удалено осиротевших accessor — ${n}`,
 
   // --- textures/ktx2 ---
   'ktx2.noTools': () => 'toktx или gltf-transform CLI не найдены — текстуры остались в исходном формате',
