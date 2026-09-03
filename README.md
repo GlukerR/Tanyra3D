@@ -501,6 +501,15 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 
 ## Status
 
+**0.2.29 — a platform profile no longer hides what we did not understand.** Profiles are
+written by hand, and anything unfamiliar in them used to pass in silence: a threshold named
+`vertices` was never applied and never complained, so the author believed it worked. The
+profile now reports what the program could not read — an unknown threshold, or an unknown
+value in the note saying whose number it is — and the platform panel shows a mark naming
+the line to fix. It is a message, not a refusal: the profile is read on the server with
+nobody at the screen, and dropping the whole platform over one line would lose the
+thresholds that are correct. The report also says "accessor" instead of "data block".
+
 **0.2.28 — dialogs stopped introducing themselves in English.** Eight dialogs carried a
 hardcoded English `aria-label` — Error, Metadata, Validation, Logs, Batch summary, Export
 result, Your own platform, Remove models — so a screen reader announced them in English
