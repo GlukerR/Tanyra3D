@@ -174,7 +174,7 @@ once the rule set and budgets are mature enough that the number is trustworthy.
 
 ---
 
-## 3. Folder structure (pnpm monorepo, TypeScript)
+## 3. Folder structure (pnpm monorepo — TARGET shape, not today; see status below)
 
 ```
 tanyra3d/
@@ -200,8 +200,9 @@ discovered via config. Core depends only on glTF-Transform's `Document` type and
 interfaces below.
 
 > **Layout status (2026-07-24):** this monorepo structure is the TARGET shape for the first
-> external plugin, not the current state. The repository is FLAT today (`optimize2.mjs`,
-> `core/`, `addons/gltf/`, `assistant.mts`, `server.mts`, `ui/`, `profiles/`, `engines/`). Moving to
+> external plugin, not the current state. The repository is FLAT today (`optimize2.mts`,
+> `core/`, `addons/gltf/`, `assistant.mts`, `server.mts`, `ui/`, `profiles/`, `engines/` —
+> the sources are `.mts` since 0.2.0; `optimize2.mjs` beside it is build output, §13). Moving to
 > `packages/*` is a deliberate event, triggered by the first external package or plugin —
 > not a tidy-up done before then (same principle as EXTENDING §4: don't pay for structure
 > ahead of demand).
@@ -1091,6 +1092,16 @@ Sources: `raw.githubusercontent.com/google/model-viewer/master/packages/model-vi
 
 ## 5. Data flow (five phases)
 
+> **Checked against the engine by the 2026-09-01 revision.** The five phases below match
+> `core/engine.mts` exactly, including their names and order. One line did not: the ceiling
+> on what may be auto-applied was described as `profile.allowFixSafety`, a per-platform
+> field. There is no such field in any profile and no code reads one. The real ceiling is a
+> single engine-wide constant — `AUTOFIX_MAX_TIER` in `core/contract.mts`, today
+> `'perceptual'` — and the only way past it is a `force` flag returned by that rule's own
+> `canFix()`. Someone adding a platform would have set `allowFixSafety` in the profile and
+> watched it do nothing. (The same name in §4 above is legitimate: §4 is labelled a design
+> sketch.)
+
 ```
 load asset (glTF-Transform NodeIO, all extensions + decoders registered)
    → Document (in-memory graph) + cached inspect()
@@ -1100,7 +1111,7 @@ load asset (glTF-Transform NodeIO, all extensions + decoders registered)
         │
    PHASE 2 · PLAN
         collect findings; for each fixable finding call canFix()
-        keep only findings whose fixSafety ≤ profile.allowFixSafety AND canFix().safe
+        keep only findings whose fixSafety ≤ AUTOFIX_MAX_TIER AND canFix().safe
         topologically sort surviving fixes by runAfter + known pipeline order
         detect conflicts via `touches`; serialize or drop with recorded reason
         │
