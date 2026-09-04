@@ -439,6 +439,14 @@ class DualViewport {
     if (!leftEl || !rightEl) return false;
     this.left = new ViewportSlot(leftEl);
     this.right = new ViewportSlot(rightEl);
+    // ПОДПИСКИ, СДЕЛАННЫЕ ДО ЭТОГО МИГА, ДОЛЖНЫ ДОЕХАТЬ.
+    //
+    // Слоты рождаются лениво, при первой загрузке модели, а приложение подписывается на
+    // долгую работу сразу при запуске — то есть РАНЬШЕ. Без этой строки колбэк оставался
+    // лежать у обвязки и не доходил ни до слота, ни до движка: кубик не загорался ни разу,
+    // и подпись шкалы различий не обновлялась (найдено зондом 2026-09-04, третье звено той
+    // же цепочки после `onOptiViewerReady` и `ViewportSlot._onBusy`).
+    if (this._onBusy) for (const слот of [this.left, this.right]) слот.setOnBusy(this._onBusy);
     return true;
   }
 
@@ -841,7 +849,7 @@ class DualViewport {
           if (this._diffStore.size >= 3) {
             const старейший = this._diffStore.keys().next().value as string | undefined;
             if (старейший) {
-              for (const t of this._diffStore.get(старейший)!.values()) (t as { dispose?: () => void }).dispose?.();
+              for (const я of this._diffStore.get(старейший)!.values()) (я as { tex?: { dispose?: () => void } }).tex?.dispose?.();
               this._diffStore.delete(старейший);
             }
           }
@@ -964,6 +972,19 @@ class DualViewport {
     // Прежний эталон снимаем, но посчитанное храним: ключ пары сменится сам, если
     // сменился адрес результата, — а пересборка всегда даёт новый адрес.
     this._diffRefs = null;
+    // СТАРЫЙ ОТВЕТ УБИРАЕМ С ЭКРАНА СРАЗУ, а не когда доедет новая модель.
+    //
+    // Пересборка занимает секунды, и всё это время в окне различий висела предыдущая
+    // карта — по ней ничего не понять, кроме того, что «ничего не изменилось». Александр
+    // 2026-09-04: «переключил на без изменения размера, и вся машина в огромных пикселях.
+    // То есть по новой будто не пересчитывалось совсем». Пересчёт-то шёл, но человек всё
+    // это время смотрел на прежний ответ и не мог этого знать.
+    //
+    // Гасим до серых заглушек: они честно означают «ещё не посчитано».
+    if (this._display === 'texdiff') {
+      (this.right?.viewer as { setDiffReference?: (r: unknown[] | null) => void } | undefined)
+        ?.setDiffReference?.(null);
+    }
     this._diffKey = this._origKey && optimizedUrl ? `${this._origKey}|${optimizedUrl}` : null;
     if (!this._init()) return;
     if (optimizedUrl) {
@@ -1224,6 +1245,8 @@ window.OptiViewer = {
   setExposure: (v) => dual.setExposure(v),
   // Материал показа: 'file' — как в файле, 'clay' — наша глина для безтекстурных моделей.
   setDisplayMaterial: (mode) => dual.setDisplayMaterial(mode),
+  // Чему равен красный в режиме различий: доля 0…1 либо null, если сравнивать было нечего.
+  diffScale: () => (dual.right?.viewer as { diffScale?: () => number | null } | undefined)?.diffScale?.() ?? null,
   getDisplayMaterial: () => dual.getDisplayMaterial(),
   // Снимок ПРАВОГО окна — оптимизированной модели. Левое не снимаем намеренно: рендер
   // показывает то, что человек увезёт, а увозит он результат сборки.

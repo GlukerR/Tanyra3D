@@ -762,6 +762,14 @@ option {
   opacity: 0.85;
 }
 .perf-note { color: var(--outline); }
+/* Шкала различий: та же полка, что у замера нагрузки, — это тоже пояснение к картинке,
+   а не показатель модели. Видна только в режиме различий (класс hidden снимает app.ts). */
+.vp-diffscale:not(.hidden) {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--outline-variant, var(--outline));
+  opacity: 0.85;
+}
 
 /* Перетаскиваемый разделитель между панелями */
 .viewport-splitter {

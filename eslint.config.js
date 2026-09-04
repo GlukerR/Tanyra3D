@@ -56,6 +56,8 @@ const BROWSER_GLOBALS = {
   FileReader: 'readonly',
   FormData: 'readonly',
   Image: 'readonly',
+  // Раскодировать data:-адрес холста в байты — так браузерная проверка собирает GLB.
+  atob: 'readonly',
   createImageBitmap: 'readonly',
   // Нажатие мышью проверяется настоящим событием: браузерный тест шлёт его холсту сам.
   PointerEvent: 'readonly',

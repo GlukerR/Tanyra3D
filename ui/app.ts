@@ -5990,6 +5990,8 @@
   function подписатьсяНаВьюпорт() {
     window.OptiViewer?.setOnBusy?.((busy: boolean) => {
       setBusy('preview-optimized', busy ? 'busy.comparing' : null);
+      // Предел шкалы известен только к концу расчёта — подпись обновляем тогда же.
+      if (!busy) refreshDiffScale();
     });
 
     window.OptiViewer?.setOnInteractivePick?.(({ name, responded }) => {
@@ -6163,7 +6165,33 @@
       if (!window.OptiViewer) return;
       window.OptiViewer.setDisplayMaterial(mode);
       refreshDisplayUI();
+      refreshDiffScale();
     });
+  }
+
+  // НАСКОЛЬКО ВООБЩЕ ИЗМЕНИЛОСЬ — числом, рядом с картинкой.
+  //
+  // Цвет отвечает на вопрос «ГДЕ», и шкала у него постоянная: зелёное значит «цело» в любой
+  // модели. На вопрос «НАСКОЛЬКО» цвет ответить не может — при слабом сжатии вся модель
+  // зелёная, и по картинке не понять, тронуло её на процент или на десятую долю. Это и
+  // говорит подпись: насколько изменилась самая пострадавшая деталь.
+  //
+  // Так разошлись два вопроса, которые один день делили одну шкалу. Попытка ответить обоими
+  // цветом (шкала, растянутая по модели) провалилась на первом же просмотре: Александр
+  // 2026-09-04 — «даже при визуальном отсутствии изменения всё покраснело».
+  const diffScaleEl = $('diff-scale');
+  function refreshDiffScale() {
+    if (!diffScaleEl) return;
+    const режим = window.OptiViewer?.getDisplayMaterial?.();
+    const доля = режим === 'texdiff' ? window.OptiViewer?.diffScale?.() ?? null : null;
+    if (доля === null) {
+      diffScaleEl.classList.add('hidden');
+      diffScaleEl.textContent = '';
+      return;
+    }
+    diffScaleEl.classList.remove('hidden');
+    if (доля <= 0) setText(diffScaleEl, 'vp.diffScale.none');
+    else setText(diffScaleEl, 'vp.diffScale', { n: (доля * 100).toFixed(доля < 0.1 ? 2 : 1) });
   }
 
   // Проводки у пунктов меню своей нет: она ставится там же, где они рождаются, —
