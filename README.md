@@ -507,11 +507,22 @@ density — triangles against the surface they cover — so a part carrying far 
 than its size warrants stands out as a hot patch; the eye weighs it without a table, because
 a dense thumbnail-sized handle is a speck while dense windscreen wipers are a large red
 field. And a fourth view compares textures before and after: the original on the left, a
-deviation map on the right, green where the pixels held and red where they moved. All six
-map slots count — base colour, normals, roughness, metalness, occlusion, emissive — averaged
-per pixel, so a normal map that fell apart no longer passes unnoticed. Comparison happens at
-the original resolution: a downscaled texture is laid over the larger one rather than both
-being reduced, because the loss from downscaling is real loss and worth seeing.
+deviation map on the right, green where the pixels held, through yellow to red where they
+moved. All six map slots count — base colour, normals, roughness, metalness, occlusion,
+emissive — averaged per pixel, so a normal map that fell apart no longer passes unnoticed.
+Comparison happens at the original resolution: a downscaled texture is laid over the larger
+one rather than both being reduced, because the loss from downscaling is real loss and worth
+seeing. Before and after are matched **by material**, not by position: a build reorders and
+merges parts, and materials survive both — on one model 14 of 17 parts matched by name while
+all 17 materials did. A part with no counterpart fades to glass instead of turning green,
+because green means "compared, nothing moved" and silence must not borrow that colour.
+
+This release also repairs a file we were producing incorrectly. A texture referenced only
+through a material extension — diffuse transmission, specular, sheen, clearcoat — kept its
+WebP image in the core `source`, where the specification allows PNG and JPEG only, and
+validators answered `TEXTURE_INVALID_IMAGE_MIME_TYPE`. The cause is an ordering bug in the
+library that moves those references; we now repair it on write, and a guard keeps it
+repaired.
 
 **0.2.29 — a platform profile no longer hides what we did not understand.** Profiles are
 written by hand, and anything unfamiliar in them used to pass in silence: a threshold named

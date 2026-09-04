@@ -70,7 +70,16 @@ async function run(src, features) {
   const result = await runOptimize(gltfAddon, src, { outDir, force: true, advancedFeatures: features, locale: 'ru' });
   let sizes = [];
   if (result.file.written) {
-    const doc = await new NodeIO().read(result.file.dst);
+    // Читаем РЕЗУЛЬТАТ тем же вводом-выводом, что и приложение, — с расширениями.
+    //
+    // Голый `NodeIO` здесь падал: KTX2 и WebP по спецификации лежат ВНУТРИ расширения
+    // (`KHR_texture_basisu`, `EXT_texture_webp`), и читателю, который о них не знает,
+    // текстура приезжает пустой. Раньше это сходило с рук ровно потому, что файл был
+    // невалиден — картинка оставалась в основном `source`, где ядро допускает только PNG
+    // и JPEG. С починкой `fixExtensionTextures` (2026-09-04) выход стал правильным, и
+    // читателя пришлось привести в соответствие. Исходник ниже по-прежнему пишется голым
+    // `NodeIO` намеренно: это заведомо кривой вход, и такие к нам приходят.
+    const doc = await (await gltfAddon.createIO()).read(result.file.dst);
     sizes = doc.getRoot().listTextures().map((t) => textureSize(t.getImage(), t.getMimeType()));
   }
   const lines = [...result.applied, ...result.skipped].filter((e) => e.ruleId === RULE);
