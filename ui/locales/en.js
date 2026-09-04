@@ -85,7 +85,7 @@ window.I18N_CATALOGS.en = {
 
   // Подписи посреди панелей просмотра (ui/viewer/index.js). Ставятся из кода через
   // I18n.setText, поэтому переживают смену языка без перезагрузки модели.
-  'vp.diffScale': 'worst-hit part changed by {n}%',
+  'vp.diffScale': 'worst-hit part: {n}% structure kept',
   'vp.diffScale.none': 'textures unchanged',
   'viewer.status.loading': 'Loading…',
   // Одно сообщение с подстановкой, а не «Loading…» + число: место процента и пробел
