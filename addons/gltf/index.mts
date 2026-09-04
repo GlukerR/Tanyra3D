@@ -816,6 +816,61 @@ function dropEmptyArrays(json: GltfJson, hasBinChunk: boolean): boolean {
 }
 
 /**
+ * Текстура, которую библиотека забыла переложить в своё расширение.
+ *
+ * ДЕФЕКТ БИБЛИОТЕКИ, найденный по жалобе Александра 2026-09-03: «как мы могли создать
+ * новую ошибку при оптимизации?» — валидатор ругался на наш файл
+ * `TEXTURE_INVALID_IMAGE_MIME_TYPE` у `/textures/6/source`.
+ *
+ * WebP и KTX2 в glTF лежат НЕ в основном `source`, а в расширении: основной `source`
+ * обязан указывать на PNG или JPEG, других форматов ядро спецификации не знает.
+ * Перекладывает их `EXT_texture_webp.write()` из `@gltf-transform/extensions` — и делает
+ * это по списку записей текстур, СУЩЕСТВУЮЩИХ НА ТОТ МОМЕНТ.
+ *
+ * А записи создаются лениво, по мере того как на текстуру кто-то сошлётся. Текстуру,
+ * которую упоминает ТОЛЬКО другое расширение материала, записывает это самое расширение —
+ * и происходит это ПОЗЖЕ. Прослежено на `DiffuseTransmissionPlant` (`_work/webp-trace.mjs`):
+ * в момент работы перекладчика записей шесть, а текстур семь; седьмую создаёт
+ * `KHR_materials_diffuse_transmission`, и она остаётся с `source` на WebP — то есть
+ * невалидной.
+ *
+ * Задевает это не редкий случай, а весь современный PBR: specular, sheen, clearcoat,
+ * transmission, volume, iridescence, anisotropy — у каждого свои текстурные слоты.
+ *
+ * Чиним у себя и здесь: этот проход и без того разбирает JSON-чанк, а порядок вызова
+ * чужих расширений нам не подчиняется.
+ */
+function fixExtensionTextures(json: GltfJson): boolean {
+  const РАСШИРЕНИЕ: Record<string, string> = {
+    'image/webp': 'EXT_texture_webp',
+    'image/ktx2': 'KHR_texture_basisu',
+  };
+  const textures = json.textures as Array<Record<string, unknown>> | undefined;
+  const images = json.images as Array<Record<string, unknown>> | undefined;
+  if (!Array.isArray(textures) || !Array.isArray(images)) return false;
+
+  let touched = false;
+  for (const tex of textures) {
+    const source = tex.source;
+    if (typeof source !== 'number') continue;
+    const mime = images[source]?.mimeType;
+    const имя = typeof mime === 'string' ? РАСШИРЕНИЕ[mime] : undefined;
+    if (!имя) continue;                       // PNG и JPEG в основном source — как и надо
+    const exts = (tex.extensions || {}) as Record<string, unknown>;
+    exts[имя] = { source };
+    tex.extensions = exts;
+    delete tex.source;
+    // Расширение уже обязано быть объявлено — его объявляет само правило, — но если
+    // текстура единственная в своём формате, объявления могло и не случиться.
+    const used = json.extensionsUsed as string[] | undefined;
+    if (!Array.isArray(used)) json.extensionsUsed = [имя];
+    else if (!used.includes(имя)) used.push(имя);
+    touched = true;
+  }
+  return touched;
+}
+
+/**
  * Записать документ в байты — и вернуть в них всё, что снял с ИСХОДНОГО ФАЙЛА.
  *
  * ПРАВИЛО (Александр, 2026-08-15): «брать за основу только первоначальный файл и
@@ -850,7 +905,8 @@ const writeBytes = async (
   return withGlbJson(bytes, (out, hasBinChunk) => {
     const restored = restoreCarried(out, carried);
     const dropped = dropEmptyArrays(out, hasBinChunk);
-    return restored || dropped;
+    const fixed = fixExtensionTextures(out);
+    return restored || dropped || fixed;
   });
 };
 

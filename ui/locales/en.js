@@ -85,7 +85,6 @@ window.I18N_CATALOGS.en = {
 
   // Подписи посреди панелей просмотра (ui/viewer/index.js). Ставятся из кода через
   // I18n.setText, поэтому переживают смену языка без перезагрузки модели.
-  'viewer.status.comparing': 'Comparing textures…',
   'viewer.status.loading': 'Loading…',
   // Одно сообщение с подстановкой, а не «Loading…» + число: место процента и пробел
   // перед знаком — часть языка (Правило 8 §3).
@@ -221,6 +220,7 @@ window.I18N_CATALOGS.en = {
 
   // --- статус ---
   // Подписи индикатора ожидания во вьюпортах.
+  'busy.comparing': 'Comparing textures',
   'busy.loading': 'Loading',
   'busy.uploading': 'Uploading',
   'busy.optimizing': 'Building',

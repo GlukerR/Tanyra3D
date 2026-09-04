@@ -149,6 +149,12 @@ interface OptiViewerApi {
   /** Нагрузка на отрисовку либо null, пока окно замера не набралось. */
   getPerf(): { leftMs?: number; rightMs?: number; fps?: number } | null;
   setOnLoaded(fn: () => void): void;
+  /**
+   * Во вьюпорте идёт долгая работа: сравнение текстур считается по кадру за раз, чтобы
+   * приложение не залипало. `true` — началась, `false` — кончилась; приложение показывает
+   * на это время кубик (`setBusy`).
+   */
+  setOnBusy(fn: (busy: boolean) => void): void;
 }
 
 interface Window {
@@ -158,6 +164,12 @@ interface Window {
   OptiViewer: OptiViewerApi;
   /** Мост из модуля вьюпорта: он не видит window.OptiViewer в момент подписки. */
   onOptiViewerModelLoaded?: () => void;
+  /**
+   * Лицо вьюпорта объявлено — можно подписываться. Тот же мост через window, что и выше,
+   * и по той же причине: app.js выполняется РАНЬШЕ модуля, и его подписки на несуществующий
+   * ещё `window.OptiViewer` пропадали молча.
+   */
+  onOptiViewerReady?: () => void;
 }
 
 /**

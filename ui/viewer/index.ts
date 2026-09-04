@@ -107,6 +107,13 @@ class ViewportSlot {
   declare _blobUrl: string | null;
   /** Адреса соседних файлов пачки. Живут ровно одну загрузку — см. _revokePack. */
   declare _packUrls: string[];
+  /**
+   * Кому сообщать о долгой работе. Хранится У СЛОТА, а не только у движка, потому что
+   * движок живёт КОРОЧЕ слота: создаётся лениво при первой загрузке и выбрасывается
+   * в reset(). Подписка приходит от приложения один раз при запуске — то есть заведомо
+   * раньше первого движка, — и без этого поля терялась бы дважды: сразу и на каждом сбросе.
+   */
+  declare _onBusy: ((busy: boolean) => void) | null;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -115,10 +122,24 @@ class ViewportSlot {
     this.viewer = null;
     this._blobUrl = null;
     this._packUrls = [];
+    this._onBusy = null;
+  }
+
+  setOnBusy(fn: ((busy: boolean) => void) | null) {
+    this._onBusy = typeof fn === 'function' ? fn : null;
+    this._применитьOnBusy();
+  }
+
+  _применитьOnBusy() {
+    (this.viewer as { setOnBusy?: (f: ((b: boolean) => void) | null) => void } | null)
+      ?.setOnBusy?.(this._onBusy);
   }
 
   _ensureViewer() {
-    if (!this.viewer) this.viewer = createViewer(this.canvas!);
+    if (!this.viewer) {
+      this.viewer = createViewer(this.canvas!);
+      this._применитьOnBusy();
+    }
     return this.viewer;
   }
 
@@ -347,7 +368,7 @@ class DualViewport {
   declare _display: DisplayMode;
   declare _diffRefs: unknown[] | null;
   /** Готовые карты различий по парам «исходник + результат». Переживают смену модели. */
-  declare _diffStore: Map<string, Map<number, unknown>>;
+  declare _diffStore: Map<string, Map<string, unknown>>;
   /** Ключ ТЕКУЩЕЙ пары. `null` — пара неполна, хранить нечего. */
   declare _diffKey: string | null;
   /** Часть ключа от исходника: имя, размер и время правки файла. */
@@ -810,7 +831,7 @@ class DualViewport {
       // показала чужие различия. Поймано тестом «и сравнение после этого краснеет»:
       // без подстановки он находил зелёную карту прошлой модели.
       if (!this._diffKey) {
-        (правый as { useDiffStore?: (m: Map<number, unknown>) => void } | undefined)?.useDiffStore?.(new Map());
+        (правый as { useDiffStore?: (m: Map<string, unknown>) => void } | undefined)?.useDiffStore?.(new Map());
       } else {
         let своя = this._diffStore.get(this._diffKey);
         if (!своя) {
@@ -826,31 +847,19 @@ class DualViewport {
           }
           this._diffStore.set(this._diffKey, своя);
         }
-        (правый as { useDiffStore?: (m: Map<number, unknown>) => void } | undefined)?.useDiffStore?.(своя);
+        (правый as { useDiffStore?: (m: Map<string, unknown>) => void } | undefined)?.useDiffStore?.(своя);
       }
 
       правый?.setDiffReference?.(this._diffRefs);
 
-      // ПЛАШКА «идёт работа» — только когда работа ДЕЙСТВИТЕЛЬНО идёт.
+      // РЕЖИМ ПРИМЕНЯЕТСЯ СРАЗУ, без отступления на кадр.
       //
-      // Александр 2026-09-01: «кубик загрузки показывать, но не оптимизация, а что-то
-      // другое написать, чтобы понятно было, что работа идёт и приложение не сдохло».
-      // На `ABeautifulGame` сравнение шести карт у каждой детали занимает секунды, и без
-      // плашки окно просто замирает.
-      //
-      // Показываем и УСТУПАЕМ КАДР: расчёт синхронный, и без паузы браузер нарисовал бы
-      // плашку уже после него — то есть никогда. Второй вход обходится памятью, работы
-      // нет, и плашка не мигает зря.
-      const тёплая = (правый as { hasDiffCache?: () => boolean } | undefined)?.hasDiffCache?.();
-      if (!тёплая) {
-        this.right?._setStatus('viewer.status.comparing');
-        requestAnimationFrame(() => {
-          this.left?.viewer?.setDisplayMaterial?.('file');
-          this.right?.viewer?.setDisplayMaterial?.(mode);
-          this.right?._setStatus(null);
-        });
-        return;
-      }
+      // Отступление осталось от прежней, синхронной схемы: расчёт шёл прямо в обходе, и
+      // без уступленного кадра браузер не успевал нарисовать плашку «идёт работа». Теперь
+      // тяжёлое ушло в очередь по кадру за раз, а о работе говорит кубик — плашка не нужна,
+      // и отсрочка стала вредной: в свёрнутом окне `requestAnimationFrame` не вызывается
+      // вовсе, и режим не применялся НИ РАЗУ, пока окно не покажут. Поймано зондом
+      // 2026-09-03: обвязка считает, что показывает различия, а окно осталось в «файле».
     } else {
       правый?.setDiffReference?.(null);
     }
@@ -1002,9 +1011,26 @@ class DualViewport {
   }
 
   declare _onPick?: ((part: { name: string; responded: boolean }) => void) | null;
+  declare _onBusy?: ((busy: boolean) => void) | null;
 
   setOnLoaded(fn: (() => void) | null) {
     this._onLoaded = typeof fn === 'function' ? fn : null;
+  }
+
+  /**
+   * Кому сообщать, что во вьюпорте идёт долгая работа.
+   *
+   * Заказ Александра 2026-09-01: «хочу, чтобы любое переключение между режимами
+   * показывалось кубиком прыгающим… чтобы не выглядело как залагавшее и сломанное
+   * приложение». Кубик рисует приложение (`setBusy` в `ui/app.ts`) — окно про него не
+   * знает и знать не должно, поэтому сигнал идёт наружу обратным вызовом.
+   *
+   * Ставится ОБОИМ окнам: считать может любое, а какое именно — забота обвязки.
+   */
+  setOnBusy(fn: ((busy: boolean) => void) | null) {
+    this._onBusy = typeof fn === 'function' ? fn : null;
+    // Слоту, а не его движку: движка может ещё не быть — см. ViewportSlot._onBusy.
+    for (const слот of [this.left, this.right]) слот?.setOnBusy?.(this._onBusy);
   }
 
   /**
@@ -1210,5 +1236,22 @@ window.OptiViewer = {
   // Уведомление «модель загрузилась/сменилась/сброшена» — по нему UI перестраивает
   // панели, вместо того чтобы опрашивать состав модели каждый кадр.
   setOnLoaded: (fn) => dual.setOnLoaded(fn),
+  setOnBusy: (fn) => dual.setOnBusy(fn),
   setOnInteractivePick: (fn) => dual.setOnInteractivePick(fn),
 };
+
+// ОБЪЯВЛЕНИЕ ЛИЦА — СОБЫТИЕ, О КОТОРОМ НАДО СКАЗАТЬ ВСЛУХ.
+//
+// `app.js` подключён обычным тегом <script>, а этот файл — `type="module"`, то есть
+// отложен и выполняется ПОСЛЕ него. Значит любая строка вида
+// `window.OptiViewer?.setOnBusy?.(…)` в app.js выполняется, когда `window.OptiViewer` ещё
+// не существует, и `?.` ГЛУШИТ её без единого следа: ни ошибки, ни подписки.
+//
+// Так молча потерялись обе подписки сразу — кубик долгой работы и запись о нажатии на
+// интерактивную часть. Найдено 2026-09-03 зондом: приложение подписалось, а сигнал не дошёл
+// ни разу.
+//
+// Тот же приём, что у `onOptiViewerModelLoaded` выше: имя объявляется ЗАРАНЕЕ, а порядок
+// перестаёт иметь значение. Приложение вешает свои подписки в одну функцию и вызывает её
+// само, если лицо к тому времени уже есть.
+window.onOptiViewerReady?.();
