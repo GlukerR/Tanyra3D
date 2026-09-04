@@ -279,7 +279,7 @@ describe('переход между режимами не теряет родн�
     // берётся родной материал: сетка уже подменила его, и следующий режим читал у подменёнки
     // ни карты, ни цвета. Различия сравнивались с пустотой и выходили зелёными.
     viewer.model = сТекстурой('#000000')
-    viewer.setDiffReference([{ имя: 'Плоскость', карты: { map: однотонная(8, '#ffffff') } }])
+    viewer.setDiffReference([{ имя: '', карты: { map: однотонная(8, '#ffffff') } }])
     viewer.setDisplayMaterial('wire')     // подменили материал
     viewer.setDisplayMaterial('texdiff')  // и СРАЗУ в различия, без возврата к файлу
     await дождаться()
@@ -718,7 +718,7 @@ describe('расчёт не морозит окно', () => {
     for (let i = 0; i < n; i++) {
       const m = new THREE.Mesh(
         new THREE.PlaneGeometry(1, 1),
-        new THREE.MeshStandardMaterial({ map: однотонная(8, '#000000') }),
+        new THREE.MeshStandardMaterial({ map: однотонная(8, '#000000'), name: `Деталь ${i}` }),
       )
       m.name = `Деталь ${i}`
       model.add(m)
@@ -761,6 +761,7 @@ describe('расчёт не морозит окно', () => {
     const model = new THREE.Group()
     const стекло = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshStandardMaterial())
     стекло.name = 'Стекло'
+    стекло.material.name = 'Стекло'
     model.add(стекло)
     viewer.model = model
     viewer.useDiffStore(new Map())
@@ -781,17 +782,22 @@ describe('деталь узнаётся по имени, а не по месту
   // справа уже `Pawn_Body_W2`; расхождений 43 из 49. Верх пешки сравнивался с телом
   // соседней, отсюда и «четыре вида пешек», и зелень на сломанных картах.
 
-  /** Две детали с разными картами и говорящими именами. */
+  /**
+   * Две детали со СВОИМИ ИМЕНОВАННЫМИ материалами.
+   *
+   * Имя носит материал, а не деталь: ключ сопоставления — он (см. тип DiffRef).
+   * Деталям имена оставлены только чтобы их было чем найти в проверке.
+   */
   function параДеталей(верхЦвет, низЦвет) {
     const model = new THREE.Group()
     const верх = new THREE.Mesh(
       new THREE.PlaneGeometry(1, 1),
-      new THREE.MeshStandardMaterial({ map: однотонная(8, верхЦвет) }),
+      new THREE.MeshStandardMaterial({ map: однотонная(8, верхЦвет), name: 'Верх' }),
     )
     верх.name = 'Верх'
     const низ = new THREE.Mesh(
       new THREE.PlaneGeometry(1, 1),
-      new THREE.MeshStandardMaterial({ map: однотонная(8, низЦвет) }),
+      new THREE.MeshStandardMaterial({ map: однотонная(8, низЦвет), name: 'Низ' }),
     )
     низ.name = 'Низ'
     model.add(верх, низ)
@@ -831,21 +837,18 @@ describe('деталь узнаётся по имени, а не по месту
     const общийЭталон = однотонная(8, '#ffffff')
     const общаяСтавшая = однотонная(8, '#000000')
     const model = new THREE.Group()
+    // Обе пешки на ОДНОМ материале — так и лежит в настоящих моделях, где фигуры
+    // отличаются только положением. Один материал обязан дать один ответ.
+    const общийМатериал = new THREE.MeshStandardMaterial({ map: общаяСтавшая, name: 'Пешки' })
     for (const имя of ['Пешка A', 'Пешка Б']) {
-      const m = new THREE.Mesh(
-        new THREE.PlaneGeometry(1, 1),
-        new THREE.MeshStandardMaterial({ map: общаяСтавшая }),
-      )
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), общийМатериал)
       m.name = имя
       model.add(m)
     }
     viewer.model = model
     const память = new Map()
     viewer.useDiffStore(память)
-    viewer.setDiffReference([
-      { имя: 'Пешка A', карты: { map: общийЭталон } },
-      { имя: 'Пешка Б', карты: { map: общийЭталон } },
-    ])
+    viewer.setDiffReference([{ имя: 'Пешки', карты: { map: общийЭталон } }])
     viewer.setDisplayMaterial('texdiff')
     await дождаться()
 
@@ -864,7 +867,7 @@ describe('деталь узнаётся по имени, а не по месту
     // стали сильно сломанными».
     viewer.model = параДеталей('#ffffff', '#000000')
     viewer.useDiffStore(new Map())
-    // Эталон знает только «Верх». «Низ» сборка, допустим, склеила или переименовала.
+    // Эталон знает только материал «Верх». «Низ» сборка, допустим, переименовала.
     viewer.setDiffReference([{ имя: 'Верх', карты: { map: однотонная(8, '#ffffff') } }])
     viewer.setDisplayMaterial('texdiff')
     await дождаться()
@@ -892,5 +895,30 @@ describe('деталь узнаётся по имени, а не по месту
     const c = среднийЦвет(картаДетали('Верх').map)
     expect(c.красный, `красного ${c.красный}, зелёного ${c.зелёный}: запасной путь по порядку `
       + 'не сработал, модель осталась без ответа').toBeGreaterThan(c.зелёный)
+  })
+  it('склеенные детали не теряют ответ: ключ — материал, а не деталь', async () => {
+    // ИМЕННО РАДИ ЭТОГО ключ и переехал с детали на материал (Александр, 2026-09-04:
+    // «тебе ничего самому сопоставлять не нужно»). Склейка сливает детали ВНУТРИ
+    // материала: имена деталей после неё другие, а имя материала то же.
+    //
+    // Замер, который решил вопрос (`_work/mat-pairs.mjs`): на `Production Multi UV 01`
+    // деталей нашлось 14 из 17, а материалов — все 17. По-старому три детали остались бы
+    // погашенными зря.
+    const материал = new THREE.MeshStandardMaterial({ map: однотонная(8, '#000000'), name: 'Стены' })
+    const склеенная = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), материал)
+    склеенная.name = 'Merged_0'          // имени «Стена 1» после склейки уже нет
+    const model = new THREE.Group()
+    model.add(склеенная)
+    viewer.model = model
+    viewer.useDiffStore(new Map())
+    viewer.setDiffReference([{ имя: 'Стены', карты: { map: однотонная(8, '#ffffff') } }])
+    viewer.setDisplayMaterial('texdiff')
+    await дождаться()
+
+    const мат = картаДетали('Merged_0')
+    expect(мат.map, 'склеенная деталь осталась без ответа: материал её не спас').toBeTruthy()
+    const c = среднийЦвет(мат.map)
+    expect(c.красный, `красного ${c.красный}, зелёного ${c.зелёный}: чёрное против белого обязано краснеть`)
+      .toBeGreaterThan(c.зелёный)
   })
 })
