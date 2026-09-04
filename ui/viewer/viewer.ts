@@ -408,6 +408,13 @@ export class Viewer implements ViewerLike {
   declare model: THREE.Object3D | null;
   declare _loadToken: number;
   declare renderer: THREE.WebGLRenderer;
+  /** Снятые пиксели на время одного расчёта: одна текстура читается с видеокарты раз. */
+  declare _пиксели?: Map<string, Uint8ClampedArray>;
+  /** Однажды собранная оснастка для съёма пикселей с видеокарты. См. `_пикселиТекстуры`. */
+  declare _съёмник?: {
+    scene: THREE.Scene; camera: THREE.OrthographicCamera; material: THREE.MeshBasicMaterial;
+    rt: THREE.WebGLRenderTarget | null; w: number; h: number;
+  };
   declare scene: THREE.Scene;
   declare camera: THREE.PerspectiveCamera;
   declare controls: OrbitControls;
@@ -905,6 +912,9 @@ export class Viewer implements ViewerLike {
    */
   static readonly ПОЛНЫЙ_КРАСНЫЙ = 0.05;
 
+  /** До какого размера приводятся карты при сравнении. Почему — см. `_diffRaw`. */
+  static readonly ПОТОЛОК_СРАВНЕНИЯ = 1024;
+
   static readonly DIFF_SLOTS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap'] as const;
 
   /**
@@ -932,6 +942,106 @@ export class Viewer implements ViewerLike {
    * сильное отклонение ЭТОЙ модели, — а узнать его можно только обойдя все пары. Поэтому
    * счёт и раскраска разведены: сначала считаем, потом красим, зная предел.
    */
+  /**
+   * Пиксели текстуры — ЧЕРЕЗ ВИДЕОКАРТУ, а не через холст.
+   *
+   * ДЕФЕКТ, найденный Александром 2026-09-04: «почему у нас на ktx2 это не работает
+   * вообще». Ответ был в консоли: `drawImage … The provided value is not of type
+   * (HTMLCanvasElement or HTMLImageElement …)`.
+   *
+   * KTX2 приходит в сцену как `CompressedTexture`: её пиксели лежат в формате самой
+   * видеокарты (UASTC/ETC1S), в оперативной памяти их нет вовсе, и нарисовать её на холсте
+   * нельзя в принципе. Исключение падало прямо в шаге очереди и убивало ВЕСЬ расчёт —
+   * модель оставалась серой, а кубик не гас.
+   *
+   * Выход один и он же общий: попросить нарисовать текстуру ту самую видеокарту, которая
+   * умеет её читать, и снять готовые пиксели. Путь получается ОДИН для всех форматов —
+   * PNG, JPEG, WebP, KTX2, — и это ценнее, чем разбор случаев: сравнение перестаёт зависеть
+   * от того, чем текстура сжата.
+   *
+   * ЦВЕТОВОЕ ПРОСТРАНСТВО приёмника берётся у источника. Тогда преобразование при чтении
+   * (sRGB → линейное) и обратное при записи гасят друг друга, и байты остаются теми же, что
+   * в файле, — иначе порог в 5% пришлось бы мерить заново.
+   *
+   * ПОРЯДОК СТРОК у видеокарты снизу вверх, у холста сверху вниз. Переворачиваем здесь, а
+   * не потом: дальше пиксели сравниваются с эталоном, снятым тем же способом, и любая
+   * невязка была бы общей — то есть незаметной и потому опасной.
+   */
+  _пикселиТекстуры(t: THREE.Texture | null | undefined, w: number, h: number): Uint8ClampedArray | null {
+    const img = t?.image as { width?: number } | undefined;
+    if (!t || !img || !img.width) return null;
+    if (!this.renderer) return null;
+
+    // ОДНА ТЕКСТУРА — ОДНО ЧТЕНИЕ. У шахмат 49 материалов на 33 текстуры, и половина карт
+    // общая: без этой памяти одна и та же картинка снималась бы с видеокарты по нескольку
+    // раз. Память живёт ровно один расчёт (чистится вместе с очередью).
+    const ключ = `${t.uuid}:${w}x${h}`;
+    const уже = this._пиксели?.get(ключ);
+    if (уже) return уже;
+
+    if (!this._съёмник) {
+      const scene = new THREE.Scene();
+      const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+      const material = new THREE.MeshBasicMaterial({ toneMapped: false, depthTest: false });
+      scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material));
+      this._съёмник = { scene, camera, material, rt: null, w: 0, h: 0 };
+    }
+    const с = this._съёмник;
+    if (!с.rt || с.w !== w || с.h !== h) {
+      с.rt?.dispose();
+      // ВЕЩЕСТВЕННЫЙ приёмник, а не байтовый.
+      //
+      // Видеокарта раскодирует sRGB САМА, на уровне формата текстуры: в шейдер приходит уже
+      // линейное значение, и никакой настройкой это не отменить. Значит вернуть sRGB надо
+      // нам, а линейное в восьми битах для этого не годится — тёмные тона схлопываются в
+      // единицы (0x30 превращался в 8, и обратно уже не разворачивался).
+      //
+      // Поймано пробой на красноту: первая редакция проверки брала текстуру с пространством
+      // по умолчанию и проходила при любой ошибке.
+      с.rt = new THREE.WebGLRenderTarget(w, h, {
+        magFilter: THREE.NearestFilter, minFilter: THREE.NearestFilter, depthBuffer: false,
+        type: THREE.FloatType,
+      });
+      с.w = w; с.h = h;
+    }
+    с.rt.texture.colorSpace = t.colorSpace;
+    с.material.map = t;
+    с.material.needsUpdate = true;
+
+    const прежняя = this.renderer.getRenderTarget();
+    this.renderer.setRenderTarget(с.rt);
+    this.renderer.render(с.scene, с.camera);
+    const сырое = new Float32Array(w * h * 4);
+    this.renderer.readRenderTargetPixels(с.rt, 0, 0, w, h, сырое);
+    this.renderer.setRenderTarget(прежняя);
+    с.material.map = null;
+
+    // ОБРАТНО В sRGB — для тех карт, что в нём и лежали. Карты данных (нормали,
+    // шероховатость) помечены линейными, их не трогаем: они и в файле линейные.
+    const вSRGB = t.colorSpace === THREE.SRGBColorSpace;
+    const байт = (v: number) => {
+      const л = Math.min(1, Math.max(0, v));
+      const s = вSRGB ? (л <= 0.0031308 ? л * 12.92 : 1.055 * Math.pow(л, 1 / 2.4) - 0.055) : л;
+      return Math.round(s * 255);
+    };
+
+    // Строки задом наперёд: у видеокарты начало снизу, у холста сверху.
+    const out = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) {
+      const из = (h - 1 - y) * w * 4;
+      const в = y * w * 4;
+      for (let x = 0; x < w * 4; x += 4) {
+        out[в + x] = байт(сырое[из + x]!);
+        out[в + x + 1] = байт(сырое[из + x + 1]!);
+        out[в + x + 2] = байт(сырое[из + x + 2]!);
+        out[в + x + 3] = Math.round(Math.min(1, Math.max(0, сырое[из + x + 3]!)) * 255);
+      }
+    }
+    if (!this._пиксели) this._пиксели = new Map();
+    this._пиксели.set(ключ, out);
+    return out;
+  }
+
   _diffRaw(эталоны: SlotMaps, ставшие: SlotMaps): DiffRaw | null {
     const слоты = Viewer.DIFF_SLOTS.filter((k) => {
       const и = эталоны[k]?.image as { width?: number } | undefined;
@@ -945,20 +1055,22 @@ export class Viewer implements ViewerLike {
       const и = эталоны[k]!.image as { width: number; height: number };
       if (и.width > w) { w = и.width; h = и.height; }
     }
+    // ПОТОЛОК РАЗРЕШЕНИЯ СРАВНЕНИЯ.
+    //
+    // Снятие пикселей с видеокарты — синхронное чтение назад, и на 2048×2048 это 16 МБ за
+    // раз, до двенадцати раз на материал. Очередь переставала успевать, и модель подолгу
+    // стояла серой (замер в живом окне: KTX2 на шахматах не досчитывался и за восемь секунд).
+    //
+    // Тысяча двадцать четыре — вчетверо меньше работы. Карта различий смотрится на модели
+    // целиком, а не под лупой, и разницы там не видно; сама же мера от этого не страдает:
+    // ОБЕ стороны приводятся к одному размеру, и потеря деталей по-прежнему считается между
+    // ними, а не между ними и оригиналом.
+    if (w > Viewer.ПОТОЛОК_СРАВНЕНИЯ) {
+      h = Math.max(1, Math.round(h * (Viewer.ПОТОЛОК_СРАВНЕНИЯ / w)));
+      w = Viewer.ПОТОЛОК_СРАВНЕНИЯ;
+    }
 
-    const снять = (t: THREE.Texture | null | undefined) => {
-      const img = t?.image as CanvasImageSource & { width?: number } | undefined;
-      if (!img || !img.width) return null;
-      const c = document.createElement('canvas');
-      c.width = w; c.height = h;
-      const ctx = c.getContext('2d', { willReadFrequently: true });
-      if (!ctx) return null;
-      // Без сглаживания: иначе браузер придумает промежуточные цвета, которых в файле нет,
-      // и карта покажет плавную разницу там, где на деле квадрат одного цвета.
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(img, 0, 0, w, h);
-      return ctx.getImageData(0, 0, w, h).data;
-    };
+    const снять = (t: THREE.Texture | null | undefined) => this._пикселиТекстуры(t, w, h);
 
     const пары: Array<[Uint8ClampedArray, Uint8ClampedArray | null]> = [];
     for (const k of слоты) {
@@ -1477,6 +1589,9 @@ export class Viewer implements ViewerLike {
         this._diffTimer = requestAnimationFrame(шаг);
       } else {
         this._diffTimer = null;
+        // Снятые пиксели больше не нужны: готовые карты лежат в памяти различий, а сырые
+        // занимали бы десятки мегабайт до конца жизни окна.
+        this._пиксели?.clear();
         this._onBusy?.(false);
       }
     };
@@ -1770,7 +1885,15 @@ export class Viewer implements ViewerLike {
         o.material = this._clayFor(first ? first.side : THREE.FrontSide, first);
       });
       // Очередь набралась — запускаем её. Она сама сообщит, когда работа кончится.
-      if (this._display === 'texdiff') this._runDiffQueue();
+      //
+      // А если считать нечего — говорим об этом сразу. Иначе подпись «насколько изменилось»
+      // остаётся от прежнего захода: при втором входе в режим всё берётся из памяти, работы
+      // нет, сообщать некому — и человек читает вчерашнее число. Поймано на KTX2: шкала
+      // 5,09%, подпись 2,67%.
+      if (this._display === 'texdiff') {
+        if (this._diffQueue.length) this._runDiffQueue();
+        else this._onBusy?.(false);
+      }
       // Затемнение по глубине — свойство ГЛИНЫ, и внутри оно само проверяет режим.
       // Сетке туман не нужен: рёбра и так разведены пустотой между ними.
       this._updateClayDepth();
