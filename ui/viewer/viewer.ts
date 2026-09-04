@@ -1286,7 +1286,7 @@ export class Viewer implements ViewerLike {
    */
   _texdiffFor(родной: THREE.Material | null, эталон: SlotMaps, ключ: string) {
     const готовая = this._diffCache.get(ключ);
-    if (готовая) return this._картой(готовая.tex);
+    if (готовая) return this._картой(готовая.tex, Viewer._откудаРазмещение(родной));
 
     const m = родной as THREE.MeshStandardMaterial | null;
     const ставшие: SlotMaps = {};
@@ -1303,7 +1303,7 @@ export class Viewer implements ViewerLike {
     const tex = this._diffColor(raw);
     if (!tex) return this._стеклоДиффа();
     this._diffCache.set(ключ, { raw, tex });
-    return this._картой(tex);
+    return this._картой(tex, Viewer._откудаРазмещение(родной));
   }
 
 
@@ -1322,8 +1322,84 @@ export class Viewer implements ViewerLike {
     return худшая;
   }
 
-  _картой(map: THREE.CanvasTexture) {
-    return new THREE.MeshBasicMaterial({ map, side: THREE.DoubleSide, toneMapped: false });
+  /**
+   * Материал с готовой картой различий — И С ТЕМ ЖЕ РАЗМЕЩЕНИЕМ, что у исходной текстуры.
+   *
+   * ДЕФЕКТ, найденный Александром 2026-09-04: «на многих моделях видны потяжки… в одном
+   * месте просто пиксели, в другом растяжка, будто там текстура была наложена линиями».
+   * И там же: у `SheenWoodLeather` самая красная часть на глаз сломана меньше всего, а у
+   * `AnimationPointerUVs` «не отыгрывается анимация на текстуре и части текстур вообще не
+   * работают».
+   *
+   * Причина у всех трёх одна. Текстура ложится на модель не «один к одному»: у неё бывает
+   * сдвиг, масштаб и поворот (`KHR_texture_transform`) и свой НОМЕР НАБОРА развёртки. Замер
+   * по корпусу (`_work/uv-transforms.mjs`): трансформ есть у `Calculator`, `CarConcept`,
+   * `ChronographWatch`, `ConstructionSite`, `AnimationPointerUVs`; наборов развёртки у
+   * `Dirty Cube` шесть, у `MosquitoInAmber` три.
+   *
+   * А карта различий вешалась с настройками ПО УМОЛЧАНИЮ — без сдвига, без масштаба, всегда
+   * на первый набор. Отсюда растяжки, красное не на том месте и мёртвая анимация: она
+   * двигает исходную текстуру, а наша лежала неподвижно.
+   *
+   * Размещение берём у ТОЙ САМОЙ текстуры, что лежит на модели сейчас, и запоминаем её:
+   * анимация меняет сдвиг каждый кадр, и одного копирования при создании мало (см.
+   * `_догнатьРазмещение`).
+   */
+  _картой(map: THREE.CanvasTexture, источник?: THREE.Texture | null) {
+    const m = new THREE.MeshBasicMaterial({ map, side: THREE.DoubleSide, toneMapped: false });
+    if (источник) {
+      Viewer._перенестиРазмещение(источник, map);
+      m.userData.источникРазмещения = источник;
+    }
+    return m;
+  }
+
+  /**
+   * У какой текстуры брать размещение. Базовый цвет, если он есть, — он главный; иначе
+   * первая попавшаяся карта материала.
+   */
+  static _откудаРазмещение(источник: THREE.Material | SlotMaps | null): THREE.Texture | null {
+    // Принимает и материал, и готовый набор карт: у них одни и те же имена слотов, а нужен
+    // ответ на один вопрос — «по какой текстуре класть».
+    const m = источник as Record<string, THREE.Texture | null | undefined> | null;
+    if (!m) return null;
+    if (m.map) return m.map;
+    for (const k of Viewer.DIFF_SLOTS) {
+      if (m[k]) return m[k]!;
+    }
+    return null;
+  }
+
+  /** Скопировать размещение текстуры: сдвиг, масштаб, поворот, обёртку и номер набора. */
+  static _перенестиРазмещение(из: THREE.Texture, в: THREE.Texture) {
+    в.offset.copy(из.offset);
+    в.repeat.copy(из.repeat);
+    в.center.copy(из.center);
+    в.rotation = из.rotation;
+    в.wrapS = из.wrapS;
+    в.wrapT = из.wrapT;
+    // Номер набора развёртки. У модели их бывает до шести, и карта, повешенная на первый
+    // вместо третьего, показывает правду не в том месте — это хуже, чем не показывать.
+    в.channel = из.channel;
+    в.matrixAutoUpdate = true;
+  }
+
+  /**
+   * Догнать размещение, если оно поехало: анимация двигает сдвиг текстуры каждый кадр.
+   *
+   * `AnimationPointerUVs` — ровно такой случай: `KHR_animation_pointer` анимирует сдвиг
+   * развёртки. Наша карта — отдельный объект, и без этой строки она стояла на месте, пока
+   * модель под ней ехала. Стоит это нескольких присваиваний на материал за кадр.
+   */
+  _догнатьРазмещение() {
+    for (const m of this._densityMats) {
+      const из = (m as THREE.Material).userData?.источникРазмещения as THREE.Texture | undefined;
+      const карта = (m as THREE.MeshBasicMaterial).map;
+      if (!из || !карта) continue;
+      if (карта.offset.equals(из.offset) && карта.repeat.equals(из.repeat)
+        && карта.rotation === из.rotation && карта.center.equals(из.center)) continue;
+      Viewer._перенестиРазмещение(из, карта);
+    }
   }
 
   /**
@@ -1489,6 +1565,12 @@ export class Viewer implements ViewerLike {
       if (!a && !b) continue;
       части.push(`${k}:${a?.uuid || '—'}>${b?.uuid || '—'}`);
     }
+    // РАЗМЕЩЕНИЕ — ЧАСТЬ КЛЮЧА. Одни и те же карты два материала могут класть по-разному:
+    // свой сдвиг, свой масштаб, свой набор развёртки. Готовая карта различий у них общая,
+    // а размещение переносится НА НЕЁ — значит без этого второй материал молча переставил бы
+    // карту первому.
+    const р = Viewer._откудаРазмещение(ставшие);
+    if (р) части.push(`@${р.offset.x},${р.offset.y},${р.repeat.x},${р.repeat.y},${р.rotation},${р.channel}`);
     return части.join('|');
   }
 
@@ -1947,7 +2029,7 @@ export class Viewer implements ViewerLike {
           const готовая = ключ ? this._diffCache.get(ключ) : undefined;
           const быстрый = готовая ? null : this._texdiffБыстро(first ?? null, эталон);
           const m = готовая
-            ? this._картой(готовая.tex)
+            ? this._картой(готовая.tex, Viewer._откудаРазмещение(first ?? null))
             : (быстрый ?? this._заглушкаДиффа());
           this._densityMats.add(m);
           o.material = m;
@@ -2770,6 +2852,8 @@ export class Viewer implements ViewerLike {
     // Затемнение считается от расстояния до камеры, а она двигается: пересчёт каждый
     // кадр — это вычитание двух чисел, дешевле любой попытки поймать момент сдвига.
     if (this._display === 'clay') this._updateClayDepth();
+    // Размещение карты различий идёт за исходной текстурой: её двигает анимация.
+    if (this._display === 'texdiff') this._догнатьРазмещение();
     this.renderer.render(this.scene, this._activeCamera());
   }
 

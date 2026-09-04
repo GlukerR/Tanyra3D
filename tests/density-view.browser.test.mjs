@@ -1246,3 +1246,103 @@ describe('пиксели текстур снимаются видеокарто�
     expect(второй, 'снято заново вместо того, чтобы взять из памяти').toBe(первый)
   })
 })
+
+describe('карта различий ложится ТУДА ЖЕ, куда лежала текстура', () => {
+  // ДЕФЕКТ, найденный Александром 2026-09-04: «на многих моделях видны потяжки… в одном
+  // месте просто пиксели, в другом растяжка, будто там текстура была наложена линиями».
+  // И там же: у SheenWoodLeather самая красная часть на глаз сломана меньше всего, а у
+  // AnimationPointerUVs «не отыгрывается анимация на текстуре, и части текстур вообще не
+  // работают».
+  //
+  // Причина у всех трёх одна. Текстура ложится не «один к одному»: у неё бывают сдвиг,
+  // масштаб и поворот (KHR_texture_transform) и свой НОМЕР НАБОРА развёртки. Замер по
+  // корпусу (`_work/uv-transforms.mjs`): трансформ у Calculator, CarConcept,
+  // ChronographWatch, ConstructionSite, AnimationPointerUVs; наборов развёртки у Dirty Cube
+  // шесть, у MosquitoInAmber три.
+  //
+  // А карта различий вешалась с настройками ПО УМОЛЧАНИЮ.
+
+  function модельСРазмещением(настроить) {
+    const карта = однотонная(8, '#000000')
+    настроить(карта)
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshStandardMaterial({ map: карта, name: 'Деталь' }))
+    m.name = 'Деталь'
+    const model = new THREE.Group()
+    model.add(m)
+    return model
+  }
+
+  async function показать(model) {
+    viewer.model = model
+    viewer.useDiffStore(new Map())
+    viewer.setDiffReference([{ имя: 'Деталь', карты: { map: однотонная(8, '#ffffff') } }])
+    viewer.setDisplayMaterial('texdiff')
+    await дождаться()
+    let м = null
+    viewer.model.traverse((o) => { if (o.isMesh && o.name === 'Деталь') м = o.material })
+    return м
+  }
+
+  it('сдвиг и масштаб переносятся на карту', async () => {
+    const м = await показать(модельСРазмещением((t) => {
+      t.offset.set(0.25, 0.5)
+      t.repeat.set(2, 3)
+      t.wrapS = THREE.RepeatWrapping
+      t.wrapT = THREE.RepeatWrapping
+    }))
+    expect(м.map.offset.x, 'сдвиг не перенесён — карта ляжет не туда').toBeCloseTo(0.25, 5)
+    expect(м.map.offset.y, 'сдвиг по второй оси не перенесён').toBeCloseTo(0.5, 5)
+    expect(м.map.repeat.x, 'масштаб не перенесён — отсюда «растяжки линиями»').toBeCloseTo(2, 5)
+    expect(м.map.repeat.y, 'масштаб по второй оси не перенесён').toBeCloseTo(3, 5)
+    expect(м.map.wrapS, 'обёртка не перенесена: при повторе края разъедутся')
+      .toBe(THREE.RepeatWrapping)
+  })
+
+  it('поворот переносится на карту', async () => {
+    const м = await показать(модельСРазмещением((t) => {
+      t.rotation = Math.PI / 4
+      t.center.set(0.5, 0.5)
+    }))
+    expect(м.map.rotation, 'поворот не перенесён').toBeCloseTo(Math.PI / 4, 5)
+    expect(м.map.center.x, 'середина поворота не перенесена').toBeCloseTo(0.5, 5)
+  })
+
+  it('номер набора развёртки переносится', async () => {
+    // У Dirty Cube наборов шесть. Карта, повешенная на первый вместо третьего, показывает
+    // правду не в том месте — это хуже, чем не показывать вовсе.
+    const м = await показать(модельСРазмещением((t) => { t.channel = 2 }))
+    expect(м.map.channel, 'карта повешена на чужой набор развёртки').toBe(2)
+  })
+
+  it('анимация сдвига догоняется: карта едет вместе с текстурой', async () => {
+    // AnimationPointerUVs двигает сдвиг развёртки каждый кадр. Наша карта — отдельный
+    // объект, и без догона она стояла на месте, пока модель под ней ехала.
+    const model = модельСРазмещением((t) => { t.offset.set(0, 0) })
+    const м = await показать(model)
+    let исходная = null
+    model.traverse((o) => { if (o.isMesh) исходная = viewer._родной(o)?.map })
+    expect(исходная, 'исходной карты нет — проверка вышла пустой').toBeTruthy()
+
+    исходная.offset.set(0.7, 0.2)      // как это делает анимация
+    viewer.renderFrame()
+    expect(м.map.offset.x, 'карта не поехала за текстурой: анимация не отыграется')
+      .toBeCloseTo(0.7, 5)
+    expect(м.map.offset.y, 'карта не поехала по второй оси').toBeCloseTo(0.2, 5)
+  })
+
+  it('одни карты, разное размещение — разные записи в памяти', async () => {
+    // Иначе второй материал молча переставил бы карту первому: готовая карта у них общая,
+    // а размещение переносится НА НЕЁ.
+    const общая = однотонная(8, '#ffffff')
+    const a = { map: однотонная(8, '#000000') }
+    const b = { map: a.map }
+    a.map.offset.set(0, 0)
+    const ключA = viewer.constructor._ключПары({ map: общая }, a)
+    b.map = a.map
+    const сдвинутая = a.map.clone()
+    сдвинутая.offset.set(0.5, 0)
+    const ключB = viewer.constructor._ключПары({ map: общая }, { map: сдвинутая })
+    expect(ключA).not.toBe(ключB)
+  })
+})
