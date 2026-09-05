@@ -205,6 +205,11 @@ window.I18N_CATALOGS.ru = {
   'menu.settings.workdir.open': 'Показать папку',
   'menu.settings.workdir.clear': 'Очистить сейчас',
   'menu.settings.workdir.cleared': 'Папка пуста. Модель придётся загрузить заново.',
+
+  'menu.settings.viewport': 'Вьюпорт',
+  'menu.settings.texdiff': 'Показывать, что изменилось в текстурах',
+  'menu.settings.texdiff.hint':
+    'Сравнивает каждую текстуру обеих моделей пиксель за пикселем. Медленно, и нужна сильная машина.',
   'menu.help': 'Справка',
   'menu.render': 'Рендер',
   'menu.render.what': 'Картинка PNG с оптимизированной моделью — ровно такая, как сейчас на экране.',

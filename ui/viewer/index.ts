@@ -14,7 +14,7 @@
 // запись понимает и не переписывает — см. tsconfig.ui.json.
 
 import { Viewer } from "./viewer.js";
-import type { CameraState, DisplayMode, PackEntry, SnapshotOptions, ViewerLike } from "./contract.js";
+import type { CameraState, DiffEntry, DiffReference, DisplayMode, PackEntry, SnapshotOptions, ViewerLike } from "./contract.js";
 import { DISPLAY_MODES } from "./contract.js";
 
 /**
@@ -131,8 +131,7 @@ class ViewportSlot {
   }
 
   _применитьOnBusy() {
-    (this.viewer as { setOnBusy?: (f: ((b: boolean) => void) | null) => void } | null)
-      ?.setOnBusy?.(this._onBusy);
+    this.viewer?.setOnBusy?.(this._onBusy);
   }
 
   _ensureViewer() {
@@ -366,9 +365,9 @@ class DualViewport {
   declare _exposure: number;
   /** Материал показа, один на оба окна. См. setDisplayMaterial. */
   declare _display: DisplayMode;
-  declare _diffRefs: unknown[] | null;
+  declare _diffRefs: DiffReference[] | null;
   /** Готовые карты различий по парам «исходник + результат». Переживают смену модели. */
-  declare _diffStore: Map<string, Map<string, unknown>>;
+  declare _diffStore: Map<string, Map<string, DiffEntry>>;
   /** Ключ ТЕКУЩЕЙ пары. `null` — пара неполна, хранить нечего. */
   declare _diffKey: string | null;
   /** Часть ключа от исходника: имя, размер и время правки файла. */
@@ -817,8 +816,8 @@ class DualViewport {
     //
     // Левое получает `null` — оно эталон, ему сравнивать не с чем. Правое получает список
     // текстур левого по порядку обхода.
-    const левый = this.left?.viewer as { textureRefs?: () => unknown[]; setDiffReference?: (r: unknown[] | null) => void } | undefined;
-    const правый = this.right?.viewer as { setDiffReference?: (r: unknown[] | null) => void } | undefined;
+    const левый = this.left?.viewer;
+    const правый = this.right?.viewer;
     if (mode === 'texdiff') {
       // Эталон собирается ОДИН РАЗ на загруженную пару моделей и держится здесь.
       //
@@ -839,7 +838,7 @@ class DualViewport {
       // показала чужие различия. Поймано тестом «и сравнение после этого краснеет»:
       // без подстановки он находил зелёную карту прошлой модели.
       if (!this._diffKey) {
-        (правый as { useDiffStore?: (m: Map<string, unknown>) => void } | undefined)?.useDiffStore?.(new Map());
+        правый?.useDiffStore?.(new Map());
       } else {
         let своя = this._diffStore.get(this._diffKey);
         if (!своя) {
@@ -849,13 +848,15 @@ class DualViewport {
           if (this._diffStore.size >= 3) {
             const старейший = this._diffStore.keys().next().value as string | undefined;
             if (старейший) {
-              for (const я of this._diffStore.get(старейший)!.values()) (я as { tex?: { dispose?: () => void } }).tex?.dispose?.();
+              // Освобождает запись САМА: что у неё внутри — холст, две текстуры или ничего —
+              // знает только движок (`DiffEntry` в contract.ts).
+              for (const я of this._diffStore.get(старейший)!.values()) я.dispose();
               this._diffStore.delete(старейший);
             }
           }
           this._diffStore.set(this._diffKey, своя);
         }
-        (правый as { useDiffStore?: (m: Map<string, unknown>) => void } | undefined)?.useDiffStore?.(своя);
+        правый?.useDiffStore?.(своя);
       }
 
       правый?.setDiffReference?.(this._diffRefs);
@@ -880,14 +881,14 @@ class DualViewport {
     // 97 против 14 из 21 (38% → 67%, «стало хуже»), на общей — 37 из 97 против ОДНОЙ из 21.
     if (mode === 'wire') {
       const диапазоны = [
-        (this.left?.viewer as { densityRange?: () => [number, number] | null } | undefined)?.densityRange?.(),
-        (this.right?.viewer as { densityRange?: () => [number, number] | null } | undefined)?.densityRange?.(),
+        левый?.densityRange?.(),
+        правый?.densityRange?.(),
       ].filter(Boolean) as Array<[number, number]>;
       const общая: [number, number] | null = диапазоны.length
         ? [Math.min(...диапазоны.map((d) => d[0])), Math.max(...диапазоны.map((d) => d[1]))]
         : null;
       for (const слот of [this.left, this.right]) {
-        (слот?.viewer as { setDensityScale?: (r: [number, number] | null) => void } | undefined)?.setDensityScale?.(общая);
+        слот?.viewer?.setDensityScale?.(общая);
       }
     }
 
@@ -982,8 +983,7 @@ class DualViewport {
     //
     // Гасим до серых заглушек: они честно означают «ещё не посчитано».
     if (this._display === 'texdiff') {
-      (this.right?.viewer as { setDiffReference?: (r: unknown[] | null) => void } | undefined)
-        ?.setDiffReference?.(null);
+      this.right?.viewer?.setDiffReference?.(null);
     }
     this._diffKey = this._origKey && optimizedUrl ? `${this._origKey}|${optimizedUrl}` : null;
     if (!this._init()) return;
@@ -1246,7 +1246,7 @@ window.OptiViewer = {
   // Материал показа: 'file' — как в файле, 'clay' — наша глина для безтекстурных моделей.
   setDisplayMaterial: (mode) => dual.setDisplayMaterial(mode),
   // Чему равен красный в режиме различий: доля 0…1 либо null, если сравнивать было нечего.
-  diffScale: () => (dual.right?.viewer as { diffScale?: () => number | null } | undefined)?.diffScale?.() ?? null,
+  diffScale: () => dual.right?.viewer?.diffScale?.() ?? null,
   getDisplayMaterial: () => dual.getDisplayMaterial(),
   // Снимок ПРАВОГО окна — оптимизированной модели. Левое не снимаем намеренно: рендер
   // показывает то, что человек увезёт, а увозит он результат сборки.

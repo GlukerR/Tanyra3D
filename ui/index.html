@@ -51,6 +51,24 @@
         <p class="menu-note" id="workdir-note" data-i18n="menu.settings.workdir.counting">Counting…</p>
         <button class="menu-item" type="button" id="workdir-open" data-i18n="menu.settings.workdir.open">Show the folder</button>
         <button class="menu-item" type="button" id="workdir-clear" data-i18n="menu.settings.workdir.clear">Clear it now</button>
+        <!-- Тяжёлый способ показа — ЗА ГАЛОЧКОЙ, и по умолчанию его нет (Александр,
+             2026-09-05: «основными режимами были только 3, а четвёртый только при
+             включении его в настройках… Это тяжёлый мод и он не должен быть для всех и
+             для всего. на слабых пк он вообще не пойдёт»).
+
+             Настройки — верное место: способов показа четыре, но три отвечают на вопрос
+             «как выглядит эта модель», а четвёртый на другой — «что в ней изменила
+             сборка», и стоит он несравнимо дороже. Пока галочка снята, кнопки НЕТ во
+             вьюпорте вовсе: показанная кнопка обязана работать, а погашенная без причины
+             читается как поломка (Правило 12). -->
+        <p class="menu-group-title" data-i18n="menu.settings.viewport">Viewport</p>
+        <label class="menu-check" for="setting-texdiff">
+          <input type="checkbox" id="setting-texdiff">
+          <span>
+            <span class="menu-check-label" data-i18n="menu.settings.texdiff">Show what changed in the textures</span>
+            <span class="menu-check-hint" data-i18n="menu.settings.texdiff.hint">Compares every texture pixel by pixel. Slow, and it needs a capable machine.</span>
+          </span>
+        </label>
       </div>
     </div>
     <!-- Рендер. Отдельно от выгрузки модели намеренно (Александр, 2026-08-27: «при
@@ -301,7 +319,10 @@
       <button id="display-wire" class="vp-tool" type="button" aria-pressed="false" data-i18n-title="vp.display.wire" data-i18n-aria="vp.display.wire" title="Wireframe" aria-label="Wireframe">◍</button>
       <button id="display-clay" class="vp-tool" type="button" aria-pressed="false" data-i18n-title="vp.display.clay" data-i18n-aria="vp.display.clay" title="Clay" aria-label="Clay">●</button>
       <button id="display-file" class="vp-tool is-on" type="button" aria-pressed="true" data-i18n-title="vp.display.file" data-i18n-aria="vp.display.file" title="Materials from the file" aria-label="Materials from the file">◉</button>
-      <button id="display-texdiff" class="vp-tool" type="button" aria-pressed="false" data-i18n-title="vp.display.texdiff" data-i18n-aria="vp.display.texdiff" title="What changed in the textures" aria-label="What changed in the textures">◈</button>
+      <!-- ЧЕТВЁРТАЯ КНОПКА СКРЫТА В РАЗМЕТКЕ и открывается галочкой в настройках. Класс
+           стоит здесь, а не наводится из кода при запуске: иначе кнопка успевала бы
+           мигнуть до первого кадра у всех, включая тех, кто её не включал. -->
+      <button id="display-texdiff" class="vp-tool hidden" type="button" aria-pressed="false" data-i18n-title="vp.display.texdiff" data-i18n-aria="vp.display.texdiff" title="What changed in the textures" aria-label="What changed in the textures">◈</button>
     </div>
 
     <!-- НИЗ СПРАВА: свойства ЭТОЙ модели — значками, каждый со своей полочкой.

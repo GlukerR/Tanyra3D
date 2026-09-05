@@ -191,7 +191,10 @@ option {
   cursor: default;
 }
 
-.menu-radio {
+/* Строка выбора в меню: галочка, подпись и пояснение под ней. Правила назывались
+   .menu-radio и не использовались НИКЕМ — переименованы под первого настоящего
+   потребителя (тяжёлый режим различий в настройках, 2026-09-05), а не размножены. */
+.menu-check {
   display: flex;
   gap: 8px;
   align-items: flex-start;
@@ -199,10 +202,10 @@ option {
   border-radius: 6px;
   cursor: pointer;
 }
-.menu-radio:hover { background: var(--surface-high, rgba(255,255,255,0.06)); }
-.menu-radio input { margin-top: 2px; flex-shrink: 0; }
-.menu-radio-label { display: block; font-size: 12px; color: var(--on-surface); }
-.menu-radio-hint { display: block; margin-top: 2px; font-size: 11px; line-height: 1.4; color: var(--outline); }
+.menu-check:hover { background: var(--surface-high, rgba(255,255,255,0.06)); }
+.menu-check input { margin-top: 2px; flex-shrink: 0; }
+.menu-check-label { display: block; font-size: 12px; color: var(--on-surface); }
+.menu-check-hint { display: block; margin-top: 2px; font-size: 11px; line-height: 1.4; color: var(--outline); }
 
 .menu-note {
   padding: 6px 10px;
