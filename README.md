@@ -502,6 +502,20 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 
 ## Status
 
+**0.2.35 — the texture comparison stops calling a clean build damaged.** A build people
+cannot tell apart by eye was painting one pixel in five yellow or worse and one in eleven
+fully red. The cause was the colour threshold, not the structural one: on a visually clean
+re-encode one pixel in a hundred still moves by more than 32 levels out of 255 — edges,
+where any codec shifts pixels and the eye does not notice — and every one of them was
+reaching full red. Both thresholds are now taken from a measurement across two models and
+five settings: false red drops fourfold while real damage stays plain, a heavily compressed
+build still shows two fifths of its surface yellow or worse, downscaling still reads as
+loss, and a build that changed nothing is still exactly zero.
+
+Both signals earn their place, and the measurement shows why: on one model the structural
+threshold changes nothing at all and colour decides; on the other, a wrecked build loses a
+third of its structure and the structural signal decides. Models break differently.
+
 **0.2.34 — two more engines, each with its own set of warnings.** React Three Fiber and
 Needle Engine join the engine list, bringing it to five. Both were read from their sources
 rather than their documentation, because the documentation of every one of them says the
