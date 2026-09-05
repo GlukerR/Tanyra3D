@@ -1,15 +1,3 @@
-// Write Policy tests — проверка поведения при записи .glb файла.
-//
-// Контекст (задание 2026-07-30): core/engine.mjs теперь пишет файл даже при
-// провале проверки целостности. Единственная причина не писать — dryRun:true.
-//
-// Все тесты используют только REPO-модели из tests/helpers/model-files.mjs,
-// доступные после `git clone`.
-//
-// Ловушка 1: провал проверки целостности при записанном файле воспроизводится
-// не на всех моделях и зависит от внешних кодировщиков. Целенаправленный
-// перебор не проводится — три базовых пункта работы важнее.
-
 import { it, expect, afterAll } from 'vitest';
 import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 
@@ -23,9 +11,6 @@ import {
   describeIfModels,
 } from './helpers/model-files.mjs';
 
-// ========================================================================
-// Работа 1, пункт 1: dryRun:true → written === false
-// ========================================================================
 
 describeIfModels(
   [...REPO_MODELS].filter((m) => m !== 'Truncated Broken 01.glb'),
@@ -41,7 +26,6 @@ describeIfModels(
         expect(result.status).toBe('ok');
         expect(result.file.written).toBe(false);
 
-        // Если dst заполнен — убедимся, что файла реально нет
         if (result.file.dst) {
           expect(fs.existsSync(result.file.dst)).toBe(false);
         }
@@ -50,10 +34,6 @@ describeIfModels(
   },
 );
 
-// ========================================================================
-// Работа 1, пункт 2: битый вход (Truncated Broken 01.glb) с dryRun:false
-//   → status: 'fail', result.error определён, written === false, файла нет
-// ========================================================================
 
 describeIfModels(
   ['Truncated Broken 01.glb'],
@@ -73,7 +53,6 @@ describeIfModels(
         expect(result.error.length).toBeGreaterThan(5);
         expect(result.file.written).toBe(false);
 
-        // Убедимся, что файла на диске нет
         if (result.file.dst) {
           expect(fs.existsSync(result.file.dst)).toBe(false);
         }
@@ -84,10 +63,6 @@ describeIfModels(
   },
 );
 
-// ========================================================================
-// Работа 1, пункт 3: обычный прогон REPO-модели с dryRun:false
-//   → status: 'ok', written === true, файл есть на диске
-// ========================================================================
 
 describeIfModels(
   ['Dirty Cube 01.glb'],
@@ -109,7 +84,6 @@ describeIfModels(
         const exists = fs.existsSync(result.file.dst);
         expect(exists).toBe(true);
 
-        // Файл должен быть непустым .glb
         const stat = fs.statSync(result.file.dst);
         expect(stat.size).toBeGreaterThan(0);
       } finally {
@@ -119,9 +93,6 @@ describeIfModels(
   },
 );
 
-// ========================================================================
-// Проверка на нескольких REPO-моделях: dryRun:false → файл пишется
-// ========================================================================
 
 describeIfModels(
   ['Dirty Cube 01.glb', 'Morph Cube 01.glb', 'Vertex Colors 01.glb'],

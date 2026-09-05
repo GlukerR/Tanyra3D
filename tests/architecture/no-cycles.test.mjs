@@ -1,16 +1,3 @@
-// tests/architecture/no-cycles.test.mjs — DFS по графу импортов (АРХИТЕКТУРНЫЕ_ТЕСТЫ.md §5.5).
-//
-// Циклическая зависимость — это всегда скрытая глобальность: два модуля, которые
-// ссылаются друг на друга, невозможно разобрать по отдельности, и любой из них
-// можно импортировать только вместе с другим. ESM ловит лишь часть циклов (с
-// hoisting-функциями цикл переживает загрузку) — статическая проверка графа
-// дешева и не оставляет таких лазеек.
-//
-// Граф строится тем же лексером (es-module-lexer), что и layer-boundaries —
-// см. ./import-graph.mjs. Рёбра — только между production-файлами;
-// node:* и пакеты в граф не входят (цикл между нами и three невозможен по
-// определению: пакет не импортирует наш код).
-
 import { describe, it, expect } from 'vitest';
 import { PROJECT_ROOT, buildGraph, findCycle } from './import-graph.mjs';
 import path from 'node:path';
@@ -20,7 +7,7 @@ describe('no-cycles — граф импортов production-кода ацикл
     const { nodes, edges } = await buildGraph();
     expect(nodes.size).toBeGreaterThan(10);
     const edgeCount = [...edges.values()].reduce((n, e) => n + e.length, 0);
-    expect(edgeCount).toBeGreaterThan(10); // иначе гейт ни на что не смотрит
+    expect(edgeCount).toBeGreaterThan(10);
   });
 
   it('в графе нет циклов', async () => {
@@ -37,12 +24,12 @@ describe('no-cycles — граф импортов production-кода ацикл
       edges: new Map([
         ['a', ['b']],
         ['b', ['c']],
-        ['c', ['a']], // цикл a → b → c → a
+        ['c', ['a']],
       ]),
     };
     const cycle = findCycle(graph);
     expect(cycle).not.toBeNull();
-    expect(cycle[0]).toBe(cycle[cycle.length - 1]); // замкнутый путь
+    expect(cycle[0]).toBe(cycle[cycle.length - 1]);
   });
 
   it('ацикличный синтетический граф не даёт ложного срабатывания', () => {

@@ -1,27 +1,3 @@
-// scripts/setup.mjs — одна команда вместо списка «поставьте это, потом то».
-//
-//   npm run setup          проверить и доустановить
-//   npm run setup -- --yes  то же без вопросов (для скриптов)
-//   npm run doctor         только проверить, ничего не менять
-//
-// Всё, что ставится через npm, приезжает с `npm install` — CLI для KTX2 переехал
-// в зависимости именно ради этого. Остаётся две вещи, которые npm поставить не может:
-//
-//   1. Chromium для браузерных тестов — качается playwright'ом, одна команда.
-//   2. `ktx` из KTX-Software — нативная программа Khronos, в npm её нет.
-//      Скачиваем и ставим САМИ, но только после явного «да»: скачивание чужого
-//      исполняемого файла — не то, что делают молча. Отказ ничего не ломает,
-//      без ktx работает всё, кроме сжатия текстур в KTX2.
-//
-// Почему под каждой системой по-разному. Khronos выкладывает под Linux
-// распаковываемый tar.bz2 — его кладём прямо в проект (.tools/), без прав
-// администратора. Под Windows и macOS выложены ТОЛЬКО установщики (.exe и .pkg),
-// распаковать их нечем, поэтому запускаем официальный установщик: система сама
-// спросит подтверждение. Пароль/UAC вводит человек в своём терминале.
-//
-// Вывод английский: это первое, что запускает новый участник, и README показывает
-// именно его. Комментарии остаются русскими — они для нас.
-
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
@@ -29,19 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import readline from 'node:readline';
-// fileURLToPath, а не `.pathname`: см. addons/gltf/tools.mjs — пробелы и кириллица
-// в пути к проекту иначе приезжают процентами. Ревью 2026-08-10 (P1.2).
 import { fileURLToPath } from 'node:url';
 
 const CHECK_ONLY = process.argv.includes('--check');
 const ASSUME_YES = process.argv.includes('--yes') || process.argv.includes('-y');
-// Браузер нужен ТОЛЬКО тестам. Ни server.mjs, ни ui/ о нём не знают. Ставить его
-// человеку, который просто хочет открыть приложение, — сотни мегабайт впустую.
 const WITH_TESTS = process.argv.includes('--tests');
 
-// Версия закреплена намеренно. gltf-transform CLI v4 требует KTX-Software 4.3+,
-// и на 4.4.2 прогнан весь набор тестов. «Всегда последняя» означала бы, что новый
-// релиз Khronos может сломать сборку в любой день без единой нашей правки.
 const KTX_VERSION = '4.4.2';
 const KTX_BASE = `https://github.com/KhronosGroup/KTX-Software/releases/download/v${KTX_VERSION}`;
 
@@ -59,10 +28,6 @@ console.log('');
 console.log('Tanyra3D — environment check');
 console.log('');
 
-// ---------- 1. Node ----------
-// 20.9 — не круглое число и не наш выбор: столько требует sharp (кодирование текстур),
-// а gltf-transform CLI требует 20. На Node 18 установка проходит, а программа падает
-// при первой же текстуре — поэтому сказать об этом надо здесь, а не там.
 const [nodeMajor, nodeMinor] = process.versions.node.split('.').map(Number);
 if (nodeMajor > 20 || (nodeMajor === 20 && nodeMinor >= 9)) {
   console.log(ok(`Node ${process.versions.node}`));
@@ -72,7 +37,6 @@ if (nodeMajor > 20 || (nodeMajor === 20 && nodeMinor >= 9)) {
   process.exit(1);
 }
 
-// ---------- 2. зависимости ----------
 if (!existsSync(path.join(root, 'node_modules'))) {
   console.log(bad('Dependencies are not installed'));
   console.log(dim('    npm install'));
@@ -80,7 +44,6 @@ if (!existsSync(path.join(root, 'node_modules'))) {
 }
 console.log(ok('Dependencies installed'));
 
-// ---------- 3. CLI для KTX2 (своя зависимость) ----------
 if (existsSync(path.join(root, 'node_modules', '@gltf-transform', 'cli'))) {
   console.log(ok('Texture encoding tool (@gltf-transform/cli)'));
 } else {
@@ -88,13 +51,8 @@ if (existsSync(path.join(root, 'node_modules', '@gltf-transform', 'cli'))) {
   missingOptional += 1;
 }
 
-// ---------- 4. ktx из KTX-Software ----------
 
-/** Ищет ktx там же, где потом будет искать движок (addons/gltf/tools.mjs). */
 function findKtx() {
-  // Шов для проверки: ветка «инструмента нет» иначе недостижима на машине, где он
-  // стоит, — а это как раз та ветка, что качает чужой файл и не должна зависать
-  // в CI. Проверяется в tests/setup-script.test.mjs.
   if (process.env.TANYRA_SETUP_NO_KTX === '1') return null;
   const names = process.platform === 'win32' ? ['ktx.exe', 'toktx.exe'] : ['ktx', 'toktx'];
   for (const dir of (process.env.PATH || '').split(path.delimiter)) {
@@ -111,7 +69,6 @@ function findKtx() {
   return findInTools();
 }
 
-/** Локальная установка в .tools/ — только под Linux, там распаковка без прав. */
 function findInTools() {
   if (!existsSync(TOOLS_DIR)) return null;
   const stack = [TOOLS_DIR];
@@ -128,7 +85,6 @@ function findInTools() {
   return null;
 }
 
-/** Имя файла релиза под текущую систему. null — системы нет среди выложенных. */
 function ktxAsset() {
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
   if (process.platform === 'linux') {
@@ -155,8 +111,6 @@ function manualHint() {
 
 function ask(question) {
   if (ASSUME_YES) return Promise.resolve(true);
-  // Не спрашиваем там, где спросить некого: CI, пайп, запуск из другого скрипта.
-  // Молчаливое ожидание ввода в CI выглядит как зависший прогон.
   if (!process.stdin.isTTY) return Promise.resolve(false);
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise((resolve) => {
@@ -175,14 +129,6 @@ async function download(url, dest) {
   return buf;
 }
 
-/**
- * Сверяет sha1 с файлом-спутником релиза.
- *
- * Спутники Khronos выкладывает ТОЛЬКО для Linux-архивов. У Windows .exe и macOS .pkg
- * их нет — то есть как раз там, где мы запускаем установщик, сверять нечего. Не делаем
- * вид, что проверка есть: пишем в вывод, что её нет. Настоящая защита в обоих случаях —
- * HTTPS до github.com, а sha1 рядом с файлом ловит битую закачку, не подмену.
- */
 async function verifySha1(buf, assetName) {
   let expected;
   try {
@@ -218,23 +164,19 @@ async function installKtx() {
   const sha = await verifySha1(buf, asset.name);
   if (sha === false) {
     console.log(bad('Checksum mismatch — the download is not what Khronos published. Aborting.'));
-    try { rmSync(tmp, { force: true }); } catch { /* уже нет — и ладно */ }
+    try { rmSync(tmp, { force: true }); } catch {  }
     return null;
   }
   console.log(dim(sha === true ? '    checksum ok' : '    (no checksum published for this file)'));
 
   try {
     if (asset.kind === 'tar') {
-      // Linux: распаковка в проект, никаких прав администратора.
       mkdirSync(TOOLS_DIR, { recursive: true });
       execFileSync('tar', ['-xjf', tmp, '-C', TOOLS_DIR], { stdio: 'pipe' });
     } else if (asset.kind === 'installer') {
-      // Windows: выложен только установщик. Запускаем его — Windows сам покажет
-      // запрос подтверждения. Без /S: человек должен видеть, что ставится.
       console.log(dim('    starting the official installer — confirm the Windows prompt'));
       execFileSync(tmp, [], { stdio: 'inherit' });
     } else if (asset.kind === 'pkg') {
-      // macOS: тоже только установщик. Пароль человек вводит сам, в своём терминале.
       console.log(dim('    installing — macOS will ask for your password'));
       execFileSync('sudo', ['installer', '-pkg', tmp, '-target', '/'], { stdio: 'inherit' });
     }
@@ -243,7 +185,7 @@ async function installKtx() {
     manualHint();
     return null;
   } finally {
-    if (asset.kind === 'tar') { try { rmSync(tmp, { force: true }); } catch { /* не важно */ } }
+    if (asset.kind === 'tar') { try { rmSync(tmp, { force: true }); } catch {  } }
   }
 
   const found = findKtx();
@@ -253,10 +195,6 @@ async function installKtx() {
     return null;
   }
 
-  // Найти файл — не то же, что суметь его запустить. Под Linux ktx распаковывается
-  // в проект вместе со своей libktx, и если сборка ищет библиотеку по системному
-  // пути, бинарник на месте, а запуск падает. Молчаливо «нашли» — и потом непонятный
-  // отказ на первой же модели. Лучше сказать сразу.
   try {
     execFileSync(found, ['--version'], { stdio: 'pipe', timeout: 20_000 });
   } catch (e) {
@@ -292,12 +230,9 @@ if (ktx) {
   }
 }
 
-// ---------- 5. Chromium — только для тестов, по явной просьбе ----------
 if (CHECK_ONLY) {
   console.log(dim('  Browser for the tests — not checked in doctor mode'));
 } else if (!WITH_TESTS) {
-  // Тихо и без предупреждения: для того, кто просто пользуется программой, это
-  // не «чего-то не хватает», а «лишнего не скачали».
   console.log(dim('  Browser for the tests — skipped: the program does not need it'));
   console.log(dim('      npm run setup -- --tests   — installs it (hundreds of MB), for running the tests'));
 } else {
@@ -312,7 +247,6 @@ if (CHECK_ONLY) {
   }
 }
 
-// ---------- итог ----------
 console.log('');
 if (missingOptional === 0) {
   console.log(ok('Done. Everything is in place.'));

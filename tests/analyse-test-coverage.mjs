@@ -1,26 +1,4 @@
 #!/usr/bin/env node
-// tests/analyse-test-coverage.mjs — AST-анализ golden-corpus.test.mjs
-//
-// Собирает метрики без запуска vitest:
-//   — число describe-блоков (describe / describeLocal / describe.skip)
-//   — число it-тестов (it / it.skip), разделение на active / skipped
-//   — какие модели упомянуты в modelPath()
-//   — какие комбинации advancedFeatures проверяются
-//   — модель → сколько тестов её проверяют
-//
-// Парсинг: сначала пробуется @babel/parser, при его отсутствии — блочная
-// эвристика на регулярках.
-//
-// ВНИМАНИЕ: в этом репозитории @babel/parser НЕ установлен (проверено
-// 2026-07-31: node_modules/@babel отсутствует, в package.json его нет —
-// vitest тянет свой парсер иначе). То есть на практике всегда работает
-// fallback, и baseline в tests/baselines.json откалиброван именно под него.
-// AST-ветка — задел на случай, если парсер появится; менять её, не проверив
-// оба пути, нельзя: числа разъедутся и гейт либо порвётся, либо ослабнет.
-//
-// Запуск:
-//   node tests/analyse-test-coverage.mjs
-//   node tests/analyse-test-coverage.mjs --json   # JSON-вывод
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -30,26 +8,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
 const TARGET = path.resolve(PROJECT_ROOT, 'tests/golden-corpus.test.mjs');
 
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-//  0. CONST-массивы — ДО babel-парсинга (должны быть инициализированы
-//     раньше collectConstArrays(code) на уровне модуля, иначе TDZ).
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-
-// Разрешает GOLDEN_MODELS.filter(...) / [...APPLY_ON_PASSTHROUGH] / DIRTY_SAFE_MODELS —
-// ищет const-определение массива со строками в том же файле.
 const CONST_ARRAYS = {};
 
-// Предварительный проход: собрать все const-массивы строк из кода.
-// Также обрабатывает new Set([...]) — распространённый паттерн в тестовых файлах.
 function collectConstArrays(code) {
-  // const NAME = [...] — прямое определение
   let re = /const\s+(\w+)\s*=\s*\[([^\]]+)\]/gs;
   let m;
   while ((m = re.exec(code)) !== null) {
     const items = [...m[2].matchAll(/['"`]([^'"`]+\.glb)['"`]/g)].map((x) => x[1]);
     if (items.length) CONST_ARRAYS[m[1]] = items;
   }
-  // const NAME = new Set([...]) — Set-обёртка
   re = /const\s+(\w+)\s*=\s*new\s+Set\s*\(\s*\[([^\]]+)\]\s*\)/gs;
   while ((m = re.exec(code)) !== null) {
     const items = [...m[2].matchAll(/['"`]([^'"`]+\.glb)['"`]/g)].map((x) => x[1]);
@@ -57,12 +24,9 @@ function collectConstArrays(code) {
   }
 }
 
-// Пытается разрешить AST-узел, который может быть GOLDEN_MODELS.filter(...) или
-// [...APPLY_ON_PASSTHROUGH] или просто именем массива.
 function resolveModelFilter(node) {
   if (!node) return [];
 
-  // [...APPLY_ON_PASSTHROUGH] — spread expression
   if (node.type === 'ArrayExpression') {
     const items = [];
     for (const el of node.elements) {
@@ -74,16 +38,13 @@ function resolveModelFilter(node) {
     return items;
   }
 
-  // GOLDEN_MODELS.filter(...) — CallExpression
   if (node.type === 'CallExpression' && node.callee?.type === 'MemberExpression') {
     const objName = node.callee.object?.type === 'Identifier' ? node.callee.object.name : null;
     if (objName && CONST_ARRAYS[objName]) {
-      // .filter(callback) — возвращаем исходный массив как есть; фильтр не влияет на состав
       return CONST_ARRAYS[objName];
     }
   }
 
-  // Прямое имя массива (DIRTY_SAFE_MODELS)
   if (node.type === 'Identifier' && CONST_ARRAYS[node.name]) {
     return CONST_ARRAYS[node.name];
   }
@@ -91,17 +52,11 @@ function resolveModelFilter(node) {
   return [];
 }
 
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-//  1. Попытка babel-парсинга
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-
 let ast = null;
 let parserUsed = 'babel';
 
 const code = fs.readFileSync(TARGET, 'utf-8');
 
-// Предварительный проход: собрать const-массивы (.glb внутри) для разрешения
-// GOLDEN_MODELS.filter(...) в eachModel-вызовах.
 collectConstArrays(code);
 
 try {
@@ -112,13 +67,8 @@ try {
     errorRecovery: true,
   });
 } catch (err) {
-  // fallback — регулярки
   parserUsed = `fallback (${err.message})`;
 }
-
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-//  2. Обход AST / fallback
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 
 function walkAST(astRoot) {
   const describes = [];
@@ -142,7 +92,6 @@ function walkAST(astRoot) {
   function traverse(node, depth = 0) {
     if (!node || typeof node !== 'object') return;
 
-    // Ищем выражения-вызовы describe / describeLocal / it
     if (node.type === 'ExpressionStatement' && node.expression?.type === 'CallExpression') {
       const callee = node.expression.callee;
       const calleeName = extractCalleeName(callee);
@@ -185,7 +134,6 @@ function walkAST(astRoot) {
         return;
       }
 
-      // eachModel — параметризованный вызов с моделью
       if (calleeName === 'eachModel') {
         const itDesc = extractStringArg(node.expression);
         const dc = currentDescribe?.name || '(top-level)';
@@ -299,22 +247,6 @@ function findAdvancedFeatures(node) {
   return results;
 }
 
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-//  3. Fallback-парсер (блочный — brace matching вместо line-by-line)
-//
-//  В отличие от старой «построчной» версии, этот парсер:
-//   1. Находит it()/eachModel() блоки и извлекает callback-тело через
-//      findMatchingBrace (счётчик скобок с учётом строк и комментариев).
-//   2. Из тела извлекает modelPath('...') и advancedFeatures: [...] —
-//      оба работают поперёк строк.
-//   3. Для eachModel — разбирает аргумент-массив моделей через
-//      resolveModelListFromText (фильтры, spread, inline).
-//   4. Для for (const flags of [...]) — ищет охватывающий цикл и
-//      извлекает массивы флагов, когда в теле стоит переменная flags.
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-
-// Найти парную скобку: от start (где уже стоит '{') ищем '}' с учётом
-// строковых литералов и однострочных комментариев.
 function findMatchingBrace(code, start, open = '{', close = '}') {
   let depth = 1;
   for (let i = start + 1; i < code.length; i++) {
@@ -324,7 +256,6 @@ function findMatchingBrace(code, start, open = '{', close = '}') {
       depth--;
       if (depth === 0) return i;
     }
-    // Строки — пропускаем содержимое
     if (c === "'" || c === '"' || c === '`') {
       const q = c;
       i++;
@@ -333,29 +264,21 @@ function findMatchingBrace(code, start, open = '{', close = '}') {
         i++;
       }
     }
-    // Однострочный комментарий — до конца строки
     if (c === '/' && code[i + 1] === '/') {
       while (i < code.length && code[i] !== '\n') i++;
     }
-    // Блочный комментарий /* ... */ — пропускаем до закрытия
     if (c === '/' && code[i + 1] === '*') {
-      i += 2; // за '/*'
+      i += 2;
       while (i < code.length - 1 && !(code[i] === '*' && code[i + 1] === '/')) i++;
-      i++; // за '/'
+      i++;
     }
   }
   return -1;
 }
 
-// Извлечь все комбинации advancedFeatures из тела блока.
-// Обрабатывает два случая:
-//   (а) литерал  advancedFeatures: ['safe', 'instance']
-//   (б) переменная advancedFeatures: flags  →  ищем охватывающий
-//       for (const flags of [['safe'], ...]) в codeBeforeBlock.
 function extractFlagsFromBody(body, codeBeforeBlock) {
   const results = [];
 
-  // (а) Литерал: advancedFeatures: [...]  — через /s работает поперёк строк
   const re = /advancedFeatures\s*:\s*\[([^\]]*)\]/gs;
   let m;
   while ((m = re.exec(body)) !== null) {
@@ -363,16 +286,13 @@ function extractFlagsFromBody(body, codeBeforeBlock) {
     if (flags.length) results.push(flags);
   }
 
-  // (б) Переменная: advancedFeatures: flags — ищем for (const flags of [...])
   if (/advancedFeatures\s*:\s*flags\b/.test(body)) {
-    // Ищем ПОСЛЕДНИЙ подходящий for-цикл перед этим блоком
     const forRe = /for\s*\(\s*(?:const|let|var)\s+flags\s+of\s*(\[[\s\S]*?\n\s*\])\s*\)/g;
     let lastFor;
     let fm;
     while ((fm = forRe.exec(codeBeforeBlock)) !== null) lastFor = fm;
     if (lastFor) {
       const arrText = lastFor[1];
-      // Внутри внешнего массива — вложенные массивы флагов: ['safe'], ['safe','instance'], …
       const innerArrs = [...arrText.matchAll(/\[([^\]]*)\]/g)];
       for (const ia of innerArrs) {
         const flags = ia[1].split(',').map((s) => s.trim().replace(/['"`]/g, '')).filter(Boolean);
@@ -384,18 +304,10 @@ function extractFlagsFromBody(body, codeBeforeBlock) {
   return results;
 }
 
-// Распарсить список моделей из текста первого аргумента eachModel.
-// Поддерживает:
-//   inline:    ['Model1.glb', 'Model2.glb']
-//   spread:    [...APPLY_ON_PASSTHROUGH]
-//   filter:    GOLDEN_MODELS.filter(isSafeEligible)
-//   bare name: DIRTY_SAFE_MODELS
 function resolveModelListFromText(text) {
-  // inline массив: ['Model1.glb', 'Model2.glb']
   const inlineRe = /^\s*\[([^\]]*)\]/;
   const im = text.match(inlineRe);
   if (im) {
-    // Может быть [...SPREAD] — проверяем
     const spreadInner = im[1].trim();
     if (spreadInner.startsWith('...')) {
       const name = spreadInner.slice(3).trim();
@@ -404,7 +316,6 @@ function resolveModelListFromText(text) {
     return [...im[1].matchAll(/['"`]([^'"`]+\.glb)['"`]/g)].map((x) => x[1]);
   }
 
-  // Имя + опциональный .filter(...): GOLDEN_MODELS.filter(isSafeEligible)
   const nameRe = /^\s*(\w+)(?:\.filter\([^)]*\))?/;
   const nm = text.match(nameRe);
   if (nm && CONST_ARRAYS[nm[1]]) {
@@ -414,14 +325,12 @@ function resolveModelListFromText(text) {
   return [];
 }
 
-// Основной fallback-парсер — блочный, с brace-matching.
 function fallbackParse(code) {
   const describes = [];
   const its = [];
   const modelPaths = [];
   const flagCombos = [];
 
-  // Шаг 1: найти все describe / it / eachModel на верхнем уровне
   const blocks = [];
   const re = /(?:^|\n)(\s*)(describe|describeLocal|describe\.skip|it|it\.skip|eachModel)\s*\(\s*['"`]([^'"`]*)['"`]/g;
   let bm;
@@ -435,13 +344,11 @@ function fallbackParse(code) {
     });
   }
 
-  // Стек describe-блоков
   const describeStack = [];
 
   for (let bi = 0; bi < blocks.length; bi++) {
     const block = blocks[bi];
 
-    // --- describe / describeLocal / describe.skip ---------------------
     if (block.keyword.startsWith('describe')) {
       describeStack.push(block);
       describes.push({ name: block.name, type: block.keyword });
@@ -452,9 +359,6 @@ function fallbackParse(code) {
       ? describeStack[describeStack.length - 1].name
       : '(top-level)';
 
-    // --- it / it.skip / eachModel ------------------------------------
-
-    // Найти тело стрелочной функции: «=>» → «{» → парный «}»
     const afterName = code.slice(block.endOfName);
     const arrowIdx = afterName.indexOf('=>');
     if (arrowIdx < 0) continue;
@@ -470,11 +374,9 @@ function fallbackParse(code) {
     const codeBeforeBlock = code.slice(0, block.index);
 
     if (block.keyword === 'it' || block.keyword === 'it.skip') {
-      // --- it-блок -----------------------------------------------------
       const isSkipped = block.keyword === 'it.skip';
       its.push({ name: block.name, skipped: isSkipped, describe: dc });
 
-      // modelPath('...') и runAndRead('...')
       for (const re of [
         /modelPath\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g,
         /runAndRead\s*\(\s*['"`]([^'"`]+\.glb)['"`]\s*,/g,
@@ -485,16 +387,13 @@ function fallbackParse(code) {
         }
       }
 
-      // advancedFeatures
       const flags = extractFlagsFromBody(body, codeBeforeBlock);
       for (const f of flags) {
         flagCombos.push({ flags: f, describe: dc, itName: block.name });
       }
     } else if (block.keyword === 'eachModel') {
-      // --- eachModel-блок ----------------------------------------------
       its.push({ name: `eachModel(${block.name})`, skipped: false, describe: dc });
 
-      // Разобрать список моделей из аргумента после имени
       const afterNameText = code.slice(block.endOfName);
       const argStart = afterNameText.indexOf(',');
       if (argStart >= 0) {
@@ -507,7 +406,6 @@ function fallbackParse(code) {
           modelPaths.push({ modelName: model, describe: dc, itName });
         }
 
-        // advancedFeatures из callback-тела
         const flags = extractFlagsFromBody(body, codeBeforeBlock);
         for (const f of flags) {
           for (const model of modelList) {
@@ -521,7 +419,6 @@ function fallbackParse(code) {
       }
     }
 
-    // --- Pop describe stack: следующий блок на том же / меньшем отступе?
     const nextBlock = blocks[bi + 1];
     while (describeStack.length > 0) {
       const top = describeStack[describeStack.length - 1];
@@ -533,10 +430,6 @@ function fallbackParse(code) {
   return { describes, its, modelPaths, flagCombos };
 }
 
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-//  4. Статистика
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-
 let data;
 
 if (ast) {
@@ -546,7 +439,6 @@ if (ast) {
   data = fallbackParse(code);
 }
 
-// Если AST не смог разобрать eachModel-массивы — дорезаем через CONST_ARRAYS
 if (!data.modelPaths.length) {
   const constModels = new Set(Object.values(CONST_ARRAYS).flat());
   for (const model of constModels) {
@@ -567,31 +459,8 @@ const describedModels = data.describes
   .filter((d) => /\.glb/.test(d.name))
   .map((d) => d.name.match(/(['"`]?)([^'"`]+\.glb)\1/)?.[2] || d.name);
 
-// Модели, отсутствующие на диске.
-//
-// ВАЖНО про чистый клон: в git лежат только модели, объявленные исключениями в
-// `fixtures/.gitignore` — у остальных чужая лицензия, коммитить их нельзя. На CI
-// после `npm ci` на диске поэтому лишь часть GOLDEN_MODELS, и это НОРМА, а не
-// поломка: тесты на локальные модели пропускаются через describeLocal.
-//
-// Числа в этом объяснении намеренно не названы: корпус растёт, а «11 из 24» в
-// комментарии устаревает молча.
-//
-// Поэтому гейтить можно только по REPO-моделям: их отсутствие — реальная
-// поломка (файл потерян или выпал из fixtures/.gitignore). Отсутствие
-// локальных моделей отдаётся отдельным полем и ничего не валит.
 const modelsDir = path.resolve(PROJECT_ROOT, 'fixtures/models');
 
-// Список коммитимых моделей берём ИЗ ПЕРВОИСТОЧНИКА — `fixtures/.gitignore`, где и
-// принимается решение о публикации. Импортировать helper нельзя: он тянет глобалы
-// vitest (`import { describe, it } from 'vitest'`), а скрипт запускается обычным `node`.
-//
-// Раньше здесь стояла регулярка ПО ИСХОДНИКУ helper'а — она ждала литерал
-// `new Set([...])`. 2026-08-26 helper перестал держать свой список и стал читать тот же
-// `.gitignore` — регулярка перестала совпадать, и `repoModels` молча стал пустым. А
-// пустой список означает, что гейт ниже (`missingFromDisk`) не поймает НИЧЕГО: потерю
-// коммитимой модели этот скрипт объявил бы нормой. Разбор чужого исходника регуляркой
-// ломается ровно так — беззвучно, и обнаруживается через месяц.
 const repoModels = fs.readFileSync(path.resolve(PROJECT_ROOT, 'fixtures/.gitignore'), 'utf-8')
   .split(/\r?\n/)
   .map((line) => /^!models\/(.+\.(?:glb|gltf))\s*$/.exec(line.trim()))
@@ -624,10 +493,6 @@ function modelCoverage() {
 }
 
 const coverage = modelCoverage();
-
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
-//  5. Вывод
-// –––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
 
 const isJson = process.argv.includes('--json');
 

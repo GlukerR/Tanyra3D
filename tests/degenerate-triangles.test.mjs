@@ -1,32 +1,3 @@
-// tests/degenerate-triangles.test.mjs — треугольник нулевой площади убираем МЫ, а не Draco.
-//
-// ПОВОД (Александр, 2026-08-22). В отчёте при сжатии Draco появлялось: «Нарушение гарантии
-// компонента: triangles изменился после расширений (было 108644, стало 108108)… доверять
-// ему как точной копии исходной геометрии нельзя». Его вопрос: «Это вообще не выглядит как
-// ошибка, потому что модель не становилась ни разу хуже».
-//
-// ЗАМЕР по 61 настоящей модели показал, что он прав, и назвал причину точно:
-//
-//   потеря треугольников = (тройки с повторяющимся ИНДЕКСОМ) + (тройки, у которых два
-//   угла стоят в одной ТОЧКЕ при разных индексах)
-//
-// Сходилось до единицы на всех проверенных: Whatsminer 2 + 17558 = 17560, Е300
-// 213 + 192 = 405, подземка6 160 + 0 = 160, лифт 50 + 14 = 64. От числа бит квантования
-// (11/14/16/20) потеря не зависела вовсе — значит дело не в сетке кодека.
-//
-// Первый вид мы убирали и раньше, второй — нет: weld такие вершины НЕ склеивает, потому
-// что у них различаются нормаль или развёртка. Как вершины они разные, как углы
-// треугольника — одна точка. Их находил уже кодировщик Draco и выбрасывал сам, на записи,
-// после снимка baseline-checkpoint. Отсюда и «нарушение гарантии»: пугающая надпись на
-// совершенно здоровой сборке.
-//
-// Убираем их сами, в базовом проходе, — и терять Draco становится нечего. Правило 11 это
-// разрешает прямо: вырожденный треугольник никто не делал намеренно, это след экспорта.
-//
-// ГРАНИЦА ОСТОРОЖНОСТИ. «Одна точка» — правда только для текущей позы. Под морфом или под
-// костью вершины расходятся, и треугольник оживает. Поэтому по позициям режем лишь там,
-// где расхождение невозможно: морф-целей нет, привязка к костям одинаковая.
-
 import { describe, it, expect, afterAll } from 'vitest';
 import { Document } from '@gltf-transform/core';
 
@@ -39,7 +10,6 @@ const RULE_ID = 'geometry/degenerate-triangles';
 
 afterAll(cleanupTmpOutDirs);
 
-/** Прогнать fix() правила по документу — без движка и без файла. */
 function applyRule(doc) {
   const rule = RULES.find((r) => r.meta.id === RULE_ID);
   const cache = new Map();
@@ -47,12 +17,6 @@ function applyRule(doc) {
   return { out, removed: cache.get('degenerateRemoved') };
 }
 
-/**
- * Меш из четырёх вершин, где v3 стоит ровно там же, где v0.
- *
- * Треугольники: [0,1,2] — настоящий; [0,1,3] — два угла в одной точке, нулевая площадь.
- * Индексы у этих углов РАЗНЫЕ: ровно тот случай, который weld не склеивает.
- */
 function docWithCoincidentCorner({ morph = false, joints = null } = {}) {
   const doc = new Document();
   const buffer = doc.createBuffer();
@@ -61,7 +25,7 @@ function docWithCoincidentCorner({ morph = false, joints = null } = {}) {
       0, 0, 0,
       1, 0, 0,
       0, 1, 0,
-      0, 0, 0, // та же точка, что v0
+      0, 0, 0,
     ]));
   const indices = doc.createAccessor().setType('SCALAR').setBuffer(buffer)
     .setArray(new Uint16Array([0, 1, 2, 0, 1, 3]));
@@ -69,7 +33,6 @@ function docWithCoincidentCorner({ morph = false, joints = null } = {}) {
     .setAttribute('POSITION', position).setIndices(indices);
 
   if (morph) {
-    // Запасная форма разводит v0 и v3 — под ней треугольник перестаёт быть вырожденным.
     const target = doc.createPrimitiveTarget().setAttribute('POSITION',
       doc.createAccessor().setType('VEC3').setBuffer(buffer)
         .setArray(new Float32Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5])));
@@ -89,9 +52,6 @@ function docWithCoincidentCorner({ morph = false, joints = null } = {}) {
 
 const triCount = (prim) => prim.getIndices().getCount() / 3;
 
-// ═══════════════════════════════════════════════════════════════════════════
-// РАЗДЕЛ 1 · Совпадающая точка при разных индексах
-// ═══════════════════════════════════════════════════════════════════════════
 
 describe('два угла в одной точке — треугольник вырожденный', () => {
   it('убирается, хотя индексы у углов разные', () => {
@@ -108,7 +68,7 @@ describe('два угла в одной точке — треугольник в
     const position = doc.createAccessor().setType('VEC3').setBuffer(buffer)
       .setArray(new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]));
     const indices = doc.createAccessor().setType('SCALAR').setBuffer(buffer)
-      .setArray(new Uint16Array([0, 1, 2, 0, 1, 1])); // второй — с повтором
+      .setArray(new Uint16Array([0, 1, 2, 0, 1, 1]));
     const prim = doc.createPrimitive().setMode(4)
       .setAttribute('POSITION', position).setIndices(indices);
     doc.createScene('S').addChild(doc.createNode('N').setMesh(doc.createMesh('M').addPrimitive(prim)));
@@ -134,9 +94,6 @@ describe('два угла в одной точке — треугольник в
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// РАЗДЕЛ 2 · Где «одна точка» — правда только для текущей позы
-// ═══════════════════════════════════════════════════════════════════════════
 
 describe('осторожность там, где вершины могут разойтись', () => {
   it('у примитива с запасной формой по позициям не режем', () => {
@@ -147,7 +104,6 @@ describe('осторожность там, где вершины могут ра
   });
 
   it('вершины на РАЗНЫХ костях — не режем', () => {
-    // v0 привязана к кости 0, v3 — к кости 1: в анимации они разъедутся.
     const { doc, prim } = docWithCoincidentCorner({
       joints: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
     });
@@ -166,9 +122,6 @@ describe('осторожность там, где вершины могут ра
   });
 
   it('общий индексный аксессор не режется по чужим позициям', () => {
-    // Два примитива делят ОДИН аксессор индексов, но вершины у них разные: у первого
-    // v0 и v3 в одной точке, у второго — нет. Рез по первому не имеет права выкосить
-    // треугольник у второго.
     const doc = new Document();
     const buffer = doc.createBuffer();
     const indices = doc.createAccessor().setType('SCALAR').setBuffer(buffer)
@@ -176,8 +129,8 @@ describe('осторожность там, где вершины могут ра
     const mk = (arr) => doc.createPrimitive().setMode(4)
       .setAttribute('POSITION', doc.createAccessor().setType('VEC3').setBuffer(buffer).setArray(new Float32Array(arr)))
       .setIndices(indices);
-    const bad = mk([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0]);   // v3 = v0
-    const good = mk([0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 2, 2]);  // все четыре разные
+    const bad = mk([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0]);
+    const good = mk([0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 2, 2]);
     doc.createScene('S').addChild(doc.createNode('N')
       .setMesh(doc.createMesh('M').addPrimitive(bad).addPrimitive(good)));
 
@@ -187,14 +140,8 @@ describe('осторожность там, где вершины могут ра
   });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════
-// РАЗДЕЛ 3 · Настоящая модель: Draco больше не теряет ничего
-// ═══════════════════════════════════════════════════════════════════════════
 
 describeIfModels(['Production Multi UV 01.glb'], 'на настоящей модели', () => {
-  // Эта модель корпуса и воспроизводит дефект: 213 троек с повторяющимся индексом плюс
-  // 192 с совпадающей точкой = 405. До правки Draco выбрасывал их сам, сборка получала
-  // status:'fail' и надпись про нарушение гарантии.
   it('сборка с Draco проходит, а не помечается отказом', async () => {
     const res = await optimizeFile(modelPath('Production Multi UV 01.glb'), {
       outDir: tmpOutDir(),
@@ -210,7 +157,6 @@ describeIfModels(['Production Multi UV 01.glb'], 'на настоящей мод
     const cut = res.applied.find((a) => a.ruleId === RULE_ID);
     expect(cut, 'вырожденные треугольники не убраны — значит их снова выбросит Draco').toBeTruthy();
 
-    // Потеря треугольников объяснена вырожденными, а не осталась загадкой.
     const delta = res.metrics.before.triangles - res.metrics.after.triangles;
     expect(delta).toBeGreaterThan(0);
     const dropped = res.validation.find((v) => v.i18n?.text?.messageId === 'check.trianglesDropped');

@@ -1,88 +1,3 @@
-// tests/i18n-discipline.test.mjs — сторож правила «язык отдельно от кода»: ни одной
-// готовой пользовательской строки в движке (docs/ARCHITECTURE.md §4b).
-//
-// Четыре направления, каждое ловит свою возможность появления готовой строки:
-//   1. Динамика (на всём корпусе × наборах флагов): каждая запись отчёта
-//      (applied / skipped / findings / validation) несёт рецепт i18n.text.messageId;
-//      сообщение об ошибке называет правило и текст записи.
-//   2. Статика: в addons/gltf/rules.mjs, addons/gltf/index.mjs, core/engine.mjs нет
-//      строковых литералов, похожих на фразу для человека; кириллицы в коде нет
-//      вовсе. Плюс titleKey у всех правил. Долг meta.reversalNote — отдельным тестом.
-//   3. Каталоги: у ключа с подстановкой { n } есть форма единственного числа
-//      (BUG-008: «1 текстур»), и у каждого .many-варианта есть базовый ключ.
-//   4. localizeResult: смена языка ничего не пересчитывает (структура, числа и
-//      metrics те же), и render() не склеивается с конкатенацией в коде.
-//
-// Уже покрыто соседями, здесь НЕ дублируется: en↔ru симметрия и сироты каталогов —
-// tests/locale-keys-symmetry.test.mjs и engine-contract (раздел 3); «правило либо
-// сделало, либо объяснило» — engine-contract (раздел 2).
-//
-// ═══════════════════════════════════════════════════════════════════════════
-//  СОСТОЯНИЕ НА 2026-08-12: все разделы ЗЕЛЁНЫЕ. Ниже — история трёх находок и
-//  того, чем каждая закончилась. Раздел переписан, потому что до этого дня он
-//  утверждал «тесты КРАСНЫЕ», а красными они не были уже неделю: Р-2d закрыт
-//  правкой, Р-3b — сужением сторожа, Р-2а — явным белым списком. Шапка, которая
-//  врёт про состояние, хуже отсутствующей: по ней принимают решения.
-//
-//  Р-2а → закрыт БЕЛЫМ СПИСКОМ (PHRASE_WHITELIST ниже), а не правкой кода.
-//    Английские строки в ADVANCED_FEATURES и в рамке .md-отчёта остались, но
-//    каждая названа поимённо с обоснованием: адресат — вызывающий код (текст
-//    ошибки API) либо файл отчёта, который пишется один раз на языке сборки.
-//    Добавить строку в список = принять решение, а не подогнать тест.
-//
-//  Р-2d → закрыт правкой 2026-08-04: meta.reversalNote заменён на
-//    reversalNoteKey → ключ каталога. Ниже стоит обратный сторож: вернётся
-//    готовая строка — тест покраснеет.
-//
-//  Р-3b → закрыт сужением сторожа 2026-08-04. Первая версия считала нарушением
-//    любую строку, где n=1 и n=5 различаются только цифрой (86 срабатываний, из
-//    них настоящих пять). Теперь проверяются только места, где число управляет
-//    соседним словом (NUMBER_GOVERNS_WORD) — «1 текстур» ловится, «текстур: 1»
-//    не трогается. Механика и причина — у самого сторожа.
-//
-//  ИСТОРИЧЕСКАЯ ЗАПИСЬ (как выглядели находки, когда были красными):
-//
-//  Р-2а (статический скан фраз). Готовые английские строки в коде движка:
-//    - addons/gltf/index.mjs ADVANCED_FEATURES — 10 описаний фич (строки 72–81);
-//    - addons/gltf/index.mjs:91 «Unknown advancedFeatures: ...» — текст ошибки;
-//    - addons/gltf/index.mjs writeReport — шаблон .md-отчёта: заголовки
-//      «# Optimization report», «## Found (issues)», «## Skipped (and why)»,
-//      «## Applied», «## Validation», «## Estimated improvements», таблица
-//      «| Metric | Before | After |», метки «Texture VRAM (GPU)», «Texture weight
-//      in file», «Draw calls (primitives)» и заметки «**Dry-run mode**...»,
-//      «**The .glb was NOT written**...», флаг « · strip-vertex-colors».
-//    Отчёт — то, что человек читает как ИТОГ, а не лог: это готовые
-//    строки, не переживающие смену языка (файл .md пишется один раз на языке сборки).
-//
-//  Р-2d (ДОЛГ). meta.reversalNote — готовая английская строка у шести правил
-//    (scene/join, scene/instance, textures/ktx2, textures/webp, geometry/compress,
-//    geometry/quantize). Поле не читает ни интерфейс, ни отчёт, но по Правилу 8
-//    оно неправильное. Долг записан отдельным тестом (ниже), чтобы не потерялся.
-//
-//  Р-3b (BUG-008, формы единственного числа). Механический прогон n=1 и n=5 по
-//    всем ключам с подстановкой { n }: 29 русских и 25 английских ключей
-//    различаются только цифрой — «1 текстур», «1 ошибок» (engine.inputValidation.found).
-//    Список — в сообщении теста и в отчёте задания. Ключи, которым для рендера
-//    нужны ещё данные (list/name/...), механически не проверяются (нет полных
-//    данных в тесте) — они в той же находке, но вне цифр.
-//
-//  (конец исторической записи)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Порог статического скана (объяснение): «фраза для человека» = литерал
-// (одинарные/двойные кавычки или статичная часть шаблона) со ВСЕМИ признаками:
-//   - содержит пробел;
-//   - длиннее 20 символов (задание: «длиннее ~20»);
-//   - содержит латинскую букву (состоит из слов, а не из цифр/разделителей);
-//   - не содержит '/' (не путь, не mime, не data-URI);
-//   - не начинается с '--' (не аргумент внешнего инструмента).
-// Короткие фрагменты шаблона отчёта (## Applied, ## Validation, File, - none)
-// порогом не ловятся — класс уже пойман длинными соседями, все строки перечислены
-// в отчёте задания. Комментарии вырезаются до скана (Ловушка 3). Легитимные
-// случаи — в явном белом списке с объяснением каждой строки (не пополнять ради
-// зелёного цвета). meta.title — идентификатор для логов (Ловушка 4), нарушением
-// не считается: за него отвечает отдельная проверка titleKey.
-
 import { describe, it, expect, afterAll } from 'vitest';
 import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 import fs from 'node:fs';
@@ -99,7 +14,6 @@ import coreEn from '../core/messages/en.mjs';
 import coreRu from '../core/messages/ru.mjs';
 
 const NL = String.fromCharCode(10);
-// ── Общий корпус и наборы флагов (те же классы, что в engine-contract) ──────
 const LOCAL_MODELS = [
   'parkergirl.glb',
   'RiggedSimple.glb',
@@ -112,8 +26,6 @@ const LOCAL_MODELS = [
 ];
 const ALL_MODELS = [...REPO_MODELS, ...LOCAL_MODELS];
 
-// Advanced-фичи берём из аддона (правило 4 ПРАВИЛА_ТЕСТОВ_универсальность):
-// добавят фичу — тест обязан её заметить.
 const ADVANCED = Object.keys(gltfAddon.ADVANCED_FEATURES).filter((f) => f !== 'safe');
 const FLAG_SETS = [
   [],
@@ -123,7 +35,6 @@ const FLAG_SETS = [
 ];
 
 
-// Кэш результатов матрицы: один прогон на (модель, флаги), делят разделы 1 и 4.
 const _resultCache = new Map();
 async function runOnce(name, flags) {
   const key = name + '\u0000' + JSON.stringify(flags);
@@ -133,7 +44,7 @@ async function runOnce(name, flags) {
       const result = await optimizeFile(modelPath(name), { advancedFeatures: flags, dryRun: true, outDir });
       _resultCache.set(key, result);
     } finally {
-      try { fs.rmSync(outDir, { recursive: true, force: true }); } catch { /* занят */ }
+      try { fs.rmSync(outDir, { recursive: true, force: true }); } catch {  }
     }
   }
   return _resultCache.get(key);
@@ -141,12 +52,6 @@ async function runOnce(name, flags) {
 
 const recId = (rec) => rec && rec.i18n && rec.i18n.text && rec.i18n.text.messageId;
 
-// ═══════════════════════════════════════════════════════════════════════════
-// РАЗДЕЛ 1 · КАЖДАЯ ЗАПИСЬ ОТЧЁТА НЕСЁТ РЕЦЕПТ — динамика на корпусе
-// ═══════════════════════════════════════════════════════════════════════════
-// Запись без i18n.text.messageId — это готовые строки scene/instance,
-// animation/resample и engine/input-validation из находки Н-2 (2026-08-03).
-// В сообщении об ошибке видно правило, которое положило запись, и её текст.
 
 function checkRecipe(result, where, violations) {
   for (const list of ['applied', 'skipped', 'findings', 'validation']) {
@@ -195,13 +100,6 @@ describe('Правило 8 — раздел 1: каждая запись отч�
     expect(FLAG_SETS.length).toBeGreaterThanOrEqual(10);
   });
 });
-// ═══════════════════════════════════════════════════════════════════════════
-// РАЗДЕЛ 2 · СТАТИЧЕСКИЙ СКАН: готовые строки в коде движка
-// ═══════════════════════════════════════════════════════════════════════════
-// Комментарии вырезаются до скана (Ловушка 3 задания). Строковые литералы
-// извлекаются токенизатором, который понимает одинарные/двойные кавычки,
-// шаблонные строки (статичные части) и регулярные выражения (не путает их
-// кавычки с границами строк).
 
 function stripComments(src) {
   let out = '', i = 0;
@@ -225,7 +123,7 @@ function lastNonSpaceChar(src, i) {
 }
 
 function tokenize(src) {
-  const tokens = []; // { type:'str'|'tpl'|'regex', value?, start, end, exprs? }
+  const tokens = [];
   let i = 0;
   while (i < src.length) {
     const c = src[i];
@@ -302,9 +200,8 @@ function lineAt(src, pos) {
 
 const SCAN_FILES = ['addons/gltf/rules.mjs', 'addons/gltf/index.mjs', 'core/engine.mjs'];
 
-// Литералы кода движка (после вырезания комментариев): фраза ли это для человека.
 function scanPhrases() {
-  const out = []; // { file, line, literal }
+  const out = [];
   for (const f of SCAN_FILES) {
     const src = stripComments(fs.readFileSync(f, 'utf8'));
     for (const t of tokenize(src)) {
@@ -315,8 +212,6 @@ function scanPhrases() {
         if (lit.length <= 20) continue;
         if (!/[A-Za-z]/.test(lit)) continue;
         if (lit.startsWith('--')) continue;
-        // meta.title — идентификатор для логов (Ловушка 4), переводится через
-        // titleKey (проверка отдельно); reversalNote — долг, свой тест ниже.
         const before = src.slice(Math.max(0, t.start - 60), t.start).trimEnd();
         if (before.endsWith('title:')) continue;
         if (before.endsWith('reversalNote:')) continue;
@@ -327,8 +222,6 @@ function scanPhrases() {
   return out;
 }
 
-// Явный белый список легитимных фраз. Каждая строка — решение, а не подгонка:
-// если понадобится добавить — это правка, а не тест.
 const PHRASE_WHITELIST = {
   '    phase 1/5 · analysis (rules: ': 'ctx.log движка — подпись фазы 1 в журнале сервера (Ловушка 1: логи не отчёт)',
   '    phase 3/5 · apply · basic (': 'ctx.log движка — подпись фазы 3 в журнале сервера (Ловушка 1)',
@@ -336,19 +229,9 @@ const PHRASE_WHITELIST = {
   '    phase 5/5 · report': 'ctx.log движка — подпись фазы 5 в журнале сервера (Ловушка 1)',
   '      baseline-checkpoint: ': 'ctx.log движка — сводка baseline-метрик (Ловушка 1)',
 
-  // restoreCarried (addons/gltf/index.mjs) — отказ вернуть чужое расширение, потому что
-  // адресуемый им массив сдвинулся. Строка идёт в журнал сервера, а не в отчёт: человеку
-  // в правой панели про номера массивов сказать нечего, а разбирающему нужно знать, что
-  // отказ БЫЛ и сколько записей он унёс. Тот же класс, что подписи фаз выше (Ловушка 1:
-  // логи не отчёт). Добавлено 2026-08-15 вместе с TESTBUG-011.
   '[gltf] carried extensions not restored: ': 'console.warn движка — диагностика отказа возврата (Ловушка 1)',
   ' (addressed arrays shifted)': 'console.warn движка — хвост той же строки (Ловушка 1)',
 
-  // ADVANCED_FEATURES (addons/gltf/index.mjs) — описания фич для СООБЩЕНИЯ ОБ
-  // ОШИБКЕ программисту: `throw new Error('Unknown advancedFeatures: ... Available: ...')`.
-  // В отчёт они не попадают ни при каком сценарии (проверено: единственное
-  // использование — строка 124 того же файла). Тот же класс, что meta.title из
-  // Ловушки 4 задания: адресат — вызывающий код, а не человек в интерфейсе.
   'safe lossless cleanup: dedup, prune unused, weld, remove degenerate/orphan geometry': 'ADVANCED_FEATURES — текст ошибки API',
   'Meshopt geometry compression': 'ADVANCED_FEATURES — текст ошибки API',
   'Draco geometry compression (instead of Meshopt)': 'ADVANCED_FEATURES — текст ошибки API',
@@ -367,12 +250,6 @@ const PHRASE_WHITELIST = {
   'downscale textures to 512 px on the longer side (lossy)': 'ADVANCED_FEATURES — текст ошибки API',
   'Unknown advancedFeatures: ': 'префикс той же ошибки API — адресат вызывающий код, не человек',
 
-  // orderRules() — ошибки НАСТРОЙКИ ПРОГРАММЫ, не работы с моделью. Добавлены
-  // 2026-08-10 по ревью (P0.4): раньше опечатка в runAfter молча меняла порядок
-  // применения transforms. Дойти до человека они не могут: порядок строится один раз
-  // при сборке набора правил, до всякой модели, и любая такая ошибка валит тесты
-  // (tests/fail-closed.test.mjs) задолго до выпуска. Тот же класс, что 'Unknown
-  // advancedFeatures' выше: адресат — тот, кто пишет правило.
   'unknown runAfter dependency "': 'orderRules — ошибка настройки, адресат автор правила',
   'duplicate runAfter dependency "': 'orderRules — ошибка настройки, адресат автор правила',
   '" depends on itself in runAfter': 'orderRules — ошибка настройки, адресат автор правила',
@@ -416,9 +293,6 @@ describe('Правило 8 — раздел 2: статический скан �
     expect(missing, missing.join('\n  ')).toEqual([]);
   });
 
-  // ДОЛГ ЗАКРЫТ 2026-08-04 (основной агент): шесть готовых английских строк в meta
-  // заменены на reversalNoteKey → ключ каталога. Теперь это регресс: вернётся
-  // строка вместо ключа — тест покраснеет.
   it('meta.reversalNote — ключ каталога, а не готовая строка (долг закрыт 2026-08-04)', () => {
     const bad = RULES.filter((r) => r.meta && typeof r.meta.reversalNote === 'string')
       .map((r) => '  ' + r.meta.id + ': ' + JSON.stringify(r.meta.reversalNote));
@@ -436,51 +310,25 @@ describe('Правило 8 — раздел 2: статический скан �
     expect(missing, missing.join('\n  ')).toEqual([]);
   });
 });
-// ═══════════════════════════════════════════════════════════════════════════
-// РАЗДЕЛ 3 · КАТАЛОГИ: формы единственного числа и база у .many
-// ═══════════════════════════════════════════════════════════════════════════
-// en↔ru симметрия и сироты — в locale-keys-symmetry и engine-contract (раздел 3),
-// здесь не дублируются. Добавляем то, чего там нет: механическую проверку
-// BUG-008 (n=1 против n=5 различаются не только цифрой) и наличие базового
-// ключа у каждого .many-варианта.
 
-// Ключи, исключаемые из механической проверки форм числа.
 const PLURAL_SKIP = new Set([
-  // лог правила, не отчёт (Ловушка 1 задания) — форма числа там не важна
   'ktx2.log.encoding',
-  // «Textures: removed 1 unused» — существительное опущено, за числом стоит
-  // прилагательное. По-английски это верно при любом числе; эвристика «за числом
-  // идёт слово» такие места отличить не может, поэтому они названы поимённо.
   'prune.done.textures',
   'prune.done.materials',
 ]);
 
-// СУЖЕНО 2026-08-04 (основной агент). Первая версия считала нарушением любую
-// строку, где n=1 и n=5 различаются только цифрой. Это давало 86 срабатываний, из
-// которых настоящих — пять: остальное форма «ярлык: число», где согласовывать
-// нечего.
-//
-//   «повторяющихся текстур: 1»           — верно, число стоит ЗНАЧЕНИЕМ после ярлыка
-//   «Merged duplicate textures (1)»      — верно, там же
-//   «во входном файле уже 1 ошибок»      — НЕВЕРНО, число управляет соседним словом
-//   «Removed 1 unused attributes»        — НЕВЕРНО, там же
-//
-// Согласование возникает там, где за числом сразу идёт слово. Поэтому сторож
-// смотрит только на такие места: цифра, пробел, буква. Сторож, кричащий на верные
-// строки, перестают читать — и он пропускает настоящую ошибку следующей.
 const NUMBER_GOVERNS_WORD = /\d+\s+\p{L}/u;
 
-// n=1 против n=5: строки различаются не только цифрой (иначе «1 текстур»).
 function pluralViolations(cat, locale) {
   const bad = [];
   for (const key of Object.keys(cat)) {
     if (PLURAL_SKIP.has(key)) continue;
-    if (key.endsWith('.many')) continue; // .many эмитится только при n>1; база — проверка ниже
+    if (key.endsWith('.many')) continue;
     const one = render(key, { n: 1 }, locale);
     const five = render(key, { n: 5 }, locale);
-    if (one === five) continue; // ключ не использует n
-    if (one.includes('undefined') || five.includes('undefined')) continue; // не хватает данных — не проверить
-    if (!NUMBER_GOVERNS_WORD.test(one)) continue; // число — значение после ярлыка, согласовывать нечего
+    if (one === five) continue;
+    if (one.includes('undefined') || five.includes('undefined')) continue;
+    if (!NUMBER_GOVERNS_WORD.test(one)) continue;
     if (one.replace(/[0-9]/g, '') === five.replace(/[0-9]/g, '')) {
       bad.push({ key, one, five });
     }
@@ -517,15 +365,6 @@ describe('Правило 8 — раздел 3: полнота и формы ка
     expect([...gltfBad, ...coreBad], 'Английские ключи без формы «1 ...»:\n' + lines.join('\n')).toEqual([]);
   });
 });
-// ═══════════════════════════════════════════════════════════════════════════
-// РАЗДЕЛ 4 · СМЕНА ЯЗЫКА НИЧЕГО НЕ ПЕРЕСЧИТЫВАЕТ + render() НЕ СКЛЕИВАЕТСЯ
-// ═══════════════════════════════════════════════════════════════════════════
-// 4a. localizeResult(result,'ru') и ('en') на одном результате: тексты разные,
-//     структура и числа те же — длины списков, ruleId, messageId, data, level,
-//     порядок записей.
-// 4b. metrics равны по значению — значит, движок не вызывался повторно.
-// 4c. Статика: render(...) не участвует в конкатенации (образец правильного
-//     решения — engine.skipped.line с вложенной подстановкой).
 
 function checkLocalize(result, where, violations) {
   const ru = localizeResult(result, 'ru');
@@ -542,7 +381,6 @@ function checkLocalize(result, where, violations) {
       const x = a[i];
       const xr = r[i];
       const xe = e[i];
-      // порядок, ruleId, messageId, data, level — не тронуты
       if (xr.ruleId !== x.ruleId || xe.ruleId !== x.ruleId) violations.push('[4·локализация] ' + list + '[' + i + '] ruleId изменился');
       if (xr.level !== x.level || xe.level !== x.level) violations.push('[4·локализация] ' + list + '[' + i + '] level изменился');
       const m1 = xr.i18n && xr.i18n.text && xr.i18n.text.messageId;
@@ -552,13 +390,11 @@ function checkLocalize(result, where, violations) {
       if (JSON.stringify(xr.i18n && xr.i18n.text && xr.i18n.text.data) !== JSON.stringify(x.i18n && x.i18n.text && x.i18n.text.data)) {
         violations.push('[4·локализация] ' + list + '[' + i + '] data изменился');
       }
-      // рецепт есть — тексты обязаны разойтись (иначе перевод не работает)
       if (m0 && xr.text === xe.text && xr.text === x.text) {
         violations.push('[4·локализация] ' + list + '[' + i + '] текст не изменился при смене языка: ' + JSON.stringify(x.text));
       }
     }
   }
-  // тексты хотя бы где-то различаются (если есть хоть одна запись с рецептом)
   const anyRecipe = ['applied', 'skipped', 'findings', 'validation'].some(
     (l) => (result[l] || []).some((r) => recId(r)),
   );
@@ -569,7 +405,6 @@ function checkLocalize(result, where, violations) {
     );
     if (same) violations.push('[4·локализация] ru и en тексты полностью совпали');
   }
-  // 4b: metrics не тронуты — движок не вызывался
   if (JSON.stringify(result.metrics) !== JSON.stringify(ru.metrics)) {
     violations.push('[4·локализация] metrics изменились после localizeResult — движок был вызван повторно?');
   }
@@ -607,7 +442,6 @@ describe('Правило 8 — раздел 4: смена языка ничег�
           }
         }
       }
-      // отдельные вызовы render(...) — не должны соседствовать с '+' снаружи
       let i = 0;
       while ((i = src.indexOf('render(', i)) !== -1) {
         const end = matchParen(src, i + 'render('.length);
@@ -622,7 +456,6 @@ describe('Правило 8 — раздел 4: смена языка ничег�
   });
 });
 
-// Парные скобки для render( ... ) с учётом вложенности и строк.
 function matchParen(src, from) {
   let depth = 1, i = from, q = '';
   while (i < src.length && depth > 0) {

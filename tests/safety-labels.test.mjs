@@ -1,16 +1,3 @@
-// tests/safety-labels.test.mjs — ярлык безопасности говорит правду о том, что сделано.
-//
-// Ревью 2026-08-10 (P1.5), два замечания к правилу attributes/vertex-colors:
-//
-//   1. Оно помечено `provable`, но «белый» определяет с допуском 0.999 — то есть 0.9995
-//      объявляется единицей. Видно этого не будет, но строгого равенства тут нет: по
-//      собственной терминологии проекта это `numeric`.
-//   2. То же правило обслуживает РАЗРУШИТЕЛЬНУЮ ветку — удаление раскрашенных цветов по
-//      явному флагу. Запись о ней наследовала fixSafety из метаданных правила, то есть
-//      потеря данных отчитывалась как безопасное действие.
-//
-// Ярлык — не украшение: по нему интерфейс решает, что показать человеку перед выгрузкой.
-
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -22,7 +9,6 @@ import gltfAddon from '../addons/gltf/index.mjs';
 
 const RULE = 'attributes/vertex-colors';
 
-/** Модель с одним мешем и раскрашенным COLOR_0 — чтобы сработала именно lossy-ветка. */
 async function paintedModel(file) {
   const doc = new Document();
   const buffer = doc.createBuffer();
@@ -32,7 +18,6 @@ async function paintedModel(file) {
     .setBuffer(buffer);
   const color = doc.createAccessor()
     .setType('VEC4')
-    // не белый: 0.2 — это заведомо «раскрашено», а не погрешность допуска
     .setArray(new Float32Array([0.2, 0.4, 0.6, 1, 0.2, 0.4, 0.6, 1, 0.2, 0.4, 0.6, 1]))
     .setBuffer(buffer);
   const prim = doc.createPrimitive().setAttribute('POSITION', position).setAttribute('COLOR_0', color);
@@ -59,7 +44,6 @@ describe('уровень безопасности правила vertex-colors',
   it('и правило по-прежнему применяется автоматически — потолок это допускает', async () => {
     const r = await run({ safe: true });
     expect(r.status).toBe('ok');
-    // строка правила есть где-то в отчёте: правило отработало, а не отсеялось воротами
     const mentioned = [...r.applied, ...r.skipped, ...r.findings].some((x) => x.ruleId === RULE);
     expect(mentioned, 'правило вовсе не дошло до работы — проверка ниже ничего не значит').toBe(true);
   });

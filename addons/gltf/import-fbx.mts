@@ -1,32 +1,3 @@
-/**
- * addons/gltf/import-fbx.mts — FBX на вход.
- *
- * ЗАЧЕМ ОТДЕЛЬНЫМ МОДУЛЕМ, а не строкой в importers.mts рядом с STL и PLY. Те два несут
- * голую геометрию, и сборка документа для них — три десятка строк. FBX несёт иерархию
- * узлов, материалы, ссылки на текстуры, несколько развёрток, скины и анимации. Это другой
- * объём работы, и держать его в одном файле с «прочитали треугольники» значило бы сделать
- * нечитаемым и то, и другое.
- *
- * ПРАВО ЭТО ДЕЛАТЬ (вопрос Александра 2026-08-22: «мы не можем никак принимать фбикс в оф
- * приложении без какой-то лицензии?»). Можем, и ничего подключать не нужно:
- *   · `FBXLoader` — часть three.js, а three.js у нас уже есть (0.185.1, лицензия MIT).
- *     Оттуда же берутся STLLoader и PLYLoader. Новой зависимости не появляется.
- *   · В шапке самого загрузчика источник назван прямо: спецификация ДВОИЧНОГО формата от
- *     Blender (обратная разработка). SDK Autodesk упомянут справочником по смыслу полей,
- *     кода Autodesk там нет.
- *   · MIT внутрь Apache-2.0 ложится без конфликта.
- * Следствие не юридическое, а техническое, и его надо помнить: спецификация закрыта,
- * разбор восстановлен со стороны. Загрузчик требует FBX 7.0+ текстовый или 6400+ двоичный
- * и честно пишет, что более старые «загрузятся, но скорее всего с ошибками». Поэтому любой
- * срыв разбора превращается в человеческий отказ, а не в чужую строку про DataView.
- *
- * БЕЗ ИНТЕРНЕТА И БЕЗ БРАУЗЕРА. Загрузчик, встретив текстуру, зовёт `TextureLoader` —
- * а тот в Node полез бы в `document.createElementNS`. Обходим не заглушкой глобалей, а
- * штатным местом: `LoadingManager.addHandler` спрашивается РАНЬШЕ TextureLoader
- * (см. `loadTexture` в FBXLoader). Наш обработчик возвращает пустую текстуру с именем
- * файла — до декодирования картинки дело не доходит вовсе. Ни одного адреса наружу.
- */
-
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -35,36 +6,14 @@ import { emptyNote, setImportNote, type ImportNote } from './import-notes.mjs';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { MIME, TYPE_BY_SIZE } from './media.mjs';
 
-// Записка о ввозе (что не доехало, что подобрано у соседей) живёт в общем модуле
-// import-notes.mts: заполняет её разбор, а читают правила отчёта, и знать друг о друге
-// им незачем.
 
-/** Расширения картинок, которые может понадобиться подставить вместо TextureLoader. */
 const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'webp', 'tif', 'tiff', 'bmp', 'gif', 'tga', 'psd', 'exr', 'dds'];
 
-/** MIME по расширению. Чего glTF не разрешает — не называем, такие карты не переносятся. */
 
-// Три поля three.js, из которых достаётся имя файла: наш обработчик кладёт его в
-// userData, но у пустой текстуры-заглушки (FBXLoader ставит её, когда имени нет вовсе)
-// не будет и его.
 const fileOf = (t: unknown): string => {
   const tex = t as { userData?: { fbxFile?: string }; name?: string } | null | undefined;
   return (tex && (tex.userData?.fbxFile || tex.name)) || '';
 };
-/**
- * Загрузчик, который НЕ грузит: возвращает имя файла и на этом заканчивает.
- *
- * СВОЕЙ ФОРМЫ, а не `new LoadingManager()` и `new Texture()` из three. Слой аддонов не
- * имеет права импортировать пакет three целиком — только конкретные разборщики чужих
- * форматов, по одному модулю (сторож: tests/architecture/layer-boundaries.test.mjs).
- * Граница узкая намеренно, и расширять её ради двух конструкторов нельзя: за `three`
- * стоит рендерер со сценой, а нам нужны имя файла и две пары чисел.
- *
- * Что именно трогает FBXLoader у того, что мы вернём (см. parseTexture в его исходнике):
- * присваивает `ID`, `name`, `wrapS`, `wrapT` и пишет в `repeat.x/y`, `offset.x/y` —
- * поэтому обе пары должны существовать заранее. Ничего больше он не зовёт: методы
- * менеджера `itemStart`/`itemError` живут в асинхронном `load()`, а мы зовём `parse()`.
- */
 function nameOnlyManager(): unknown {
   const stub = {
     path: '',
@@ -81,13 +30,10 @@ function nameOnlyManager(): unknown {
   };
   const known = new Set(IMAGE_EXT.map((e) => `.${e}`));
   return {
-    // FBXLoader спрашивает обработчик по расширению и сравнивает результат С NULL —
-    // именно с null, поэтому для незнакомого расширения возвращаем его, а не undefined.
     getHandler: (ext: string) => (known.has(String(ext).toLowerCase()) ? stub : null),
   };
 }
 
-/** Минимум формы three.js, который нам нужен. Полные типы тянуть незачем: берём поля. */
 interface ThreeAttr { array: ArrayLike<number>; itemSize: number; count: number; normalized?: boolean }
 interface ThreeGeom {
   attributes: Record<string, ThreeAttr | undefined>;
@@ -113,13 +59,6 @@ interface ThreeMat {
 }
 
 
-/**
- * Прочитать FBX и отдать обычный документ glTF.
- *
- * @param srcPath  путь к файлу — от него же отсчитываются относительные адреса текстур
- * @param buf      содержимое файла
- * @param fail     как превратить срыв в человеческий отказ (общий с STL/PLY)
- */
 export function importFbx(
   srcPath: string,
   buf: ArrayBuffer,
@@ -144,12 +83,6 @@ export function importFbx(
   const anims = (group as { animations?: unknown[] }).animations;
   if (Array.isArray(anims)) note.animations = anims.length;
 
-  // ---- текстуры: ссылку из FBX превращаем в байты с диска -------------------
-  //
-  // Соседей мы не ищем и не угадываем: адрес называет сам файл, а рядом их кладёт
-  // человек — тем же броском, каким уже работает `.gltf` с его пачкой. Имени файла
-  // недостаточно, поэтому пробуем и относительный адрес, и просто имя: экспортёры
-  // пишут `RelativeFilename` по-разному, а раскладка папок — дело автора.
   const dir = path.dirname(srcPath);
   const byFile = new Map<string, Texture | null>();
   const resolveTexture = (ref: unknown): Texture | null => {
@@ -166,9 +99,6 @@ export function importFbx(
     const found = candidates.find((p) => { try { return fs.statSync(p).isFile(); } catch { return false; } });
 
     if (!found || !mime) {
-      // Не нашлась рядом — или нашлась, но её формат glTF не разрешает (TGA, PSD, EXR).
-      // И то и другое человек обязан узнать: молча собранная модель без карты выглядит
-      // как наша работа, а на деле это правда о поставке.
       if (!note.missingTextures.includes(file)) note.missingTextures.push(file);
       byFile.set(file, null);
       return null;
@@ -180,14 +110,6 @@ export function importFbx(
     return tex;
   };
 
-  // ---- материалы -----------------------------------------------------------
-  //
-  // FBX хранит материал по Фонгу или Ламберту: там есть блик и его резкость, но НЕТ
-  // ни шероховатости, ни металличности — величин, на которых стоит glTF. Пересчитать
-  // одно в другое нельзя, можно только придумать. Мы не придумываем: металличность 0,
-  // шероховатость 1 — это «просто поверхность», то же самое, чем показался бы материал
-  // без наших домыслов. Цвет, прозрачность и карты переносятся как есть, потому что они
-  // в файле ЕСТЬ.
   const byMaterial = new Map<string, Material>();
   const convertMaterial = (src: unknown): Material | null => {
     const m = src as ThreeMat | null | undefined;
@@ -220,7 +142,6 @@ export function importFbx(
     return out;
   };
 
-  // ---- геометрия -----------------------------------------------------------
   const accessorOf = (arr: ArrayLike<number>, type: string, ints?: 'u16' | 'u32') => doc.createAccessor()
     .setType(type as never)
     .setArray(ints === 'u32' ? Uint32Array.from(arr) : ints === 'u16' ? Uint16Array.from(arr) : Float32Array.from(arr))
@@ -248,10 +169,6 @@ export function importFbx(
 
         const uv = g.attributes.uv;
         if (uv && uv.count) {
-          // ОСЬ V. В glTF она отсчитывается СВЕРХУ, в FBX — снизу. three компенсирует
-          // это флагом flipY на самой текстуре; мы собираем glTF напрямую, значит
-          // компенсация теряется. Замер 2026-08-22 на настоящей модели (CCR1072):
-          // без переворота текстуры ложились не по развёртке — Александр это и увидел.
           const flipped = Float32Array.from(uv.array);
           for (let i = 1; i < flipped.length; i += 2) flipped[i] = 1 - flipped[i]!;
           prim.setAttribute('TEXCOORD_0', accessorOf(flipped, 'VEC2'));
@@ -267,15 +184,11 @@ export function importFbx(
         if (idx && idx.count) {
           prim.setIndices(accessorOf(idx.array, 'SCALAR', position.count > 65535 ? 'u32' : 'u16'));
         } else {
-          // Без индексов примитив законен, но дальше по конвейеру индексы нужны почти
-          // всем (сварка, вырожденные, Draco). Заводим прямой порядок — геометрия та же.
           const seq = new Uint32Array(position.count);
           for (let i = 0; i < seq.length; i++) seq[i] = i;
           prim.setIndices(accessorOf(seq, 'SCALAR', position.count > 65535 ? 'u32' : 'u16'));
         }
 
-        // Материал может быть один или списком (по группам примитива). Первый берём
-        // потому, что группы FBXLoader раскладывает по отдельным мешам сам.
         const mat = convertMaterial(Array.isArray(obj.material) ? obj.material[0] : obj.material);
         if (mat) prim.setMaterial(mat);
 

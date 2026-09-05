@@ -1,25 +1,3 @@
-// tests/variants-coverage.test.mjs — варианты материала: где ещё могут потеряться, кроме join.
-//
-// Задание 2026-08-15-варианты-и-площадки. Дефект со склейкой (join) закрыт 2026-08-15 и
-// сторожится tests/variants-survive.test.mjs: там проверены safe, safe+join,
-// safe+join+meshopt, safe+join+meshopt+webp. Проверено при этом только то, что чинили —
-// вопрос задания: не теряются ли варианты на ОСТАЛЬНЫХ галочках и на втором прогоне.
-//
-// Утверждение то же, что у готового сторожа: считаем ПРИВЯЗКИ на примитивах, а не
-// объявление вариантов в корне документа. Объявление переживало дефект (join стирал
-// подмену, оставляя список) и потому ни о чём не говорит.
-//
-// Матрица фич берётся из RULES (meta.feature) — как в tests/feature-combos.test.mjs:
-// девятая фича попадёт в перебор сама. draco в RULES нет (кодек-вариант одного правила),
-// resize — флажок resize-1024 (в meta.feature его нет, он едет через maxTextureSize),
-// поэтому оба добавлены явно рядом с близнецами.
-//
-// Слои (ПРАВИЛА_ТЕСТОВ_универсальность.md): утверждения о выходном ФАЙЛЕ (слой 2),
-// имён движков тут нет — Babylon прочитает тот же GLB и получит те же варианты.
-//
-// Найденный дефект здесь НЕ чинится: красный тест оформляется фиксацией (как
-// tests/bugs-found.test.mjs), а в отчёте задания описываются модель, галочки и числа.
-
 import { describe, it, expect, afterAll } from 'vitest';
 import fs from 'node:fs';
 
@@ -30,13 +8,9 @@ import { RULES } from '../addons/gltf/rules.mjs';
 import { TOKTX, HAS_GLTF_CLI } from '../addons/gltf/tools.mjs';
 import { modelPath, describeIfModels } from './helpers/model-files.mjs';
 
-// Модели с вариантами материала: три окраски машины, четыре отделки часов.
 const MODELS = ['CarConcept.glb', 'ChronographWatch.glb'];
-// Отрицательный случай: репо-модель без KHR_materials_variants.
 const NO_VARIANT_MODEL = 'Dirty Cube 01.glb';
 
-// Фичи из RULES (meta.feature) — матрица растёт сама. join отдельно не берём: он уже
-// закрыт variants-survive; здесь он нужен только в сочетании instance+join.
 const RULES_FEATURES = [...new Set(RULES.map((r) => r.meta.feature).filter(Boolean))];
 const SINGLE_FEATURES = [...new Set([...RULES_FEATURES.filter((f) => f !== 'join'), 'draco', 'resize-1024'])];
 const FLAG_SETS = [
@@ -44,11 +18,8 @@ const FLAG_SETS = [
   ['safe', 'instance', 'join'],
 ];
 
-const TOKTX_OK = Boolean(TOKTX && HAS_GLTF_CLI); // ktx2-правило гейтится обоими
+const TOKTX_OK = Boolean(TOKTX && HAS_GLTF_CLI);
 
-// Временные папки прогона — из общего хелпера, своей копии здесь нет. Эта ветка
-// писалась параллельно с той, что как раз сводила шесть таких копий в одну; при
-// слиянии копия оказалась бы седьмой.
 afterAll(cleanupTmpOutDirs);
 
 function glbJson(file) {
@@ -58,7 +29,6 @@ function glbJson(file) {
   return JSON.parse(b.subarray(20, 20 + len).toString('utf8'));
 }
 
-/** Что реально держит переключение: имена вариантов и ПРИВЯЗКИ на примитивах. */
 function variantState(json) {
   const names = (json.extensions?.KHR_materials_variants?.variants || []).map((v) => v.name);
   let prims = 0;
@@ -72,17 +42,9 @@ function variantState(json) {
   return { names, prims, mappings };
 }
 
-// ============================================================================
-// РАЗДЕЛ 1. Остальные галочки и их сочетания.
-// ============================================================================
 describeIfModels(MODELS, 'варианты материала переживают остальные галочки', () => {
   for (const model of MODELS) {
     describe(model, () => {
-      // Читаем исходник ЛЕНИВО, при первом обращении из теста, а не при сборе набора.
-      // На чистом клоне этих моделей нет (лицензия Khronos), и describeIfModels
-      // помечает блок пропущенным — но тело describe vitest всё равно ВЫПОЛНЯЕТ, чтобы
-      // собрать имена тестов. Чтение файла прямо здесь валило весь файл с ENOENT ещё до
-      // единого утверждения, и увидеть это можно было только на CI. Найдено 2026-08-15.
       let cached = null;
       const source = () => (cached ||= variantState(glbJson(modelPath(model))));
 
@@ -105,8 +67,6 @@ describeIfModels(MODELS, 'варианты материала переживаю
 
           const after = variantState(glbJson(dst));
           expect(after.names, 'имена вариантов изменились').toEqual(source().names);
-          // Главное утверждение: выбор цвета/отделки жив на примитивах, а не только
-          // объявлен в корне. Именно оно краснеет, когда галочка стирает подмену.
           expect(after.prims, 'примитивы с переключением исчезли — выбор мёртв').toBe(source().prims);
           expect(after.mappings, 'привязки вариантов исчезли — выбор мёртв').toBe(source().mappings);
         };
@@ -120,9 +80,6 @@ describeIfModels(MODELS, 'варианты материала переживаю
   }
 });
 
-// ============================================================================
-// РАЗДЕЛ 2+3. Двойной прогон и правило истины (EXTENDING §5c).
-// ============================================================================
 describeIfModels(MODELS, 'варианты переживают двойной прогон — итог сверяется с первоначальным файлом', () => {
   for (const model of MODELS) {
     it(`${model} — [safe+join] дважды, привязки равны ВХОДУ`, async () => {
@@ -135,8 +92,6 @@ describeIfModels(MODELS, 'варианты переживают двойной �
       expect(r1.status).toBe('ok');
       expect(r1.file?.dst && fs.existsSync(r1.file.dst), 'первый прогон не записал файл').toBe(true);
 
-      // Оптимизируем РЕЗУЛЬТАТ, а не вход. Класс дефектов настоящий: у KTX2 так нашлась
-      // запись «уже KTX2», которая на втором заходе выдавала строку на каждую текстуру.
       const r2 = await optimizeFile(r1.file.dst, {
         advancedFeatures: ['safe', 'join'],
         outDir: tmpOutDir(),
@@ -144,7 +99,6 @@ describeIfModels(MODELS, 'варианты переживают двойной �
       expect(r2.status).toBe('ok');
       expect(r2.file?.dst && fs.existsSync(r2.file.dst), 'второй прогон не записал файл').toBe(true);
 
-      // Правило истины: сверяем с ПЕРВОНАЧАЛЬНЫМ файлом, а не с промежуточным r1.
       const after = variantState(glbJson(r2.file.dst));
       expect(after.names, 'имена вариантов изменились после двух прогонов').toEqual(before.names);
       expect(after.prims).toBe(before.prims);
@@ -153,9 +107,6 @@ describeIfModels(MODELS, 'варианты переживают двойной �
   }
 });
 
-// ============================================================================
-// РАЗДЕЛ 4. Что говорит человеку отчёт.
-// ============================================================================
 describeIfModels(MODELS, 'отчёт человеку: ровно одна строка join.keptVariants', () => {
   for (const model of MODELS) {
     it(`${model} — [safe+join]: одна строка, переживает смену языка без пересборки`, async () => {
@@ -163,12 +114,10 @@ describeIfModels(MODELS, 'отчёт человеку: ровно одна ст�
         advancedFeatures: ['safe', 'join'],
         outDir: tmpOutDir(),
       });
-      // localizeResult на ГОТОВОМ результате — движок не вызывается повторно (Правило 8).
       const ru = localizeResult(r, 'ru');
       const en = localizeResult(r, 'en');
       const ruLines = ru.skipped.filter((e) => e.i18n?.text?.messageId === 'join.keptVariants');
       const enLines = en.skipped.filter((e) => e.i18n?.text?.messageId === 'join.keptVariants');
-      // Одна строка на класс, а не строка на меш (Правило 9).
       expect(ruLines.length, 'в русском отчёте строка размножилась по мешам или пропала').toBe(1);
       expect(enLines.length, 'в английском отчёте строка размножилась по мешам или пропала').toBe(1);
     }, 180_000);

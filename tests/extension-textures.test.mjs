@@ -1,26 +1,3 @@
-// tests/extension-textures.test.mjs — WebP и KTX2 лежат в расширении, а не в основном source.
-//
-// ДЕФЕКТ, найденный Александром 2026-09-03: «TEXTURE_INVALID_IMAGE_MIME_TYPE … /textures/6/source.
-// Как мы могли создать новую ошибку при оптимизации? Это что вообще за ужас».
-//
-// Он прав: исходник валидатор проходил, наш файл — нет. Ядро спецификации знает у текстуры
-// ровно два формата, PNG и JPEG; WebP и KTX2 подключаются расширением и ссылаются на
-// картинку ИЗНУТРИ него. Наш файл оставил одну текстуру с `source` на WebP.
-//
-// ПРИЧИНА — В БИБЛИОТЕКЕ, а не в правиле. `EXT_texture_webp.write()` перекладывает ссылки
-// по списку записей текстур, существующих НА ТОТ МОМЕНТ, а записи создаются лениво: кто
-// первый сослался, тот и создал. Текстуру, на которую смотрит только другое расширение
-// материала, создаёт это расширение — то есть ПОЗЖЕ, и перекладчик её уже не видит.
-// Прослежено на `DiffuseTransmissionPlant` (`_work/webp-trace.mjs`): записей шесть,
-// текстур семь.
-//
-// Задевает это весь современный PBR: diffuse_transmission, specular, sheen, clearcoat,
-// transmission, volume, iridescence, anisotropy — у каждого свои текстурные слоты. Поэтому
-// сторож смотрит не на одну модель, а на ЛЮБУЮ, где есть текстуры расширений.
-//
-// ПРОБА НА КРАСНОТУ (пройдена 2026-09-04): выключил `fixExtensionTextures` в
-// `addons/gltf/index.mts` — тест назвал `textures/6` и модель поимённо.
-
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -29,7 +6,6 @@ import path from 'node:path';
 import { optimizeFile } from '../optimize2.mjs';
 import addon from '../addons/gltf/index.mjs';
 
-/** Форматы, которые ЯДРО спецификации допускает у `textures[].source`. */
 const ЯДРО = ['image/png', 'image/jpeg'];
 
 function разобрать(файл) {
@@ -38,12 +14,6 @@ function разобрать(файл) {
   return JSON.parse(new TextDecoder().decode(buf.subarray(20, 20 + dv.getUint32(12, true))));
 }
 
-/**
- * Модель с текстурой, на которую ссылается ТОЛЬКО расширение материала.
- *
- * Ровно тот случай, что ломался. Модель из золотого корпуса — не выдумка: важно, что
- * такие файлы приходят от людей, а не собираются в тесте.
- */
 const МОДЕЛЬ = 'fixtures/models/DiffuseTransmissionPlant.glb';
 const естьМодель = fs.existsSync(МОДЕЛЬ);
 
@@ -56,7 +26,6 @@ describe.skipIf(!естьМодель)('текстуры расширений о
       expect(r.status, 'сборка не прошла — проверять нечего').toBe('ok');
 
       const json = разобрать(path.join(outDir, path.basename(МОДЕЛЬ)));
-      // Сторож самому себе: если WebP не применился, «нарушений нет» ничего не значит.
       expect(
         (json.images || []).some((i) => i.mimeType === 'image/webp'),
         'в файле нет ни одной WebP-картинки: проверка вышла пустой',
@@ -78,7 +47,6 @@ describe.skipIf(!естьМодель)('текстуры расширений о
   }, 120000);
 
   it('расширение объявлено в extensionsUsed', async () => {
-    // Ссылка изнутри расширения без объявления — такая же ложь, только с другой стороны.
     const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ext-tex-used-'));
     try {
       const opts = addon.normalizeOpts({ advancedFeatures: ['webp'], webpQuality: 60, outDir });

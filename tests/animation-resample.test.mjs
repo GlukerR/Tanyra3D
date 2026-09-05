@@ -1,14 +1,3 @@
-// tests/animation-resample.test.mjs — проверка правила animation/resample.
-//
-// resample — единственная оптимизация, которая целенаправленно трогает анимацию.
-// Проверяем, что она не ломает модели: анимации сохраняются по числу и именам,
-// morphTargets и skins не меняются, файл становится меньше.
-//
-// Дополнительно: модель без анимации не сбоит — даёт пустой applied и skipped
-// с сообщением «no animations to resample».
-//
-// Измерено на коммите 125faa2 (см. задание 2026-07-29-вьюер.md).
-
 import { describe, it, expect, afterAll } from 'vitest';
 import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 
@@ -38,15 +27,9 @@ function parseGlbJson(bytes) {
   return JSON.parse(bytes.slice(20, 20 + jsonLength).toString('utf8'));
 }
 
-// --------------------------------------------------------------------
-// Группа: модели С анимацией — проверяем resample
-// --------------------------------------------------------------------
 
 describe('animation/resample — models with animations', () => {
-  // Модели из задания (все локальные). Для каждой проверяем инварианты resample.
   const ANIM_MODELS = [
-    // Имена клипов в Lilith имеют префикс `root|` (специфика glTF-экспорта).
-    // Используем includes-проверку вместо точного равенства.
     { name: 'Lilith Character 01.glb', animCount: 3, hasSkins: true, names: ['Idle', 'Lilith_Walk_Loop', '0-T-Pose'] },
     { name: 'Cthulhu Stone 01.glb', animCount: 1, hasSkins: false, names: ['Scene'] },
     { name: 'chibi_zenitsu.glb', animCount: 1, hasSkins: true, names: ['Run'] },
@@ -68,15 +51,7 @@ describe('animation/resample — models with animations', () => {
           dryRun: true,
         });
         expect(result.status).toBe('ok');
-        // Должен быть хотя бы один applied-записи (либо ресэмпл, либо пропуск кадров).
         expect(result.applied.length).toBeGreaterThanOrEqual(0);
-        // applied может быть пуст при «нет лишних кадров» — это не ошибка.
-        //
-        // ПОПРАВКА 2026-08-03: раньше здесь искалось английское слово «resample»
-        // в тексте записи. Это работало только потому, что правило клало в отчёт
-        // готовую английскую строку в обход каталога — то есть тест
-        // сторожил дефект. Правило переведено на рецепты, опознаём по ruleId:
-        // он и есть устойчивый признак, а текст меняется вместе с языком.
         if (result.applied.length > 0) {
           const anyResample = result.applied.some((a) => a.ruleId === 'animation/resample');
           const anySkipped = result.skipped.some((s) => s.ruleId === 'animation/resample');
@@ -96,24 +71,16 @@ describe('animation/resample — models with animations', () => {
       });
 
       it('имена клипов сохранены', async () => {
-        // Читаем выходной GLB (без dryRun, чтобы получить файл)
         const result = await optimizeFile(modelPath(name), {
           outDir: tmpOutDir(),
           advancedFeatures: ['resample'],
-          // Используем dryRun — метрики в результате уже есть.
-          // Для имён проверяем через результат: если бы имена изменились,
-          // метрики бы заметили. Но для точности читаем исходник напрямую.
           dryRun: true,
         });
         expect(result.status).toBe('ok');
-        // Проверяем сохранение в целом — метрик достаточно.
-        // Имена проверяем на исходном файле (resample не меняет имена).
         const bytes = fs.readFileSync(modelPath(name));
         const json = parseGlbJson(bytes);
         const animNames = (json.animations || []).map((a) => String(a.name || ''));
         for (const expected of names) {
-          // Некоторые экспортёры добавляют префикс `root|` к именам клипов.
-          // Проверяем через includes, а не точное равенство.
           const found = animNames.some((n) => n.includes(expected));
           expect(found).toBe(true);
         }
@@ -149,17 +116,12 @@ describe('animation/resample — models with animations', () => {
           dryRun: true,
         });
         expect(result.status).toBe('ok');
-        // resample может не найти лишних кадров → размер не изменится.
-        // Для Lilith Character 01 ожидаем заметное уменьшение (~20%).
         expect(result.metrics.after.fileBytes).toBeLessThanOrEqual(result.metrics.before.fileBytes);
       });
     });
   }
 });
 
-// --------------------------------------------------------------------
-// Группа: модель БЕЗ анимации — resample не должен падать
-// --------------------------------------------------------------------
 
 describe('animation/resample — model without animations', () => {
   const modelName = 'Dirty Cube 01.glb';
@@ -171,14 +133,9 @@ describe('animation/resample — model without animations', () => {
       dryRun: true,
     });
     expect(result.status).toBe('ok');
-    // resample нечего делать — applied пуст
     expect(result.applied.length).toBe(0);
   });
 
-  // ПОПРАВКА 2026-08-03: искали подстроку «animations» + «resample» в тексте —
-  // то есть опознавали запись по непереведённой английской строке, которую правило
-  // клало в обход каталога. Теперь причина названа ключом, и он же проверяется:
-  // текст обязан меняться вместе с языком, ключ — нет.
   it('skipped называет причину «нет анимаций» ключом каталога', async () => {
     const result = await optimizeFile(modelPath(modelName), {
       outDir: tmpOutDir(),
@@ -198,10 +155,7 @@ describe('animation/resample — model without animations', () => {
       dryRun: true,
     });
     expect(result.status).toBe('ok');
-    // resample не трогает геометрию — треугольники сохраняются.
-    // fileBytes МОЖЕТ измениться (пайплайн перепаковывает буфер), поэтому не проверяем.
     expect(result.metrics.before.triangles).toBe(result.metrics.after.triangles);
-    // У модели Dirty Cube 01 нет анимаций от природы
     expect(result.metrics.before.animations).toBe(0);
     expect(result.metrics.after.animations).toBe(0);
   });
@@ -217,9 +171,6 @@ describe('animation/resample — model without animations', () => {
   });
 });
 
-// --------------------------------------------------------------------
-// Дополнительно: resample + safe вместе — комбинация не ломает анимацию
-// --------------------------------------------------------------------
 
 describe('animation/resample + safe — combined', () => {
   const modelName = 'Lilith Character 01.glb';

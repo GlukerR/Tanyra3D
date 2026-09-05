@@ -1,15 +1,7 @@
-// translations/validator-ru.js — русский перевод сообщений gltf-validator (Khronos).
-// Дополнение к ru.js: добавляет validator.* ключи в тот же каталог через слияние.
-// Загружается сервером автоматически (все .js из translations/).
-// Покрыты все 169 кодов валидатора (2026-08-04). Ключ переводит текст по коду
-// ошибки (validator.<КОД>), подробности и числа приходят от валидатора — их
-// перевод не заменяет, он объясняет смысл кода новичку.
-
 window.I18N_CATALOGS = window.I18N_CATALOGS || {};
 window.I18N_CATALOGS.ru = {
   ...(window.I18N_CATALOGS.ru || {}),
 
-  // --- gltf-validator (Khronos) перевод сообщений ---
   'validator.ACCESSOR_ANIMATION_INPUT_NEGATIVE': () => 'Аксессор входных данных анимации содержит отрицательные значения.',
   'validator.ACCESSOR_ANIMATION_INPUT_NON_INCREASING': () => 'Значения аксессора входных данных анимации не возрастают монотонно.',
   'validator.ACCESSOR_ANIMATION_SAMPLER_OUTPUT_NON_NORMALIZED_QUATERNION': () => 'Кватернион в выходных данных сэмплера анимации не нормализован.',

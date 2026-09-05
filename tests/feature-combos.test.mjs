@@ -1,36 +1,3 @@
-// tests/feature-combos.test.mjs — сочетания фич: полная матрица пар и троек
-// (задание 2026-08-01-сочетания-фич; слои 1–2 из ПРАВИЛА_ТЕСТОВ_универсальность.md).
-//
-// Зачем. Два последних дефекта движка нашлись на сочетаниях, а не на одиночных фичах:
-//   TESTBUG-008 — meshopt+quantize: воздержание было правильным, а причину человеку
-//     называли не ту (следствие его выбора вместо самого выбора);
-//   TESTBUG-009 — join+instance: отчёт заявлял «размножило общую геометрию +36 %»
-//     на файле, который стал на треть легче.
-// Оба нашлись случайно. Пар и троек больше, чем можно перебрать руками, — перебирает
-// этот файл. Список фич берётся из RULES (meta.feature) импортом: добавят девятую
-// фичу — матрица вырастет сама (см. FINDING-0 в отчёте про draco).
-//
-// Формат-независимость (ПРАВИЛА, слои 1–2): здесь нет ни одного имени движка; все
-// утверждения — о контракте отчёта и о выходном ФАЙЛЕ (Babylon прочитает тот же GLB).
-//
-// ============================================================================
-// ⚠  НАЙДЕННЫЕ РАСХОЖДЕНИЯ (движок НЕ чиним — задание). Разделы, где тест КРАСНЫЙ
-//    на 2026-08-04, с объяснением. Основной агент закрывает их правкой движка.
-// ============================================================================
-//
-// F-1. РАЗДЕЛ 2 «Взаимоисключение» — пара meshopt+draco через API: проигравшая
-//   фича НЕ получает записи воздержания с причиной. normalizeOpts молча выбирает
-//   draco (codec = 'draco' при обоих флагах), отчёт показывает только applied
-//   compress.done codec=draco, и ни одна строка не говорит человеку, что meshopt
-//   проигнорирован И ПОЧЕМУ. Это тот же класс, что TESTBUG-008 (причина выбора
-//   должна называть выбор человека), но для пары кодеков одного правила.
-//   Замер: Dirty Cube 01, ['safe','meshopt','draco'] → skipped пуст по compress,
-//   только applied codec=draco. Контракт задания: «одна фича применилась, вторая
-//   воздержалась; причина воздержания названа codec-специфично».
-//
-// Замечание про метрики: triangles/вершины в metrics считаются «по сцене», а не по
-// мешам (см. Н-3 контракта движка). Здесь это не критично: все инварианты —
-// относительные (before vs after одного и того же прогона).
 import { describe, it, expect, afterAll } from 'vitest';
 import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 
@@ -45,20 +12,12 @@ import { TOKTX, HAS_GLTF_CLI } from '../addons/gltf/tools.mjs';
 import { modelPath, eachModel } from './helpers/model-files.mjs';
 import { densityViolations, DENSITY_LIMIT } from './helpers/report-density.mjs';
 
-// ============================================================================
-// Фичи — ИЗ RULES импортом (задание: не переписывать список руками).
-// meta.feature в RULES: join, instance, resample, ktx2, webp, meshopt, quantize.
-// draco в RULES нет: это кодек-вариант того же правила geometry/compress (у него
-// feature 'meshopt', а выбор кодека делает normalizeOpts). Задание требует draco
-// восьмой фичей — добавляем его явно рядом с близнецом (см. FINDING-0 в отчёте).
-// Девятую фичу, добавленную в RULES, матрица подхватит автоматически.
 const RULES_FEATURES = [...new Set(RULES.map((r) => r.meta.feature).filter(Boolean))];
 const FEATURES = [...new Set([...RULES_FEATURES, 'draco'])];
 const GEOMETRY_CODECS = ['meshopt', 'draco', 'quantize'];
 const TEXTURE_FORMATS = ['ktx2', 'webp'];
 const STRUCTURE = ['join', 'instance'];
 
-// Все пары поверх safe: ['safe', A, B] — C(n,2), где n растёт вместе с RULES.
 const PAIRS = [];
 for (let i = 0; i < FEATURES.length; i++) {
   for (let j = i + 1; j < FEATURES.length; j++) {
@@ -66,7 +25,6 @@ for (let i = 0; i < FEATURES.length; i++) {
   }
 }
 
-// Тройки для взаимоисключающих групп: геометрия × текстуры × структура = 3×2×2 = 12.
 const TRIPLES = [];
 for (const g of GEOMETRY_CODECS) {
   for (const t of TEXTURE_FORMATS) {
@@ -74,15 +32,13 @@ for (const g of GEOMETRY_CODECS) {
   }
 }
 
-// Взаимоисключающие пары: ktx2+webp и любые две из meshopt/draco/quantize.
 const MUTEX_PAIRS = [
   ['ktx2', 'webp'],
   ...GEOMETRY_CODECS.flatMap((a, i) => GEOMETRY_CODECS.slice(i + 1).map((b) => [a, b])),
 ];
 
-const TOKTX_OK = Boolean(TOKTX && HAS_GLTF_CLI); // ktx2-правило гейтится обоими
+const TOKTX_OK = Boolean(TOKTX && HAS_GLTF_CLI);
 
-// Соответствие фичи правилу (по meta.feature; draco и meshopt — одно правило).
 const featureRuleId = (f) => {
   if (f === 'draco') return 'geometry/compress';
   const rule = RULES.find((r) => r.meta.feature === f);
@@ -93,22 +49,15 @@ const featureRuleId = (f) => {
 const hasApplied = (result, ruleId) => (result.applied || []).some((a) => a.ruleId === ruleId);
 const skippedOf = (result, ruleId) => (result.skipped || []).filter((s) => s.ruleId === ruleId);
 const appliedOf = (result, ruleId) => (result.applied || []).filter((a) => a.ruleId === ruleId);
-// ============================================================================
-// РАЗДЕЛ 1. Инварианты на всех парах ['safe', A, B] — все пары × корпус.
-// dryRun:true — файл на диск не пишем, отчёта достаточно.
-// ============================================================================
-// Корпус сокращён: репо-модели 11 → 5 (см. отчёт «что сократил»), локальные
-// подключены через eachModel — на чистом клоне они просто пропустятся.
 const PAIR_CORPUS = [
-  'Dirty Cube 01.glb',                 // геометрия + текстуры + общая геометрия
-  'Instance Grid 01.glb',              // инстансинг / общая геометрия
-  'Morph Cube 01.glb',                 // морфы
-  'Vertex Colors 01.glb',              // атрибуты
-  'Meshopt Compressed Input 01.glb',   // вход уже упакован meshopt
+  'Dirty Cube 01.glb',
+  'Instance Grid 01.glb',
+  'Morph Cube 01.glb',
+  'Vertex Colors 01.glb',
+  'Meshopt Compressed Input 01.glb',
 ];
 const LOCAL_CORPUS = ['parkergirl.glb', 'RiggedSimple.glb', 'chibi_zenitsu.glb'];
 
-// Метрики, обязанные быть конечными числами (свойство «метрики полны, без NaN»).
 const METRIC_KEYS = ['fileBytes', 'drawCalls', 'triangles', 'vertices', 'morphTargets',
   'textureBytes', 'gpuBytes', 'meshes', 'materials', 'textures', 'nodes', 'scenes',
   'animations', 'skins'];
@@ -118,8 +67,6 @@ function metricNaNs(m) {
   return METRIC_KEYS.filter((k) => !Number.isFinite(m[k]));
 }
 
-// Проверка, что применённые правила не нарушают meta.runAfter (устойчивая
-// топосортировка движка; здесь — что в отчёте зависимости раньше зависимых).
 function runAfterViolations(result) {
   const ruleById = new Map(RULES.map((r) => [r.meta.id, r]));
   const appliedIds = (result.applied || []).map((a) => a.ruleId);
@@ -134,7 +81,6 @@ function runAfterViolations(result) {
   return bad;
 }
 
-// Инварианты одной комбинации. finder — строка для сообщений об ошибке.
 async function checkComboInvariants(model, flags, finder) {
   const result = await optimizeFile(modelPath(model), {
     outDir: tmpOutDir(),
@@ -142,30 +88,24 @@ async function checkComboInvariants(model, flags, finder) {
     dryRun: true,
   });
 
-  // 1. status определён; исключений наружу нет (optimizeFile их глотает в status fail)
   expect(['ok', 'fail', 'skip']).toContain(result.status);
   if (result.status === 'fail' && !result.error) {
-    // fail без error бывает у валидации; сам по себе не находка
+    // validation fail, expected
   }
 
-  // 2. метрики полны, без NaN
   const beforeNaNs = metricNaNs(result.metrics?.before);
   const afterNaNs = metricNaNs(result.metrics?.after);
   expect(beforeNaNs, `${finder}: NaN в before: ${beforeNaNs.join(', ')}`).toEqual([]);
   expect(afterNaNs, `${finder}: NaN в after: ${afterNaNs.join(', ')}`).toEqual([]);
 
-  // 3. треугольников не больше, чем было (может только уменьшиться)
   if (result.metrics?.before && result.metrics?.after) {
     expect(result.metrics.after.triangles).toBeLessThanOrEqual(result.metrics.before.triangles);
 
-    // 4. скинов/морфов/анимаций — ровно столько же (их теряет только явное правило,
-    // а такого у нас нет; допуск: fail-прогоны движка уже покрыты контрактом)
     for (const k of ['skins', 'animations', 'morphTargets']) {
       expect(result.metrics.after[k], `${finder}: ${k} изменилось`).toBe(result.metrics.before[k]);
     }
   }
 
-  // 5. порядок правил не нарушает meta.runAfter
   const runAfterBad = runAfterViolations(result);
   expect(runAfterBad, `${finder}: нарушение runAfter: ${runAfterBad.join('; ')}`).toEqual([]);
 
@@ -174,36 +114,17 @@ async function checkComboInvariants(model, flags, finder) {
 describe('Сочетания фич — инварианты на всех парах (28 пар × корпус)', () => {
   for (const [a, b] of PAIRS) {
     const flags = ['safe', a, b];
-    // Репо-модели гоняем напрямую (всегда на месте)…
     for (const model of PAIR_CORPUS) {
       it(`${model} · [${flags.join(', ')}] — инварианты`, async () => {
         await checkComboInvariants(model, flags, `${model} [${flags.join(', ')}]`);
       }, 120_000);
     }
-    // …локальные — через eachModel: на чистом клоне пропустятся сами.
     eachModel(`[${flags.join(', ')}] — инварианты`, LOCAL_CORPUS, async (model) => {
       await checkComboInvariants(model, flags, `${model} [${flags.join(', ')}]`);
     });
   }
 });
 
-// ============================================================================
-// РАЗДЕЛ 2. Взаимоисключающие пары — оба порядка передачи фич.
-// ============================================================================
-// Интерфейс гасит пары друг о друга, но через API передать обе можно.
-//
-// ПОВЕДЕНИЕ ИЗМЕНЕНО 2026-08-17 (слово Александра): пары Meshopt/Draco и KTX2/WebP
-// взаимоисключающие и в движке, и побеждает ПОСЛЕДНИЙ присланный — ровно как в
-// интерфейсе клик по галочке гасит соседнюю. Раньше здесь проверялось обратное:
-// «результат не зависит от порядка», то есть движок переигрывал последний выбор
-// человека по своему списку priority. Теперь порядок — это и есть выбор, и он решает.
-//
-// Что осталось неизменным и проверяется по-прежнему: (а) работает ровно одна фича,
-// (б) отменённая названа в отчёте, а не исчезает молча, (в) причина codec-специфична —
-// человек видит имя того, что выбрал (TESTBUG-008).
-//
-// Пара quantize×кодек здесь особая: она НЕ взаимоисключающая в движке (quantize —
-// третий, независимый способ), и порядок на неё не влияет.
 describe('Сочетания фич — взаимоисключающие пары, порядок решает', () => {
   for (const [a, b] of MUTEX_PAIRS) {
     it(`${a}+${b}: побеждает последний выбранный, проигравший назван по codec`, async () => {
@@ -217,30 +138,21 @@ describe('Сочетания фич — взаимоисключающие па�
       expect(r1.metrics?.after?.fileBytes).toBeTypeOf('number');
       expect(r2.metrics?.after?.fileBytes).toBeTypeOf('number');
 
-      // (б, в) кто применился, кто воздержался — по правилам пары
       const ruleA = featureRuleId(a);
       const ruleB = featureRuleId(b);
       const appliedA = hasApplied(r1, ruleA);
       const appliedB = hasApplied(r1, ruleB);
 
       if (a === 'ktx2' && b === 'webp') {
-        // ktx2 без toktx воздержится (ktx2.noTools), webp тогда применится
         if (!TOKTX_OK) {
           expect(appliedA).toBe(false);
           expect(appliedB).toBe(true);
           return;
         }
-        // Пара взаимоисключающая и в движке (2026-08-17): работает РОВНО ОДНО правило,
-        // побеждает последний присланный. Здесь r1 = [ktx2, webp] → выигрывает webp.
-        // Отменённый выбор не исчезает молча: движок называет его строкой exclusive.
         expect(appliedA).toBe(false);
         expect(appliedB).toBe(true);
         expect((r1.skipped || []).some((s) => s.kind === 'exclusive' && s.feature === 'ktx2')).toBe(true);
       } else if (a === 'meshopt' && b === 'draco') {
-        // ДВА кодека одного правила. Побеждает последний присланный, поэтому
-        // r1 = [safe, meshopt, draco] → draco, а r2 = [safe, draco, meshopt] → meshopt.
-        // Проигравший обязан быть назван локализуемой, конкретной причиной: человек
-        // видит имя того, что выбрал сам, а не безличное «нельзя».
         expect(appliedA || appliedB).toBe(true);
         const cases = [
           { r: r1, winner: 'draco', loser: 'meshopt', winnerKey: 'feature.draco' },
@@ -255,8 +167,6 @@ describe('Сочетания фич — взаимоисключающие па�
           expect(loser.i18n?.reason?.data?.selected?.messageId).toBe(c.winnerKey);
         }
       } else {
-        // quantize против meshopt/draco: quantize воздерживается с codec-специфичной
-        // причиной (TESTBUG-008 закрыт): «уже упакована (meshopt/draco)»
         const quantizeRule = a === 'quantize' ? ruleA : ruleB;
         const compressRule = a === 'quantize' ? ruleB : ruleA;
         expect(hasApplied(r1, compressRule)).toBe(true);
@@ -270,13 +180,6 @@ describe('Сочетания фич — взаимоисключающие па�
     }, 120_000);
   }
 });
-// ============================================================================
-// РАЗДЕЛ 3. Отчёт не противоречит файлу (самый ценный; TESTBUG-009 нашёлся здесь).
-// ============================================================================
-// Для каждой комбинации с dryRun:false пишем .glb и сверяем числовые утверждения
-// отчёта с записанным файлом: рост — есть ли он в файле, выигрыш — есть ли он в
-// файле, «уже X» — есть ли X в файле. Формула одна: ЛЮБОЕ числовое утверждение
-// отчёта сверяется с файлом.
 const ioPromise = gltfAddon.createIO();
 
 async function readOutput(dst) {
@@ -291,40 +194,21 @@ async function readOutputMetrics(dst) {
   return gltfAddon.collectMetrics(doc, fs.statSync(dst).size);
 }
 
-// Утверждения отчёта → проверка по файлу.
-// Возвращает массив нарушений (пустой = отчёт не противоречит файлу).
 async function reportVsFileViolations(model, result, dst) {
   const out = [];
   const fileBytes = fs.statSync(dst).size;
 
-  // 0. Метрика отчёта (metrics.after.fileBytes) должна совпадать с файлом на диске.
   if (result.metrics?.after?.fileBytes !== fileBytes) {
     out.push(`metrics.after.fileBytes=${result.metrics?.after?.fileBytes} ≠ файл ${fileBytes}`);
   }
 
-  // 1. Рост: если какое-то правило сообщило о РОСТЕ — рост должен быть виден в
-  // записанном файле, а не только внутри окна правила.
-  //
-  // Проверка стала ПОРЕСУРСНОЙ 2026-08-17. Причина: знак цены теперь бывает не только
-  // про вес файла, но и про видеопамять (webp.grewVram — WebP выигрывает размер
-  // скачивания ровно за счёт памяти видеокарты). Сверять «вырос ли файл» с записью
-  // про видеопамять значит требовать от отчёта неправды.
   const costRecords = (result.skipped || []).filter((s) => s.kind === 'cost');
   const grewFile = result.metrics?.after?.fileBytes > result.metrics?.before?.fileBytes;
   const grewVram = result.metrics?.after?.gpuBytes > result.metrics?.before?.gpuBytes;
-  // Оба текстурных правила в одном прогоне — сочетание, недостижимое из интерфейса
-  // (галочки взаимоисключающие) и осмысленное только как диагностика через API.
-  // Каждое из них честно отчитывается о СВОЁМ окне, но второе переделывает работу
-  // первого, поэтому итоговый файл не обязан подтверждать цену первого.
   const bothTextureRules = ['textures/ktx2', 'textures/webp']
     .every((id) => (result.applied || []).some((a) => a.ruleId === id));
 
   for (const c of costRecords) {
-    // Оба текстурных правила в одном прогоне — второе переделывает работу первого,
-    // и НИ ОДНА из цен не обязана подтверждаться сравнением «исходник против итога».
-    // Замерено на Dirty Cube 01 [safe, ktx2, webp]: ktx2 ужимает видеопамять, webp
-    // распаковывает обратно, и относительно исходной модели она не изменилась — хотя
-    // внутри окна webp выросла честно. Сочетание достижимо только через API.
     if (bothTextureRules) continue;
     const id = c.i18n?.text?.messageId || '';
     const claimsVram = id.endsWith('grewVram');
@@ -333,8 +217,6 @@ async function reportVsFileViolations(model, result, dst) {
     }
   }
 
-  // 2. Выигрыш: если правило сообщило о выигрыше (метрики файла меньше) —
-  // выигрыш должен быть в файле.
   if (result.metrics?.before && result.metrics?.after) {
     const claimedWin = result.metrics.after.fileBytes < result.metrics.before.fileBytes;
     if (claimedWin && fileBytes >= result.metrics.before.fileBytes) {
@@ -346,7 +228,6 @@ async function reportVsFileViolations(model, result, dst) {
     }
   }
 
-  // 3. «уже X»: правило назвало причину «уже X» — X должен быть в файле.
   const doc = await readOutput(dst);
   const root = doc.getRoot();
   const extUsed = new Set(root.listExtensionsUsed().map((e) => e.extensionName));
@@ -367,14 +248,10 @@ async function reportVsFileViolations(model, result, dst) {
     } else if (id && id.startsWith('ktx2.skipped.already')) {
       if (!texMimes.has('image/ktx2')) out.push(`${id}, но в файле нет image/ktx2`);
     } else if (id === 'webp.skipped.failed') {
-      // Единственный оставшийся отказ webp. Проверяем не формат в файле, а то, что
-      // отказ назвал себя: имя текстуры и причину. Безымянный отказ — это молчаливый
-      // пропуск под другим ключом (Правило 12).
       if (!data.name || !data.reason) out.push(`${id} без имени текстуры или причины`);
     }
   }
 
-  // 4. Применённые сжатия обязаны оставить свой след в файле (расширение объявлено).
   for (const a of result.applied || []) {
     const id = a.i18n?.text?.messageId;
     const data = a.i18n?.text?.data || {};
@@ -388,7 +265,6 @@ async function reportVsFileViolations(model, result, dst) {
     }
   }
 
-  // 5. Треугольники: счётчик отчёта (after) совпадает с фактическим файлом.
   const fileMetrics = await readOutputMetrics(dst);
   if (result.metrics?.after && fileMetrics.triangles !== result.metrics.after.triangles) {
     out.push(`треугольники: отчёт ${result.metrics.after.triangles}, файл ${fileMetrics.triangles}`);
@@ -397,8 +273,6 @@ async function reportVsFileViolations(model, result, dst) {
   return out;
 }
 describe('Сочетания фич — отчёт не противоречит записанному файлу (dryRun:false)', () => {
-  // Комбинации, где есть о чём врать: cost-записи (ktx2.grewFile), «уже X»,
-  // выигрыши квантования/компрессии. dryRun:false → файл реально на диске.
   const FILE_COMBOS = [
     { model: 'Dirty Cube 01.glb', flags: ['safe', 'meshopt', 'quantize'] },
     { model: 'Dirty Cube 01.glb', flags: ['safe', 'ktx2', 'webp'] },
@@ -420,17 +294,12 @@ describe('Сочетания фич — отчёт не противоречит
       const dst = path.join(outDir, model);
       expect(fs.existsSync(dst), `файл не записан: ${dst}`).toBe(true);
 
-      // status fail допустим (валидация) — но файл обязан быть; расхождения ниже —
-      // это находки, а не «красный из-за fail».
       const violations = await reportVsFileViolations(model, result, dst);
       expect(violations, `${model} [${flags.join(', ')}]: ${violations.join('; ')}`).toEqual([]);
     }, 120_000);
   }
 });
 
-// ============================================================================
-// РАЗДЕЛ 4. Плотность и язык на сочетаниях.
-// ============================================================================
 describe('Сочетания фич — сторож плотности на сочетаниях', () => {
   for (const flags of [
     ['safe', 'meshopt', 'quantize'],
@@ -471,31 +340,22 @@ describe('Сочетания фич — localizeResult(ru/en): структур�
       const ru = localizeResult(result, 'ru');
       const en = localizeResult(result, 'en');
 
-      // структура та же: те же списки, та же длина
       for (const key of ['applied', 'skipped', 'findings', 'validation']) {
         expect(ru[key].length).toBe(result[key].length);
         expect(en[key].length).toBe(result[key].length);
       }
-      // рецепты (i18n) сохраняются: messageId не потерялся при локализации
       const all = [...ru.applied, ...ru.skipped, ...ru.findings, ...ru.validation];
       for (const rec of all) {
         expect(rec.i18n).toBeDefined();
         expect(rec.i18n.text.messageId).toBeTypeOf('string');
       }
-      // тексты реально переведены: хоть одна запись отличается между ru и en
       const ruText = [...ru.applied, ...ru.skipped].map((r) => r.text).join('\n');
       const enText = [...en.applied, ...en.skipped].map((r) => r.text).join('\n');
       expect(ruText).not.toBe(enText);
-      // ни один ключ не упал: в текстах нет сигнатуры неразрешённого ключа
       expect(ruText).not.toContain('messageId');
     }, 120_000);
   }
 });
-// ============================================================================
-// РАЗДЕЛ 5. Тройки: геометрия × текстуры × структура (12 комбинаций).
-// ============================================================================
-// Тройки проверяем по тем же инвариантам, что и пары, на 2 моделях: с текстурами
-// (Dirty Cube 01) и со скином/морфами (parkergirl, локально).
 describe('Сочетания фич — тройки геометрия×текстуры×структура', () => {
   for (const [g, t, s] of TRIPLES) {
     const flags = ['safe', g, t, s];
@@ -510,22 +370,11 @@ describe('Сочетания фич — тройки геометрия×тек�
   }
 });
 
-// ============================================================================
-// РАЗДЕЛ 6. Матрица живёт: список фич и пары берутся из RULES, а не руками.
-// ============================================================================
 describe('Сочетания фич — матрица растёт сама (фичи из RULES)', () => {
   it('восемь фич задания присутствуют в списке (join, instance, resample, ktx2, webp, meshopt, draco, quantize)', () => {
     for (const f of ['join', 'instance', 'resample', 'ktx2', 'webp', 'meshopt', 'draco', 'quantize']) {
       expect(FEATURES, `не хватает фичи ${f}`).toContain(f);
     }
-    // Числа СЧИТАЮТСЯ, а не вписаны. Так и было задумано с самого начала («девятую
-    // фичу матрица подхватит автоматически»), но три magic-числа этому противоречили:
-    // 2026-08-29 в RULES пришла девятая фича (`strip-dead-interactivity`), и красным
-    // стал не дефект, а собственная арифметика теста.
-    //
-    // Утверждение осталось прежним по смыслу: пары — это ВСЕ сочетания по два, тройки —
-    // произведение трёх взаимоисключающих групп, взаимоисключающих пар — пара текстур
-    // плюс все пары кодеков.
     const C2 = (n) => (n * (n - 1)) / 2;
     expect(PAIRS.length, 'пары перестали быть всеми сочетаниями по два').toBe(C2(FEATURES.length));
     expect(TRIPLES.length, 'тройки перестали быть произведением трёх групп')

@@ -1,22 +1,3 @@
-// tests/electron-config.test.mjs — сторож настройки сборки приложения.
-//
-// Введён 2026-08-09, после ДВУХ одинаковых поломок подряд. Оба раза сборка падала не
-// на упаковке, а на проверке схемы — то есть разом на всех четырёх платформах, ещё до
-// первого скопированного файла:
-//
-//   1. `desktopName` положен в build.linux. Такого ключа там нет: он живёт в корне
-//      package.json, а в секции linux — только парный ему syncDesktopName.
-//   2. Пояснение `_comment_mac_targets` положено внутрь build. Корень package.json
-//      чужие ключи терпит (npm их игнорирует), объект build — нет.
-//
-// Цена ошибки несоразмерна: строка в JSON против прогона на четырёх машинах, который
-// выясняется через пять минут ожидания. А заметить её глазами нельзя — обе выглядят
-// совершенно естественно рядом с соседними строками.
-//
-// Проверяется не «работает ли сборка» (для этого нужны четыре платформы), а ровно то,
-// что ломалось: состав ключей. Схему берём ту же, по которой судит сам electron-builder,
-// из его пакета — значит сторож не разойдётся с ним при обновлении.
-
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -30,7 +11,6 @@ const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
 const SCHEME = path.join(ROOT, 'node_modules', 'app-builder-lib', 'scheme.json');
 const scheme = fs.existsSync(SCHEME) ? JSON.parse(fs.readFileSync(SCHEME, 'utf8')) : null;
 
-/** Допустимые ключи секции по её описанию в схеме electron-builder. */
 function allowedKeys(defName) {
   const def = scheme && scheme.definitions && scheme.definitions[defName];
   if (!def) return null;
@@ -52,7 +32,7 @@ describe('Настройка сборки приложения', () => {
   });
 
   it('ключи build.linux, build.win и build.mac существуют в схеме electron-builder', () => {
-    if (!scheme) return; // пакет не установлен (голый клон без devDependencies)
+    if (!scheme) return;
     const sections = [
       ['linux', 'LinuxConfiguration'],
       ['win', 'WindowsConfiguration'],
@@ -85,18 +65,6 @@ describe('Настройка сборки приложения', () => {
     expect(String(who), `«${who}» — Debian требует адрес в угловых скобках`).toMatch(/<[^@\s]+@[^>\s]+>/);
   });
 
-  // 2026-08-09. Установленная в C:\Program Files программа не запускалась вовсе:
-  //
-  //   EPERM: operation not permitted, mkdir 'C:\Program Files\Tanyra3D\resources\app\_web'
-  //
-  // Сервер создавал рабочую папку рядом с собой. Из исходников это удобно, а в папке
-  // установленной программы писать не дают: Program Files на Windows принадлежит
-  // администратору, внутри .app на macOS и в /opt на Linux — то же самое. Падало на
-  // первом же mkdir, до открытия порта, поэтому окно не появлялось совсем.
-  //
-  // Воспроизвести это на машине разработчика невозможно в принципе: там программа
-  // лежит в собственной папке проекта, куда запись разрешена. Отсюда и сторож —
-  // проверять глазами тут нечего.
   describe('рабочая папка — не внутри программы', () => {
     const serverSrc = readSource('server');
     const shellSrc = fs.readFileSync(path.join(ROOT, 'desktop', 'main.cjs'), 'utf8');
@@ -134,27 +102,10 @@ describe('Настройка сборки приложения', () => {
     });
   });
 
-  // 2026-08-09. Александр скачал установщик 0.0.10 и обнаружил, что модель
-  // загружается, а вьюпорта нет ни одного. Причина: electron-builder по
-  // умолчанию выбрасывает из зависимостей папки с именем examples, считая их
-  // документацией. У three в examples/jsm лежит не документация, а рабочий код
-  // вьюера — GLTFLoader, OrbitControls, RoomEnvironment, декодеры Draco и KTX2.
-  //
-  // Поймать это тестами было нечем: браузерные тесты гоняют вьюер из исходного
-  // дерева, где папка на месте, а проверка упакованной сборки ограничивалась
-  // тем, что она поднимается и считает метрики. Рендер не открывали.
-  //
-  // Сторож сверяет ДВЕ вещи: путь, который вьюер просит по HTTP, существует в
-  // node_modules — и он же попадает в пакет по той же раскладке. Добавят импорт
-  // из ещё одной выбрасываемой папки — тест назовёт её.
   describe('файлы вьюера доезжают до пакета', () => {
-    // Имена папок, которые electron-builder вырезает из node_modules сам.
     const STRIPPED = /(^|\/)(example|examples|test|tests|__tests__|powered-test|doc|docs)(\/|$)/;
 
-    /** Пути под /vendor/three/, которые упоминает код вьюера и разметка. */
     const vendorRefs = () => {
-      // Разметка читается как файл, код вьюера — через помощник: у него источник
-      // теперь `.ts`, а собранного `.js` на чистом клоне до сборки ещё нет.
       const sources = [
         () => fs.readFileSync(path.join(ROOT, 'ui/index.html'), 'utf8'),
         () => readSource('ui/viewer/viewer'),
@@ -169,11 +120,6 @@ describe('Настройка сборки приложения', () => {
       return [...refs];
     };
 
-    /**
-     * Кладёт ли extraResources этот путь в пакет ПО ТОМУ ЖЕ адресу.
-     * Раскладка обязана совпасть с исходным деревом: server.mjs ищет three
-     * рядом с собой, и никакой особой ветки для собранного пакета в нём нет.
-     */
     const copiedByExtraResources = (rel) =>
       (pkg.build?.extraResources || []).some((e) => {
         if (!e || typeof e.from !== 'string' || typeof e.to !== 'string') return false;
@@ -189,11 +135,6 @@ describe('Настройка сборки приложения', () => {
       expect(missing, `нет в node_modules/three: ${missing.join(', ')}`).toEqual([]);
     });
 
-    // Второй способ потерять вьюер — не забыть файл, а вырезать его самому.
-    // 2026-08-09 из пакета срезано лишнее ради веса (three/src, сборки webgpu, cjs,
-    // минифицированные копии — 12 МБ). Каждая такая строка написана «на глаз», и
-    // ошибка в шаблоне даст ровно ту же тихую поломку: программа запустится,
-    // интерфейс нарисуется, вьюпорта не будет.
     it('ни одно правило исключения не режет то, что просит вьюер', async () => {
       const { minimatch } = await import('minimatch');
       const excludes = (pkg.build?.files || [])
@@ -203,7 +144,6 @@ describe('Настройка сборки приложения', () => {
       const cut = [];
       for (const ref of vendorRefs()) {
         const rel = 'node_modules/three/' + ref;
-        // Пути из examples приезжают через extraResources — правила files их не касаются.
         if (STRIPPED.test(ref)) continue;
         for (const pattern of excludes) {
           if (minimatch(rel, pattern, { dot: true })) cut.push(`${rel} ← «!${pattern}»`);
@@ -212,12 +152,10 @@ describe('Настройка сборки приложения', () => {
       expect(cut, `эти правила вырезают файлы, которые грузит вьюер:\n  ${cut.join('\n  ')}`).toEqual([]);
     });
 
-    // Сами исключения обязаны на что-то указывать: правило, не совпадающее ни с одним
-    // файлом, — это опечатка, которая молча ничего не экономит.
     it('правила исключения three.js действительно что-то находят', async () => {
       const { minimatch } = await import('minimatch');
       const three = path.join(ROOT, 'node_modules', 'three');
-      if (!fs.existsSync(three)) return;      // голый клон без зависимостей
+      if (!fs.existsSync(three)) return;
 
       const all = [];
       const walk = (dir, prefix) => {
@@ -239,21 +177,13 @@ describe('Настройка сборки приложения', () => {
 
     it('каждая папка данных, которую читает движок, попадает в пакет', async () => {
       const { minimatch } = await import('minimatch');
-      // Введено 2026-08-10 вместе с engines/ (ARCHITECTURE.md §4g). Новая папка данных
-      // молча выпадает из сборки: локально всё работает, а в установленном приложении
-      // список расширений пуст и панель «Дополнительные опции» просто исчезает —
-      // ровно та форма отказа, из-за которой в 0.1.0 уехал мёртвый предпросмотр.
-      //
-      // Список папок не выписан руками, а взят из самого кода: assistant.mjs строит
-      // адреса как path.join(BASE_DIR, '<папка>'). Значит сторож найдёт и следующую
-      // папку, о которой сегодня никто не знает.
       const src = readSource('assistant');
       const dirs = [...src.matchAll(/path\.join\(BASE_DIR,\s*'([^']+)'\)/g)].map((m) => m[1]);
       expect(dirs.length, 'в assistant.mjs не нашлось ни одной папки данных — сторож ослеп').toBeGreaterThan(0);
 
       const files = (pkg.build?.files || []).filter((p) => typeof p === 'string' && !p.startsWith('!'));
       const забыты = [...new Set(dirs)].filter((d) => {
-        if (!fs.existsSync(path.join(ROOT, d))) return false; // папки нет — нечего паковать
+        if (!fs.existsSync(path.join(ROOT, d))) return false;
         return !files.some((pattern) => minimatch(`${d}/x.json`, pattern, { dot: true }));
       });
       expect(
@@ -263,11 +193,6 @@ describe('Настройка сборки приложения', () => {
       ).toEqual([]);
     });
 
-    // Ревью 2026-08-10: в манифесте стояло 0.1.0 и node >=20.9, а в корне lock-файла
-    // так и осталось 0.0.9 и node >=18. `npm ci` от этого не ломается — потому и
-    // прожило незамеченным до релиза. Плохо другое: по lock-файлу судят проверка
-    // соответствия тега и пакета, скрипты выпуска и audit-инструменты, и все трое
-    // видели прошлую версию. Обновляется это `npm install --package-lock-only`.
     it('lock-файл говорит о версии и Node то же, что манифест', () => {
       const lockPath = path.join(ROOT, 'package-lock.json');
       const lock = JSON.parse(fs.readFileSync(lockPath, 'utf8'));

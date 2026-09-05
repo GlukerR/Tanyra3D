@@ -1,16 +1,3 @@
-// tests/validation-contract.test.mjs — «не прошло проверку» и «не доработало» это разное.
-//
-// Ревью 2026-08-10 (P1.4): комментарии утверждали, что при провале финальной проверки
-// файл не записывается, а код его писал. Расхождение жило с 2026-07-30 — с того дня,
-// когда Александр решил, что отказ должен быть громким, а не запирающим: запись
-// осталась, чтобы человек мог посмотреть, насколько всё плохо, и решить сам.
-//
-// Хуже комментария был вывод CLI: `validation failed — .glb NOT written`. Файл лежал
-// на диске, а человек его не искал.
-//
-// Здесь закрепляется сам договор: у двух состояний разные признаки, и по ним всегда
-// можно отличить одно от другого.
-
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,8 +8,6 @@ import { runOptimize } from '../core/engine.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// Мок-аддон на выдуманном формате: настоящая модель для этого не нужна, а нужен
-// управляемый исход проверки.
 function mockAddon({ failValidation = false, throwOnLoad = false } = {}) {
   return {
     formats: ['mock'],
@@ -112,7 +97,6 @@ describe('никто не обещает человеку того, чего н�
     const src = fs.readFileSync(path.join(ROOT, 'optimize2.mjs'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/\/\/[^\n]*/g, '');
-    // Утверждение «NOT written» допустимо только там, где оно зависит от file.written.
     for (const line of src.split('\n')) {
       if (!/NOT written/.test(line)) continue;
       expect(

@@ -1,33 +1,3 @@
-// Regression test для GAP-005.
-//
-// Суть бага до правки:
-//   - morphTargets и attributes не входили в BASELINE_METRICS — потеря морфов или
-//     UV-канала во втором проходе не меняла ни один ключ, файл писался, отчёт
-//     говорил «все проверки пройдены».
-//   - geometry/compress шёл на tier: 'basic' — снимок baseline брался ПОСЛЕ сжатия,
-//     и сверка сравнивала Draco сам с собой.
-//   - nodes был жёстким ключом — meshopt-обёртки KHR_mesh_quantization ломали запись
-//     на законном поведении кодека (CarConcept: 101 → 107 узлов при неизменных
-//     треугольниках).
-//
-// Этот файл — sentinel: до правки он падал, после — зелёный. Если сломается
-// снова (BASELINE_METRICS откатили к 6 ключам, BASELINE_SOFT снова без 'nodes',
-// geometry/compress снова на 'basic') — тесты этого файла упадут.
-//
-// Хранилище ИСТИНЫ — модуль метрик аддона. Импорт модуля запрещён правилом
-// роли («только публичное API через optimize2.mjs»), поэтому читаем исходник
-// как текст через fs.readFileSync. Это текстовая проверка файла, а не
-// обращение к функциональности — не нарушает правило «не импортируй внутренности».
-//
-// С 2026-08-11 источник — `metrics.mts`, рядом с ним компилятор кладёт собранный
-// `metrics.mjs`. Читать надо ИСТОЧНИК: собранного файла на чистом клоне до сборки
-// нет вовсе, а этот тест гоняется в pre-commit — он упал бы на пустом месте. Плюс
-// смысл сторожа в том, чтобы стеречь то, что человек правит руками.
-//
-// Тяжёлый поведенческий тест на parkergirl (456 морф-сет) — в
-// tests/post-gap005-corpus.test.mjs; здесь он не дублируется, чтобы не
-// плодить вводящие в заблуждение «зелёные» стражи над некоммитимой моделью.
-
 import { describe, it, expect, afterAll } from 'vitest';
 import { optimizeFile } from '../optimize2.mjs';
 import { fileURLToPath } from 'node:url';
@@ -39,28 +9,14 @@ import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '..');
-// Источник, а не собранное — какое расширение настоящее, решает помощник.
 const METRICS_SOURCE_PATH = sourcePath('addons/gltf/metrics');
 
 function modelPath(name) {
   return path.resolve(PROJECT_ROOT, 'fixtures/models', name);
 }
 
-// ----- SOURCE-OF-TRUTH: BASELINE_METRICS / BASELINE_SOFT из файла -----
-//
-// Парсим текст источника метрик (addons/gltf/metrics.mts):
-//   export const BASELINE_METRICS = [ 'a', 'b', ... ];
-//   export const BASELINE_SOFT   = new Set([ 'a', 'b' ]);
-//
-// Регексп берёт всё между `[` и `]`, потом режет по запятой и снимает кавычки.
-// Ничего из результата в тесте не хардкодится — мы лишь проверяем, что
-// нужные имена ПРИСУТСТВУЮТ в живом списке из исходника.
 
 function parseBaselineBlock(content, name) {
-  // Один регексп на обе формы: `= [ ... ]` и `= new Set([ ... ])`.
-  // `(?::[^=]+)?` — необязательная аннотация типа между именем и `=`. В самом источнике
-  // её сейчас нет намеренно (см. комментарий у BASELINE_METRICS), но регексп, который
-  // молча умирает от двоеточия, — это сторож, который однажды перестанет сторожить.
   const re = new RegExp(`export\\s+const\\s+${name}\\s*(?::[^=]+)?=\\s*(?:new\\s+Set\\()?\\[([^\\]]*)\\]`, 'm');
   const m = content.match(re);
   if (!m) return null;
@@ -71,8 +27,6 @@ function parseBaselineBlock(content, name) {
 }
 
 describe('GAP-005 Source Code Checks — BASELINE_METRICS · BASELINE_SOFT', () => {
-  // Санти: исходник читается; оба блока находятся; иначе regex устарел
-  // и остальные проверки этого describe шумят ложно.
   it('источник метрик разбирается — both BASELINE_METRICS and BASELINE_SOFT found', () => {
     expect(fs.existsSync(METRICS_SOURCE_PATH)).toBe(true);
     const text = fs.readFileSync(METRICS_SOURCE_PATH, 'utf-8');
@@ -99,20 +53,12 @@ describe('GAP-005 Source Code Checks — BASELINE_METRICS · BASELINE_SOFT', () 
   });
 
   it('BASELINE_SOFT includes nodes (НОВОЕ: nodes ушёл из жёстких → стал мягким)', () => {
-    // До GAP-005 nodes был жёстким ключом и при CarConcept ловил ложный
-    // «baseline-mismatch» (meshopt-обёртки KHR_mesh_quantization дают
-    // 101 → 107 узлов при неизменных треугольниках). Сейчас nodes — soft:
-    // разница фиксируется в отчёте как warning, но не валит запись.
     const text = fs.readFileSync(METRICS_SOURCE_PATH, 'utf-8');
     const items = parseBaselineBlock(text, 'BASELINE_SOFT');
     expect(items).toContain('nodes');
   });
 
   it('BASELINE_METRICS держит минимум 8 обязательных ключей', () => {
-    // Из задания: «BASELINE_METRICS вырос с шести ключей до восьми».
-    // Проверяем минимум — membership восьми ключей. Появление новых ключей
-    // сверх восьми ИЗМЕНЕНИЯ КОНТРАКТА НЕ ЛОМАЕТ (это совместимое расширение),
-    // поэтому assert только на membership.
     const text = fs.readFileSync(METRICS_SOURCE_PATH, 'utf-8');
     const items = parseBaselineBlock(text, 'BASELINE_METRICS');
     const expected = ['triangles', 'vertices', 'drawCalls', 'skins', 'nodes', 'animations', 'morphTargets', 'attributes'];
@@ -121,21 +67,10 @@ describe('GAP-005 Source Code Checks — BASELINE_METRICS · BASELINE_SOFT', () 
   });
 });
 
-// ----- BEHAVIORAL CHECKS на коммитимой модели с морфами -----
-//
-// Morph Cube 01.glb — единственная коммитимая модель корпуса с морфами.
-// Прогон под `['safe']`, `['safe','draco']`, `['safe','join']`. До GAP-005
-// `morphTargets` не входил в BASELINE_METRICS → поле могло схлопнуться
-// в ноль или исказиться — этот тест упал бы. После GAP-005 — стабильно.
 
 describe('GAP-005 Behavioral — Morph Cube 01 (committed, 2 morph targets)', () => {
   it('source: 2 morph targets (основа glTF targets[] без basis)', () => {
-    // В glTF basis включён в POSITION самого примитива, в targets[] попадают
-    // только дополнительные. На этой модели targets = 2. Sanity-инвариант
-    // GLB, и если число меняется — двигать тест только с одновременной
-    // правкой Morph Cube 01.md.
     const text = fs.readFileSync(modelPath('Morph Cube 01.glb'));
-    // GLB: 12 байт header + 4 байт version + 4 байт length + chunk header + JSON.
     const jsonLength = text.readUInt32LE(12);
     const jsonBytes = text.slice(20, 20 + jsonLength);
     const json = JSON.parse(jsonBytes.toString('utf-8'));
@@ -148,9 +83,6 @@ describe('GAP-005 Behavioral — Morph Cube 01 (committed, 2 morph targets)', ()
     expect(total).toBe(2);
   });
 
-  // ПРОСТО it.each с массивом массивов в vitest 4.1.10 роняет имена (все
-  // три теста выходят под одним именем, и часть из них бежит с неверными
-  // параметрами). Поэтому — три явных `it` с уникальными именами.
   const PRESERVE_MODES = [
     { name: 'safe', flags: ['safe'] },
     { name: 'safe+draco', flags: ['safe', 'draco'] },
@@ -164,9 +96,6 @@ describe('GAP-005 Behavioral — Morph Cube 01 (committed, 2 morph targets)', ()
         dryRun: true,
       });
       expect(result.status).toBe('ok');
-      // Sentinel: до GAP-005 поля morphTargets не было бы вовсе — защита
-      // baseline-checkpoint была бы слепой к потере морфов. Этот assert —
-      // страж на то, что ключи реально присутствуют и сверка работает.
       expect(typeof result.metrics.before.morphTargets).toBe('number');
       expect(typeof result.metrics.after.morphTargets).toBe('number');
       expect(result.metrics.before.morphTargets).toBeGreaterThan(0);
@@ -182,8 +111,6 @@ describe('GAP-005 Behavioral — Morph Cube 01 (committed, 2 morph targets)', ()
     });
     expect(result.status).toBe('ok');
     expect(typeof result.metrics.before.attributes).toBe('string');
-    // На этой модели как минимум POSITION (всегда) и NORMAL; полный список
-    // зависит от экспортёра, поэтому assert только на POSITION — стабильно.
     expect(result.metrics.before.attributes.split(',').map((s) => s.trim())).toContain('POSITION');
   });
 });

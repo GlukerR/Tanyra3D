@@ -1,14 +1,3 @@
-// tests/run-isolation.test.mjs — второй прогон не затирает первый.
-//
-// Ревью 2026-08-10 (P1.3): результат каждого исходника лежал в одной папке
-// `results/<sourceId>/`, и повторный прогон писал туда же. Отсюда три беды:
-// два параллельных запроса по одной модели писали в один файл; ссылка из первого
-// ответа позже отдавала результат ВТОРОГО — молча и с виду правдоподобно; сравнить
-// два варианта сжатия одной модели было нельзя.
-//
-// Проверяется поведение на живом сервере: одна и та же модель прогоняется дважды с
-// разными настройками, и обе ссылки обязаны остаться рабочими и вести к своим файлам.
-
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -19,12 +8,6 @@ import { fileURLToPath } from 'node:url';
 import { modelPath } from './helpers/model-files.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-// Модель из REPO_MODELS — она коммитится в git и есть на чистом клоне.
-// Сначала здесь стоял BoomBox.glb: у автора на диске он есть, в репозитории его нет
-// (эталон Khronos, чужая лицензия), и на раннере GitHub тест падал с ENOENT — зелёный
-// локально, красный у всех остальных. Что именно за модель, проверке безразлично:
-// изоляция прогонов от содержимого файла не зависит. Имя с пробелом — бесплатный
-// довесок: оно заодно проходит через заголовок x-filename.
 const MODEL_NAME = 'Dirty Cube 01.glb';
 const MODEL = modelPath(MODEL_NAME);
 
@@ -85,14 +68,13 @@ beforeAll(async () => {
 
 afterAll(() => {
   if (child && !child.killed) child.kill();
-  try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch { /* временная папка */ }
+  try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch {  }
 });
 
 describe('прогоны одной модели изолированы', () => {
   it('второй прогон не отбирает ссылку у первого', async () => {
     const bytes = fs.readFileSync(MODEL);
 
-    // Первый прогон — без сжатия геометрии.
     const first = await optimize(bytes, MODEL_NAME, 'platform=&lang=ru');
     expect(first.downloadUrl, 'первый прогон не дал ссылки').toBeTruthy();
     const sourceId = first.sourceId;
@@ -102,18 +84,14 @@ describe('прогоны одной модели изолированы', () => 
     const firstBytes = before.buf;
     expect(firstBytes.length).toBeGreaterThan(0);
 
-    // Второй прогон ТОЙ ЖЕ модели, с другими настройками. sourceId передаётся —
-    // именно этот путь раньше и писал поверх.
     const second = await optimize(bytes, MODEL_NAME,
       `platform=&lang=ru&source=${encodeURIComponent(sourceId)}&features=quantize`);
     expect(second.sourceId).toBe(sourceId);
     expect(second.downloadUrl).toBeTruthy();
 
-    // Главное: ссылки разные. Одинаковые означали бы, что файл один на двоих.
     expect(second.downloadUrl, 'обе ссылки ведут в одно место — прогоны не изолированы')
       .not.toBe(first.downloadUrl);
 
-    // И первая по-прежнему отдаёт СВОЙ файл, а не результат второго прогона.
     const after = await request({ method: 'GET', path: first.downloadUrl });
     expect(after.status, 'первая ссылка перестала работать').toBe(200);
     expect(after.buf.equals(firstBytes), 'по первой ссылке приехал результат второго прогона').toBe(true);
@@ -135,10 +113,7 @@ describe('прогоны одной модели изолированы', () => 
       urls.push(r.downloadUrl);
     }
 
-    // Свежая ссылка обязана работать…
     expect((await request({ method: 'GET', path: urls[urls.length - 1] })).status).toBe(200);
-    // …а самая старая — уже нет: пять моделей на диске держать незачем.
-    // Честный отказ лучше молчаливой подмены, ради которой всё и затевалось.
     expect((await request({ method: 'GET', path: urls[0] })).status).toBe(404);
   }, 300_000);
 });

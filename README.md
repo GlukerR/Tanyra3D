@@ -501,6 +501,19 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 
 ## Status
 
+**0.2.33 — the code that ships to you is 61% smaller.** Every install carried 20,119 lines
+of commentary — reasons, dates, quotes from design discussions — compiled straight into the
+program because the build kept comments. None of it was ever read by anyone running the app.
+It is gone: the sources that become the shipped program dropped from 1.83 MB to 0.72 MB.
+Comments in code are now capped at four words and only where the code would otherwise read
+wrong; the reasoning moved to commit messages, test names and the project's own documents,
+where the people who need it actually look.
+
+Nothing about behaviour changed, and that is not a hope but a check: the project was
+compiled before and after with comments stripped, and the two builds are byte-identical.
+The tool that did the removal was itself verified first — its lexer was run against a
+reference parser across 328 files of the tree and agreed on every comment boundary.
+
 **0.2.32 — the heavy view is opt-in, and the engine seam is checked by a second
 implementation.** Three shading modes are the default set: wireframe, clay, materials from
 the file. The fourth — the texture comparison — now appears only after you switch it on in

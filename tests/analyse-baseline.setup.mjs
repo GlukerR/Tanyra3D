@@ -1,19 +1,3 @@
-// tests/analyse-baseline.setup.mjs — globalSetup-гейт для vitest
-//
-// Выполняется ДО всех тестовых файлов (globalSetup в vitest.config.mjs).
-// Если baseline нарушен — выбрасывает ошибку, и весь suite падает сразу,
-// не тратя время на прогон остальных тестов.
-//
-// Проверяет:
-//   1. totalIts ≥ 228 (число тестов не упало)
-//   2. modelsMissing пуст — то есть на диске все модели, которые ЛЕЖАТ В GIT
-//      (REPO_MODELS). Локальные модели корпуса на чистом клоне отсутствуют
-//      законно, гейтить по ним нельзя — иначе CI красный всегда.
-//   3. Нет моделей с нулевым покрытием (tests=0 и flags пуст)
-//
-// Подробный отчёт по каждой модели — в tests/analyse-baseline.test.mjs,
-// который тоже выполняется в рамках suite и даёт гранулярные assertion'ы.
-
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -68,8 +52,6 @@ export function setup() {
     );
   }
 
-  // Уникальные комбинации флагов — если падает, кто-то переименовал
-  // или удалил правило, не обновив корпус.
   const uniqFlagCombos = new Set(
     (data.flagCombinations || []).map((fc) => JSON.stringify(fc.flags)),
   );

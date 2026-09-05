@@ -1,35 +1,15 @@
-// Integration tests for optimize2.mjs public API.
-// Follows the test plan from tests/TEST_AGENT_PROMPT.md and reviews/tests/README.md.
-//
-// Ни один тест этого файла не пишет в рабочую `output/` пользователя: каждый вызов
-// получает свою временную папку (tmpOutDir), и они сносятся в конце файла.
-
 import { describe, it, expect, afterAll } from 'vitest';
 import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 import { optimizeFile, listRules, VERSION } from '../optimize2.mjs';
 import fs from 'node:fs';
 import { modelPath, describeIfModels } from './helpers/model-files.mjs';
 
-// ---- helpers ----
 
-// modelPath импортирован из helpers/model-files.mjs. Не определять локальный
-// shadow этого имени — кроме рисков затенения, он ещё и ломает гомогенность
-// (один тест-файл должен иметь один источник истины для путей к fixtures).
 
 const MODEL = modelPath('CarConcept.glb');
 const MISSING = modelPath('does_not_exist.glb');
 
-// Уборщиков здесь больше нет, и это принципиально. Раньше файл держал три штуки, и
-// один из них — cleanDryRunReports() — на ЗАГРУЗКЕ МОДУЛЯ обходил настоящую `output/`
-// пользователя и удалял оттуда каждый `*.dryrun.report.md`. Прогон набора стирал чужие
-// файлы: проверено зондом 2026-08-15 — положенный в `output/` файл после
-// `vitest run tests/optimize.test.mjs` исчезал.
-//
-// Своё убирать надо, чужое трогать нельзя. Теперь каждый вызов пишет в свою временную
-// папку (tmpOutDir), а cleanupTmpOutDirs() в конце сносит их целиком — вместе с .glb и
-// отчётами, поимённой уборки не требуется.
 
-// ---- API ----
 
 describe('API', () => {
   it('exports: optimizeFile, listRules, VERSION exist and have correct types', () => {
@@ -56,7 +36,6 @@ describe('API', () => {
   });
 });
 
-// ---- optimizeFile ----
 
 describeIfModels(['CarConcept.glb'], 'optimizeFile', () => {
   it('passthrough (no advancedFeatures) returns status ok with metrics', async () => {
@@ -85,7 +64,6 @@ describeIfModels(['CarConcept.glb'], 'optimizeFile', () => {
   });
 });
 
-// ---- meshopt ----
 
 describeIfModels(['CarConcept.glb'], 'meshopt', () => {
   it('safe + meshopt preserves triangle count (core invariant)', async () => {
@@ -101,7 +79,6 @@ describeIfModels(['CarConcept.glb'], 'meshopt', () => {
   });
 });
 
-// ---- join ----
 
 describeIfModels(['CarConcept.glb'], 'join', () => {
   it('safe + join returns ok and does not increase meshes or draw calls', async () => {
@@ -113,15 +90,12 @@ describeIfModels(['CarConcept.glb'], 'join', () => {
     expect(result.status).toBe('ok');
     const b = result.metrics.before;
     const a = result.metrics.after;
-    // join should not increase meshes/draw-calls (model may already be minimal)
     expect(a.meshes).toBeLessThanOrEqual(b.meshes);
     expect(a.drawCalls).toBeLessThanOrEqual(b.drawCalls);
-    // at least something was applied (safe cleanup)
     expect(result.applied.length).toBeGreaterThan(0);
   });
 });
 
-// ---- dryRun ----
 
 describeIfModels(['CarConcept.glb'], 'dryRun', () => {
   it('dryRun=true does not write glb but produces a report file', async () => {
@@ -155,11 +129,9 @@ describeIfModels(['CarConcept.glb'], 'dryRun', () => {
 
     const glbExists = fs.existsSync(result.file.dst);
     expect(glbExists).toBe(true);
-    // Убирать поимённо нечего: папка временная, её сносит cleanupTmpOutDirs().
   });
 });
 
-// ---- errors ----
 
 describeIfModels(['CarConcept.glb'], 'errors', () => {
   it('unknown advancedFeature returns status fail with descriptive message', async () => {
@@ -177,12 +149,10 @@ describeIfModels(['CarConcept.glb'], 'errors', () => {
     const result = await optimizeFile(MISSING, { outDir: tmpOutDir() });
     expect(result.status).toBe('fail');
     expect(result.error).toBeDefined();
-    // Error message should explain the problem, not a generic crash
     expect(result.error.length).toBeGreaterThan(5);
   });
 });
 
-// ---- additional scenarios ----
 
 describeIfModels(['CarConcept.glb'], 'additional scenarios', () => {
   it('full pipeline: safe + meshopt + join returns ok preserving triangles', async () => {
@@ -193,9 +163,7 @@ describeIfModels(['CarConcept.glb'], 'additional scenarios', () => {
     });
     expect(result.status).toBe('ok');
     expect(result.applied.length).toBeGreaterThan(0);
-    // triangles never change (core invariant)
     expect(result.metrics.after.triangles).toBe(result.metrics.before.triangles);
-    // join does not inflate meshes
     expect(result.metrics.after.meshes).toBeLessThanOrEqual(result.metrics.before.meshes);
     expect(result.metrics.after.drawCalls).toBeLessThanOrEqual(result.metrics.before.drawCalls);
   });
@@ -231,7 +199,6 @@ describeIfModels(['CarConcept.glb'], 'additional scenarios', () => {
       expect(after).toHaveProperty(field);
     }
 
-    // File size should be non-zero
     expect(before.fileBytes).toBeGreaterThan(0);
     expect(after.fileBytes).toBeGreaterThan(0);
   });

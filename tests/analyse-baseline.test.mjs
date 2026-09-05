@@ -1,14 +1,3 @@
-// tests/analyse-baseline.test.mjs — автоматический baseline-гейт для golden-corpus
-//
-// Запускает `node tests/analyse-test-coverage.mjs --json` и проверяет, что:
-//   1. Число тестов не упало ниже baseline (228);
-//   2. Все закоммиченные модели (REPO_MODELS) присутствуют на диске;
-//   3. Каждая модель покрыта хотя бы одной комбинацией флагов.
-//
-// Файл подхватывается vitest автоматически (include: tests/**/*.test.mjs)
-// и выполняется вместе с остальными тестами корпуса. Никаких изменений
-// в vitest.config.mjs не требуется.
-
 import { describe, it, expect, beforeAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -47,8 +36,6 @@ describe('Golden Corpus — baseline (analyse-test-coverage)', () => {
     expect(data.totalIts).toBeGreaterThanOrEqual(BASELINE_ITS);
   });
 
-  // Только закоммиченные модели (REPO_MODELS). Локальные на чистом клоне
-  // отсутствуют законно — describeLocal их пропускает, см. helpers/model-files.mjs.
   it('все закоммиченные модели (REPO_MODELS) присутствуют на диске', () => {
     expect(data.modelsMissing || []).toEqual([]);
   });
@@ -60,8 +47,6 @@ describe('Golden Corpus — baseline (analyse-test-coverage)', () => {
   });
 
   it('пропущенных тестов не более 5 (допустимы только it.skip с причиной)', () => {
-    // Допустимые пропуски: gltf-validator (1), потенциальные будущие
-    // интеграционные проверки. Жёсткий лимит — 5.
     expect(data.skippedIts).toBeLessThanOrEqual(5);
   });
 
