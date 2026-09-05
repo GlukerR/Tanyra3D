@@ -22,7 +22,7 @@
   "scripts": {
     "start": "node server.mjs",
     "build": "tsc && tsc -p tsconfig.ui.json",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.ui.json --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.ui.json --noEmit && tsc -p tsconfig.contract.json",
     "prepare": "tsc && tsc -p tsconfig.ui.json",
     "test": "vitest run",
     "lint": "eslint .",

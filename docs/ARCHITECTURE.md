@@ -1041,6 +1041,17 @@ built when the second engine arrives.
 - **Known limit, recorded not forgotten:** switching engines re-mounts on the *next* viewport
   creation, so an already-loaded model keeps the old implementation until reset. With one
   implementation this cannot occur; the second one will need the slots recreated.
+- **A second implementation checks the seam (2026-09-05).** `ViewerLike` was written to let
+  the compiler answer "is this seam real?", but with a single implementation there was
+  nothing to ask: an interface carved out of one class matches that class whatever it
+  contains. `tests/contract/stub-viewer.ts` is a stub engine — `implements ViewerLike`, not
+  one name from three.js, no model on screen — built by its own project
+  (`tsconfig.contract.json`, `noEmit`, hanging off `npm run typecheck` and CI). It found
+  seven calls the wrapper made past the contract through a type assertion at the call site
+  (`setOnBusy`, `densityRange`, `setDensityScale`, `textureRefs`, `setDiffReference`,
+  `useDiffStore`, `diffScale`) — three whole features that a second engine would have
+  silently lacked. Signatures now live in the contract as optional members; the guard
+  against the assertions coming back is `tests/viewer-contract.test.mjs`.
 
 ### Known inaccuracies (closed 2026-08-18 — kept as a record of what was wrong)
 

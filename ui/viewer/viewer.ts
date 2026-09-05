@@ -406,6 +406,18 @@ type DiffRaw = {
   flipY: boolean;
 };
 
+/**
+ * Готовая запись памяти различий. `dispose()` — не украшение: память живёт У ОБВЯЗКИ, по
+ * парам моделей, и выбрасывать старую пару приходится ей. До 2026-09-05 она освобождала
+ * холст, залезая в поле `tex` через приведение типа, то есть зная устройство чужой записи.
+ * Теперь освобождает запись сама — `DiffEntry` в `contract.ts`.
+ */
+type DiffCached = {
+  raw: DiffRaw;
+  tex: THREE.CanvasTexture;
+  dispose(): void;
+};
+
 export class Viewer implements ViewerLike {
   // Только объявления: `declare` проверяется компилятором и не попадает в собранный
   // файл — значения по-прежнему присваивают конструктор и методы _init*().
@@ -474,7 +486,7 @@ export class Viewer implements ViewerLike {
    * Память различий: сырое отклонение и готовый цвет. Сырое хранится не про запас — по нему
    * считается подпись «насколько пострадала худшая деталь» (`diffScale`).
    */
-  _diffCache = new Map<string, { raw: DiffRaw; tex: THREE.CanvasTexture }>();
+  _diffCache = new Map<string, DiffCached>();
   /** Детали, которым карту ещё предстоит посчитать. Обрабатывается по одной за кадр. */
   readonly _diffQueue: Array<{
     mesh: THREE.Mesh; родной: THREE.Material | null; эталон: SlotMaps; ключ: string;
@@ -1320,7 +1332,7 @@ export class Viewer implements ViewerLike {
     // кончится: сейчас предел ещё может вырасти снова.
     const tex = this._diffColor(raw);
     if (!tex) return this._стеклоДиффа();
-    this._diffCache.set(ключ, { raw, tex });
+    this._diffCache.set(ключ, { raw, tex, dispose() { this.tex.dispose(); } });
     return this._картой(tex, Viewer._откудаРазмещение(родной));
   }
 
@@ -1535,7 +1547,7 @@ export class Viewer implements ViewerLike {
    * Взять память готовых карт снаружи. Обвязка держит её по парам моделей и подсовывает ту,
    * что относится к показанной сейчас паре.
    */
-  useDiffStore(store: Map<string, { raw: DiffRaw; tex: THREE.CanvasTexture }>) {
+  useDiffStore(store: Map<string, DiffCached>) {
     this._diffCache = store;
   }
 
