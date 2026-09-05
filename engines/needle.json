@@ -1,0 +1,80 @@
+{
+  "id": "needle",
+  "enabled": true,
+  "title": {
+    "en": "Needle Engine",
+    "ru": "Needle Engine"
+  },
+  "description": {
+    "en": "A ready-made runtime for 3D on the web, usually paired with a Unity or Blender exporter. Three.js does the drawing, and every compression this program can produce works there with nothing to set up.",
+    "ru": "Готовая среда для трёхмерности в вебе, обычно в паре с экспортом из Unity или Blender. Рисует тот же движок, что и Three.js, и любое сжатие, которое умеет делать эта программа, работает там без настройки."
+  },
+  "viewer": "threejs",
+  "_comment_decoders": [
+    "Проверено по исходникам @needle-tools/engine@5.1.12 (npm, 2026-09-05) — СТАБИЛЬНОЙ",
+    "версии, не по метке latest: она указывает на 6.0.0-alpha.3. Разбор целиком —",
+    ".claude/исследование_2026-09-05_обёртки-триджс.md.",
+    "",
+    "src/engine/engine_loaders.gltf.ts, addDracoAndKTX2Loaders() — зовётся для КАЖДОГО",
+    "загрузчика и подключает все три:",
+    "",
+    "    if (!loader.dracoLoader)    loader.setDRACOLoader(loaders.dracoLoader);",
+    "    if (!loader.ktx2Loader)     loader.setKTX2Loader(loaders.ktx2Loader);",
+    "    if (!loader.meshoptDecoder) loader.setMeshoptDecoder(loaders.meshoptDecoder);",
+    "",
+    "Адреса умолчаний живут в @needle-tools/gltf-progressive: gstatic для Draco и Basis,",
+    "cdn.needle.tools для транскодера KTX2. Сайту делать не нужно ничего.",
+    "",
+    "  Draco   — работает сразу → пометки НЕТ;",
+    "  KTX2    — работает сразу → пометки НЕТ;",
+    "  Meshopt — работает сразу → пометки НЕТ.",
+    "",
+    "Пятая комбинация, и единственная, где не помечено НИЧЕГО:",
+    "",
+    "                Draco          KTX2           Meshopt",
+    "  three.js      нужен          нужен          нужен",
+    "  model-viewer  сразу          сразу          нужен",
+    "  A-Frame       сразу          нужен          нужен",
+    "  R3F           сразу          нужен          сразу",
+    "  Needle        сразу          сразу          сразу",
+    "",
+    "Пометка у instance оставлена, как у соседей: она не про декодер (у GPU-инстансинга",
+    "его нет вовсе) — у неё своя фраза про то, что движок должен уметь рисовать копии.",
+    "",
+    "Оговорка, которая на пометки не влияет: адреса ведут на чужие CDN. Сайт с жёсткой",
+    "политикой CSP или страница без сети их не получит. Но это настройка сайта, а не",
+    "свойство модели, и предупреждать о ней автора модели незачем — он на неё не влияет.",
+    "Тот же довод стоит в model-viewer.json и aframe.json."
+  ],
+  "baselineOpts": {
+    "codec": "meshopt",
+    "texMode": "uastc",
+    "keepParts": false,
+    "noKtx": true,
+    "stripColors": false,
+    "dryRun": false
+  },
+  "availableExtensions": [
+    { "id": "safe", "opts": { "safe": true } },
+    { "id": "meshopt", "opts": { "compress": true, "codec": "meshopt" } },
+    { "id": "join", "opts": { "join": true } },
+    { "id": "instance", "needsDecoder": true, "opts": { "instance": true } },
+    { "id": "resample", "opts": { "resample": true } },
+    { "id": "strip-dead-interactivity", "opts": { "stripDeadInteractivity": true } },
+    { "id": "keep-unused-uv", "opts": { "keepUnusedUv": true } },
+    { "id": "ktx2", "opts": { "noKtx": false } },
+    { "id": "webp", "opts": { "noWebp": false } },
+    { "id": "draco", "opts": { "codec": "draco" } },
+    { "id": "quantize", "opts": { "quantize": true } },
+    { "id": "strip-colors", "opts": { "stripColors": true } },
+    { "id": "resize-4096", "opts": { "maxTextureSize": 4096 } },
+    { "id": "resize-2048", "opts": { "maxTextureSize": 2048 } },
+    { "id": "resize-1024", "opts": { "maxTextureSize": 1024 } },
+    { "id": "resize-512", "opts": { "maxTextureSize": 512 } }
+  ],
+  "notes": [
+    "viewer: threejs — Needle везёт свой форк three.js (@needle-tools/three@0.169.19 у стабильной 5.1.12) и рисует им; загрузчик тот же GLTFLoader, поэтому читает то же самое.",
+    "Замер сделан по стабильной 5.1.12. Метка latest на npm указывает на 6.0.0-alpha.3, у неё форк three.js 0.185 и то же поведение загрузчиков; описывать альфу как обещание продукта нельзя, поэтому взята стабильная.",
+    "Единственный движок в таблице, где не помечено ни одно сжатие: человек видит чистый список без вопросительных знаков — и это правда, а не упущение."
+  ]
+}

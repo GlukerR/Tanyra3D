@@ -12,6 +12,8 @@ const ЗАМЕРЕНО = {
   threejs: { draco: true, ktx2: true, meshopt: true },
   'model-viewer': { draco: false, ktx2: false, meshopt: true },
   aframe: { draco: false, ktx2: true, meshopt: true },
+  r3f: { draco: false, ktx2: true, meshopt: false },
+  needle: { draco: false, ktx2: false, meshopt: false },
 };
 
 function движок(id) {
@@ -37,7 +39,7 @@ describe('знак «нужен декодер» замерен у каждог�
     });
   }
 
-  it('три движка дают три РАЗНЫЕ строки, а не одну втройне', () => {
+  it('каждый движок даёт СВОЮ строку — ни одна не повторяется', () => {
     const строки = Object.keys(ЗАМЕРЕНО).map((id) => {
       const список = движок(id).availableExtensions || [];
       return СЖАТИЯ.map((имя) => (list(список, имя) ? '1' : '0')).join('');
@@ -50,7 +52,7 @@ describe('знак «нужен декодер» замерен у каждог�
     }
   });
 
-  it('состав расширений у них ОДИНАКОВ — различие только в пометках', () => {
+  it('состав расширений у всех ОДИНАКОВ — различие только в пометках', () => {
     const составы = Object.keys(ЗАМЕРЕНО).map((id) =>
       (движок(id).availableExtensions || []).map((e) => e.id).join(','));
     expect(new Set(составы).size, `составы разошлись:\n${составы.join('\n')}`).toBe(1);

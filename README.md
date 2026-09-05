@@ -444,8 +444,9 @@ The honest list of what the tool doesn't do, or doesn't do fully.
   read from the image header (PNG, JPEG, WebP, KTX2) and checked against the platform
   threshold. Downscaling an oversized texture is a separate opt-in — the tool never
   discards pixels on its own.
-- **Three engines, three store targets — plus the ones you write.** The viewer renders
-  through three.js, A-Frame or model-viewer; the targets that ship are Shopify, VNTANA and the
+- **Five engines, three store targets — plus the ones you write.** The viewer renders
+  through three.js, A-Frame, model-viewer, React Three Fiber or Needle Engine; the targets
+  that ship are Shopify, VNTANA and the
   Google Merchant Center 3D listing, each with numbers taken from that platform's own
   documentation. A target of your own is filled in on a form, and each of its thresholds
   says whether it is advice or a refusal — that is the platform's property, not ours to
