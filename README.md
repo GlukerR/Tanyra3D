@@ -501,6 +501,24 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 
 ## Status
 
+**0.2.32 — the heavy view is opt-in, and the engine seam is checked by a second
+implementation.** Three shading modes are the default set: wireframe, clay, materials from
+the file. The fourth — the texture comparison — now appears only after you switch it on in
+Settings, because it reads every map of both models pixel by pixel and answers a different
+question from the other three: not "how does this model look" but "what did the build take
+from it". Switched off it is not greyed out but absent, since a dead-looking button reads as
+a defect; the explanation lives beside the checkbox that turns it on, and says both what it
+gives and what it costs. Turning it off while it is showing returns the view to the file's
+own materials, so nobody is left in a mode whose button no longer exists.
+
+Underneath, the viewer contract gained its first second implementation — a stub engine that
+declares the interface, carries no three.js name and is built by its own typecheck project.
+It exists because a contract with one implementation proves nothing: an interface carved out
+of a single class matches that class whatever it contains. It found seven calls the wrapper
+was making past the contract through a type assertion at the call site — the busy indicator,
+the shared density scale and the whole texture-comparison view — three features a second
+engine would have silently lacked while compiling without a single complaint.
+
 **0.2.31 — the texture comparison now measures what the eye sees.** The fourth view used
 to compare pixel values, and that turned out to be the wrong question: downscaling a texture
 from 2048 to 512 moves its pixels by only 2.7% while removing 13.4% of its detail, so heavy
