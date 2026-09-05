@@ -1,0 +1,171 @@
+{
+  "id": "aframe",
+  "enabled": true,
+  "title": {
+    "en": "A-Frame",
+    "ru": "A-Frame"
+  },
+  "description": {
+    "en": "A framework for building 3D and VR scenes out of HTML tags — widely used for virtual tours and headset content. Three.js does the drawing, so it reads the same files; compressed geometry works with no setup, compressed textures only if the site adds the decoder itself.",
+    "ru": "Каркас для сцен и виртуальной реальности прямо в разметке страницы — на нём делают туры и то, что смотрят в шлеме. Рисует тот же движок, что и Three.js, поэтому читает то же самое; сжатая геометрия работает сразу, а сжатые текстуры — только если сайт сам подключит расшифровщик."
+  },
+  "viewer": "threejs",
+  "_comment_decoders": [
+    "Почему пометки расставлены ИМЕННО ТАК, и почему они не совпадают ни с three.js, ни",
+    "с model-viewer.",
+    "",
+    "Проверено по исходникам aframe@1.8.0 (npm, 2026-09-05). Разбор целиком —",
+    ".claude/исследование_2026-09-05_aframe-verge3d.md.",
+    "",
+    "src/systems/gltf-model.js объявляет три адреса декодеров умолчаниями:",
+    "",
+    "    dracoDecoderPath:    'https://www.gstatic.com/draco/versioned/decoders/1.5.7/'",
+    "    basisTranscoderPath: ''",
+    "    meshoptDecoderPath:  ''",
+    "",
+    "и создаёт загрузчик ТОЛЬКО при непустом адресе (`if (!this.ktx2Loader &&",
+    "basisTranscoderPath)`). При пустом getKTX2Loader() возвращает undefined и в",
+    "GLTFLoader не передаётся вовсе. Отсюда:",
+    "",
+    "  Draco   — работает сразу, ничего подключать не надо → пометки НЕТ;",
+    "  KTX2    — молчит, пока сайт не задал basisTranscoderPath → пометка ЕСТЬ;",
+    "  Meshopt — молчит, пока сайт не задал meshoptDecoderPath → пометка ЕСТЬ.",
+    "",
+    "Получается третья комбинация, не повторяющая ни одну из двух прежних:",
+    "",
+    "                Draco          KTX2           Meshopt",
+    "  three.js      нужен          нужен          нужен",
+    "  model-viewer  сразу          сразу          нужен",
+    "  A-Frame       сразу          нужен          нужен",
+    "",
+    "Это и есть единственная содержательная разница между A-Frame и three.js: читает он",
+    "то же самое (в сборке присутствуют все шесть расширений, которые мы производим), и",
+    "рисует тем же — внутри super-three@0.184.0, форк three.js от той же команды. Поэтому",
+    "viewer: threejs, а baselineOpts взяты у three.js без изменений: базовый план сборки",
+    "у них общий, расходятся только пометки.",
+    "",
+    "Пометка у instance оставлена, как у соседей: она не про декодер (у GPU-инстансинга",
+    "его нет вовсе) — у неё своя фраза про то, что движок должен уметь рисовать копии.",
+    "",
+    "Оговорка, которая на пометку не влияет: адрес Draco ведёт на чужой CDN. Сайт с",
+    "жёсткой политикой CSP или страница без сети его не получит. Но это настройка сайта,",
+    "а не свойство модели, и предупреждать о ней автора модели незачем — он на неё не",
+    "влияет. Тот же довод стоит в model-viewer.json."
+  ],
+  "baselineOpts": {
+    "codec": "meshopt",
+    "texMode": "uastc",
+    "keepParts": false,
+    "noKtx": true,
+    "stripColors": false,
+    "dryRun": false
+  },
+  "availableExtensions": [
+    {
+      "id": "safe",
+      "opts": {
+        "safe": true
+      }
+    },
+    {
+      "id": "meshopt",
+      "needsDecoder": true,
+      "opts": {
+        "compress": true,
+        "codec": "meshopt"
+      }
+    },
+    {
+      "id": "join",
+      "opts": {
+        "join": true
+      }
+    },
+    {
+      "id": "instance",
+      "needsDecoder": true,
+      "opts": {
+        "instance": true
+      }
+    },
+    {
+      "id": "resample",
+      "opts": {
+        "resample": true
+      }
+    },
+    {
+      "id": "strip-dead-interactivity",
+      "opts": {
+        "stripDeadInteractivity": true
+      }
+    },
+    {
+      "id": "keep-unused-uv",
+      "opts": {
+        "keepUnusedUv": true
+      }
+    },
+    {
+      "id": "ktx2",
+      "needsDecoder": true,
+      "opts": {
+        "noKtx": false
+      }
+    },
+    {
+      "id": "webp",
+      "opts": {
+        "noWebp": false
+      }
+    },
+    {
+      "id": "draco",
+      "opts": {
+        "codec": "draco"
+      }
+    },
+    {
+      "id": "quantize",
+      "opts": {
+        "quantize": true
+      }
+    },
+    {
+      "id": "strip-colors",
+      "opts": {
+        "stripColors": true
+      }
+    },
+    {
+      "id": "resize-4096",
+      "opts": {
+        "maxTextureSize": 4096
+      }
+    },
+    {
+      "id": "resize-2048",
+      "opts": {
+        "maxTextureSize": 2048
+      }
+    },
+    {
+      "id": "resize-1024",
+      "opts": {
+        "maxTextureSize": 1024
+      }
+    },
+    {
+      "id": "resize-512",
+      "opts": {
+        "maxTextureSize": 512
+      }
+    }
+  ],
+  "notes": [
+    "viewer: threejs — не заглушка. package.json A-Frame объявляет \"three\": \"npm:super-three@0.184.0\": это форк three.js той же команды, а не другой рендерер. Наш вьюпорт показывает ту же геометрию и те же текстуры тем же кодом, поэтому отдельный модуль просмотра не нужен — как и у model-viewer.",
+    "Список расширений совпадает с three.js, потому что читает A-Frame то же самое: в dist/aframe-master.js присутствуют KHR_draco_mesh_compression, KHR_texture_basisu, EXT_meshopt_compression, EXT_texture_webp, EXT_mesh_gpu_instancing и KHR_texture_transform (проверено 2026-09-05 по сборке 1.8.0).",
+    "Разница ровно одна и она в пометках: Draco работает без настройки сайта, KTX2 и Meshopt — нет. Разбор со ссылками на строки исходника — в _comment_decoders выше.",
+    "Verge3D в этой папке НЕТ намеренно (решение Александра 2026-09-05). Он не надстройка над three.js, а свой движок, и его загрузчик ОТКАЗЫВАЕТ Draco и Meshopt прямым сообщением «please use LZMA compression»; читает он всего четыре расширения glTF. Слова Александра: «человек прогонит через наше приложение, а Verge3D его вообще не примет». Разбор сохранён в .claude/исследование_2026-09-05_aframe-verge3d.md."
+  ]
+}

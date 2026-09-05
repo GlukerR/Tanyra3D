@@ -444,8 +444,8 @@ The honest list of what the tool doesn't do, or doesn't do fully.
   read from the image header (PNG, JPEG, WebP, KTX2) and checked against the platform
   threshold. Downscaling an oversized texture is a separate opt-in — the tool never
   discards pixels on its own.
-- **Two engines, three store targets — plus the ones you write.** The viewer renders
-  through three.js or model-viewer; the targets that ship are Shopify, VNTANA and the
+- **Three engines, three store targets — plus the ones you write.** The viewer renders
+  through three.js, A-Frame or model-viewer; the targets that ship are Shopify, VNTANA and the
   Google Merchant Center 3D listing, each with numbers taken from that platform's own
   documentation. A target of your own is filled in on a form, and each of its thresholds
   says whether it is advice or a refusal — that is the platform's property, not ours to
@@ -510,6 +510,17 @@ from it". Switched off it is not greyed out but absent, since a dead-looking but
 a defect; the explanation lives beside the checkbox that turns it on, and says both what it
 gives and what it costs. Turning it off while it is showing returns the view to the file's
 own materials, so nobody is left in a mode whose button no longer exists.
+
+A-Frame joins the engine table as a third entry, and it earns its place by disagreeing
+with both existing ones. Its sources were read rather than its documentation, because the
+documentation would have said only "supported": compressed geometry works on a bare A-Frame
+page with nothing to set up, while compressed textures and the compact geometry format stay
+silent until the site supplies the decoder itself. Three.js needs all three supplied,
+model-viewer supplies two of three, A-Frame supplies a different one — three engines, three
+distinct sets of warning marks, none a copy of another. Verge3D was read the same way and
+deliberately left out: it is not a three.js wrapper but its own engine, its loader refuses
+both compressed geometry formats outright, and a file this tool produced for it might simply
+not open.
 
 Underneath, the viewer contract gained its first second implementation — a stub engine that
 declares the interface, carries no three.js name and is built by its own typecheck project.
