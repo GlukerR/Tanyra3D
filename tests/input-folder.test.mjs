@@ -1,17 +1,3 @@
-// Input folder batch tests — прогон ВСЕХ моделей из input/ через optimizeFile.
-//
-// Папка input/ содержит 65+ моделей разного размера, сложности и происхождения
-// (многие с кириллическими именами, пробелами, спецсимволами).
-//
-// ВАЖНО: базовый пайплайн запускается автоматически — advancedFeatures НЕ нужен.
-// Поле advancedFeatures только для опциональных расширений: 'ktx2', 'draco', 'strip-colors'.
-//
-// Все тесты используют dryRun: true, чтобы не писать .glb файлы.
-// Цель: проверить, что ни одна модель не вызывает исключение (crash).
-//
-// Папки input/ нет на чистом клоне (она в .gitignore) — тогда весь файл
-// пропускается с причиной, см. tests/helpers/input-folder.mjs.
-
 import { it, expect, afterAll } from 'vitest';
 import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 
@@ -24,13 +10,8 @@ import { INPUT_DIR, inputExists, inputModels as readInputModels, describeInput }
 const inputModels = readInputModels();
 const inputModelCount = inputModels.length;
 
-// Известные проблемные модели — set пуст после audit-фикса BUG-006:
-// decepticon_fighter.glb и uttvm_core_guard.glb теперь возвращают 'ok'
-// (bounding-box false positive на passthrough больше не блокирует запись).
-// Если кто-то снова начнёт валиться — добавить сюда с комментарием.
 const KNOWN_FAILING = new Set([]);
 
-// ---- Smoke: check that input folder has models ----
 describeInput('Input folder — basic checks', () => {
   it('input/ directory exists', () => {
     expect(inputExists).toBe(true);
@@ -41,9 +22,7 @@ describeInput('Input folder — basic checks', () => {
   });
 });
 
-// ---- Batch passthrough for ALL input models ----
 describeInput('Input folder — batch passthrough (default pipeline)', () => {
-
   it.each(inputModels)(`passthrough: %s`, async (modelName) => {
     const modelFullPath = path.join(INPUT_DIR, modelName);
     expect(fs.existsSync(modelFullPath)).toBe(true);
@@ -55,8 +34,6 @@ describeInput('Input folder — batch passthrough (default pipeline)', () => {
     });
 
     if (KNOWN_FAILING.has(modelName)) {
-      // Известная проблема — баг уже зафиксирован в аудите (BUG-006)
-      // Примечание: result.error может быть undefined — баг в обработке ошибок
       expect(result.status).toBe('fail');
       return;
     }
@@ -68,9 +45,7 @@ describeInput('Input folder — batch passthrough (default pipeline)', () => {
   });
 });
 
-// ---- Safe cleanup + core invariant ----
 describeInput('Input folder — safe cleanup (core invariant)', () => {
-
   it.each(inputModels.filter((m) => !KNOWN_FAILING.has(m)))(
     `safe cleanup: %s`,
     async (modelName) => {
@@ -82,28 +57,15 @@ describeInput('Input folder — safe cleanup (core invariant)', () => {
       });
 
       if (result.status === 'ok') {
-        // Треугольников может стать МЕНЬШЕ: вырожденные (два угла в одной точке) убираются,
-        // и на продакшен-моделях их бывает много — Whatsminer теряет 17560 из 116399, и это
-        // правда о файле, а не о нашей работе (tests/degenerate-triangles.test.mjs).
-        //
-        // Здесь до 2026-08-22 стоял порог в абсолютных числах. Он не проверял ничего: правду
-        // он терпел до очередного файла, а неправду пропускал, пока она укладывалась в число.
-        // Настоящий инвариант в двух частях, и обе движок считает сам:
-        //   1. треугольников не ПРИБАВИЛОСЬ — рост в этом пути означал бы поломку;
-        //   2. убыль ОБЪЯСНЕНА — движок называет её вырожденными или говорит, что не менялось.
-        // Необъяснённая убыль даёт check.trianglesMismatch уровня fail, а его ловит строка ниже.
         expect(result.metrics.after.triangles, 'треугольников стало больше — этого быть не может')
           .toBeLessThanOrEqual(result.metrics.before.triangles);
         const explained = result.validation.some((v) => v.i18n?.text?.messageId === 'check.trianglesDropped'
           || v.i18n?.text?.messageId === 'check.trianglesUnchanged');
         expect(explained, 'убыль треугольников ничем не объяснена').toBe(true);
-        // applied.length может быть 0 на уже-чистых моделях (safe нашёл нечего чистить) —
-        // это корректное поведение opt-in. Главный инвариант — safe НЕ ломает валидацию.
         expect(result.validation.some((v) => v.level === 'fail')).toBe(false);
       } else if (result.status === 'skip') {
         expect(result.file.written).toBe(false);
       } else {
-        // Неизвестный fail — логируем модель для отладки
         console.warn(`  ⚠️  UNEXPECTED FAIL: ${modelName} — ${result.error?.slice(0, 100)}`);
         expect(result.status).toMatch(/ok|skip/);
       }
@@ -111,7 +73,6 @@ describeInput('Input folder — safe cleanup (core invariant)', () => {
   );
 });
 
-// ---- Edge case: имена с пробелами и кириллицей ----
 describeInput('Input folder — edge case filenames', () => {
   const edgeNames = inputModels.filter((n) =>
     /[\s()[\]{}&+=%#@!,;]/.test(n) ||
@@ -132,7 +93,6 @@ describeInput('Input folder — edge case filenames', () => {
       return;
     }
 
-    // Имена с пробелами/кириллицей не должны ломать пайплайн
     expect(['ok', 'skip']).toContain(result.status);
   });
 
@@ -141,7 +101,6 @@ describeInput('Input folder — edge case filenames', () => {
   });
 });
 
-// ---- Статистика по размеру файлов ----
 describeInput('Input folder — file size statistics', () => {
   it('generates size statistics for all input models', () => {
     const stats = inputModels.map((name) => {

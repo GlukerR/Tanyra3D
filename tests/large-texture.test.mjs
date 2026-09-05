@@ -1,20 +1,3 @@
-// Large texture edge case tests — проверка обработки больших текстур (4K+) с KTX2.
-//
-// KTX2 правило конвертирует JPEG/PNG → PNG → toktx. Большие текстуры (4K+)
-// требуют значительной памяти (4096×4096 RGBA raw ≈ 67 MB; 8192×4096 ≈ 134 MB).
-// Тест проверяет, что пайплайн не падает с OOM/crash при worst-case текстурах.
-//
-// Текстуры генерируются с реальным шумом (crypto.randomBytes), а не solid color:
-// шум принципиально несжимаем PNG-компрессией — это даёт реальную memory load
-// при декодировании в raw RGBA и при перекодировании JPEG→PNG.
-//
-// Проверяет:
-// 1. Модель с шумовой текстурой 4096×4096 + ktx2 — не краш, статус ok/fail
-// 2. Модель с шумовой текстурой 8192×4096 (2:1 ultrawide) + ktx2 — не краш
-// 3. Модель с шумовой текстурой 1×16384 (экстремальный aspect) + ktx2 — не краш
-// 4. textureBytes > 0 до и после — текстура не потеряна
-// 5. Core invariant: треугольники сохранены
-
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 import { optimizeFile } from '../optimize2.mjs';
@@ -27,50 +10,32 @@ import sharp from 'sharp';
 import { Document, NodeIO } from '@gltf-transform/core';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// Генерируем временные GLB-файлы в os.tmpdir(), не в fixtures/ (правило промпта: fixtures/ неприкосновенна)
 const FIXTURE_DIR = path.resolve(os.tmpdir(), 'glb_optimize_large_tex_' + Date.now());
-// Свой таймаут для ВСЕГО, что кодирует KTX2, а не общие 120 с.
-//
-// Кодирование шумовой текстуры целиком упирается во внешний ktx, а шум не
-// сжимается — это самый дорогой вход, какой бывает. В одиночку тест укладывается,
-// в полном прогоне на загруженной машине — нет. Замерено дважды: 8K дал 131 с
-// (2026-08-04), 4K дал 124 с (2026-08-07), порог оба раза 120.
-//
-// Падает при этом ТАЙМАУТ, а не утверждение: продукт ни при чём, процессу не
-// хватило времени. Поднять потолок — не то же самое, что ослабить проверку
-// (`CONTRIBUTING.md`): ни одно утверждение не тронуто, изменился только запас.
-//
-// Ставить его на КАЖДЫЙ ktx2-тест здесь, а не на тот, что упал последним:
-// в августе буфер дали одному 8K, и через три дня ровно то же поймало 4K.
 const TIMEOUT_LONG = 360_000;
 
 const LARGE_MODELS = {};
 
-// Генерация RGBA noise-буфера заданного размера
 function generateNoiseBuffer(width, height) {
   return crypto.randomBytes(width * height * 4);
 }
 
-// Генерация тестовых GLB-файлов с шумовыми текстурами
 beforeAll(async () => {
   fs.mkdirSync(FIXTURE_DIR, { recursive: true });
   try {
     const io = new NodeIO();
 
     for (const [label, width, height] of [
-      ['4k_square', 4096, 4096],     // 67 MB raw
-      ['8k_wide', 8192, 4096],       // 134 MB raw
-      ['1xnarrow', 1, 16384],        // 64 KB raw — экстремальный aspect
+      ['4k_square', 4096, 4096],
+      ['8k_wide', 8192, 4096],
+      ['1xnarrow', 1, 16384],
     ]) {
-      // Генерация шумовой PNG: несжимаемый контент → worst-case для памяти
       const noiseRaw = generateNoiseBuffer(width, height);
       const texBuffer = await sharp(noiseRaw, { raw: { width, height, channels: 4 } })
         .png()
         .toBuffer();
 
-      // Создаём GLB-документ с этой текстурой
       const doc = new Document();
-      doc.createBuffer(); // необходим для хранения данных текстуры
+      doc.createBuffer();
       const tex = doc.createTexture(`${label}_tex`)
         .setMimeType('image/png')
         .setImage(texBuffer);
@@ -121,16 +86,11 @@ beforeAll(async () => {
       console.log(`  • ${label}: ${width}×${height} → raw ${noiseMb} MB, PNG ${pngMb} MB, GLB ${glbMb} MB`);
     }
   } catch (e) {
-    // Если генерация прервалась посередине — чистим частичные файлы.
-    // ВАЖНО: rmSync обёрнут в свой try, иначе если он упадёт (EBUSY на Windows
-    // всё ещё открытым файлом от sharp / @gltf-transform), он замаскирует
-    // ОРИГИНАЛЬНУЮ ошибку при `throw e`. cleanup — best-effort, не должен блокировать диагностику.
     try {
       if (fs.existsSync(FIXTURE_DIR)) {
         fs.rmSync(FIXTURE_DIR, { force: true, recursive: true });
       }
     } catch (cleanupError) {
-       
       console.warn(`cleanup: cannot remove ${FIXTURE_DIR} (${cleanupError.message}); оригинальная ошибка ниже`);
     }
     throw e;
@@ -140,13 +100,12 @@ beforeAll(async () => {
 afterAll(() => {
   if (fs.existsSync(FIXTURE_DIR)) {
     for (const f of fs.readdirSync(FIXTURE_DIR)) {
-      try { fs.rmSync(path.join(FIXTURE_DIR, f)); } catch { /* ок */ }
+      try { fs.rmSync(path.join(FIXTURE_DIR, f)); } catch {  }
     }
-    try { fs.rmSync(FIXTURE_DIR); } catch { /* ок */ }
+    try { fs.rmSync(FIXTURE_DIR); } catch {  }
   }
 });
 
-// ---- 4K квадратная шумовая текстура ----
 
 describe('Large texture — 4K noise (4096×4096)', () => {
   it('ktx2 does not crash on noise 4K texture', async () => {
@@ -164,11 +123,9 @@ describe('Large texture — 4K noise (4096×4096)', () => {
       expect(hasDiagnostics).toBe(true);
     }
 
-    // Core invariant: треугольники сохранены (2 треугольника)
     const delta = Math.abs(result.metrics.after.triangles - result.metrics.before.triangles);
     expect(delta).toBeLessThanOrEqual(10);
 
-    // Текстура на месте
     expect(result.metrics.after.textures).toBe(1);
     expect(result.metrics.before.textures).toBe(1);
     expect(result.metrics.before.textureBytes).toBeGreaterThan(0);
@@ -182,8 +139,6 @@ describe('Large texture — 4K noise (4096×4096)', () => {
       dryRun: true,
     });
 
-    // Явные safe/meshopt гарантируют applied.length > 0 и geometry/compress.
-    // ktx2 зависит от наличия toktx — ok или fail (graceful degradation).
     expect(result.applied.length).toBeGreaterThan(0);
     expect(result.applied.some((a) => a.ruleId === 'geometry/compress')).toBe(true);
 
@@ -194,7 +149,6 @@ describe('Large texture — 4K noise (4096×4096)', () => {
   }, TIMEOUT_LONG);
 });
 
-// ---- 8K ultrawide (2:1) ----
 
 describe('Large texture — 8K noise (8192×4096)', () => {
   it('ktx2 does not crash on noise 8K wide texture', async () => {
@@ -217,7 +171,6 @@ describe('Large texture — 8K noise (8192×4096)', () => {
   }, TIMEOUT_LONG);
 });
 
-// ---- 1×16384 (экстремальный узкий формат) ----
 
 describe('Large texture — 1×16384 noise strip', () => {
   it('ktx2 does not crash on extreme aspect ratio noise texture', async () => {
@@ -240,7 +193,6 @@ describe('Large texture — 1×16384 noise strip', () => {
   }, TIMEOUT_LONG);
 });
 
-// ---- KTX2 vs default: сравнение метрик ----
 
 describe('Large texture — metrics comparison', () => {
   it('default pipeline (without ktx2) handles 4K noise texture', async () => {
@@ -270,7 +222,6 @@ describe('Large texture — metrics comparison', () => {
   }, TIMEOUT_LONG);
 });
 
-// ---- Статистика ----
 
 describe('Large texture — stats', () => {
   it(`${Object.keys(LARGE_MODELS).length} noise-texture models created`, () => {

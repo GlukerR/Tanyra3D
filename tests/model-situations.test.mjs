@@ -1,36 +1,7 @@
-// tests/model-situations.test.mjs — классы моделей: перебор СИТУАЦИЙ, а не имён.
-//
-// Задание 2026-08-03-классы-моделей. ПРАВИЛА_ТЕСТОВ_универсальность.md §3:
-// параметризуй по СИТУАЦИИ, а не по имени модели. Имя — способ получить
-// представителя класса, и оно может смениться; класс — свойство ФАЙЛА, и оно
-// останется, когда придёт Babylon и второй формат.
-//
-// Реестр классов и его API — в tests/helpers/model-situations.mjs. Здесь — только
-// обещания ПО КЛАССАМ и мета-тест покрытия корпуса. Утверждения о классе пишутся
-// без имён движков (Слой 1/2 по правилам): что проверяем — общее, как проверяем —
-// дело адаптера.
-//
-// Структура:
-//   Раздел 1 — реестр сам по себе (санити).
-//   Раздел 2 — классы, где движок обязан не сломаться (broken, no-*, unknown-extension,
-//              edge-name, heavy).
-//   Раздел 3 — классы, где важна СОХРАННОСТЬ (skinned, morphed, animated,
-//              vertex-colors, multi-scene) — самый ценный раздел: потерю скина или
-//              морфа не видят ни треугольники, ни узлы.
-//   Раздел 4 — классы «уже оптимизировано»: воздержание с причиной + ИДЕМПОТЕНТНОСТЬ
-//              (новое обещание, которого никто не проверял).
-//   Раздел 5 — shared-geometry: join не разворачивает, instance защищает.
-//   Раздел 6 — мета-тест покрытия: каждый класс имеет представителя в репо ИЛИ
-//              объявлен «только локально» ИЛИ объявлен дырой.
-//
-// Классы без представителя на диске graceful-пропускаются (eachSituation) — на
-// чистом клоне корпус обязан быть зелёным.
-
 import fs from 'node:fs';
 
 import { describe, it, expect, afterAll } from 'vitest';
 import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
-
 
 import { optimizeFile } from '../optimize2.mjs';
 import gltfAddon from '../addons/gltf/index.mjs';
@@ -43,8 +14,6 @@ import {
 
 const ioPromise = gltfAddon.createIO();
 
-
-/** Читает ВЫХОДНОЙ файл и возвращает структуру — то, что реально получил пользователь. */
 async function structureOf(file) {
   const io = await ioPromise;
   const doc = await io.read(file);
@@ -64,11 +33,6 @@ async function structureOf(file) {
   };
 }
 
-/**
- * Идемпотентность (классы «уже оптимизировано»): прогон результата тем же набором
- * флагов даёт тот же файл по структуре — треугольники, скины, морфы, набор
- * расширений. Никто в корпусе этого раньше не проверял.
- */
 async function idempotentPair(model, flags, _timeout = 120000) {
   const d1 = tmpOutDir();
   const p1 = await optimizeFile(modelPath(model), { advancedFeatures: flags, dryRun: false, outDir: d1 });
@@ -91,16 +55,11 @@ async function idempotentPair(model, flags, _timeout = 120000) {
 const skippedMsg = (r, ruleId) => r.skipped.filter((s) => s.ruleId === ruleId).map((s) => s.i18n?.text?.messageId || '');
 const anySkippedMsg = (r, ruleId, prefix) => skippedMsg(r, ruleId).some((m) => m.startsWith(prefix));
 
-// ============================================================================
-// РАЗДЕЛ 1. Реестр сам по себе.
-// ============================================================================
-
 describe('Реестр ситуаций — санити', () => {
   it('Truncated Broken 01 — единственный broken, распознан по файлу (плюс edge-name)', () => {
     const sit = situationsOf('Truncated Broken 01.glb');
     expect(sit).toContain('broken');
     expect(sit).toContain('edge-name');
-    // «битый» в репо ровно один — не пытаемся ломать файлы на лету (ловушка 2 задания)
     expect(modelsWith('broken')).toEqual(['Truncated Broken 01.glb']);
   });
 
@@ -115,10 +74,6 @@ describe('Реестр ситуаций — санити', () => {
     expect(sit).toContain('pre-webp');
   });
 
-  // Обе модели — локальные (в git не уходят). Реестр строится по ФАЙЛАМ, значит
-  // без файла ситуаций у модели нет вовсе, и утверждение о классе проверять не на
-  // чем: это пропуск с причиной, а не падение. Ровно тот же договор, что у
-  // eachModel — см. шапку файла: «на чистом клоне корпус обязан быть зелёным».
   itIfModel('AnimationPointerUVs.glb', 'unknown-extension распознаётся по СЫРОМУ файлу (библиотека отбрасывает расширение)', () => {
     expect(situationsOf('AnimationPointerUVs.glb')).toContain('unknown-extension');
   });
@@ -132,15 +87,10 @@ describe('Реестр ситуаций — санити', () => {
   it('каждый класс из SITUATION_IDS присутствует в реестре', () => {
     expect(SITUATION_IDS.length).toBeGreaterThan(10);
     for (const id of SITUATION_IDS) {
-      // либо представители, либо объявлены дырой/локально — проверяет Раздел 6
       expect(Array.isArray(modelsWith(id))).toBe(true);
     }
   });
 });
-
-// ============================================================================
-// РАЗДЕЛ 2. Классы, где движок обязан НЕ СЛОМАТЬСЯ.
-// ============================================================================
 
 describe('Класс broken — status fail с причиной, исключения наружу нет', () => {
   eachSituation('broken', 'прогон даёт status fail и внятную причину, а не исключение', async (name) => {
@@ -174,8 +124,6 @@ describe('Класс no-textures — текстурные правила (ktx2, 
     const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['ktx2', 'webp'], dryRun: true });
     expect(r.status).toBe('ok');
     expect(r.metrics.before.textures).toBe(0);
-    // обе текстурные фичи включены, но применять нечего — обе обязаны промолчать
-    // причиной, а не выполниться
     expect(r.applied.some((a) => a.ruleId === 'textures/ktx2')).toBe(false);
     expect(r.applied.some((a) => a.ruleId === 'textures/webp')).toBe(false);
     expect(r.skipped.some((s) => s.ruleId === 'textures/ktx2')).toBe(true);
@@ -187,10 +135,8 @@ describe('Класс unknown-extension — структурные правила
   eachSituation('unknown-extension', 'safe отказывается с причиной, анимации целы', async (name) => {
     const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['safe'], dryRun: true });
     expect(r.status).toBe('ok');
-    // чистка, переставляющая/удаляющая свойства, обязана отказаться (unsupportedExtension.refuse)
     const refuses = r.skipped.filter((s) => s.kind === 'unsafe' && s.i18n?.reason?.messageId === 'unsupportedExtension.refuse');
     expect(refuses.length).toBeGreaterThan(0);
-    // модель не ломается, анимации целы
     expect(r.metrics.after.animations).toBe(r.metrics.before.animations);
     expect(r.validation.some((v) => v.level === 'fail')).toBe(false);
   });
@@ -204,8 +150,6 @@ describe('Класс edge-name — путь с кириллицей/пробел
       expect(r.file.written).toBe(true);
       expect(fs.existsSync(r.file.dst)).toBe(true);
     } else {
-      // единственный rep, который обязан падать, — broken (Truncated Broken 01);
-      // он же edge-name — здесь проверяем только отсутствие исключения
       expect(r.status).toBe('fail');
       expect(r.error).toBeDefined();
     }
@@ -218,13 +162,6 @@ describe('Класс heavy — укладывается в таймаут, па�
     expect(r.status).toBe('ok');
   }, 110000);
 });
-
-// ============================================================================
-// РАЗДЕЛ 3. Классы, где важна СОХРАННОСТЬ.
-// Потеря скина или морфа не меняет ни треугольники, ни узлы — её ловят только эти
-// счётчики (GAP-005). Считаем скины КАК В МЕТРИКЕ (effectiveSkins): скин без
-// JOINTS_0 не считается — свой счётчик не пишем (ловушка 4 задания).
-// ============================================================================
 
 describe('Класс skinned — скинов столько же, сколько было, на любом наборе флагов', () => {
   eachSituation('skinned', 'safe+quantize: скины целы (сторож TESTBUG-007 — quantize не расщепляет скин)', async (name) => {
@@ -263,9 +200,6 @@ describe('Класс vertex-colors — COLOR_0 не исчезает без яв
   eachSituation('vertex-colors', 'без strip-colors раскрашенный COLOR_0 сохраняется; с флагом — снимается', async (name) => {
     const io = await ioPromise;
     const src = await io.read(modelPath(name));
-    // «раскрашен» ли COLOR_0 (есть не-белые значения). Белый канал safe снимает
-    // как lossless (множитель 1.0, картинка не меняется) — это другая ветка правила,
-    // не strip-colors (подробности — в отчёте задания, нюанс Production Draco Webp 01).
     let painted = false;
     for (const m of src.getRoot().listMeshes()) {
       for (const p of m.listPrimitives()) {
@@ -282,9 +216,6 @@ describe('Класс vertex-colors — COLOR_0 не исчезает без яв
     const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['safe'], dryRun: true });
     expect(r.status).toBe('ok');
     if (painted) {
-      // раскрашенный канал без явного strip-colors обязан остаться.
-      // dryRun не пишет файл — структура результата берётся из метрики движка
-      // (список семантик), а не из выходного файла.
       expect(r.metrics.after.attributes).toContain('COLOR_0');
     }
 
@@ -306,18 +237,10 @@ describe('Класс multi-scene — сцен столько же, активн�
   });
 });
 
-// ============================================================================
-// РАЗДЕЛ 4. Классы «уже оптимизировано».
-// Соответствующее правило воздерживается и называет причину; второй проход не
-// добавляет потерь. ИДЕМПОТЕНТНОСТЬ — отдельное обещание (прогон результата тем же
-// набором флагов даёт тот же файл по структуре), которого раньше никто не проверял.
-// ============================================================================
-
 describe('Класс precompressed-draco — входное сжатие названо причиной, идемпотентность', () => {
   eachSituation('precompressed-draco', 'safe: движок называет снятый кодек; повторный прогон не меняет структуру', async (name) => {
     const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['safe'], dryRun: true });
     expect(r.status).toBe('ok');
-    // причина — в отчёте честно назван кодек, снятый при загрузке (не молчаливая переупаковка)
     const found = r.findings.find((f) => f.i18n?.text?.messageId === 'engine.inputCompression.found');
     expect(found).toBeDefined();
     expect(found.i18n.text.data.codecs).toContain('KHR_draco_mesh_compression');
@@ -349,19 +272,12 @@ describe('Класс prequantized — quantize воздерживается с �
   });
 });
 
-// Класс переписан 2026-08-17 (Правило 12). Раньше проверялось, что уже-webp текстуры
-// «получают свою причину» — то есть что правило от них отказывается. Теперь оно их
-// кодирует заново, и проверять надо это: отказа нет, работа сделана, а структура модели
-// от повторного прогона по-прежнему не меняется.
 describe('Класс pre-webp — цель уже достигнута, правило говорит об этом вслух', () => {
   eachSituation('pre-webp', 'webp: уже-webp текстуры названы достигнутой целью, а не отказом; повтор не меняет структуру', async (name) => {
     const r = await optimizeFile(modelPath(name), { outDir: tmpOutDir(), advancedFeatures: ['webp'], dryRun: true });
     expect(r.status).toBe('ok');
-    // Правило отработало и сказало о себе. Молчание здесь неотличимо от тихого пропуска.
     expect(r.applied.some((a) => a.ruleId === 'textures/webp')).toBe(true);
-    // Строка про достигнутую цель — в «Что сделано», а не в отказах.
     expect(r.applied.some((a) => a.i18n?.text?.messageId === 'webp.alreadyTarget')).toBe(true);
-    // Отказа «уже WebP» больше не существует — его возвращение и есть регресс.
     expect(anySkippedMsg(r, 'textures/webp', 'webp.skipped.already')).toBe(false);
 
     await idempotentPair(name, ['webp']);
@@ -385,12 +301,6 @@ describe('Класс preinstanced — входной инстансинг не �
   });
 });
 
-// ============================================================================
-// РАЗДЕЛ 5. Класс shared-geometry.
-// join не разворачивает общую геометрию в копии (её защищает фильтр join); instance
-// защищает её же; пара join+instance не хуже одного instance по итоговому файлу.
-// ============================================================================
-
 describe('Класс shared-geometry — join не разворачивает общую геометрию', () => {
   eachSituation('shared-geometry', 'join: число общих мешей не падает, защита названа в отчёте', async (name) => {
     const io = await ioPromise;
@@ -402,20 +312,9 @@ describe('Класс shared-geometry — join не разворачивает о
     const r = await optimizeFile(modelPath(name), { advancedFeatures: ['join'], dryRun: false, outDir });
     expect(r.status).toBe('ok');
 
-    // общие меши исключены из объединения фильтром — число их не убыло
     const dstDoc = await io.read(r.file.dst);
     expect(countSharedMeshes(dstDoc)).toBe(sharedBefore);
 
-    // Движок честно сказал, ЧТО СДЕЛАЛ С ОБЩЕЙ ГЕОМЕТРИЕЙ. Исходов два, и оба законные:
-    //
-    //   • склейка отработала и обошла общие меши — про это говорит `join.keptShared`;
-    //   • склейка не запускалась вовсе — так бывает у модели с незнакомым расширением
-    //     (`KHR_interactivity` и соседи): структурные правила там отказываются работать
-    //     целиком, потому что перенумерация порвала бы ссылки расширения молча.
-    //
-    // Дефект — это МОЛЧАНИЕ, а не второй исход. Первая редакция требовала `join.keptShared`
-    // всегда и краснела на трёх моделях набора Khronos, где склейка и не начиналась:
-    // проверка ловила не поломку, а собственное упрощение (найдено 2026-08-29).
     const joinApplied = r.applied.some((a) => a.ruleId === 'scene/join');
     const joinSkips = r.skipped.filter((s) => s.ruleId === 'scene/join');
     if (joinApplied) {
@@ -441,12 +340,10 @@ describe('Класс shared-geometry — instance защищает; join+instanc
 
     const bytesInstance = fs.statSync(ri.file.dst).size;
     const bytesBoth = fs.statSync(rj.file.dst).size;
-    // пара не хуже одного instance (защита не съедает выигрыш)
     expect(bytesBoth).toBeLessThanOrEqual(bytesInstance);
   });
 });
 
-/** Число мешей, на которые ссылаются ≥2 узла (та же мера, что у реестра). */
 function countSharedMeshes(doc) {
   let n = 0;
   for (const mesh of doc.getRoot().listMeshes()) {
@@ -459,14 +356,6 @@ function countSharedMeshes(doc) {
   return n;
 }
 
-// ============================================================================
-// РАЗДЕЛ 6. Мета-тест покрытия классов.
-// Каждый класс реестра имеет представителя среди репо-моделей, ИЛИ объявлен
-// «только локально» с явным списком, ИЛИ объявлен дырой (KNOWN_HOLES) с причиной.
-// Класс без представителя и без объявления — дыра в корпусе, о которой надо знать
-// явно, а не обнаруживать через год (Шаг 3 задания).
-// ============================================================================
-
 describe('Покрытие классов — мета-тест (класс без представителя — дыра в корпусе)', () => {
   for (const id of SITUATION_IDS) {
     it(`класс ${id}: репо-представитель, или объявлен «только локально», или дыра с причиной`, () => {
@@ -474,13 +363,11 @@ describe('Покрытие классов — мета-тест (класс бе
       const inGit = onDisk.filter((n) => REPO_MODELS.has(n));
 
       if (KNOWN_HOLES[id]) {
-        // дыра объявлена — представителей быть НЕ должно (объявление не устаревает)
         expect(onDisk.length).toBe(0);
         return;
       }
 
       if (LOCAL_ONLY[id]) {
-        // «только локально»: когда модели на диске есть, они ровно объявленные
         const declared = LOCAL_ONLY[id];
         if (onDisk.length) {
           expect([...onDisk].sort()).toEqual([...declared].sort());
@@ -488,14 +375,11 @@ describe('Покрытие классов — мета-тест (класс бе
         return;
       }
 
-      // обычный класс — обязан иметь представителя в git (зелёный на чистом клоне)
       expect(inGit.length).toBeGreaterThan(0);
     });
   }
 
   it('в отчёте задания — таблица «класс → на диске → в git» (данные для таблицы)', () => {
-    // Не утверждение о движке, а страховка, что coverage-данные живы и осмысленны:
-    // мета-тест выше опирается на них, и эта таблица попадает в отчёт дословно.
     const cov = situationCoverage();
     expect(cov.length).toBe(SITUATION_IDS.length);
     for (const c of cov) {

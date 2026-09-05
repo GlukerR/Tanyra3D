@@ -1,24 +1,3 @@
-// tests/typescript-build.test.mjs — сторож слоя TypeScript.
-//
-// Переход начат 2026-08-10 по решению Александра: новые модули на TS, рабочий JS не
-// переписывать, поведение не менять. Первыми переведены core/types и core/contract.
-//
-// Устройство, за которым тут следят: источник живёт в `.mts`, компилятор кладёт рядом
-// `.mjs` под тем же именем, поэтому ни один потребитель (импорты по всему дереву написаны
-// с расширением `.mjs`) не меняется. Собранное в git не идёт.
-//
-// Что ломается тихо и потому проверяется:
-//   1. собранный .mjs попал в git — источников стало два, и разойдутся они не сразу;
-//   2. у нового .mts забыли закрыть собранную пару — то же самое, но в будущем;
-//   3. strict выключили, чтобы «быстро починить» — и типы перестали ловить что-либо;
-//   4. CI перестал проверять типы либо сборка перестала висеть на prepare (тогда на
-//      чистом клоне приложение не запустится: файла модуля просто нет);
-//   5. в установщик уехали исходники .mts или, наоборот, не уехало собранное.
-//
-// Плюс одна не статическая проверка: собранный контракт действительно импортируется и
-// отдаёт то же, что отдавал до перевода. Без неё весь список выше стережёт форму, не
-// проверив ни разу, что оно работает.
-
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,17 +7,14 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (...p) => fs.readFileSync(path.join(ROOT, ...p), 'utf8');
 
-/** tsconfig.json — это JSONC: комментарии в нём разрешены и здесь используются. */
 function readTsconfig() {
   const raw = read('tsconfig.json');
   const noComments = raw.replace(/^\s*\/\/[^\n]*$/gm, '');
   return JSON.parse(noComments);
 }
 
-/** Все переведённые модули СЕРВЕРНОГО слоя: core/x.mts → 'core/x'. */
 function migratedModules() {
   const out = [];
-  // Корень тоже: optimize2 — публичное API ядра, он лежит там же, где server.mjs.
   for (const dir of ['.', 'core', 'addons/gltf']) {
     for (const f of fs.readdirSync(path.join(ROOT, dir))) {
       if (!f.endsWith('.mts') || f.endsWith('.d.mts')) continue;
@@ -49,15 +25,8 @@ function migratedModules() {
   return out;
 }
 
-/**
- * Браузерный слой — ВТОРОЙ проект сборки (tsconfig.ui.json), и расширения у него другие:
- * `.ts` → `.js`, потому что ui/index.html подключает их обычными тегами <script>, а не
- * как модули. Поэтому отдельный список, а не ещё одна папка в migratedModules().
- */
 function migratedUiModules() {
   const out = [];
-  // ui/ — классические скрипты (app, i18n), ui/viewer/ — настоящие ES-модули.
-  // Проект сборки у них один, правила учёта тоже, поэтому и список общий.
   for (const dir of ['ui', 'ui/viewer']) {
     for (const f of fs.readdirSync(path.join(ROOT, dir))) {
       if (!f.endsWith('.ts') || f.endsWith('.d.ts')) continue;
@@ -71,7 +40,6 @@ const UI_MODULES = migratedUiModules();
 
 const MODULES = migratedModules();
 
-/** Рукописные объявления рядом с JS-файлами: они В git и собранными не являются. */
 const HANDWRITTEN_DECLARATIONS = [
   'core/messages/en.d.mts',
   'core/messages/ru.d.mts',
@@ -79,10 +47,7 @@ const HANDWRITTEN_DECLARATIONS = [
   'addons/gltf/messages/ru.d.mts',
   'messages/en.d.mts',
   'messages/ru.d.mts',
-  // Описания чужих пакетов без собственных типов (draco3dgltf, gltf-validator).
   'types/externals.d.mts',
-  // Браузерный слой: глобальные имена (window.I18n, window.OptiViewer) и формы ответов
-  // сервера. Оба рукописные — генерировать их не из чего.
   'ui/globals.d.ts',
   'ui/dto.d.ts',
 ];
@@ -93,8 +58,6 @@ describe('слой TypeScript', () => {
   });
 
   it('собранное не лежит в git — источник один', () => {
-    // git ls-files отвечает про ИНДЕКС, а не про диск: собранные файлы на диске есть
-    // всегда (без них приложение не запустится), и проверять надо именно учёт.
     const tracked = new Set(
       execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' }).split('\n'),
     );
@@ -131,11 +94,7 @@ describe('слой TypeScript', () => {
   it('строгость включена и не ослаблена', () => {
     const { compilerOptions: o } = readTsconfig();
     expect(o.strict, 'strict выключен — типы перестали что-либо доказывать').toBe(true);
-    // Ошибка типов не должна оставлять на диске половину модуля: приложение поднялось бы
-    // на старом или битом файле, и причина отказа была бы не та.
     expect(o.noEmitOnError, 'noEmitOnError выключен').toBe(true);
-    // Импорт типа обязан выглядеть как импорт типа — иначе после стирания остаётся
-    // импорт несуществующего значения, и это отказ во время работы.
     expect(o.verbatimModuleSyntax, 'verbatimModuleSyntax выключен').toBe(true);
   });
 
@@ -143,18 +102,12 @@ describe('слой TypeScript', () => {
     const pkg = JSON.parse(read('package.json'));
     expect(pkg.scripts.build, 'нет команды build').toBeTruthy();
     expect(pkg.scripts.typecheck, 'нет команды typecheck').toBeTruthy();
-    // prepare — то, что делает чистый клон работоспособным: npm ci соберёт .mts сам,
-    // без отдельной команды, которую забудут.
     expect(pkg.scripts.prepare, 'сборка не висит на prepare — после npm ci модулей не будет').toMatch(/tsc/);
 
     const test = read('.github', 'workflows', 'test.yml');
     expect(test, 'CI не проверяет типы').toMatch(/npm run typecheck/);
   });
 
-  // Каталоги сообщений правит переводчик (assistants/translate/TRANSLATOR_PROMPT.md).
-  // Сделать их собранными из .mts — значит подставить его: правка попадёт в файл, который
-  // затрёт следующая сборка, и пропажу заметят не сразу. Форма каталога описана рядом
-  // рукописным .d.mts; он в git, потому что не генерируется.
   it('каталоги сообщений остаются на JavaScript, а их объявления лежат в git', () => {
     const tracked = new Set(
       execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' }).split('\n'),
@@ -172,9 +125,6 @@ describe('слой TypeScript', () => {
     }
   });
 
-  // Браузерный слой живёт по тем же правилам, но в своём проекте сборки: источник в git,
-  // собранное — нет, сборка привязана к тем же командам. Отдельный тест, потому что и
-  // расширения другие, и tsconfig другой.
   it('браузерный слой собирается своим проектом и по тем же правилам', () => {
     expect(UI_MODULES.length, 'в ui нет ни одного .ts').toBeGreaterThan(0);
 
@@ -189,21 +139,16 @@ describe('слой TypeScript', () => {
       expect(fs.existsSync(path.join(ROOT, `${m}.js`)), `нет ${m}.js — не выполнен npm run build`).toBe(true);
     }
 
-    // Свой tsconfig: другая среда (DOM вместо Node) и другой вид модуля.
     const rawUi = read('tsconfig.ui.json').replace(/^\s*\/\/[^\n]*$/gm, '');
     const ui = JSON.parse(rawUi);
     expect(ui.compilerOptions.strict, 'strict выключен в браузерном проекте').toBe(true);
     expect(ui.compilerOptions.noEmitOnError, 'noEmitOnError выключен в браузерном проекте').toBe(true);
     expect(ui.compilerOptions.lib.join(','), 'без DOM браузерный слой не соберётся').toMatch(/dom/i);
-    // Node-типы сюда не подключаются: это браузер, и `process` тут взяться неоткуда.
     expect(ui.compilerOptions.types, 'в браузерный проект подключены типы Node').toEqual([]);
 
-    // В установщик едет собранное. Тут исходник — `.ts`, и своё исключение ему нужно
-    // отдельное: маска `!ui/**/*.mts` его не поймала бы, а `ui/**/*` тащит всю папку.
     const files = JSON.parse(read('package.json')).build.files;
     expect(files, 'исходники интерфейса едут в установщик').toContain('!ui/**/*.ts');
 
-    // Обе сборки идут одной командой — иначе половину дерева забудут собрать.
     const pkg = JSON.parse(read('package.json'));
     expect(pkg.scripts.build, 'npm run build не собирает браузерный слой').toMatch(/tsconfig\.ui\.json/);
     expect(pkg.scripts.typecheck, 'npm run typecheck не проверяет браузерный слой').toMatch(/tsconfig\.ui\.json/);
@@ -213,16 +158,9 @@ describe('слой TypeScript', () => {
     const files = JSON.parse(read('package.json')).build.files;
     expect(files, 'core больше не кладётся в пакет').toContain('core/**/*');
     expect(files, 'исходники .mts едут в установщик — они там не нужны').toContain('!core/**/*.mts');
-    // Каталоги сообщений остаются на JavaScript, но рядом с ними лежат рукописные
-    // объявления .d.mts. В работающем приложении они не нужны: типы стираются.
-    // Замечено 2026-08-11 при осмотре собранного пакета — уезжали два файла.
     expect(files, 'объявления типов каталогов едут в установщик').toContain('!messages/**/*.mts');
-    // То же для аддона: у каждой папки с переведёнными модулями должно быть своё
-    // исключение, иначе исходники поедут в установщик молча.
     for (const m of MODULES) {
       if (!m.includes('/')) {
-        // Корневой модуль перечислен в build.files поимённо ("optimize2.mjs"), маской
-        // его не забирают — значит и исключать нечего: .mts туда просто не попадает.
         expect(files, `корневой ${m}.mjs не кладётся в пакет`).toContain(`${m}.mjs`);
         expect(files, `в пакет попадёт исходник ${m}.mts`).not.toContain(`${m}.mts`);
         continue;
@@ -239,25 +177,17 @@ describe('контракт пережил перевод на TypeScript', () =>
     expect(c.TIER_RANK).toEqual({ provable: 0, numeric: 1, perceptual: 2, lossy: 3 });
     expect(c.AUTOFIX_MAX_TIER).toBe('perceptual');
     expect(c.isKnownTier('numeric')).toBe(true);
-    // Ровно то, ради чего isKnownTier заведён: опечатка и пустота не проходят.
     expect(c.isKnownTier('perceptal')).toBe(false);
     expect(c.isKnownTier(undefined)).toBe(false);
-    // Наследственные имена не должны считаться уровнями (hasOwnProperty, а не `in`).
     expect(c.isKnownTier('toString')).toBe(false);
     expect(c.ENGINE_META.inputValidation.id).toBe('engine/input-validation');
   });
 
-  // Движок и шов языка переехали 2026-08-11. Здесь — не повторение engine-contract и
-  // i18n-discipline (они гоняют весь пайплайн на моделях), а точечная проверка того, что
-  // ИМЕННО перевод не съел: ошибки топологической сортировки и откат языка. Обе ветки
-  // при переносе получили приведения типов, и обе легко было испортить молча.
   it('движок и шов языка отдают то же, что и раньше', async () => {
     const { orderRules } = await import('../core/engine.mjs');
     const rule = (id, runAfter = []) => ({ meta: { id, runAfter }, analyze: () => [] });
 
-    // Порядок устойчивый: при равенстве зависимостей — порядок массива.
     expect(orderRules([rule('b', ['a']), rule('a')]).map((r) => r.meta.id)).toEqual(['a', 'b']);
-    // Опечатка в runAfter — исключение, а не тихо другой порядок (ревью P0.4).
     expect(() => orderRules([rule('a', ['опечатка'])])).toThrow(/unknown runAfter/);
     expect(() => orderRules([rule('a', ['a'])])).toThrow(/depends on itself/);
     expect(() => orderRules([rule('a', ['b']), rule('b', ['a'])])).toThrow(/cycle in runAfter/);
@@ -267,14 +197,10 @@ describe('контракт пережил перевод на TypeScript', () =>
     register('xx', { 'tst.fn': ({ who }) => `хх ${who}` });
     expect(render('tst.plain', { who: 'A' })).toBe('plain A');
     expect(render('tst.fn', { who: 'A' })).toBe('fn A');
-    // Неполный каталог откатывается на английский, а не падает.
     expect(render('tst.plain', { who: 'A' }, 'xx')).toBe('plain A');
-    // Вложенная подстановка разворачивается сама (Правило 8: не склеивать в коде).
     expect(render('tst.fn', { who: { messageId: 'tst.plain', data: { who: 'B' } } })).toBe('fn plain B');
-    // Ключа нет нигде — это ошибка разработчика, и она громкая.
     expect(() => render('tst.нет')).toThrow(/i18n/);
 
-    // Готовый результат пересобирается на другом языке БЕЗ повторной обработки.
     const result = { applied: [{ text: 'fn A', i18n: { text: { messageId: 'tst.fn', data: { who: 'Б' } } } }] };
     const localized = localizeResult(result, 'xx');
     expect(localized.applied[0].text).toBe('хх Б');
@@ -283,9 +209,6 @@ describe('контракт пережил перевод на TypeScript', () =>
 
   it('сверка baseline ведёт себя как прежде', async () => {
     const { compareBaseline } = await import('../core/contract.mjs');
-    // Строка успеха перечисляла ключи ('baseline-checkpoint: структура (triangles,
-    // vertices, …)'). 2026-08-22 перечень ушёл в журнал, человеку осталась одна фраза —
-    // поэтому data пустая.
     const same = compareBaseline({ t: 1 }, { t: 1 }, ['t']);
     expect(same).toEqual([{ level: 'pass', messageId: 'check.baselineMatch', data: {} }]);
 
@@ -293,9 +216,6 @@ describe('контракт пережил перевод на TypeScript', () =>
     const hard = compareBaseline({ t: 1 }, { t: 2 }, ['t'], { log: (m) => logged.push(m) });
     expect(hard[0].level).toBe('fail');
     expect(hard[0].messageId).toBe('check.baselineHardMismatch');
-    // Разбор («вероятная причина», ссылка на документацию компонентов) с 2026-08-22 идёт
-    // В ЖУРНАЛ, а не в отчёт: человеку он помочь не мог, а пугал исправно. Сторож следит,
-    // чтобы разбор не пропал совсем — иначе разбирать настоящую поломку станет нечем.
     expect(hard[0].data.cause, 'причина вернулась в отчёт').toBeUndefined();
     expect(
       logged.some((m) => m.includes('HARD MISMATCH') && m.includes('likely cause')),
@@ -305,13 +225,9 @@ describe('контракт пережил перевод на TypeScript', () =>
     const soft = compareBaseline({ vertices: 1 }, { vertices: 2 }, ['vertices'], { soft: new Set(['vertices']) });
     expect(soft[0].level).toBe('info');
     expect(soft[0].messageId).toBe('check.baselineSoftMismatch');
-    // Имя метрики — рецепт, а не английский идентификатор: человек читал «vertices
-    // изменился при кодировании» буквально, английским словом в русской фразе.
     expect(soft[0].data.k, 'имя метрики снова подставляется как есть').toEqual({
       messageId: 'metric.vertices', data: {},
     });
-    // Метрику, которой в таблице имён нет, подставляем КАК ЕСТЬ: набор метрик задаёт
-    // аддон, и ронять чужую сборку из-за неназванной — цена не по проступку.
     const odd = compareBaseline({ zzz: 1 }, { zzz: 2 }, ['zzz'], { soft: new Set(['zzz']) });
     expect(odd[0].data.k).toBe('zzz');
   });

@@ -1,19 +1,3 @@
-// tests/architecture/addon-contract.test.mjs — КОРОННЫЙ архитектурный гейт.
-//
-// Доказывает главное обещание проекта (АРХИТЕКТУРНЫЕ_ТЕСТЫ.md §5, гейт №1):
-// движок формат-агностичен, а контракт аддона живёт в коде, а не в документации.
-//
-// Три шага:
-//   1. Метод-сет аддона выводится из ИСХОДНИКА движка (сканируем core/engine.mjs
-//      на вызовы addon.*), а не из описания в ARCHITECTURE.md — иначе мок может
-//      недописать метод и тест упадёт по неверной причине.
-//   2. Из этого набора строится мок-аддон на ВЫДУМАННОМ формате (никакого glTF,
-//      three, gltf-transform — только node и собственные данные). Прогон
-//      runOptimize() на нём обязан пройти все пять фаз и вернуть status:'ok'.
-//      Это проверка архитектурного обещания, а не реализации.
-//   3. Реальный addons/gltf/index.mjs обязан реализовать каждый вызванный
-//      движком метод — контракт сверяется с исходником движка, а не с текстом.
-
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -27,29 +11,14 @@ import { readSource } from '../helpers/source-files.mjs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ENGINE_PATH = path.resolve(__dirname, '../../core/engine.mjs');
 
-// ----------------------------------------------------------------------------
-// Шаг 1: метод-сет из исходника движка (оракул — код, не документ).
-// ----------------------------------------------------------------------------
 
-/** Имена addon.*, которые движок реально вызывает (или читает как свойства). */
 function engineAddonApi() {
   const src = fs.readFileSync(ENGINE_PATH, 'utf8')
-    // Комментарии убираем ДО поиска: иначе фраза вроде «мы зовём addon.validate»
-    // в комментарии сломала бы снимок контракта по неверной причине.
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/\/\/[^\n]*/g, '');
   return [...new Set([...src.matchAll(/\baddon\.([A-Za-z_][A-Za-z0-9_]*)/g)].map((m) => m[1]))].sort();
 }
 
-/**
- * Из вызванных движком — те, без которых аддон может обойтись.
- *
- * Узнаём по тому, КАК движок их зовёт: `addon.x ? addon.x(…) : запасной путь` либо
- * `addon.x?.(…)`. Такая запись сама объявляет, что метода может не быть и запасной путь
- * рядом. Требовать их наравне с остальными значило бы соврать про контракт — и, что
- * важнее, лишить проверки сам запасной путь: мок реализовал бы хук, и ветка «хука нет»
- * не выполнилась бы ни разу.
- */
 function optionalAddonApi() {
   const clean = fs.readFileSync(ENGINE_PATH, 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -59,37 +28,16 @@ function optionalAddonApi() {
   return [...names].sort();
 }
 
-// Список из §5.1 — что движок обязан звать. Если движок начнёт звать больше —
-// тест упадёт с просьбой дописать мок И проверить реальный аддон.
 const DOCUMENTED_API = [
   'BASELINE_METRICS', 'baselineMetrics', 'collectMetrics', 'createIO',
   'load', 'normalizeOpts', 'outputName', 'readBytes', 'rules',
   'stripInputCompression', 'validate', 'writeBytes', 'writeReport',
-  // Необязательный: движок зовёт его с запасным путём — см. optionalAddonApi ниже.
   'sourceBytes',
 ].sort();
 
-/**
- * Что из набора объявлено НЕОБЯЗАТЕЛЬНЫМ — движок обходится без этого метода.
- *
- * Появилось 2026-08-20 вместе с первым таким хуком. `sourceBytes` отвечает, сколько
- * весит исходная модель целиком: у `.glb` это размер файла, а у `.gltf` — он сам плюс
- * соседние файлы, на которые он ссылается. Формату, где модель это один файл, хук не
- * нужен вовсе, и требовать его от всех значило бы навязать знание про glTF любому
- * будущему аддону.
- */
 const DOCUMENTED_OPTIONAL = ['sourceBytes'];
 
-// ----------------------------------------------------------------------------
-// Мок-аддон на выдуманном формате. Метод-сет ДОЛЖЕН совпасть с движковым:
-// класс-мок строится из извлечённого набора, и тест ниже сверяет покрытие.
-// ----------------------------------------------------------------------------
 
-// Мок-ПРАВИЛО на выдуманном формате. Добавлено 2026-08-04 (основной агент):
-// с пустым набором правил гейт доказывал формат-агностичность только КАРКАСА фаз,
-// а конвейер правил — самое существенное, что должен пережить второй формат
-// (Babylon в 0.3.0, FBX/USD через core/registry.mjs). Правило ничего не знает про
-// геометрию: «документ» — обычный объект, работа правила — поменять в нём число.
 function makeMockRule() {
   return {
     meta: {
@@ -103,7 +51,6 @@ function makeMockRule() {
     canFix: () => ({ safe: true }),
     fix: (finding, ctx) => {
       ctx.document.bumped = (ctx.document.bumped || 0) + 1;
-      // Рецепт, а не готовая строка — «язык отдельно от кода» действует и на выдуманный формат
       return { details: [{ messageId: 'engine.nothingToDo', data: {} }] };
     },
   };
@@ -111,8 +58,8 @@ function makeMockRule() {
 
 function makeMockAddon({ rules = [] } = {}) {
   return {
-    formats: ['mock'], // расширение выдуманного формата
-    rules, // по умолчанию пусто: контракт обязан работать и при пустом наборе
+    formats: ['mock'],
+    rules,
     BASELINE_METRICS: [],
     outputName: (src) => path.basename(src).replace(/\.[^.]+$/, '.mock'),
     normalizeOpts: (opts = {}) => ({
@@ -124,7 +71,6 @@ function makeMockAddon({ rules = [] } = {}) {
       locale: 'en',
       codec: 'mock',
       advancedFeatures: opts.advancedFeatures || [],
-      // фича мок-правила: включается тем же способом, что и настоящие
       mockFeature: (opts.advancedFeatures || []).includes('mockFeature'),
     }),
     createIO: async () => ({}),
@@ -139,11 +85,9 @@ function makeMockAddon({ rules = [] } = {}) {
     baselineMetrics: () => ({}),
     stripInputCompression: () => [],
     validate: ({ result }) => {
-      // минимальная «проверка целостности»: без fail-записей движок пишет файл
       result.validation.push({ level: 'pass', text: 'mock-validate: ok' });
     },
     writeReport: ({ name, opts }) => {
-      // отчёт тоже обязан писаться (фаза 5); имя возвращается движку
       const reportName = name.replace(/\.mock$/, '.report.md');
       fs.writeFileSync(path.join(opts.outDir, reportName), `# mock report\n`, 'utf8');
       return reportName;
@@ -151,9 +95,6 @@ function makeMockAddon({ rules = [] } = {}) {
   };
 }
 
-// ----------------------------------------------------------------------------
-// Шаг 3: реальный аддон обязан реализовать каждый вызванный движком метод.
-// ----------------------------------------------------------------------------
 
 describe('addon-contract — контракт аддона живёт в исходнике движка', () => {
   it('движок вызывает ровно документированный набор addon.*', () => {
@@ -162,15 +103,12 @@ describe('addon-contract — контракт аддона живёт в исх�
   });
 
   it('необязательные хуки названы поимённо и зовутся с запасным путём', () => {
-    // Без этого «необязательный» — просто слово в комментарии: движок однажды позовёт
-    // хук напрямую, аддон без него упадёт, и выяснится это на чужом формате.
     expect(optionalAddonApi()).toEqual([...DOCUMENTED_OPTIONAL].sort());
   });
 
   it('реальный addons/gltf/index.mjs реализует каждый вызванный движком метод', () => {
     for (const name of engineAddonApi()) {
       expect(gltfAddon, `gltfAddon.${name} отсутствует`).toHaveProperty(name);
-      // свойства-массивы отдельно: rules и BASELINE_METRICS — данные, не функции
       if (name === 'rules' || name === 'BASELINE_METRICS') {
         expect(Array.isArray(gltfAddon[name]), `gltfAddon.${name} должен быть массивом`).toBe(true);
       } else {
@@ -180,23 +118,15 @@ describe('addon-contract — контракт аддона живёт в исх�
   });
 });
 
-// ----------------------------------------------------------------------------
-// Шаг 2: прогон движка на ВЫДУМАННОМ формате — главное обещание.
-// ----------------------------------------------------------------------------
 
 describe('addon-contract — движок работает на выдуманном формате (формат-агностичность)', () => {
   it('runOptimize(мок-аддон, файл .mock) проходит все пять фаз и пишет результат', async () => {
     const mockAddon = makeMockAddon();
-    // мок обязан покрыть весь извлечённый набор — если движок позовёт метод,
-    // которого в моке нет, runOptimize упадёт сам; проверяем это и явно
     const optional = new Set(optionalAddonApi());
     for (const name of engineAddonApi()) {
-      if (optional.has(name)) continue;   // без него движок обязан обойтись — см. ниже
+      if (optional.has(name)) continue;
       expect(mockAddon, `мок-аддон не реализует ${name}`).toHaveProperty(name);
     }
-    // Необязательных хуков мок не реализует НАМЕРЕННО, и это половина смысла прогона:
-    // так проверяется запасной путь. Реализуй он их — ветка «хука нет» не выполнялась бы
-    // ни разу, и её поломку никто бы не заметил.
     for (const name of optional) {
       expect(mockAddon, `мок реализует ${name} — запасной путь больше не проверяется`)
         .not.toHaveProperty(name);
@@ -214,16 +144,11 @@ describe('addon-contract — движок работает на выдуманн
     expect(fs.existsSync(result.file.dst)).toBe(true);
     expect(result.metrics.before).not.toBeNull();
     expect(result.metrics.after).not.toBeNull();
-    // фаза 4 отработала: валидация содержит запись мока
     expect(result.validation.some((v) => v.level === 'pass')).toBe(true);
-    // фаза 5 отработала: отчёт записан, путь отдан в контракте
     expect(result.file.reportPath).toBeTruthy();
     expect(fs.existsSync(result.file.reportPath)).toBe(true);
   });
 
-  // Пустой набор правил доказывает только каркас фаз. Конвейер правил — то, что
-  // второму формату (Babylon, FBX/USD) придётся пережить в первую очередь, и он
-  // обязан работать, ничего не зная про glTF.
   it('конвейер правил работает на выдуманном формате: правило планируется, применяется и отчитывается', async () => {
     const mockAddon = makeMockAddon({ rules: [makeMockRule()] });
 
@@ -235,12 +160,9 @@ describe('addon-contract — движок работает на выдуманн
       outDir: path.join(tmp, 'out-on'), force: true, advancedFeatures: ['mockFeature'],
     });
     expect(on.status).toBe('ok');
-    // правило реально отработало на «документе» выдуманного формата
     expect(on.applied.some((a) => a.ruleId === 'mock/bump')).toBe(true);
-    // и запись несёт рецепт, а не готовую строку (правило действует и вне glTF)
     expect(on.applied.find((a) => a.ruleId === 'mock/bump').i18n.text.messageId).toBeTruthy();
 
-    // Выключенная фича — то же обещание «сделал или объяснил», без единой строки glTF
     const off = await runOptimize(mockAddon, src, {
       outDir: path.join(tmp, 'out-off'), force: true, advancedFeatures: [],
     });
@@ -251,7 +173,7 @@ describe('addon-contract — движок работает на выдуманн
 
   it('незнакомый методу аддон не валит процесс — движок превращает это в status:fail', async () => {
     const mockAddon = makeMockAddon();
-    delete mockAddon.collectMetrics; // сломали контракт — движок должен пережить
+    delete mockAddon.collectMetrics;
 
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'addon-contract-'));
     const src = path.join(tmp, 'broken.mock');
@@ -264,21 +186,6 @@ describe('addon-contract — движок работает на выдуманн
 });
 
 describe('JSON исходника читает один модуль', () => {
-  // ЗАМЕР 2026-08-22 на самодостаточном .gltf 24,3 МБ (наше же окно выгрузки такие и
-  // отдаёт): три полных чтения файла за прогон, два из них строкой, и четыре полных
-  // разбора JSON. На .glb 41 МБ — одно лишнее чтение целого файла там, где хватает
-  // заголовка и одного чанка.
-  //
-  // Причина была не в жадности, а в том, что читатели не знали друг о друге. Один из
-  // них уже умел читать у GLB только чанк, и в его комментарии прямо сказано почему —
-  // «модели у нас доходят до 600 МБ». Второй делал ту же работу, но вычитывал файл
-  // целиком. Одинаковое знание в двух видах — это не дублирование кода, это
-  // расходящееся поведение.
-  //
-  // После сведения: у .glb полных чтений НОЛЬ. У .gltf их по-прежнему столько, сколько
-  // спрашивающих, — и это осознанно: запомнить разобранный самодостаточный .gltf
-  // значило бы держать в памяти его встроенные картинки, то есть лечить хуже болезни.
-
   const files = [
     ['addons/gltf/index', readSource('addons/gltf/index')],
     ['addons/gltf/rules', readSource('addons/gltf/rules')],
@@ -294,8 +201,6 @@ describe('JSON исходника читает один модуль', () => {
   });
 
   it('никто больше не разбирает исходник своим способом', () => {
-    // Признак прежнего дефекта: readFileSync прямо рядом с JSON.parse. Так делали оба
-    // прежних читателя, и так же сделает следующий, если сторожа не будет.
     const strays = [];
     for (const [name, src] of files) {
       if (!src) continue;

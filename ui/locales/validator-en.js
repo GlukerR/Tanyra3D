@@ -1,15 +1,7 @@
-// ui/locales/validator-en.js — перевод сообщений gltf-validator (Khronos).
-// Дополнение к en.js: добавляет validator.* ключи в тот же каталог через слияние.
-// Загружается сервером автоматически (все .js из ui/locales/).
-// Покрыты все 169 кодов валидатора (2026-08-04). Ключ переводит текст по коду
-// ошибки (validator.<КОД>), подробности и числа приходят от валидатора — их
-// перевод не заменяет, он объясняет смысл кода новичку.
-
 window.I18N_CATALOGS = window.I18N_CATALOGS || {};
 window.I18N_CATALOGS.en = {
   ...(window.I18N_CATALOGS.en || {}),
 
-  // --- gltf-validator (Khronos) message translations ---
   'validator.ACCESSOR_ANIMATION_INPUT_NEGATIVE': () => 'Animation input accessor contains negative values.',
   'validator.ACCESSOR_ANIMATION_INPUT_NON_INCREASING': () => 'Animation input accessor values are not strictly increasing.',
   'validator.ACCESSOR_ANIMATION_SAMPLER_OUTPUT_NON_NORMALIZED_QUATERNION': () => 'Animation sampler output quaternion is not normalized.',

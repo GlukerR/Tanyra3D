@@ -1,27 +1,3 @@
-// tests/global-setup-model-guard.test.mjs — сторож от повторения истории 2026-08-09
-//
-// parkergirl-build.setup.mjs бросал Error, когда локальной модели parkergirl.glb
-// не было на диске. Это globalSetup: он исполняется ДО сбора тестовых файлов,
-// поэтому падал не один тест, а весь browser-проект vitest — «No test files
-// found, exiting with code 1». На чистом клоне (в git parkergirl.glb нет — это
-// локальная модель, см. REPO_MODELS в tests/helpers/model-files.mjs) это валило
-// CI на любом коммите: 13 красных прогонов из 13.
-//
-// Инвариант, который сторожит этот тест: ни один globalSetup не должен падать
-// из-за отсутствия модели, которой нет в REPO_MODELS. Модель из REPO_MODELS
-// коммитится в git — её отсутствие на диске это реальная поломка, и guard для
-// неё не нужен. Локальная модель на чистом клоне отсутствует законно, поэтому
-// любая ссылка на неё в globalSetup обязана идти через graceful-guard:
-//
-//   if (!fs.existsSync(modelPath('X'))) {
-//     ...сообщить о пропуске...
-//     return
-//   }
-//
-// — без throw в теле. Если кто-то добавит в подготовку ссылку на локальную
-// модель без такого guard (или с throw вместо пропуска) — этот тест покраснеет,
-// и история 2026-08-09 не повторится.
-
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -31,14 +7,11 @@ import { REPO_MODELS } from './helpers/model-files.mjs'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROJECT_ROOT = path.resolve(__dirname, '..')
 
-// Список globalSetup берём из vitest.config.mjs, а не дублируем здесь: если
-// кто-то добавит новый setup-файл, он автоматически попадёт под сторож.
 function globalSetupFiles() {
   const config = fs.readFileSync(path.resolve(PROJECT_ROOT, 'vitest.config.mjs'), 'utf-8')
   return [...config.matchAll(/['"]([^'"]+\.setup\.mjs)['"]/g)].map((m) => m[1])
 }
 
-// Все modelPath('...') в файле — это модели, на которые подготовка завязана.
 function modelRefs(source) {
   return [...source.matchAll(/modelPath\s*\(\s*['"]([^'"]+)['"]\s*\)/g)].map((m) => m[1])
 }
@@ -47,7 +20,6 @@ function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-// Тело if-блока от позиции '{' до парной '}' с учётом строк и комментариев.
 function blockBody(source, start) {
   let depth = 1
   for (let i = start + 1; i < source.length; i++) {
@@ -77,9 +49,6 @@ function blockBody(source, start) {
   return null
 }
 
-// Убрать комментарии и строковые литералы: проверяем КОД, а не слова в
-// комментариях и сообщениях (слово «throw» в поясняющем комментарии не делает
-// guard бросающим).
 function stripCommentsAndStrings(src) {
   let out = ''
   let i = 0
@@ -115,8 +84,6 @@ function stripCommentsAndStrings(src) {
   return out
 }
 
-// Тело guard-блока для модели: содержимое if (!fs.existsSync(modelPath('X'))) { ... }.
-// null — если такого guard в файле нет.
 function findGuardBlock(source, model) {
   const re = new RegExp(
     `fs\\.existsSync\\s*\\(\\s*modelPath\\s*\\(\\s*['"]${escapeRegExp(model)}['"]\\s*\\)\\s*\\)`,
@@ -147,7 +114,7 @@ describe('globalSetup не падает из-за локальной модел�
 
       const source = fs.readFileSync(filePath, 'utf-8')
       for (const model of modelRefs(source)) {
-        if (REPO_MODELS.has(model)) continue // коммитится — отсутствие это поломка, guard не нужен
+        if (REPO_MODELS.has(model)) continue
 
         const body = findGuardBlock(source, model)
         if (body === null) {
@@ -175,31 +142,13 @@ describe('globalSetup не падает из-за локальной модел�
   })
 })
 
-// ---------------------------------------------------------------------------
-// Тот же класс, но в обычных тестах. Добавлено 2026-08-10, после того как история
-// повторилась: tests/run-isolation.test.mjs читал BoomBox.glb напрямую через
-// path.join(ROOT, 'fixtures', 'models', ...). У автора модель на диске есть, в
-// репозитории её нет (эталон Khronos, чужая лицензия) — тест был зелёным локально и
-// красным на раннере GitHub. Сторож выше это пропустил: он смотрит только globalSetup.
-//
-// Что считается ссылкой на модель: имя файла .glb/.gltf литералом внутри modelPath()
-// или path.join/resolve, где рядом стоит fixtures-путь. Имена, собранные из переменных,
-// сюда не попадают — их и не проверить статически.
-//
-// Страховкой считается ЛЮБОЕ упоминание проверки присутствия в файле. Проверка грубая:
-// она не сверяет, что страховка накрывает именно эту модель. Это осознанный размен —
-// точная проверка требует разбора области видимости, а грубая ловит ровно тот случай,
-// который уже дважды стоил красного CI: модель читают, не подумав о чистом клоне.
-// ---------------------------------------------------------------------------
 
 const GRACEFUL = /isPresent|describeLocal|describeIfModels|itIfModel|eachModel|modelPresent|itWithModels|existsSync|skipIf/
 
-/** Строки кода без строк-комментариев: имя модели в пояснении ссылкой не считается. */
 function codeLines(source) {
   return source.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
 }
 
-/** Имена констант, которые указывают в fixtures. */
 function fixtureConsts(source) {
   const out = new Set()
   for (const m of source.matchAll(/const\s+([A-Za-z_$][\w$]*)\s*=\s*([^\n;]+)/g)) {
@@ -208,7 +157,6 @@ function fixtureConsts(source) {
   return out
 }
 
-/** Модели, которые файл читает из fixtures/models. */
 function fixtureModelRefs(source) {
   const code = codeLines(source)
   const consts = fixtureConsts(code)

@@ -1,16 +1,3 @@
-// tests/locale-keys-symmetry.test.mjs — статическая проверка симметрии каталогов сообщений.
-//
-// Для каждой пары en.* + ru.* проверяет:
-//   1. Все ключи английского каталога есть в русском (нет пропусков перевода).
-//   2. Все ключи русского каталога есть в английском (нет осиротевших ключей).
-//
-// Это СТАТИЧЕСКИЙ тест, он не запускает оптимизатор. Импортирует только каталоги.
-// Покрывает четыре пары:
-//   - addons/gltf/messages/     (строки правил)
-//   - core/messages/            (строки ядра)
-//   - messages/                 (строки ассистента / отчёта)
-//   - ui/locales/               (строки интерфейса — две пары: основные + validator)
-
 import { describe, it, expect } from 'vitest';
 
 import gltfEn from '../addons/gltf/messages/en.mjs';
@@ -22,13 +9,8 @@ import coreRu from '../core/messages/ru.mjs';
 import asstEn from '../messages/en.mjs';
 import asstRu from '../messages/ru.mjs';
 
-// UI-каталоги — .js файлы, их ключи определяем через статический разбор
 import { readFileSync } from 'node:fs';
 
-// Канонический список кодов gltf-validator — ISSUES.md из пакета (задание
-// 2026-08-04-валидатор-остаток). Здесь же проверка: каждый validator.* ключ
-// каталогов существует в пакете (нет сирот), и каждый код пакета переведён
-// в обоих каталогах (нет пропусков).
 const ISSUES_PATH = new URL('../node_modules/gltf-validator/ISSUES.md', import.meta.url);
 
 const uiEnPath = new URL('../ui/locales/en.js', import.meta.url);
@@ -41,11 +23,6 @@ function extractKeys(filePath) {
   return [...content.matchAll(/'([\w.]+)':\s/g)].map(m => m[1]);
 }
 
-// Все коды, которые умеет выдавать gltf-validator: строки ISSUES.md вида
-// `|CODE|Message|Severity|` (заголовки таблиц `| Code | Message |` не матчатся
-// из-за пробелов). Это единственный канонический источник: сирота в каталоге
-// ловится здесь же, рядом с симметрией, а не в engine-contract (он про аддон
-// и ядро, не про validator.*).
 function validatorCodes() {
   const content = readFileSync(ISSUES_PATH, 'utf-8');
   const codes = new Set();
@@ -53,8 +30,6 @@ function validatorCodes() {
   return codes;
 }
 
-// Тексты validator-каталогов: ключ → строка. Нужны, чтобы сторожить не только
-// наличие ключа, но и вид самой фразы.
 function extractTexts(filePath) {
   const content = readFileSync(filePath, 'utf-8');
   const out = new Map();
@@ -68,22 +43,12 @@ const uiRuKeys = extractKeys(uiRuPath);
 const valEnKeys = extractKeys(valEnPath);
 const valRuKeys = extractKeys(valRuPath);
 
-/**
- * Проверить, что все ключи каталога A присутствуют в каталоге B.
- * @param {Record<string, unknown>} a — исходный каталог
- * @param {Record<string, unknown>} b — целевой каталог
- * @param {string} label — подпись для сообщения об ошибке
- * @returns {string[]} список отсутствующих ключей
- */
 function missingKeys(a, b) {
   const aKeys = Object.keys(a);
   const bKeys = new Set(Object.keys(b));
   return aKeys.filter((k) => !bKeys.has(k));
 }
 
-// ============================================================================
-// addons/gltf/messages — строки правил glTF-аддона
-// ============================================================================
 
 describe('addons/gltf/messages — en.mjs ↔ ru.mjs', () => {
   it('все ключи en.mjs есть в ru.mjs (нет пропусков перевода)', () => {
@@ -101,9 +66,6 @@ describe('addons/gltf/messages — en.mjs ↔ ru.mjs', () => {
   });
 });
 
-// ============================================================================
-// core/messages — строки ядра
-// ============================================================================
 
 describe('core/messages — en.mjs ↔ ru.mjs', () => {
   it('все ключи en.mjs есть в ru.mjs', () => {
@@ -121,9 +83,6 @@ describe('core/messages — en.mjs ↔ ru.mjs', () => {
   });
 });
 
-// ============================================================================
-// messages (ассистент) — строки отчёта
-// ============================================================================
 
 describe('messages (assistant) — en.mjs ↔ ru.mjs', () => {
   it('все ключи en.mjs есть в ru.mjs', () => {
@@ -141,9 +100,6 @@ describe('messages (assistant) — en.mjs ↔ ru.mjs', () => {
   });
 });
 
-// ============================================================================
-// ui/locales/en.js ↔ ru.js — строки интерфейса (основной каталог)
-// ============================================================================
 
 describe('ui/locales — en.js ↔ ru.js', () => {
   it('все ключи en.js есть в ru.js', () => {
@@ -163,9 +119,6 @@ describe('ui/locales — en.js ↔ ru.js', () => {
   });
 });
 
-// ============================================================================
-// ui/locales/validator-*.js — перевод сообщений gltf-validator (отдельный файл)
-// ============================================================================
 
 describe('ui/locales — validator-en.js ↔ validator-ru.js', () => {
   it('все ключи validator-en.js есть в validator-ru.js', () => {
@@ -185,17 +138,8 @@ describe('ui/locales — validator-en.js ↔ validator-ru.js', () => {
   });
 });
 
-// ============================================================================
-// validator-каталоги ↔ пакет gltf-validator (ISSUES.md)
-// ============================================================================
-// Сторож задания 2026-08-04-валидатор-остаток: будущий переводчик не должен
-// ни выдумать код (сирота в каталоге), ни забыть пару (пропуск кода пакета).
-// Оба направления проверяются для ОБОИХ языков — сирота в одном каталоге
-// валит симметрию, но пропуск кода оба каталога могут «пройти» вместе.
 
 describe('validator-каталоги ↔ пакет gltf-validator (ISSUES.md)', () => {
-  // Читаем и парсим ISSUES.md один раз на весь блок: три теста делят один
-  // источник, а не читают файл заново.
   const packageCodes = validatorCodes();
 
   it('пакет gltf-validator установлен и ISSUES.md не пуст (страховка от тихого зелёного)', () => {
@@ -224,14 +168,6 @@ describe('validator-каталоги ↔ пакет gltf-validator (ISSUES.md)',
   });
 });
 
-// ============================================================================
-// Вид самой фразы в validator-каталогах
-// ============================================================================
-// Каталог читает человек подряд, списком замечаний: строка без точки в конце
-// сливается со следующей. В тексте для человека запрещены
-// идентификаторы расширений, имена загрузчиков и движков — здесь это тоже
-// проверяется, потому что перевод пишется порциями и легко скатывается
-// обратно в технические имена.
 
 describe('validator-каталоги — вид фразы', () => {
   const catalogs = [['validator-en.js', extractTexts(valEnPath)], ['validator-ru.js', extractTexts(valRuPath)]];

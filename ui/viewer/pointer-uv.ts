@@ -1,49 +1,12 @@
-// pointer-uv.ts — анимация РАЗВЁРТКИ текстур по указателю (KHR_animation_pointer).
-//
-// Зачем отдельный код, если плагин @needle-tools уже стоит.
-//
-// Плагин доводит до сцены то, что адресует свойства материала целиком: цвет, яркость,
-// коэффициенты. С развёрткой текстур он не справляется, и причина не в движке.
-// Замер 2026-08-15 на образце Khronos PotOfCoalsAnimationPointer: дорожки СОЗДАЮТСЯ,
-// обе, и называются так —
-//
-//   .materials.HeatDome.normalTexture.extensions.KHR_texture_transform.rotation
-//
-// В glTF слот зовётся `normalTexture`, в three.js — `normalMap`. Плагин переводит два
-// названия из двадцати с лишним (`map` и `emissiveMap`), остальные отдаёт как есть, и
-// привязка не находит свойство: `Trying to update property … but it wasn't found`.
-//
-// Сам three.js тут ни при чём и слабым звеном НЕ является: в r185 собственное
-// преобразование развёртки есть у 23 слотов — `normalMapTransform`,
-// `thicknessMapTransform`, `clearcoatMapTransform` и так далее. Комментарий в плагине
-// («поворот есть только у .map») устарел, и я на него поначалу сослался зря.
-//
-// Между «дрожит марево над углями» и «застыло стекло» стояла таблица соответствия имён.
-// Она ниже.
-//
-// Почему не через AnimationMixer. Текстуры не лежат в графе сцены, и штатная привязка
-// three.js до них не добирается — плагин ради этого правит PropertyBinding.findNode
-// глобально. Ставить заплату поверх чужой заплаты в самом горячем месте не хочется:
-// свои двадцать строк с прямым присваиванием проще и не ломаются от чужого обновления.
-
 import * as THREE from "three";
 import type { GLTF } from "three/addons/loaders/GLTFLoader.js";
 
-/**
- * Имя слота в glTF → имена свойств в three.js.
- *
- * Метallic-roughness единственный отдаёт ДВА: в glTF это одна карта, где металличность
- * и шероховатость лежат в разных каналах одного изображения, а three.js держит на неё
- * две отдельные ссылки. Двигать надо обе, иначе половина материала поедет, а половина
- * останется.
- */
 const SLOT_TO_THREE: Record<string, string[]> = {
   baseColorTexture: ['map'],
   metallicRoughnessTexture: ['metalnessMap', 'roughnessMap'],
   normalTexture: ['normalMap'],
   occlusionTexture: ['aoMap'],
   emissiveTexture: ['emissiveMap'],
-  // Слоты расширений материалов.
   thicknessTexture: ['thicknessMap'],
   clearcoatTexture: ['clearcoatMap'],
   clearcoatRoughnessTexture: ['clearcoatRoughnessMap'],
@@ -56,15 +19,10 @@ const SLOT_TO_THREE: Record<string, string[]> = {
   iridescenceTexture: ['iridescenceMap'],
   iridescenceThicknessTexture: ['iridescenceThicknessMap'],
   anisotropyTexture: ['anisotropyMap'],
-  // Просвет насквозь. Свойств с такими именами у самого three.js нет — их приносит наш
-  // материал (`diffuse-transmission.ts`), и он же перекладывает `texture.matrix` в свой
-  // uniform перед каждым кадром. Без этой пары строк развёртка просвета застыла бы молча,
-  // ровно как застывало всё расширение до 2026-08-27.
   diffuseTransmissionTexture: ['diffuseTransmissionMap'],
   diffuseTransmissionColorTexture: ['diffuseTransmissionColorMap'],
 };
 
-// Что именно анимируют: в glTF — offset/rotation/scale, в three.js — offset/rotation/repeat.
 const TRANSFORM_PROPS: Record<string, 'offset' | 'rotation' | 'repeat'> = {
   offset: 'offset',
   rotation: 'rotation',
@@ -78,22 +36,16 @@ interface Entry {
   prop: 'offset' | 'rotation' | 'repeat';
   times: ArrayLike<number>;
   values: ArrayLike<number>;
-  /** 1 для поворота, 2 для сдвига и масштаба. */
   stride: number;
-  /** STEP — держать значение до следующего ключа, без промежуточных. */
   step: boolean;
 }
 
 export interface UvPointerDriver {
-  /** Сколько каналов реально привязано — для тестов и диагностики. */
   count: number;
-  /** Длительность самой длинной дорожки, секунды. */
   duration: number;
-  /** Поставить все привязанные развёртки в момент времени t (секунды). */
   apply(t: number): void;
 }
 
-/** Материал glTF по номеру → материалы three.js (один номер может дать несколько копий). */
 function materialsByIndex(gltf: GLTF): Map<number, THREE.Material[]> {
   const out = new Map<number, THREE.Material[]>();
   const assoc = gltf.parser.associations as Map<object, { materials?: number }> | undefined;
@@ -110,12 +62,6 @@ function materialsByIndex(gltf: GLTF): Map<number, THREE.Material[]> {
   return out;
 }
 
-/**
- * Собрать привод по документу. `null` — анимировать нечего (обычный случай: указателей
- * на развёртку в модели нет).
- *
- * Ошибки внутри не выпускаются наружу: показ модели важнее показа её анимации.
- */
 export async function buildUvPointerDriver(gltf: GLTF): Promise<UvPointerDriver | null> {
   try {
     const parser = gltf.parser;
@@ -142,9 +88,6 @@ export async function buildUvPointerDriver(gltf: GLTF): Promise<UvPointerDriver 
         const m = POINTER_RE.exec(pointer);
         if (!m) continue;
         const matIndex = Number(m[1]);
-        // Между номером материала и хвостом лежит путь до слота: он может идти прямо
-        // (`normalTexture`), через pbrMetallicRoughness или через расширение материала.
-        // Нам нужно только имя слота — последний сегмент, оканчивающийся на Texture.
         const slot = (m[2] || '').split('/').filter((s) => s.endsWith('Texture')).pop();
         const prop = TRANSFORM_PROPS[m[3] || ''];
         if (!slot || !prop) continue;
@@ -184,8 +127,6 @@ export async function buildUvPointerDriver(gltf: GLTF): Promise<UvPointerDriver 
         const n = times.length;
         if (!n) continue;
 
-        // Ищем отрезок между ключами. Ключей у таких дорожек единицы, поэтому
-        // обычный перебор дешевле бинарного поиска и читается лучше.
         let i = 0;
         while (i < n - 1 && (times[i + 1] as number) <= t) i++;
         const t0 = times[i] as number;
@@ -215,16 +156,6 @@ export async function buildUvPointerDriver(gltf: GLTF): Promise<UvPointerDriver 
   }
 }
 
-/**
- * Дорожки, которые теперь ведём мы, — убрать из клипа плагина.
- *
- * Иначе они остаются висеть непривязанными: каждый кадр three.js пишет в консоль
- * «Trying to update property … but it wasn't found», а движения всё равно нет.
- *
- * Длительность клипа при этом ВОССТАНАВЛИВАЕТСЯ вручную. У PotOfCoals все дорожки —
- * ровно эти; убрав их, клип остался бы нулевой длины, и `setAnimationTime` считал бы
- * остаток от деления на ноль.
- */
 export function stripUvTransformTracks(clips: THREE.AnimationClip[]) {
   for (const clip of clips) {
     const before = clip.duration;

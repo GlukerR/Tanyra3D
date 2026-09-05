@@ -1,26 +1,3 @@
-// Конфигурация vitest. Появилась 2026-07-29 из-за плавающих падений.
-//
-// Проблема. Набор интеграционный: тесты гоняют настоящие модели через настоящий
-// пайплайн, а правило `textures/ktx2` вдобавок запускает ВНЕШНИЙ процесс `toktx`.
-// Время одного теста зависит не от теста, а от того, сколько ещё воркеров vitest
-// подняло на соседних ядрах. При дефолтном потолке в 5 секунд это давало красный
-// набор на ровном месте: 4 падения из 549 на одном прогоне и 0 на следующем —
-// при неизменном коде. Отдельные `}, 30000)` расставлялись по файлам вручную и
-// покрывали далеко не всё.
-//
-// Решение. Общий потолок на весь набор, а не россыпь чисел по файлам. Таймаут
-// здесь — страховка от зависания, а не утверждение о скорости: ловить им
-// деградацию производительности бессмысленно, цифра всё равно плавает вместе с
-// загрузкой машины. От настоящего зависания внешнего инструмента защищает
-// CLI_TIMEOUT_MS в addons/gltf/tools.mjs (BUG-007) — он привязан к процессу и
-// потому точнее.
-//
-// Отдельные тесты по-прежнему могут задать свой таймаут третьим аргументом `it`,
-// если им нужно БОЛЬШЕ (например прогон 150-мегабайтных моделей из input/).
-//
-// 2026-07-30: Добавлен browser-проект для viewer-regression.browser.test.mjs.
-//   — publicDir внутри browser-проекта (на верхнем уровне не наследуется)
-//   — testTimeout/hookTimeout внутри КАЖДОГО проекта (тоже не наследуется)
 import { defineConfig } from 'vitest/config'
 import { playwright } from '@vitest/browser-playwright'
 import fs from 'node:fs'
@@ -31,21 +8,6 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const threeRoot = path.resolve(__dirname, 'node_modules/three')
 
-// Сколько воркеров поднимать. Введено 2026-08-20 по прямому слову Александра:
-// «ты каждый раз при прогоне просто жёстко перегружаешь мой комп. 100% использования
-// процессора встаёт и у меня всё падает в работе. я не могу сам работать когда ты
-// что-то делаешь».
-//
-// Умолчание vitest — почти все ядра (на его машине 23 из 24), и каждый воркер здесь не
-// «прогоняет юнит-тест», а разбирает НАСТОЯЩИЕ модели и запускает ВНЕШНИЙ `toktx`
-// отдельным процессом. То есть двадцать три тяжёлых процесса разом — машина встаёт.
-//
-// Это НЕ ускорение прогона любой ценой: набор идёт в фоне, пока человек работает, и
-// прогон, который отнимает у него машину, стоит дороже сэкономленных минут.
-//
-// На CI ограничение снимается: там машина одноразовая и ничья, отбирать не у кого.
-// Живую цифру можно задать через TANYRA_TEST_WORKERS — например перед выпуском, когда
-// ждать всё равно нечего.
 const CORES = os.cpus().length || 4
 const asked = Number(process.env.TANYRA_TEST_WORKERS)
 const maxWorkers = Number.isFinite(asked) && asked > 0
@@ -54,15 +16,6 @@ const maxWorkers = Number.isFinite(asked) && asked > 0
     ? undefined
     : Math.max(2, Math.floor(CORES / 3))
 
-// Плагин Vite для раздачи файлов декодеров Three.js по /vendor/three/.
-// В production сервер (server.mjs) отдаёт их через express.static, но в тестовом
-// окружении dev-сервера Vite этих путей нет. Плагин читает файлы из
-// node_modules/three/ и отдаёт с корректным MIME-типом (особенно важно для .wasm).
-//
-// optimizedArtifactsPlugin — тот же приём для оптимизированных артефактов
-// браузерных тестов: tests/__optimized__/ раздаётся по /optimized/*. Файлы
-// генерирует node-контекст globalSetup (tests/instance-grid-build.setup.mjs),
-// а браузерный тест грузит их как обычные URL (см. tests/instance-grid-render.browser.test.mjs).
 const optimizedArtifactsPlugin = {
   name: 'optimized-artifacts',
   configureServer(viteServer) {
@@ -81,9 +34,6 @@ const threeVendorPlugin = {
   name: 'three-vendor',
   configureServer(viteServer) {
     viteServer.middlewares.use('/vendor/three/', (req, res, next) => {
-      // req.url — путь после монтирования middleware, без /vendor/three/.
-      // ВНИМАНИЕ: на POSIX path.join сбрасывает первый аргумент, если второй
-      // начинается с '/', поэтому УБИРАЕМ ведущий слеш.
       const relPath = (req.url || '').replace(/^\//, '')
       if (!relPath || relPath.includes('..')) return next()
       const filePath = path.join(threeRoot, relPath)
@@ -112,13 +62,7 @@ export default defineConfig({
           name: 'node',
           include: ['tests/**/*.test.mjs'],
           exclude: ['tests/**/*.browser.test.mjs'],
-          // globalSetup выполняется ДО всех тестов — baseline-гейт:
-          // падает сразу, если число тестов < 228 или модели пропали с диска.
-          // Подробный отчёт — в tests/analyse-baseline.test.mjs.
           globalSetup: ['tests/analyse-baseline.setup.mjs'],
-          // Своя папка профилей на весь прогон: набор не должен видеть площадки,
-          // которые человек завёл в установленной программе (см. файл — там разбор
-          // настоящего падения 2026-08-13).
           setupFiles: ['tests/isolate-profiles.setup.mjs'],
           testTimeout: 120_000,
           hookTimeout: 120_000,
@@ -126,27 +70,16 @@ export default defineConfig({
         },
       },
       {
-        // publicDir ДОЛЖЕН быть внутри проекта — при использовании projects
-        // верхнеуровневые vite-опции не наследуются дочерними проектами.
         publicDir: 'fixtures/models',
         plugins: [threeVendorPlugin, optimizedArtifactsPlugin],
         test: {
           name: 'browser',
           include: ['tests/**/*.browser.test.mjs'],
           setupFiles: ['tests/browser-setup.mjs'],
-          // globalSetup — smoke-гейт: golden-corpus существует и не пуст,
-          // fixtures на месте. Мягче node-гейта (нет сравнения с baseline),
-          // но предотвращает зелёный бейдж на пустом наборе.
-          // instance-grid-build.setup.mjs — собирает оптимизированный Instance Grid
-          // для viewer-теста рендера (см. optimizedArtifactsPlugin выше).
-          // parkergirl-build.setup.mjs — то же для скин-анимации/морфов parkergirl.
           globalSetup: [
             'tests/browser-baseline.setup.mjs',
             'tests/instance-grid-build.setup.mjs',
             'tests/parkergirl-build.setup.mjs',
-            // diffuse-transmission-models.setup.mjs — не собирает ничего, только
-            // сообщает, лежат ли на диске образцы Khronos с просветом насквозь: в git
-            // их нет, и на CI проверки показа обязаны пропускаться, а не падать.
             'tests/diffuse-transmission-models.setup.mjs',
           ],
           testTimeout: 120_000,
@@ -156,21 +89,6 @@ export default defineConfig({
             enabled: true,
             provider: playwright(),
             headless: true,
-            // Явный IPv4, а не `localhost`. Разобрано 2026-08-19 по факту:
-            //
-            //   [::1]:63315            LISTENING     ← сервер vitest
-            //   127.0.0.1:… → :63315   SYN_SENT      ← Chromium
-            //
-            // `localhost` на Windows разрешается у Node сначала в `::1`, а Chromium
-            // стучится по IPv4 — соединение отвергается, страница не открывается.
-            // Внешне это выглядит хуже, чем падение: браузерные тесты просто НЕ
-            // ЗАПУСКАЮТСЯ, набор рапортует «72 passed» вместо 75 файлов, и разницу в
-            // сто одиннадцать тестов замечает только тот, кто сверяет числа. Один раз
-            // я на этом уже отчитался о зелёном прогоне, которого не было.
-            //
-            // Порядок ответов DNS не фиксирован и может меняться от запуска к запуску —
-            // поэтому привязка, а не надежда. На CI (Linux) расхождения нет, там это
-            // ничего не меняет.
             api: { host: '127.0.0.1' },
             screenshotDirectory: 'tests/__screenshots__',
             screenshotFailures: true,

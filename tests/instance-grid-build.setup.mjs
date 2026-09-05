@@ -1,19 +1,3 @@
-// tests/instance-grid-build.setup.mjs — globalSetup browser-проекта.
-//
-// Собирает Instance Grid 01 под ['safe','quantize','join'] и кладёт результат в
-// tests/__optimized__/instance-grid-sqj.glb. Файл раздаёт браузерному тесту
-// Vite-мидлварь /optimized/* (см. vitest.config.mjs, optimizedArtifactsPlugin).
-//
-// Зачем это здесь, а не в самом тесте: браузерные тесты исполняются в Chromium,
-// node:fs им недоступен, а оптимизатор — движок на node. Глобальный setup
-// исполняется в node-контексте ДО браузерных тестов и умеет и собирать, и
-// писать на диск.
-//
-// Дублирование с tests/quantize.test.mjs (раздел 7) намеренное: там цифры,
-// здесь — артефакт, который браузерный тест реально открывает во вьюере.
-// Инварианты (треугольники не изменились) проверяются и здесь — артефакт не
-// должен вводить viewer-тест в заблуждение.
-
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -42,8 +26,6 @@ export async function setup() {
     )
   }
 
-  // Инвариант: квантование и join не трогают полигоны. Если когда-нибудь тронут —
-  // артефакт не должен молча уехать в браузерный тест.
   const { before, after } = result.metrics
   if (after.triangles !== before.triangles) {
     throw new Error(
@@ -51,7 +33,6 @@ export async function setup() {
     )
   }
 
-  // Сам артефакт + рядом мета (для отчёта и ручной сверки).
   fs.writeFileSync(DST_GLB, fs.readFileSync(result.file.dst))
   fs.writeFileSync(
     DST_META,

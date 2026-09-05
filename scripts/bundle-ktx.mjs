@@ -1,19 +1,3 @@
-// scripts/bundle-ktx.mjs — кладёт `ktx` из KTX-Software в `.tools/` перед сборкой пакета.
-//
-// Зачем отдельно от scripts/setup.mjs. Тот СТАВИТ инструмент в систему и спрашивает
-// разрешения — так и надо, когда человек ставит программу себе. Здесь другое: файл нужен
-// внутри собираемого пакета, а не в системе сборочной машины. Ставить что-то в систему
-// CI бессмысленно (её выбросят через минуту), а спрашивать некого.
-//
-// Почему это вообще делается. Без ktx у собранного приложения не работает KTX2 — одна из
-// двух текстурных оптимизаций. Требовать от художника отдельно поставить нативную
-// программу Khronos значит вернуть ему терминал, ради избавления от которого приложение
-// и собирается. Лицензия Apache-2.0 вкладывать разрешает.
-//
-// Запускается на СВОЕЙ платформе: под Windows кладёт windows-сборку, под macOS — macOS.
-// Кросс-платформенной сборки здесь нет и не планируется — каждый пакет собирает свой
-// раннер (.github/workflows/release.yml).
-
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -40,7 +24,6 @@ const die = (s) => {
   process.exit(1);
 };
 
-/** Уже лежит? Второй раз не качаем — сборка запускается часто. */
 function alreadyThere() {
   if (!fs.existsSync(TOOLS)) return null;
   const stack = [TOOLS];
@@ -57,7 +40,6 @@ function alreadyThere() {
   return null;
 }
 
-/** Имя файла в релизе Khronos под текущую платформу и разрядность. */
 function assetName() {
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
   if (process.platform === 'win32') return `KTX-Software-${VERSION}-Windows-${arch}.exe`;
@@ -67,20 +49,11 @@ function assetName() {
   return `KTX-Software-${VERSION}-Linux-${arch === 'arm64' ? 'arm64' : 'x86_64'}.tar.bz2`;
 }
 
-/**
- * Отказ, который НЕ смягчается флагом --optional.
- *
- * `--optional` означает «нет инструмента — соберём без KTX2», и это разумно, когда
- * файла нет или он не качается. Но несовпавший хеш — не про отсутствие инструмента.
- * Это про то, что приехало не то, что ожидали, и продолжать сборку нельзя ни с KTX2,
- * ни без него, пока человек не разберётся.
- */
 const halt = (s) => {
   console.error(`  x ${s}`);
   process.exit(1);
 };
 
-/** Известные хеши. Файла нет или он повреждён — считаем, что записей нет. */
 function knownHashes() {
   try {
     const m = JSON.parse(fs.readFileSync(MANIFEST, 'utf8'));
@@ -90,30 +63,9 @@ function knownHashes() {
   }
 }
 
-/**
- * Сверка скачанного архива с манифестом (ревью 2026-08-10, P1.7).
- *
- * До этого сборочный путь не проверял НИЧЕГО: качали нативную программу, распаковывали,
- * запускали и вкладывали в устанавливаемое приложение. Подменённый релизный файл уехал
- * бы ко всем, кто поставит программу, — и это не гипотеза, а самый обыкновенный способ
- * попасть в чужой продукт.
- *
- * Записи в манифесте нет — говорим об этом громко и печатаем строку для вставки.
- * Молча «проверено» здесь было бы хуже отсутствия проверки.
- */
 function verifyHash(name, buf) {
   const actual = createHash('sha256').update(buf).digest('hex');
   const expected = knownHashes()[name];
-  // Нет записи — ОСТАНОВКА, а не предупреждение (ревью 2026-08-10, D3).
-  //
-  // Сначала здесь стояло «скажем громко и продолжим»: рассуждение было, что сборку
-  // ломать жалко, а сторож tests/ktx-manifest.test.mjs всё равно не даст манифесту
-  // разойтись. Рассуждение оказалось неверным: сторож живёт в test.yml, а установщик
-  // собирает release.yml, где НИ ОДНОГО шага с тестами нет. То есть на единственном
-  // раннере, где эта проверка что-то значит, её никто не включал, и ворота стояли
-  // открытыми ровно там, ради чего заводились.
-  //
-  // «Громко в журнал» на CI не работает: журнал успешной сборки никто не читает.
   if (!expected) {
     halt([
       `${name} — в манифесте нет записи, проверить нечем.`,
@@ -147,7 +99,6 @@ async function download(name) {
   return tmp;
 }
 
-/** Распаковка БЕЗ установки: файл нужен в пакете, а не в системе сборочной машины. */
 function extract(file) {
   fs.mkdirSync(TOOLS, { recursive: true });
   if (process.platform === 'linux') {
@@ -155,17 +106,12 @@ function extract(file) {
     return;
   }
   if (process.platform === 'darwin') {
-    // .pkg — это архив xar с вложенным Payload. pkgutil разворачивает и то и другое,
-    // не трогая систему, в отличие от `installer -pkg`.
     const exp = path.join(os.tmpdir(), 'ktx-pkg-expanded');
     fs.rmSync(exp, { recursive: true, force: true });
     execFileSync('pkgutil', ['--expand-full', file, exp], { stdio: 'inherit' });
     execFileSync('sh', ['-c', `cp -R "${exp}"/*/Payload/* "${TOOLS}/" 2>/dev/null || cp -R "${exp}"/Payload/* "${TOOLS}/"`], { stdio: 'inherit' });
     return;
   }
-  // Windows: Khronos выкладывает только установщик. 7-Zip читает его как архив и
-  // достаёт содержимое, ничего не запуская и не трогая реестр. Встроенного средства,
-  // умеющего вскрыть установщик, в Windows нет — Expand-Archive понимает только zip.
   const sevenZip = ['7z', path.join(process.env.ProgramFiles || 'C:\\Program Files', '7-Zip', '7z.exe')]
     .find((c) => {
       try { execFileSync(c, ['i'], { stdio: 'ignore' }); return true; } catch { return false; }
@@ -176,14 +122,6 @@ function extract(file) {
   execFileSync(sevenZip, ['x', file, `-o${TOOLS}`, '-y'], { stdio: 'inherit' });
 }
 
-/**
- * Запускается ли он и ТА ЛИ это версия.
- *
- * Проверять надо на обоих путях, а не только после скачивания. Уже лежащий в `.tools/`
- * файл — как раз тот случай, который хеш не ловит: его не качали. Раньше он принимался
- * на слово, и ktx от прошлой сборки (или другой версии вовсе) молча уезжал в пакет,
- * а число в шапке скрипта переставало что-либо значить. Ревью 2026-08-10 (P1.7).
- */
 function checkBinary(binary) {
   let out = '';
   try {
@@ -192,9 +130,6 @@ function checkBinary(binary) {
   } catch (e) {
     die(`${path.relative(root, binary)} не запускается: ${(e.message || '').split('\n')[0]}`);
   }
-  // С границей, а не подстрокой: `'4.4.20'.includes('4.4.2')` — истина, и версия
-  // 4.4.20 прошла бы за 4.4.2. Настоящий вывод инструмента — «ktx version: v4.4.2».
-  // Ревью 2026-08-10 (D7).
   const versionRe = new RegExp(`v?${VERSION.replace(/\./g, '\\.')}(?![\\d.])`);
   if (!versionRe.test(out)) {
     halt([

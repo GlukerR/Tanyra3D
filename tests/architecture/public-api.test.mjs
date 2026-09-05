@@ -1,19 +1,3 @@
-// tests/architecture/public-api.test.mjs — контрактный снимок публичного API.
-//
-// АРХИТЕКТУРНЫЕ_ТЕСТЫ.md §5.4: RunResult / listRules / assistant-экспорты —
-// зафиксированный контракт. «Добавлять поля можно, переименование — ломающее
-// изменение» (ARCHITECTURE.md §4b). Поэтому снимок проверяет НАЛИЧИЕ обязательных
-// полей и их типы, а не точный набор ключей — иначе добавление поля (разрешённое
-// контрактом) ломало бы гейт.
-//
-// Консолидация: этот файл — единственное место, где форма API сверяется как
-// снимок. Полевые тесты (что возвращает тот или иной вызов) остаются в
-// optimize.test.mjs / golden-corpus; здесь — только форма контракта.
-//
-// ВАЖНО про мок-аддон: контракт RunResult проверяется ЧЕРЕЗ optimizeFile на
-// реальной модели корпуса (Dirty Cube 01.glb — коммитится в git, всегда на
-// диске). Снимок обязан ловить переименование поля, а не только отсутствие.
-
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import path from 'node:path';
 import os from 'node:os';
@@ -25,19 +9,16 @@ import * as assistant from '../../assistant.mjs';
 import { modelPath } from '../helpers/model-files.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const MODEL = modelPath('Dirty Cube 01.glb'); // REPO_MODELS — всегда на диске
+const MODEL = modelPath('Dirty Cube 01.glb');
 
-// Одна временная папка на весь снимок (а не mkdtemp на каждый вызов — иначе
-// каждый прогон теста оставляет горсть мусорных каталогов в os.tmpdir).
 let OUT_DIR;
 beforeAll(() => {
   OUT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'public-api-'));
 });
 afterAll(() => {
-  try { fs.rmSync(OUT_DIR, { recursive: true, force: true }); } catch { /* best-effort */ }
+  try { fs.rmSync(OUT_DIR, { recursive: true, force: true }); } catch {  }
 });
 
-/** Запуск optimizeFile с outDir во временной папке (ничего не пишем в output/). */
 async function runResult() {
   return optimizeFile(MODEL, {
     advancedFeatures: ['safe'],
@@ -47,7 +28,6 @@ async function runResult() {
   });
 }
 
-// Обязательные поля контракта §4b. Дополнительные поля разрешены — их не запрещаем.
 const RESULT_KEYS = ['status', 'file', 'findings', 'skipped', 'applied', 'validation', 'metrics'];
 const FILE_KEYS = ['src', 'dst', 'written', 'reportPath'];
 const FINDING_KEYS = ['ruleId', 'category', 'severity', 'fixSafety', 'text'];
@@ -62,7 +42,6 @@ describe('public-api — контрактный снимок RunResult (optimize
     const r = await runResult();
     expect(has(r, RESULT_KEYS)).toEqual([]);
     expect(has(r.file, FILE_KEYS)).toEqual([]);
-    // массивовые секции — всегда массивы
     for (const k of ['findings', 'skipped', 'applied', 'validation']) {
       expect(Array.isArray(r[k]), `${k} должен быть массивом`).toBe(true);
     }
@@ -72,14 +51,10 @@ describe('public-api — контрактный снимок RunResult (optimize
 
   it('записи findings/skipped/applied/validation имеют обязательные поля', async () => {
     const r = await runResult();
-    // Непустые записи гарантируют, что проверка формы не пустая. Не требуем
-    // именно applied: если safe-правила легитимно станут no-op на этой модели,
-    // снимок формы не должен падать по неверной причине.
     expect(r.applied.length + r.findings.length).toBeGreaterThan(0);
     for (const rec of r.applied) expect(has(rec, APPLIED_KEYS)).toEqual([]);
     for (const rec of r.findings) expect(has(rec, FINDING_KEYS)).toEqual([]);
     for (const rec of r.validation) expect(has(rec, VALIDATION_KEYS)).toEqual([]);
-    // skipped может быть пустым — проверяем форму только на существующих записях
     for (const rec of r.skipped) expect(has(rec, SKIPPED_KEYS)).toEqual([]);
   });
 
@@ -123,7 +98,6 @@ describe('public-api — контрактный снимок listRules', () => {
       expect(Array.isArray(rule.touches)).toBe(true);
       ids.add(rule.id);
     }
-    // id уникальны — иначе отчёт/интерфейс разъедутся
     expect(ids.size).toBe(rules.length);
   });
 });
@@ -159,7 +133,6 @@ describe('public-api — контрактный снимок assistant-эксп�
 
   it('explainResult возвращает {summary, highlights, budgetChecks, warnings}', () => {
     const platforms = assistant.listPlatforms();
-    // минимальный RunResult по контракту §4b — explainResult должен пережить его
     const fake = {
       status: 'ok',
       metrics: {

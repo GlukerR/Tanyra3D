@@ -1,30 +1,7 @@
-// ui/viewer/interactivity-runtime.ts — связь графа поведения с настоящей сценой.
-//
-// Вычислитель (`interactivity-graph.ts`) знает только числа и адреса вида
-// `/materials/3/pbrMetallicRoughness/baseColorFactor`. Здесь адреса превращаются в
-// свойства three.js, а нажатие мышью — в событие графа.
-//
-// ЧТО ПОДДЕРЖАНО И ПОЧЕМУ ИМЕННО ЭТО. Не «всё, что бывает в спецификации», а ровно те
-// девять видов адресов, которые встречаются в наборе Khronos — они и измерены:
-//
-//   28 /nodes/{}/rotation                    7 /nodes/{}/translation
-//   27 /materials/{}/…/baseColorFactor       5 /nodes/{}/…/KHR_node_visibility/visible
-//   14 /animations/{}/…/maxTime              5 /nodes/{}/…/KHR_node_selectability/selectable
-//    2 /materials/{}/…/KHR_texture_transform/offset и столько же /scale
-//
-// Адрес, которого нет в этом списке, — такой же повод отказаться целиком, как и
-// незнакомый узел графа: половинчатое проигрывание хуже отсутствия. Проверка идёт ДО
-// первого нажатия (`unsupported`), а не посреди него.
-//
-// ГРАНИЦА (Правило 11). Всё, что здесь делается, живёт в СЦЕНЕ ПРОСМОТРА и в файл не
-// попадает ни байтом: сдвинутый узел, погашенная видимость, перекрашенный материал —
-// это показ поведения, а не правка модели. Собранный файл увозит исходные значения.
-
 import * as THREE from "three";
 
 import { type GraphHost, type GraphValue, InteractivityGraph } from "./interactivity-graph.js";
 
-/** Адреса, которые мы умеем читать и писать. Проверяются по шаблону, без номеров. */
 const SUPPORTED = [
   /^\/nodes\/\{?[^/]*\}?\/(translation|rotation|scale)$/,
   /^\/nodes\/\{?[^/]*\}?\/extensions\/KHR_node_visibility\/visible$/,
@@ -37,7 +14,6 @@ const SUPPORTED = [
 
 const supported = (path: string) => SUPPORTED.some((re) => re.test(path));
 
-/** Номер из адреса: `/materials/3/…` → 3. */
 const indexOf = (path: string, kind: string): number => {
   const m = new RegExp('^/' + kind + '/(\\d+)').exec(path);
   return m ? Number(m[1]) : -1;
@@ -49,21 +25,11 @@ const truthy = (v: GraphValue): boolean => {
 };
 
 export interface RuntimeDeps {
-  /** Узлы сцены по номеру из файла. */
   nodes: Map<number, THREE.Object3D>;
-  /** Материалы по номеру из файла. */
   materials: Map<number, THREE.Material>;
   clips: THREE.AnimationClip[];
   mixer: THREE.AnimationMixer | null;
-  /** Перерисовать кадр: граф меняет сцену вне цикла отрисовки. */
   redraw: () => void;
-  /**
-   * Граф погасил или вернул нажимаемость узлу.
-   *
-   * Это не косметика: `"selectable": false` — решение автора, и часть, которую он
-   * выключил, не должна откликаться на нажатие и не должна быть обведена. У калькулятора
-   * граф гасит узел при каждом нажатии.
-   */
   setClickable: (nodeIndex: number, on: boolean) => void;
 }
 
@@ -71,31 +37,20 @@ export class InteractivityRuntime implements GraphHost {
   private readonly graph: InteractivityGraph;
   private readonly deps: RuntimeDeps;
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
-  /**
-   * Нажимаемость узлов, какой её сделал САМ ГРАФ. Умолчание — «нажимаема».
-   *
-   * Зачем помнить. Чтение `selectable` отвечало «да» всегда, не глядя на собственную
-   * запись, — а переключатель «нажал/отжал» устроен ровно так: погасил, потом прочитал,
-   * чтобы решить, включать ли обратно. Ветка выбиралась противоположная задуманной.
-   * Писатель здесь один, поэтому его память и есть истина.
-   */
   private readonly selectable = new Map<number, boolean>();
   private dead = false;
 
-  /** Почему интерактив не проигрывается. Пусто — проигрывается. */
   readonly refusal: string[];
 
   constructor(graphJson: unknown, deps: RuntimeDeps) {
     this.deps = deps;
     this.graph = new InteractivityGraph(graphJson as never, this);
 
-    // Отказ решается ДО первого нажатия и целиком: и по узлам, и по адресам.
     const ops = this.graph.unknownOps();
     const paths = this.unsupportedPointers(graphJson);
     this.refusal = [...ops, ...paths];
   }
 
-  /** Адреса графа, которых мы не умеем. Читаются из настроек узлов, до исполнения. */
   private unsupportedPointers(graphJson: unknown): string[] {
     const graph = graphJson as { nodes?: Array<{ configuration?: Record<string, { value?: unknown[] }> }> };
     const out = new Set<string>();
@@ -107,13 +62,11 @@ export class InteractivityRuntime implements GraphHost {
     return [...out].sort();
   }
 
-  /** Запустить то, что начинается само. Ничего не делает, если есть отказ. */
   start(): void {
     if (this.refusal.length || this.dead) return;
     this.graph.start();
   }
 
-  /** Человек нажал на узел сцены. `false` — этот узел графу неинтересен. */
   select(nodeIndex: number): boolean {
     if (this.refusal.length || this.dead) return false;
     this.graph.setSelected('/nodes/' + nodeIndex);
@@ -122,14 +75,11 @@ export class InteractivityRuntime implements GraphHost {
     return было;
   }
 
-  /** Снять всё: отложенные запуски переживают модель, если их не остановить. */
   dispose(): void {
     this.dead = true;
     for (const t of this.timers) clearTimeout(t);
     this.timers.clear();
   }
-
-  // ── GraphHost ────────────────────────────────────────────────────────────
 
   readPointer(path: string, _type: string): GraphValue {
     if (path.startsWith('/animations/')) {
@@ -137,7 +87,7 @@ export class InteractivityRuntime implements GraphHost {
         const clip = this.deps.clips[indexOf(path, 'animations')];
         return [clip ? clip.duration : 0];
       }
-      return path; // сам адрес анимации и есть её имя для start/stop
+      return path;
     }
     if (path.startsWith('/nodes/')) {
       const obj = this.deps.nodes.get(indexOf(path, 'nodes'));
@@ -210,7 +160,6 @@ export class InteractivityRuntime implements GraphHost {
     action.reset();
     action.timeScale = speed || 1;
     action.time = startTime || 0;
-    // Конечное время приходит из графа: у наборa Khronos им нарезают один клип на куски.
     action.setLoop(THREE.LoopOnce, 1);
     action.clampWhenFinished = true;
     if (endTime > 0 && endTime < clip.duration) action.setDuration(endTime - (startTime || 0));
@@ -226,8 +175,6 @@ export class InteractivityRuntime implements GraphHost {
   }
 
   delay(seconds: number, run: () => void): void {
-    // Отложенный запуск обязан умереть вместе с моделью: иначе он оживёт над следующей
-    // и подвинет чужие узлы. Та же беда, что была у запасных уровней детализации.
     const t = setTimeout(() => {
       this.timers.delete(t);
       if (this.dead) return;

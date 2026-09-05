@@ -1,63 +1,37 @@
-// tests/russian-locale.test.mjs — проверка русской локализации: все текстовые поля
-// из RunResult (validation, findings, skipped, applied) должны быть на русском,
-// за исключением технических терминов из белого списка.
-//
-// Белый список: устоявшиеся англицизмы в русской документации по glTF/3D-графике,
-// имена расширений, названия технологий, идентификаторы правил, названия форматов
-// и т.д. Если в тексте встречается латинское слово, не входящее в белый список —
-// тест падает, сигнализируя о непереведённой строке.
-//
-// Прогоняется на CarConcept.glb (присутствует у всех) и, при наличии, на всём
-// золотом корпусе.
-
 import { describe, it, expect, afterAll } from 'vitest';
 import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 
 import { optimizeFile } from '../optimize2.mjs';
 import { modelPath, eachModel, describeLocal } from './helpers/model-files.mjs';
 
-// ============================================================================
-// Белый список разрешённых латинских терминов
-// ============================================================================
-// Все ключи ДОЛЖНЫ быть строчными — сравнение идет после toLowerCase()
-// и обрезки ведущих/хвостовых спецсимволов.
 const ALLOWED_LATIN = new Set([
-  // --- Форматы / технологии / кодеки ---
   'gl', 'glb', 'gltf', 'ktx', 'ktx2', 'uastc', 'etc1s', 'basis',
   'draco', 'meshopt', 'drc', 'mesh',
   'png', 'jpeg', 'jpg', 'webp', 'svg', 'tga', 'tiff', 'tif', 'bmp', 'hdr', 'exr',
   'gltf-validator',
 
-  // --- Расширения glTF (Khronos) ---
   'khr', 'ext',
   'khr_draco_mesh_compression', 'ext_mesh_gpu_instancing', 'ext_meshopt_compression',
   'khr_texture_basisu', 'khr_materials_variants', 'khr_animation_pointer',
   'khr_materials_transmission', 'khr_materials_volume', 'khr_materials_specular',
 
-  // --- Инструменты / библиотеки ---
   'toktx', 'khronos', 'sharp', 'zstd', 'rdo', 'wsl', 'cli',
   'gltf-transform',
 
-  // --- Названия правил / CLI-флаги ---
   'dedup', 'prune', 'weld', 'join', 'resample', 'instance',
-  'quantize',                          // id фичи в «advancedFeatures: ['quantize']»
+  'quantize',
   'orphan', 'degenerate', 'compress',
   'safe', 'strip', 'cleanup',
-  'flatten',                           // из "flatten + join" в названии правила
-  'strip-vertex-colors',               // CLI-флаг в skipped-сообщении
-  'keep-parts',                        // CLI-флаг
-  // id фич в «advancedFeatures: ['…']» — то же основание, что у 'quantize' выше:
-  // это ИМЯ ФЛАГА, которое человек передаёт в вызов, а не слово русского языка.
-  // Переведи его — и подсказка станет неисполнимой (Правило 8, имена флагов не переводим).
+  'flatten',
+  'strip-vertex-colors',
+  'keep-parts',
   'strip-dead-interactivity',
   'keep-unused-uv',
 
-  // --- Поля метрик / данных ---
   'vram', 'gpu', 'cpu', 'ram',
   'mb', 'kb', 'gb', 'byte', 'bytes',
   'id', 'ids', 'url', 'uri', 'urn',
 
-  // --- Технические термины (стандартные англицизмы) ---
   'skin', 'skins',
   'bounding', 'box',
   'epsilon', 'diag',
@@ -69,7 +43,7 @@ const ALLOWED_LATIN = new Set([
   'buffer', 'buffers', 'bufferview', 'bufferviews',
   'indices', 'index',
   'target', 'targets',
-  'morph', 'morphs', 'morphtargets',   // morphTargets — имя метрики
+  'morph', 'morphs', 'morphtargets',
   'node', 'nodes',
   'scene', 'scenes',
   'animation', 'animations',
@@ -79,7 +53,7 @@ const ALLOWED_LATIN = new Set([
   'channel', 'channels',
   'interpolation',
   'color', 'colors',
-  'color_0', 'color_1', 'color_2', 'color_3',  // COLOR_n семантики
+  'color_0', 'color_1', 'color_2', 'color_3',
   'normal', 'normals',
   'tangent', 'tangents',
   'texcoord', 'texcoords',
@@ -90,22 +64,18 @@ const ALLOWED_LATIN = new Set([
   'matrix',
   'getbounds',
 
-  // --- Baseline / checkpoint ---
   'baseline', 'checkpoint', 'baseline-checkpoint',
 
-  // --- Политика безопасности (tier names) ---
   'safety', 'tier',
   'perceptual', 'numeric', 'provable', 'lossy',
 
-  // --- Имена метрик в baseline-сообщениях ---
-  'advancedfeatures',                   // из feature.notEnabled: advancedFeatures: [...]
+  'advancedfeatures',
   'triangles',
   'drawcalls',
   'filebytes',
   'texturebytes',
   'gpubytes',
 
-  // --- glTF-валидатор ---
   'validator',
   'unsupported', 'extension', 'unused', 'object',
   'value', 'not', 'in', 'list',
@@ -113,13 +83,12 @@ const ALLOWED_LATIN = new Set([
   'used', 'zero', 'weight',
   'missing', 'optional',
   'pointer',
-  'unsatisfied_dependency',          // код сообщения gltf-validator
-  'images',                          // из pointer /images/N/...
+  'unsatisfied_dependency',
+  'images',
   'severity', 'code',
   'num', 'errors', 'infos', 'warnings', 'hints',
   'issues',
 
-  // --- Имена мешей / моделей (встречаются в русском тексте как данные) ---
   'cube',
   'dirty',
   'orphan',
@@ -155,20 +124,16 @@ const ALLOWED_LATIN = new Set([
   'fringe','frame','fabric','frame_fabric','paisley','stripes','brown',
   'glassdish','goldleaf',
 
-  // --- Другое ---
   'unicode', 'ascii', 'utf', 'base64',
   'lock', 'mutex', 'semaphore',
   'io', 'fs', 'tmp', 'tmpdir', 'temp',
   'pid', 'uuid', 'guid',
 
-  // --- Единицы измерения ---
   'ms', 'ns', 'us', 'hz', 'khz', 'mhz', 'ghz',
   'px', 'dpi', 'ppi', 'fps',
 
-  // --- Версии / семвер ---
   'v', 'ver', 'version',
 
-  // --- Разное ---
   'rgb', 'rgba', 'argb', 'bgr', 'bgra',
   'xyz', 'uvw',
   'x', 'y', 'z', 'w',
@@ -177,32 +142,20 @@ const ALLOWED_LATIN = new Set([
   'bin',
 ]);
 
-/**
- * Извлечь из текста «латинские слова» — последовательности латинских букв
- * и цифр с дефисами/подчёркиваниями, длиной >=2 символов.
- *
- * Ведущие/хвостовые дефисы, подчёркивания и точки обрезаются (чтобы "gpu-"
- * из "GPU-инстансинг" превратилось в "gpu" и совпало со списком).
- * Внутренние дефисы и подчёркивания СОХРАНЯЮТСЯ — белый список содержит
- * ключи вида 'khr_draco_mesh_compression', 'baseline-checkpoint'.
- */
 function extractLatinWords(text) {
   const found = text.match(/[a-zA-Z][a-zA-Z0-9_.-]*/g) || [];
   const result = new Set();
   for (const w of found) {
-    // toLowerCase + обрезка ведущих/хвостовых не-буквенно-цифровых символов
     const clean = w.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, '');
     if (clean.length >= 2) result.add(clean);
   }
   return [...result];
 }
 
-/** Проверить текст на латинские слова вне белого списка. */
 function checkLatinWords(text) {
   return extractLatinWords(text).filter((w) => !ALLOWED_LATIN.has(w));
 }
 
-/** Собрать нарушения из всех текстовых секций RunResult. */
 function collectViolations(result) {
   const violations = [];
   const each = (arr, label) => {
@@ -220,9 +173,6 @@ function collectViolations(result) {
   return violations;
 }
 
-// ============================================================================
-// Модели
-// ============================================================================
 const BASE_MODEL = 'CarConcept.glb';
 
 const GOLDEN = [
@@ -254,12 +204,6 @@ const GOLDEN = [
   'Vertex Colors 01.glb',
 ];
 
-// ============================================================================
-// CarConcept — 4 комбинации флагов, все секции
-// ============================================================================
-// CarConcept — модель Khronos, в репозиторий не коммитится (fixtures/.gitignore).
-// Без обёртки весь блок краснел после свежего `git clone`: prerequisite падал, а
-// следующие четыре теста разбивались об `sharedResult === null`.
 describeLocal(BASE_MODEL, 'Russian locale — CarConcept', () => {
   const SHARED_FLAGS = ['safe', 'meshopt'];
   let sharedResult = null;
@@ -314,9 +258,6 @@ describeLocal(BASE_MODEL, 'Russian locale — CarConcept', () => {
   });
 });
 
-// ============================================================================
-// Золотой корпус — 2 комбинации флагов
-// ============================================================================
 describe('Russian locale — golden corpus', () => {
   const FLAG_SETS = [
     { label: 'passthrough', flags: [] },
@@ -329,7 +270,6 @@ describe('Russian locale — golden corpus', () => {
         outDir: tmpOutDir(),
         advancedFeatures: flags, dryRun: true, locale: 'ru',
       });
-      // Модели с KHR_animation_pointer и т.д. могут вернуть fail — это ок.
       expect(r.status).toBeOneOf(['ok', 'fail']);
       expect(collectViolations(r)).toEqual([]);
     });

@@ -1,16 +1,3 @@
-// tests/upload-streaming.test.mjs — модель приезжает на диск потоком, а не через память.
-//
-// Повод. До 2026-08-19 тело запроса собиралось в массив кусков и склеивалось
-// `Buffer.concat`: в момент склейки живы и куски, и результат, поэтому на гигабайтном
-// файле пик памяти выходил заметно выше гигабайта. Замер на 300 МБ (одинаковые условия,
-// два сервера по очереди): прирост 1197 МБ и 54,5 с против 600 МБ и 3,1 с после правки.
-//
-// Проверки поднимают НАСТОЯЩИЙ сервер — тот же приём, что в `server-local-only`. Память
-// тестом не меряется: цифра зависит от машины и сборщика мусора и краснела бы на занятом
-// прогоне (этот урок в наборе уже оплачен — см. `flat-textures`, сторож считает вызовы,
-// а не секунды). Проверяется ПОВЕДЕНИЕ на границе: отказ по размеру приходит кодом, а
-// обрывок не остаётся лежать в рабочей папке.
-
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import http from 'node:http';
 import os from 'node:os';
@@ -22,19 +9,13 @@ import { readSource } from './helpers/source-files.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// Предел приёма на время проверок — маленький. Гигабайт через сокет не прогнать, а
-// поведение на границе проверить надо.
 const LIMIT = 64 * 1024;
 
 let child;
 let port;
 let dataDir;
 
-/** POST с телом, отданным по кускам. */
 function upload(body, { name = 'probe.glb', path: url = '/api/inspect', headers = {} } = {}) {
-  // Отказа нет намеренно: обрыв соединения — законный исход отказа по размеру, и он
-  // разрешается через resolve со статусом 0. Отдельная ветка отказа промиса заставила бы
-  // каждую проверку ловить исключение вместо чтения статуса.
   return new Promise((resolve) => {
     const req = http.request({
       host: '127.0.0.1',
@@ -52,37 +33,20 @@ function upload(body, { name = 'probe.glb', path: url = '/api/inspect', headers 
       res.on('end', () => resolve({ status: res.statusCode, body: text }));
     });
     req.on('error', (e) => {
-      // Сервер вправе оборвать соединение, отказав по размеру: ответ мог не долететь.
-      // Это законный исход, а не провал проверки.
       resolve({ status: 0, body: '', aborted: e.code || String(e) });
     });
     if (body && body.length) {
-      // Кусками, а не одним write: приём обязан считать размер по ходу, а не по
-      // заголовку — заголовку верить нельзя, его пишет клиент.
       for (let i = 0; i < body.length; i += 8192) req.write(body.subarray(i, i + 8192));
     }
     req.end();
   });
 }
 
-/** Имена папок исходников в рабочем каталоге сервера. */
 function uploadDirs() {
   const dir = path.join(dataDir, 'uploads');
   try { return fs.readdirSync(dir); } catch { return []; }
 }
 
-/**
- * Выполнить запрос и дождаться, пока после него не останется НИ ОДНОЙ новой папки.
- *
- * Считаем не количество, а РАЗНИЦУ множеств, и ждём её схождения к пустой. Первая
- * редакция сравнивала числа «до» и «после» с паузой в 300 мс — и упала на CI (Node 24),
- * потому что чужая уборка от предыдущей проверки прилетала уже во время этой: «до»
- * оказывалось единицей, «после» нулём, и тест винил код за чистоту.
- *
- * Разница множеств от чужой уборки не зависит: она отвечает ровно на вопрос «оставил ли
- * ЭТОТ запрос свой след», а ожидание вместо фиксированной паузы — на то, что уборка
- * на занятой машине приходит позже ответа.
- */
 async function leftoverAfter(run, waitMs = 15_000) {
   const before = new Set(uploadDirs());
   const res = await run();
@@ -128,24 +92,17 @@ beforeAll(async () => {
 
 afterAll(() => {
   if (child && !child.killed) child.kill();
-  try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch { /* временная папка */ }
+  try { fs.rmSync(dataDir, { recursive: true, force: true }); } catch {  }
 });
 
 describe('приём модели идёт потоком на диск', () => {
   it('тело сверх предела отвергается, и обрывок не остаётся на диске', async () => {
-    // Папка исходника заводится ДО приёма (файл течёт в неё), поэтому при отказе её
-    // надо убрать. Иначе на каждой неудачной попытке в рабочем каталоге оставался бы
-    // обрывок, который считается в занятое место и не убирается никогда.
     const { res, extra } = await leftoverAfter(() => upload(Buffer.alloc(LIMIT * 3, 7)));
-    // 413 либо обрыв соединения — оба означают отказ. Чего быть НЕ должно: 200 и
-    // молча принятый файл.
     expect([0, 413].includes(res.status), `ожидался отказ, пришло ${res.status}: ${res.body}`).toBe(true);
     expect(extra, `после отказа осталась папка: ${extra.join(', ')}`).toEqual([]);
   }, 60_000);
 
   it('заявленный размер сверх предела отвергается ДО приёма тела', async () => {
-    // Иначе гигабайт сначала приедет по сети и ляжет на диск, и только потом
-    // выяснится, что он не нужен.
     const res = await upload(Buffer.alloc(16, 1), {
       headers: { 'Content-Length': String(LIMIT * 10) },
     });
@@ -159,8 +116,6 @@ describe('приём модели идёт потоком на диск', () => 
   }, 60_000);
 
   it('нормальный файл принимается и доезжает до разбора', async () => {
-    // Минимальный валидный GLB: заголовок + JSON-кусок. Разбор его прочтёт, значит
-    // путь «поток → диск → инспекция» пройден целиком.
     const json = Buffer.from(JSON.stringify({ asset: { version: '2.0' }, scenes: [{ nodes: [] }], scene: 0, nodes: [] }), 'utf8');
     const pad = (4 - (json.length % 4)) % 4;
     const chunk = Buffer.concat([json, Buffer.alloc(pad, 0x20)]);
@@ -182,13 +137,9 @@ describe('память не берёт на себя то, что должно �
   const SERVER = readSource('server');
 
   it('модель не читается в память ни на одном из двух путей загрузки', () => {
-    // `readBody` собирает тело целиком. Для JSON это законно (килобайты), для модели —
-    // ровно тот дефект, ради которого всё переписано.
     const uploads = [...SERVER.matchAll(/streamBodyToFile\(req,/g)].length;
     expect(uploads, 'путей потоковой загрузки меньше двух: /api/inspect и /api/optimize').toBeGreaterThanOrEqual(2);
 
-    // И ни один из них не должен вернуться к буферу: ищем readBody рядом со словом
-    // uploadPath — так выглядело бы возвращение старого приёма.
     const bad = /readBody\([^)]*\)[\s\S]{0,400}?uploadPath\s*=/.test(SERVER);
     expect(bad, 'загрузка модели снова читает тело в память').toBe(false);
   });
@@ -199,8 +150,6 @@ describe('память не берёт на себя то, что должно �
   });
 
   it('поток уважает противодавление', () => {
-    // Без pause/resume куски копятся внутри потока записи на медленном диске — то же
-    // самое переполнение памяти, только этажом ниже.
     const body = SERVER.slice(SERVER.indexOf('function streamBodyToFile'), SERVER.indexOf('function streamBodyToFile') + 2500);
     expect(/req\.pause\(\)/.test(body) && /req\.resume\(\)/.test(body),
       'приём не тормозит источник, когда диск не успевает').toBe(true);

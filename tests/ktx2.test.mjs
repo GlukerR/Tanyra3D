@@ -1,22 +1,3 @@
-// KTX2 compression tests — проверка advancedFeatures:['ktx2'].
-//
-// KTX2 — сжатие текстур в формат Basis Universal (KTX2). Требует установленного
-// KTX-Software (toktx/ktx) и gltf-transform CLI для фактического кодирования.
-//
-// Если toktx не установлен:
-//   - Модели БЕЗ текстур проходят ok (ktx2 нечего делать)
-//   - Модели С текстурами ktx2 правило конвертирует JPEG→PNG и пытается
-//     вызвать CLI для кодирования. Без toktx CLI падает → пайплайн graceful:
-//     status:'fail' с валидационной ошибкой, но не крэш.
-//   - Если toktx установлен — текстуры кодируются в KTX2, всё проходит ok.
-//
-// Проверяет:
-// 1. advancedFeatures:['ktx2'] валидна — не кидает "Неизвестные advancedFeatures"
-// 2. На CarConcept (известно-good): status ok, ktx2 в applied, треугольники ок
-// 3. На всём золотом корпусе — ни одна модель не крэшится (может быть fail,
-//    но не unhandled exception)
-// 4. Baseline pipeline не ломается от присутствия ktx2
-
 import { describe, it, expect, afterAll } from 'vitest';
 import { tmpOutDir, cleanupTmpOutDirs } from './helpers/tmp-outdir.mjs';
 
@@ -28,25 +9,10 @@ import { INPUT_DIR, inputModels as readInputModels, describeInput } from './help
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// ---- TIMEOUTS ----
-// KTX2 с текстурами дольше из-за lazy-import sharp и конвертации JPEG→PNG.
-//
-// Подняты втрое после 2026-07-29. Причина: правило `textures/ktx2` запускает
-// ВНЕШНИЙ процесс `toktx` через execFileSync, и время его работы зависит не от
-// теста, а от загрузки машины. В одиночку `['ktx2','draco']` на CarConcept идёт
-// 15 секунд, а в полном прогоне vitest поднимает воркеры на все ядра, toktx
-// конкурирует сам с собой — и те же тесты выбивали 60-секундный потолок.
-// Наблюдалось 4 падения из 549 на одном прогоне и 0 на следующем при том же коде.
-//
-// Таймаут здесь — страховка от зависания, а не утверждение о скорости. Ловить им
-// деградацию производительности бессмысленно: цифра всё равно зависит от того,
-// что ещё крутится на машине. От настоящего зависания toktx защищает
-// CLI_TIMEOUT_MS в addons/gltf/tools.mjs (BUG-007), и он куда точнее.
 const TIMEOUT_BASIC = 180000;
 const TIMEOUT_GOLDEN = 180000;
 const TIMEOUT_INPUT = 300000;
 
-// ---- KTX2: базовая проверка на CarConcept.glb ----
 
 describeIfModels(['CarConcept.glb'], 'KTX2 — basic', () => {
   it('advancedFeatures:["ktx2"] is a valid feature (no unknown error)', async () => {
@@ -67,10 +33,6 @@ describeIfModels(['CarConcept.glb'], 'KTX2 — basic', () => {
     });
     expect(result.status).toBe('ok');
 
-    // На модели с текстурами ktx2-препроцессинг отрабатывает (JPEG→PNG),
-    // а сам факт — applied.length > 0 и presence of textures/ktx2.
-    // geometry/compress НЕ включается автоматически: требует явного 'meshopt'/'draco'.
-    // Это явный opt-in инвариант (правило 11 промпта).
     expect(result.applied.length).toBeGreaterThan(0);
     expect(result.applied.some((a) => a.ruleId === 'textures/ktx2')).toBe(true);
     expect(result.applied.some((a) => a.ruleId === 'geometry/compress')).toBe(false);
@@ -96,13 +58,6 @@ describeIfModels(['CarConcept.glb'], 'KTX2 — basic', () => {
     });
     expect(result.status).toBe('ok');
 
-    // Инвариант:
-    //   1. baseline-checkpoint ЕСТЬ в валидации (compareBaseline отработал).
-    //   2. Есть pass-уровневая запись про геометрию ('geometry is present', английский).
-    // Язык сообщений не хардкодить (правило промпта): на ktx2-only baseline-checkpoint
-    // остаётся pass; на ktx2+draco и all-three может уйти в info/fail — отдельные тесты ниже.
-    // По рецепту, а не по словам: текст этой строки адресован человеку и правился
-    // 2026-08-22 (было «baseline-checkpoint: структура (triangles, vertices, …)»).
     const baselineEntry = result.validation.find((v) => v.i18n?.text?.messageId === 'check.baselineMatch');
     expect(baselineEntry).toBeDefined();
 
@@ -133,7 +88,6 @@ describeIfModels(['CarConcept.glb'], 'KTX2 — basic', () => {
   }, TIMEOUT_BASIC);
 });
 
-// ---- KTX2: сравнение с default (без ktx2) на CarConcept ----
 
 describeIfModels(['CarConcept.glb'], 'KTX2 — vs default pipeline', () => {
   it('both modes pass baseline validation', async () => {
@@ -150,7 +104,6 @@ describeIfModels(['CarConcept.glb'], 'KTX2 — vs default pipeline', () => {
       }),
     ]);
 
-    // По рецепту, а не по словам (см. выше): текст строки успеха правился 2026-08-22.
     const byMatch = (r) => r.validation.find((v) => v.i18n?.text?.messageId === 'check.baselineMatch');
     const ktx2Basel = byMatch(ktx2Result);
     const defBasel = byMatch(defaultResult);
@@ -162,16 +115,6 @@ describeIfModels(['CarConcept.glb'], 'KTX2 — vs default pipeline', () => {
   }, TIMEOUT_BASIC);
 });
 
-// ---- KTX2: на всём золотом корпусе ----
-// Главная проверка: ни одна модель не вызывает unhandled exception.
-// Модели с текстурами могут вернуть fail из-за документированного бага
-// BUG-005: temp-файловый round-trip KTX2-кодирования меняет количество nodes.
-//
-// KTX2_FAILING очищен после audit-проверки на main @ ed0936c (2026-07-27):
-// ни одна из ранее задокументированных «failing» моделей на актуальном коде
-// не воспроизводится как fail (bug-репорт BUG-005 был снят).
-// Если в будущем KTX2 снова начнёт ломать baseline на конкретных моделях —
-// добавить сюда с комментарием что именно KTX2-проход ломает.
 
 const KTX2_FAILING = new Set([]);
 
@@ -191,14 +134,10 @@ describe('KTX2 — golden corpus', () => {
     'SpecularSilkPouf.glb',
     'SunglassesKhronos.glb',
     'ToyCar.glb',
-    // AnimationPointerUVs и PotOfCoalsAnimationPointer — known-failing
-    // (KHR_animation_pointer), не тестируем с ktx2
   ];
 
-  // Модели без KTX2-бага — status строго ok
   const HEALTHY_MODELS = GOLDEN_HEALTHY.filter((m) => !KTX2_FAILING.has(m));
 
-  // it.each → eachModel: пропуск LOCALS, которых нет на диске.
   eachModel('ktx2 returns ok, triangles preserved', HEALTHY_MODELS, async (name) => {
     const result = await optimizeFile(modelPath(name), {
       outDir: tmpOutDir(),
@@ -219,7 +158,6 @@ describe('KTX2 — golden corpus', () => {
   });
 });
 
-// ---- KTX2 + Draco: комбинированные расширения на CarConcept ----
 
 describeIfModels(['CarConcept.glb'], 'KTX2 + Draco — combined features', () => {
   it('advancedFeatures:["ktx2","draco"] is valid (no unknown error)', async () => {
@@ -240,11 +178,9 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco — combined features', () =>
     });
     expect(result.status).toBe('ok');
 
-    // KTX2 правило сработало (хотя бы конвертация JPEG→PNG)
     const ktx2Applied = result.applied.filter((a) => a.ruleId === 'textures/ktx2');
     expect(ktx2Applied.length).toBeGreaterThan(0);
 
-    // Geometry compress использует Draco (не meshopt)
     const compressRule = result.applied.find((a) => a.ruleId === 'geometry/compress');
     expect(compressRule).toBeDefined();
     expect(compressRule.text).toMatch(/draco/i);
@@ -270,8 +206,6 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco — combined features', () =>
     });
     expect(result.status).toBe('ok');
 
-    // Heavy combo (ktx2+draco) — compareBaseline может отсутствовать в валидации
-    // или выдавать info/fail уровни. Главный инвариант — файл цел и валидация не пуста.
     expect(result.validation.length).toBeGreaterThan(0);
     const geoPass = result.validation.find(
       (v) => v.level === 'pass' && /geometry/i.test(v.text),
@@ -280,7 +214,6 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco — combined features', () =>
   }, TIMEOUT_BASIC);
 
   it('file size differs from both pure-ktx2 and pure-draco separately', async () => {
-    // Запускаем все три режима параллельно
     const [combined, pureKtx2, pureDraco] = await Promise.all([
       optimizeFile(modelPath('CarConcept.glb'), {
         outDir: tmpOutDir(),
@@ -299,19 +232,15 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco — combined features', () =>
       }),
     ]);
 
-    // Heavy combo (ktx2+draco) может вернуть fail из-за структурного отклонения
-    // от baseline — graceful degradation, не краш. Аналогично all-three секции.
     expect(combined.status).toBeOneOf(['ok', 'fail']);
     expect(pureKtx2.status).toBe('ok');
     expect(pureDraco.status).toBe('ok');
 
-    // Сравниваем размеры только если все три ok
     if (combined.status === 'ok' && pureKtx2.status === 'ok' && pureDraco.status === 'ok') {
       const combSize = combined.metrics.after.fileBytes;
       const ktx2Size = pureKtx2.metrics.after.fileBytes;
       const dracoSize = pureDraco.metrics.after.fileBytes;
 
-      // Комбинированный режим даёт уникальный размер
       expect(combSize).not.toBe(ktx2Size);
       expect(combSize).not.toBe(dracoSize);
       expect(ktx2Size).not.toBe(dracoSize);
@@ -341,7 +270,6 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco — combined features', () =>
   }, TIMEOUT_BASIC);
 });
 
-// ---- KTX2 + Draco + strip-colors: все три расширения сразу на CarConcept ----
 
 const ALL_THREE = ['ktx2', 'draco', 'strip-colors'];
 
@@ -364,16 +292,12 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco + strip-colors — all three'
     });
     expect(result.status).toBe('ok');
 
-    // KTX2
     expect(result.applied.some((a) => a.ruleId === 'textures/ktx2')).toBe(true);
 
-    // Draco (geometry/compress упоминает draco)
     const compressRule = result.applied.find((a) => a.ruleId === 'geometry/compress');
     expect(compressRule).toBeDefined();
     expect(compressRule.text).toMatch(/draco/i);
 
-    // strip-colors (attributes/vertex-colors), если в модели есть COLOR_n
-    // Если нет — правило может не дать applied-строки, это нормально
     const vcRule = result.applied.find((a) => a.ruleId === 'attributes/vertex-colors');
     if (vcRule) {
       expect(vcRule.text).toBeDefined();
@@ -408,9 +332,6 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco + strip-colors — all three'
   }, TIMEOUT_BASIC);
 
   it('file size differs between codec and texture dimension', async () => {
-    // 4 режима параллельно. Примечание: CarConcept не имеет COLOR_n,
-    // поэтому strip-colors не меняет размер файла. Кодек и KTX2 — основные
-    // измерения, по которым размеры различаются.
     const [all3, ktx2Draco, ktx2Strip, dracoStrip] = await Promise.all([
       optimizeFile(modelPath('CarConcept.glb'), {
         outDir: tmpOutDir(),
@@ -434,15 +355,11 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco + strip-colors — all three'
       }),
     ]);
 
-    // Heavy combo может вернуть fail из-за структурного отклонения от baseline
-    // (например all3 на CarConcept). Главное — graceful degradation, не краш.
     expect(all3.status).toBeOneOf(['ok', 'fail']);
     expect(ktx2Draco.status).toBeOneOf(['ok', 'fail']);
     expect(ktx2Strip.status).toBeOneOf(['ok', 'fail']);
     expect(dracoStrip.status).toBeOneOf(['ok', 'fail']);
 
-    // Если все 4 режима ok — сравниваем размеры (draco vs meshopt, ktx2+draco vs отдельные).
-    // Если хоть один fail — heavy-combo graceful degradation, логируем без size-сравнения.
     if (
       all3.status === 'ok' && ktx2Draco.status === 'ok' &&
       ktx2Strip.status === 'ok' && dracoStrip.status === 'ok'
@@ -452,9 +369,9 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco + strip-colors — all three'
       const ks = ktx2Strip.metrics.after.fileBytes;
       const ds = dracoStrip.metrics.after.fileBytes;
 
-      expect(a3).not.toBe(ks);  // ktx2+draco != ktx2+meshopt
-      expect(ds).not.toBe(ks);  // draco != meshopt
-      expect(a3).not.toBe(ds);  // ktx2+draco != draco (ktx2 конвертирует JPEG→PNG)
+      expect(a3).not.toBe(ks);
+      expect(ds).not.toBe(ks);
+      expect(a3).not.toBe(ds);
       expect(kd).not.toBe(ds);
       expect(ks).not.toBe(ds);
     } else {
@@ -483,9 +400,6 @@ describeIfModels(['CarConcept.glb'], 'KTX2 + Draco + strip-colors — all three'
   }, TIMEOUT_BASIC);
 });
 
-// ---- KTX2: выборочно на input-папке ----
-// Проверяем, что ktx2 не вызывает краша ни для одной из 10 первых моделей.
-// Модели без текстур проходят ok без ktx2 в applied — это нормально.
 
 describeInput('KTX2 — input folder (first 10 models)', () => {
   const inputModels = readInputModels({ limit: 10, ext: ['.glb'] });
@@ -500,14 +414,8 @@ describeInput('KTX2 — input folder (first 10 models)', () => {
       dryRun: true,
     });
 
-    // Главное: не unhandled exception
     expect(result).toBeDefined();
     expect(result.status).toBeOneOf(['ok', 'fail']);
-
-    // Модели без текстур проходят ok, но ktx2 может не быть в applied —
-    // это нормально: правило выполнилось, но текстуры не нашлись.
-    // Модели с текстурами могут вернуть fail (без toktx).
-    // В любом случае — не краш.
   }, TIMEOUT_INPUT);
 
   it(`${models.length} models tested from input/ with ktx2 — no crashes`, () => {

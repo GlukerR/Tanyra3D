@@ -1,62 +1,14 @@
-// ui/viewer/interactivity-graph.ts — вычислитель графа поведения KHR_interactivity.
-//
-// ЗАКАЗ (Александр, 2026-08-28): «да, теперь видно интерактивные элементы. Но нажать я на
-// них всё так же не могу». Выбор из трёх — делать все пять моделей набора Khronos.
-//
-// ЧТО ЭТО. Граф поведения — это узлы, связанные двумя видами связей: ПОТОК (что за чем
-// выполняется) и ЗНАЧЕНИЯ (что откуда берётся). Нажали на деталь → сработал `event/onSelect`
-// → пошёл поток → `pointer/set` покрасил материал. Здесь живёт разбор графа и его
-// исполнение; сам мир — сцена, материалы, анимации — снаружи, за `GraphHost`.
-//
-// ПОЧЕМУ ХОЗЯИН СНАРУЖИ. Вычислитель не знает про three.js вовсе: он оперирует числами и
-// адресами. Это не украшение — это то, чем он проверяем: граф можно прогнать в node без
-// браузера, с подставным хозяином, и увидеть ровно ту последовательность записей, которую
-// он делает.
-//
-// ЧЕСТНОЕ ПРАВИЛО ОТКАЗА (условие, на котором работа вообще бралась). Встретили узел,
-// которого не знаем, — гасим интерактив ЦЕЛИКОМ и говорим об этом. Половинчатое
-// проигрывание хуже отсутствия: на одной модели работает, на другой половина, и человек
-// не понимает, сломана его модель или сломаны мы.
-//
-// РАЗМЕР ЗАДАЧИ БЫЛ ИЗМЕРЕН, А НЕ ПРИКИНУТ: 38 разных типов узлов на все пять моделей, из
-// них 24 — арифметика в одну строку. Настоящий механизм — четырнадцать: поток, указатели,
-// события, переменные, анимация, приведение типов.
-
-/** Значение сокета. Числа — всегда массивом, даже скаляр: так их задаёт сам файл. */
 export type GraphValue = number[] | string | null;
 
-/** Что вычислитель просит у мира. Три группы: адреса, анимации, время. */
 export interface GraphHost {
-  /** Прочитать свойство по готовому адресу (`/nodes/5/rotation`). */
   readPointer(path: string, type: string): GraphValue;
-  /** Записать свойство по готовому адресу. */
   writePointer(path: string, type: string, value: GraphValue): void;
-  /** Запустить анимацию, названную адресом `/animations/3`. */
   startAnimation(path: string, speed: number, startTime: number, endTime: number): void;
-  /** Остановить её же. */
   stopAnimation(path: string): void;
-  /** Отложенный запуск. Секунды, как в файле. */
   delay(seconds: number, run: () => void): void;
-  /** Строка из `debug/log` — в журнал, не человеку на экран. */
   log(message: string): void;
 }
 
-/**
- * Узел, которого мы не знаем. ПРЕДОХРАНИТЕЛЬ, а не рабочий механизм отказа.
- *
- * Отказ от графа целиком делается ЗАРАНЕЕ и в другом месте: `unknownOps()` обходит все
- * узлы ДО первого нажатия, и хозяин (`interactivity-runtime.ts`) складывает найденное в
- * `refusal`. Пока список непуст, ни одно нажатие не исполняется вовсе — до этого броска
- * дело не доходит.
- *
- * Сюда попадают только при расхождении двух списков: множества `KNOWN` и веток `switch`.
- * Такое расхождение — наша ошибка, а не свойство чужого файла, и молчать о ней нельзя.
- *
- * Формулировка исправлена ревизией 2026-09-01. Стояло «ловится снаружи и гасит интерактив
- * целиком» — снаружи его не ловит НИКТО и никогда не ловил: `instanceof UnknownOp` в
- * проекте не встречается ни разу. Комментарий описывал замысел, которого в коде нет, и
- * читатель искал бы обработчик, которого не существует.
- */
 class UnknownOp extends Error {
   constructor(readonly op: string) {
     super(`KHR_interactivity: неизвестный узел графа «${op}»`);
@@ -82,7 +34,6 @@ const num = (v: GraphValue): number => (Array.isArray(v) && typeof v[0] === 'num
 const vec = (v: GraphValue): number[] => (Array.isArray(v) ? v : [0]);
 const bool = (v: GraphValue): boolean => num(v) !== 0;
 
-/** Поэлементно, если оба вектора; иначе скаляром — так ведут себя math-узлы. */
 function pair(a: GraphValue, b: GraphValue, f: (x: number, y: number) => number): number[] {
   const av = vec(a);
   const bv = vec(b);
@@ -94,7 +45,6 @@ function pair(a: GraphValue, b: GraphValue, f: (x: number, y: number) => number)
 
 const map1 = (a: GraphValue, f: (x: number) => number): number[] => vec(a).map(f);
 
-/** Умножение кватернионов — единственная «неарифметическая» математика в наборе. */
 function quatMul(a: number[], b: number[]): number[] {
   const [ax = 0, ay = 0, az = 0, aw = 1] = a;
   const [bx = 0, by = 0, bz = 0, bw = 1] = b;
@@ -110,26 +60,7 @@ export class InteractivityGraph {
   private readonly graph: RawGraph;
   private readonly host: GraphHost;
   private readonly vars = new Map<string, GraphValue>();
-  /**
-   * Память вычисления на ОДИН шаг потока — и ни мгновением дольше.
-   *
-   * ПОЧЕМУ ИМЕННО ТАК, а не «на одну активацию», как было сначала. Считающие узлы тянутся
-   * по цепочке и часто переиспользуются: без памяти ромб в графе считался бы дважды, вчетверо,
-   * дальше по возрастающей. Но переменная за время одной активации МЕНЯЕТСЯ, и значение,
-   * посчитанное до её изменения, после него — враньё.
-   *
-   * Так и сломался калькулятор. Нажатие на «÷» пишет в переменную floor(x/2), а следом
-   * общая ветка показа читает ту же переменную, чтобы выставить цифры. Память на всю
-   * активацию отдавала ей СТАРОЕ значение, оно тут же записывалось обратно поверх нового —
-   * и деление, умножение, плюс и минус не делали ничего. Работали только кнопки цифр: они
-   * пишут в переменную готовое число, ничего перед этим не читая. Александр, 2026-08-28:
-   * «многие кнопки не работают, только цифры меняются на калькуляторе и всё».
-   *
-   * Шаг потока — естественная граница: узел берёт свои входы, они между собой согласованы,
-   * и на этом память кончается.
-   */
   private memo = new Map<string, GraphValue>();
-  /** Стражи от зацикливания: граф с петлёй не должен вешать вкладку. */
   private steps = 0;
 
   constructor(graph: RawGraph, host: GraphHost) {
@@ -138,15 +69,11 @@ export class InteractivityGraph {
     for (const v of graph.variables || []) {
       if (typeof v.id !== 'string') continue;
       const raw = v.value as unknown[] | undefined;
-      // Ссылка (`ref`) записана строкой-адресом: `["/nodes/10"]`. Разворачиваем её так же,
-      // как это делает `input()` для значения, написанного прямо в сокете, — иначе одна и
-      // та же ссылка приходила бы к адресату в двух разных видах.
       if (Array.isArray(raw) && typeof raw[0] === 'string') this.vars.set(v.id, raw[0]);
       else this.vars.set(v.id, (raw as number[]) ?? [0]);
     }
   }
 
-  /** Все типы узлов графа — чтобы отказаться ДО первого нажатия, а не посреди него. */
   unknownOps(): string[] {
     const out = new Set<string>();
     for (const node of this.graph.nodes || []) {
@@ -156,7 +83,6 @@ export class InteractivityGraph {
     return [...out].sort();
   }
 
-  /** Узлы `event/onSelect`, ждущие нажатия на этот узел сцены. */
   selectorsFor(nodeIndex: number): number[] {
     const out: number[] = [];
     (this.graph.nodes || []).forEach((node, i) => {
@@ -167,14 +93,12 @@ export class InteractivityGraph {
     return out;
   }
 
-  /** Запустить то, что начинается само (`event/onStart`). */
   start(): void {
     (this.graph.nodes || []).forEach((node, i) => {
       if (this.opOf(node) === 'event/onStart') this.fire(i);
     });
   }
 
-  /** Человек нажал на узел сцены с этим номером. */
   select(nodeIndex: number): boolean {
     const starts = this.selectorsFor(nodeIndex);
     for (const i of starts) this.fire(i);
@@ -196,9 +120,7 @@ export class InteractivityGraph {
     return this.graph.types?.[typeIndex]?.signature ?? 'float';
   }
 
-  // ── Поток ────────────────────────────────────────────────────────────────
 
-  /** Перейти по потоковому сокету и выполнить то, что на другом конце. */
   private runFlow(nodeIndex: number, socket: string): void {
     const node = this.graph.nodes?.[nodeIndex];
     const next = node?.flows?.[socket];
@@ -207,15 +129,11 @@ export class InteractivityGraph {
   }
 
   private exec(nodeIndex: number): void {
-    // Потолок шагов — защита от петли в чужом файле. Число с запасом: у самой большой
-    // модели набора 595 узлов графа, и один поток не обходит их все.
     if (++this.steps > 10000) return;
 
     const node = this.graph.nodes?.[nodeIndex];
     if (!node) return;
     const op = this.opOf(node);
-    // Новый шаг потока — новое вычисление. Предыдущий шаг мог изменить переменную или
-    // сцену, и всё посчитанное до него устарело.
     this.memo = new Map();
 
     switch (op) {
@@ -228,11 +146,6 @@ export class InteractivityGraph {
       }
       case 'variable/set': {
         const id = this.variableId(node, 'variables');
-        // Сокет со значением назван НОМЕРОМ переменной, а не нулём. У калькулятора
-        // переменная одна и номер её ноль — оттого первая редакция и работала на нём, и
-        // молчала на `MagicBall`, где переменных тридцать две: запись в первую попадала,
-        // все остальные читали пустой сокет и клали в переменную ничто. Шар из-за этого
-        // не показывал предсказание вовсе.
         const at = node.configuration?.['variables']?.value?.[0];
         const socket = typeof at === 'number' && node.values?.[String(at)] ? String(at) : '0';
         if (id) this.vars.set(id, this.input(nodeIndex, socket));
@@ -244,9 +157,6 @@ export class InteractivityGraph {
         return;
       }
       case 'flow/sequence': {
-        // Порядок — по ИМЕНАМ сокетов (`sequ000`, `sequ001`, …), а не по порядку ключей
-        // в объекте: в JSON порядок ключей формально не гарантирован, а смысл здесь
-        // именно в очерёдности.
         for (const socket of Object.keys(node.flows || {}).sort()) this.runFlow(nodeIndex, socket);
         return;
       }
@@ -285,16 +195,12 @@ export class InteractivityGraph {
         return;
       }
       default:
-        // Событие в потоке — просто идём дальше; всё прочее нам неизвестно, и молчать
-        // об этом нельзя.
         if (op === 'event/onSelect' || op === 'event/onStart') { this.runFlow(nodeIndex, 'out'); return; }
         throw new UnknownOp(op);
     }
   }
 
-  // ── Значения ─────────────────────────────────────────────────────────────
 
-  /** Значение входного сокета: либо записано в файле, либо считается соседним узлом. */
   private input(nodeIndex: number, socket: string): GraphValue {
     const slot = this.graph.nodes?.[nodeIndex]?.values?.[socket];
     if (!slot) return null;
@@ -305,7 +211,6 @@ export class InteractivityGraph {
     return raw as number[];
   }
 
-  /** Значение ВЫХОДНОГО сокета узла: тут и живёт вся арифметика. */
   private output(nodeIndex: number, socket: string): GraphValue {
     const key = nodeIndex + ':' + socket;
     const seen = this.memo.get(key);
@@ -352,7 +257,6 @@ export class InteractivityGraph {
       case 'math/combine4': return [num(a()), num(b()), num(c()), num(this.input(nodeIndex, 'd'))];
       case 'math/extract2':
       case 'math/extract3': {
-        // Выходные сокеты у извлечения numbered: `0`, `1`, `2`.
         const src = vec(a());
         const at = Number(socket);
         return [Number.isFinite(at) ? (src[at] ?? 0) : (src[0] ?? 0)];
@@ -376,39 +280,24 @@ export class InteractivityGraph {
         return path ? this.host.readPointer(path, type) : null;
       }
       case 'event/onSelect':
-        // Выходы события: узел, на который нажали, и куда именно. Точку попадания мы не
-        // считаем — она нужна только графам, которые её читают, а в наборе таких нет.
         return socket === 'selectedNode' ? this.selectedNode : null;
       default:
         throw new UnknownOp(op);
     }
   }
 
-  /** Узел, на который нажали, — виден узлам события как выходное значение. */
   private selectedNode: GraphValue = null;
 
   setSelected(path: string | null): void {
     this.selectedNode = path;
   }
 
-  /**
-   * Имя переменной по номеру из настройки узла.
-   *
-   * Ключ настройки у чтения и записи РАЗНЫЙ (`variable` против `variables`) — это не
-   * опечатка, так в файлах набора.
-   */
   private variableId(node: RawNode, key: string): string | null {
     const at = node.configuration?.[key]?.value?.[0];
     if (typeof at !== 'number') return null;
     return this.graph.variables?.[at]?.id ?? null;
   }
 
-  /**
-   * Собрать готовый адрес из шаблона: `/materials/{materialRef}/…` → `/materials/3/…`.
-   *
-   * Ссылка приходит отдельным входным сокетом и сама записана адресом (`/materials/3`) —
-   * поэтому берём из неё последнее число. Так это и устроено в файлах: тип `ref`.
-   */
   private resolvePointer(nodeIndex: number): string | null {
     const raw = this.graph.nodes?.[nodeIndex]?.configuration?.['pointer']?.value?.[0];
     if (typeof raw !== 'string') return null;
@@ -416,9 +305,6 @@ export class InteractivityGraph {
     for (const match of raw.matchAll(/\{([^}]+)\}/g)) {
       const socket = match[1] ?? '';
       const ref = this.input(nodeIndex, socket);
-      // ССЫЛКИ НЕТ — ОТКАЗ, а не подстановка нуля. `num(null)` даёт 0, и адрес молча
-      // собирался на ПЕРВЫЙ узел или материал: граф двигал деталь, к которой не имел
-      // никакого отношения. Промолчать здесь дешевле, чем испортить чужую.
       const at = typeof ref === 'string'
         ? /(\d+)\s*$/.exec(ref)?.[1]
         : (Array.isArray(ref) && typeof ref[0] === 'number' ? String(ref[0]) : undefined);
@@ -429,7 +315,6 @@ export class InteractivityGraph {
   }
 }
 
-/** Всё, что вычислитель умеет. Ровно по этому списку и решается, браться ли за граф. */
 const KNOWN = new Set([
   'event/onSelect', 'event/onStart',
   'flow/branch', 'flow/sequence', 'flow/setDelay',

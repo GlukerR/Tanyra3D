@@ -1,19 +1,3 @@
-// tests/fail-closed.test.mjs — движок не считает неизвестное разрешённым.
-//
-// Два дефекта из ревью 2026-08-10, один по сути: значение, которого движок не знает,
-// проходило как «всё в порядке».
-//
-//   P0.3  ворота безопасности: TIER_RANK['perceptal'] → undefined, undefined > 2 → false,
-//         и правило с опечаткой в уровне применялось как безопасное.
-//   P0.4  порядок правил: зависимость, которой нет среди правил, считалась выполненной,
-//         и `geometry/dedpe` вместо `geometry/dedupe` давал не ошибку настройки, а тихо
-//         другой порядок применения transforms.
-//
-// Проверки написаны так, чтобы падать на СТАРОМ коде: каждая ловит именно пропуск
-// неизвестного, а не общую работоспособность движка. Рядом с каждой — контрольная,
-// доказывающая, что механизм в норме работает (иначе «упало» ничего не значит: упасть
-// можно и от того, что правило вообще не запустилось).
-
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -22,15 +6,11 @@ import os from 'node:os';
 import { runOptimize, orderRules } from '../core/engine.mjs';
 import { TIER_RANK, isKnownTier } from '../core/contract.mjs';
 
-// ----------------------------------------------------------------------------
-// P0.4 — порядок правил
-// ----------------------------------------------------------------------------
 
 const rule = (id, runAfter) => ({ meta: { id, ...(runAfter ? { runAfter } : {}) } });
 
 describe('orderRules — неизвестная зависимость это ошибка настройки, а не «выполнено»', () => {
   it('опечатка в runAfter останавливает сборку порядка', () => {
-    // Именно то, что описано в ревью: dedpe вместо dedupe.
     const rules = [rule('geometry/dedupe'), rule('geometry/weld', ['geometry/dedpe'])];
     expect(() => orderRules(rules)).toThrow(/geometry\/dedpe/);
   });
@@ -63,10 +43,6 @@ describe('orderRules — неизвестная зависимость это о
   });
 });
 
-// ----------------------------------------------------------------------------
-// P0.3 — ворота безопасности. Прогон настоящего движка на выдуманном формате:
-// проверяем ПОВЕДЕНИЕ (применилось или нет), а не наличие константы.
-// ----------------------------------------------------------------------------
 
 function mockAddon(rules) {
   return {
@@ -105,7 +81,6 @@ function mockAddon(rules) {
   };
 }
 
-// Правило, которое оставляет след в документе: применилось — след есть.
 function bumpRule(fixSafety, { force = false } = {}) {
   return {
     meta: {
@@ -150,7 +125,6 @@ describe('ворота безопасности — неизвестный ур�
     const s = skippedBump(r);
     expect(s).toHaveLength(1);
     expect(s[0].kind).toBe('policy');
-    // причина названа человеку и содержит само неизвестное значение
     expect(s[0].reason).toMatch(/perceptal/);
   });
 
@@ -161,11 +135,8 @@ describe('ворота безопасности — неизвестный ур�
   });
 
   it('force не открывает ворота неизвестному уровню', async () => {
-    // force существует для «я знаю, что это lossy, и всё равно хочу» —
-    // контроль: с lossy + force правило проходит…
     const ok = await run(bumpRule('lossy', { force: true }));
     expect(appliedBump(ok)).toHaveLength(1);
-    // …а с неизвестным уровнем тот же force не помогает
     const bad = await run(bumpRule('perceptal', { force: true }));
     expect(appliedBump(bad)).toHaveLength(0);
   });
@@ -184,8 +155,6 @@ describe('isKnownTier — спрашивать надо им, а не индек
   });
 
   it('не путается на свойствах прототипа', () => {
-    // 'constructor' в TIER_RANK нет, но `TIER_RANK['constructor']` — истина.
-    // Проверка через `in` или truthy дала бы здесь ложное «уровень известен».
     for (const name of ['constructor', 'toString', 'hasOwnProperty', '__proto__']) {
       expect(isKnownTier(name), `${name} принят за уровень безопасности`).toBe(false);
     }
