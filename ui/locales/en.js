@@ -245,6 +245,14 @@ window.I18N_CATALOGS.en = {
   'menu.settings.workdir.open': 'Show the folder',
   'menu.settings.workdir.clear': 'Clear it now',
   'menu.settings.workdir.cleared': 'The folder is empty. The model has to be loaded again.',
+
+  // Тяжёлый способ показа за галочкой. Подпись говорит, ЧТО он даёт, пояснение — ЧЕМ за
+  // это платишь: без второй половины человек включит его на слабой машине и решит, что
+  // приложение зависло.
+  'menu.settings.viewport': 'Viewport',
+  'menu.settings.texdiff': 'Show what changed in the textures',
+  'menu.settings.texdiff.hint':
+    'Compares every texture of both models pixel by pixel. Slow, and it needs a capable machine.',
   'menu.help': 'Help',
   'menu.render': 'Render',
   'menu.render.what': 'A PNG of the optimized model, exactly as you see it now.',
