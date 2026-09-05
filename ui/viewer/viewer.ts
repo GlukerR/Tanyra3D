@@ -460,13 +460,14 @@ export class Viewer implements ViewerLike {
     return new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, toneMapped: false });
   }
 
-  static readonly ПОЛНЫЙ_КРАСНЫЙ = 0.05;
+  // measured on two models
+  static readonly ПОЛНЫЙ_КРАСНЫЙ = 0.10;
 
   static readonly ПОТОЛОК_СРАВНЕНИЯ = 1024;
 
   static readonly ОКНО_SSIM = 8;
 
-  static readonly ПОРОГ_SSIM = 0.25;
+  static readonly ПОРОГ_SSIM = 0.40;
 
   static readonly DIFF_SLOTS = ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap'] as const;
 
