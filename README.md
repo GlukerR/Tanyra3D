@@ -501,6 +501,26 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 
 ## Status
 
+**0.2.31 — the texture comparison now measures what the eye sees.** The fourth view used
+to compare pixel values, and that turned out to be the wrong question: downscaling a texture
+from 2048 to 512 moves its pixels by only 2.7% while removing 13.4% of its detail, so heavy
+losses read as green. Comparison now uses SSIM — structural similarity over a sliding
+window, the measure image-quality tools converge on — with a separate colour-shift signal
+beside it, because SSIM works on luminance and would miss a recolour at equal brightness.
+The worst-hit map decides instead of the average of all maps: an untouched metalness map no
+longer dilutes a normal map that fell apart. The red threshold is fixed and taken from
+measurement across two models and three settings, so green means the same thing in every
+model and two builds stay comparable.
+
+Three defects went with it, each visible only on real models. Texture pixels are now read
+through the GPU rather than a canvas, so KTX2 is compared at all — a compressed texture
+lives in GPU format and cannot be drawn on a canvas, and the exception killed the whole
+computation. The deviation map inherits the placement of the texture it replaces — offset,
+scale, rotation, UV set and flip — and follows it every frame, so animated UVs carry the map
+with them. And the map is no longer built upside down: pixels come off the GPU bottom-up
+while a canvas reads top-down, and the correction was applied unconditionally, which flipped
+every glTF texture — the reddest area was showing the damage of the opposite half.
+
 **0.2.30 — the viewport shows where a model is expensive, and what the build took from it.**
 Two answers the program could not give before. The wireframe view is now coloured by
 density — triangles against the surface they cover — so a part carrying far more geometry
