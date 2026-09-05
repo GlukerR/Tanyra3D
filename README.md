@@ -502,6 +502,20 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 
 ## Status
 
+**0.2.34 — two more engines, each with its own set of warnings.** React Three Fiber and
+Needle Engine join the engine list, bringing it to five. Both were read from their sources
+rather than their documentation, because the documentation of every one of them says the
+same word — "supported" — while the code says something different in each case. What differs
+is whether a compression works on a page that was set up for nothing: React Three Fiber
+reads compressed geometry in both formats out of the box but needs the site to connect a
+texture decoder; Needle Engine needs nothing at all and is the only entry with no warning
+marks. Five engines now, five distinct answers, no two alike.
+
+Four candidates were read and left out, each for its own reason: two wire nothing by default
+and would have been a second copy of the plain three.js entry; one is pinned to a 2021 build
+of three.js; one parses glTF with its own reader that knows three extensions, so a file made
+here might not open there.
+
 **0.2.33 — the code that ships to you is 61% smaller.** Every install carried 20,119 lines
 of commentary — reasons, dates, quotes from design discussions — compiled straight into the
 program because the build kept comments. None of it was ever read by anyone running the app.
