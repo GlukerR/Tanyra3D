@@ -78,6 +78,9 @@ interface Window {
   OptiViewer: OptiViewerApi;
   onOptiViewerModelLoaded?: () => void;
   onOptiViewerReady?: () => void;
+  tanyraDesktop?: {
+    readNeighbors(file: File, names: string[]): Promise<Array<{ name: string; data: Uint8Array }>>;
+  };
 }
 
 interface Element {
