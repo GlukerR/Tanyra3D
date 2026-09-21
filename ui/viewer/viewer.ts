@@ -24,7 +24,7 @@ import { CAD_FORMATS, loadCad } from "./cad.js";
 const DRACO_DECODER_PATH = "/vendor/three/examples/jsm/libs/draco/gltf/";
 const KTX2_TRANSCODER_PATH = "/vendor/three/examples/jsm/libs/basis/";
 
-const FOREIGN_FORMATS = ["stl", "ply", "fbx", "obj", ...CAD_FORMATS];
+const FOREIGN_FORMATS = ["stl", "ply", "fbx", "obj", "step", "stp", "iges", "igs", "brep"];
 
 type MaybeMesh = THREE.Object3D & {
   isMesh?: boolean | undefined;
