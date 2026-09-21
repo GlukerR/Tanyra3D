@@ -502,6 +502,13 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 
 ## Status
 
+**0.2.36 — a glTF with its `.bin` beside it no longer shows a false error.** The
+validator was run without access to the model's folder, so a perfectly good `.gltf` +
+`.bin` pair — FreeCAD exports exactly that — got a red mark for a file that was right
+there. Neighbouring buffers and textures are now read from the model's own folder, and
+nothing outside it. And when a `.gltf` really is missing its `.bin`, the log now says
+which file to add instead of a bare "Inspection failed (500)".
+
 **0.2.35 — the texture comparison stops calling a clean build damaged.** A build people
 cannot tell apart by eye was painting one pixel in five yellow or worse and one in eleven
 fully red. The cause was the colour threshold, not the structural one: on a visually clean
