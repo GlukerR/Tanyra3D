@@ -225,7 +225,7 @@
     host.appendChild(row);
   }
 
-  const MODEL_RE = /\.(glb|gltf|stl|ply|fbx|obj)$/i;
+  const MODEL_RE = /\.(glb|gltf|stl|ply|fbx|obj|step|stp|iges|igs|brep)$/i;
 
   const COMFORT_BYTES = 100 * 1024 * 1024;
 
@@ -1371,6 +1371,21 @@
       if (!uri || typeof uri !== 'string' || /^data:/i.test(uri)) continue;
       const k = key(uri);
       if (!have.has(k) && !missing.includes(uri)) missing.push(uri);
+    }
+    if (missing.length && window.tanyraDesktop) {
+      let found: Array<{ name: string; data: Uint8Array }> = [];
+      try { found = await window.tanyraDesktop.readNeighbors(rec.file, missing); } catch {  }
+      for (const f of found) {
+        let rel = String(f.name);
+        try { rel = decodeURIComponent(rel); } catch {  }
+        const base = rel.split(/[\\/]/).pop() || rel;
+        rec.pack.push({ path: rel, file: new File([f.data as BlobPart], base) });
+        missing.splice(missing.indexOf(f.name), 1);
+      }
+      if (found.length) {
+        rec.packSourceId = null;
+        logMessage('info', t('log.packFromFolder', { n: found.length }));
+      }
     }
     if (!missing.length) return;
     rec.packMissing = missing.length;

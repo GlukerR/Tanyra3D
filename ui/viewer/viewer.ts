@@ -19,11 +19,12 @@ import { detectLods, showLod, type LodSet } from "./lod.js";
 import { applyNodeVisibility, findInteractive, InteractivityHighlight, type InteractivePart } from "./interactivity.js";
 import { InteractivityRuntime } from "./interactivity-runtime.js";
 import { GLTFDiffuseTransmissionExtension } from "./diffuse-transmission.js";
+import { CAD_FORMATS, loadCad } from "./cad.js";
 
 const DRACO_DECODER_PATH = "/vendor/three/examples/jsm/libs/draco/gltf/";
 const KTX2_TRANSCODER_PATH = "/vendor/three/examples/jsm/libs/basis/";
 
-const FOREIGN_FORMATS = ["stl", "ply", "fbx", "obj"];
+const FOREIGN_FORMATS = ["stl", "ply", "fbx", "obj", ...CAD_FORMATS];
 
 type MaybeMesh = THREE.Object3D & {
   isMesh?: boolean | undefined;
@@ -1069,6 +1070,11 @@ export class Viewer implements ViewerLike {
 
   async _loadForeign(url: string, format: string) {
     const buf = await (await fetch(url)).arrayBuffer();
+
+    if (CAD_FORMATS.includes(format)) {
+      const scene = await loadCad(buf, format);
+      return { scene, animations: [], parser: { json: {} }, userData: {} } as unknown as GLTF;
+    }
 
     if (format === 'fbx') {
       const base = url.slice(0, url.lastIndexOf('/') + 1);

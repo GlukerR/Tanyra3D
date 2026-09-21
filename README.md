@@ -490,6 +490,15 @@ The honest list of what the tool doesn't do, or doesn't do fully.
   (`_BaseColor`, `_Normal`, `_Roughness`, `_Metallic`, `_AO`, `_Emissive`), packed into the
   single ORM image glTF requires, and listed in the report. A file whose name matches
   nothing is left alone.
+- **STEP, IGES and BREP from CAD come in too.** The same OpenCascade kernel FreeCAD uses
+  turns exact surfaces into triangles, locally and without the internet. Part names, the
+  assembly tree and face colours come across; sizes are converted to metres, as glTF
+  requires. Native source files of any program — `.blend`, `.max`, `.FCStd`, SolidWorks,
+  Inventor — are not accepted, by design: they are working files, not something made to
+  be handed over.
+- **In the desktop app, a lone `.gltf` finds its own files.** Open just the `.gltf` and its
+  `.bin` and textures are read from the same folder — only the files it names, and nothing
+  outside that folder. In a browser that is impossible, and the log names what to add.
 - **Built for models up to 100 MB.** Not a refusal — a boundary stated honestly. Anything
   heavier still opens and still builds, but the preview turns sluggish and the build takes
   long enough that it stops being worth waiting for; a 330 MB file barely rotated in the
@@ -501,6 +510,11 @@ The honest list of what the tool doesn't do, or doesn't do fully.
 ---
 
 ## Status
+
+**0.2.37 — CAD files open directly.** STEP, STP, IGES and BREP are read by the same
+OpenCascade kernel FreeCAD uses — no FreeCAD, no internet — keeping part names, the
+assembly tree and face colours. And the desktop app picks up a `.gltf`'s `.bin` and
+textures from its folder by itself when only the `.gltf` is opened.
 
 **0.2.36 — a glTF with its `.bin` beside it no longer shows a false error.** The
 validator was run without access to the model's folder, so a perfectly good `.gltf` +
