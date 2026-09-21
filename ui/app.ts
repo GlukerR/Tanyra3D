@@ -1424,7 +1424,9 @@
         setModelIssue(rec && rec.packMissing
           ? { kind: 'incomplete', count: rec.packMissing }
           : { kind: 'unreadable', detail });
-        logMessage('warn', t('log.inspectFailed', { status: res.status }));
+        logMessage('warn', detail
+          ? t('log.inspectFailed.reason', { detail })
+          : t('log.inspectFailed', { status: res.status }));
         return;
       }
       const data = await res.json();

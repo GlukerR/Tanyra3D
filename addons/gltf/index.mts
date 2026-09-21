@@ -577,7 +577,7 @@ async function validate({ ctx, before, after, glbBytes, src, result, advancedPla
     if (errs === 0) {
       vp('pass', 'check.validatorZeroErrors');
     } else {
-      const inRes = await validator.validateBytes(new Uint8Array(fs.readFileSync(src)));
+      const inRes = await validator.validateBytes(new Uint8Array(fs.readFileSync(src)), validatorOptions(src));
       const inErrs = inRes.issues.numErrors;
       if (inErrs > 0) addFound(ENGINE_META.inputValidation!, { messageId: 'engine.inputValidation.found', data: { n: inErrs } });
       if (errs <= inErrs) {
@@ -804,6 +804,21 @@ function missingResources(srcPath: string): string[] {
   return referencedResources(srcPath).filter((r) => !fs.existsSync(r.full)).map((r) => r.uri);
 }
 
+function validatorOptions(srcPath: string) {
+  const dir = path.resolve(path.dirname(srcPath));
+  const dirPrefix = dir.endsWith(path.sep) ? dir : dir + path.sep;
+  return {
+    uri: path.basename(srcPath),
+    externalResourceFunction: async (uri: string) => {
+      let rel = uri;
+      try { rel = decodeURIComponent(uri); } catch {  }
+      const full = path.resolve(dir, rel);
+      if (!full.startsWith(dirPrefix)) throw new Error('outside');
+      return new Uint8Array(await fs.promises.readFile(full));
+    },
+  };
+}
+
 async function readOrExplain(io: NodeIOType, srcPath: string) {
   try {
     return await io.read(srcPath);
@@ -836,7 +851,7 @@ async function inspect(srcPath: string): Promise<Record<string, unknown>> {
   if (foreign) return foreignInspect(doc, srcPath);
   try {
     const validator = await import('gltf-validator');
-    const res = await validator.validateBytes(new Uint8Array(bytes));
+    const res = await validator.validateBytes(new Uint8Array(bytes), validatorOptions(srcPath));
     validation = (res && res.issues && res.issues.messages) || [];
     validation = explainValidatorBlindSpots(parseGltfJson(bytes), validation);
     validation = groupValidation(validation);

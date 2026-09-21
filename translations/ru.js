@@ -370,6 +370,7 @@ window.I18N_CATALOGS.ru = {
   'log.loaded': ({ name, size }) => `Модель загружена: ${name} (${size})`,
   'log.foundCompression': ({ list }) => `В исходнике найдено сжатие: ${list}`,
   'log.inspectFailed': ({ status }) => `Инспекция не удалась (${status}) — метаданные и проверка недоступны`,
+  'log.inspectFailed.reason': ({ detail }) => `Инспекция не удалась: ${detail}`,
   'log.inspectUnavailable': ({ error }) => `Инспекция недоступна: ${error}`,
   'log.sourceInspected': ({ n }) => (n
     ? `Исходник проверен — ${n} ${window.I18n.plural(n, ['замечание', 'замечания', 'замечаний'])}`

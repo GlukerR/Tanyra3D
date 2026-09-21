@@ -370,6 +370,7 @@ window.I18N_CATALOGS.en = {
   'log.loaded': ({ name, size }) => `Model loaded: ${name} (${size})`,
   'log.foundCompression': ({ list }) => `Compression found in source: ${list}`,
   'log.inspectFailed': ({ status }) => `Inspection failed (${status}) — Metadata and Validation are unavailable`,
+  'log.inspectFailed.reason': ({ detail }) => `Inspection failed: ${detail}`,
   'log.inspectUnavailable': ({ error }) => `Inspection unavailable: ${error}`,
   'log.sourceInspected': ({ n }) => (n
     ? `Source inspected — ${n} validation issue${n === 1 ? '' : 's'}`
