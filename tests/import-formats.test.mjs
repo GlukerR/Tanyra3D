@@ -178,7 +178,7 @@ describe('чужие форматы приходят по сети так же, 
   it('отказ чужому формату называет ВСЕ принимаемые расширения', async () => {
     const res = await post('/api/inspect', 'куб.blend', Buffer.from('BLENDER-v300\n', 'utf8'));
     expect(res.status).toBe(400);
-    for (const ext of ['glb', 'gltf', 'stl', 'ply', 'fbx', 'obj']) {
+    for (const ext of ['glb', 'gltf', 'stl', 'ply', 'fbx', 'obj', 'step', 'stp', 'iges', 'igs', 'brep']) {
       expect(res.body, `отказ не называет .${ext}`).toMatch(new RegExp(ext, 'i'));
     }
   }, 60_000);

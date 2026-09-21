@@ -25,6 +25,7 @@ const RESULTS_DIR = path.join(DATA_DIR, 'results');
 const THREE_DIR = path.join(__dirname, 'node_modules', 'three');
 const ANIM_POINTER_DIR = path.join(__dirname, 'node_modules', '@needle-tools', 'three-animation-pointer');
 const GLTF_EXT_DIR = path.join(__dirname, 'node_modules', 'three-gltf-extensions');
+const OCCT_DIR = path.join(__dirname, 'node_modules', 'occt-import-js', 'dist');
 
 async function ensureEmptyDir(dir: string, keep: Set<string> = new Set()) {
   await fsp.mkdir(dir, { recursive: true });
@@ -455,7 +456,7 @@ function sendJSON(res: http.ServerResponse, status: number, obj: unknown) {
   res.end(body);
 }
 
-const MODEL_EXT = /\.(glb|gltf|stl|ply|fbx|obj)$/i;
+const MODEL_EXT = /\.(glb|gltf|stl|ply|fbx|obj|step|stp|iges|igs|brep)$/i;
 
 const MODEL_EXT_WORDS = (MODEL_EXT.source.match(/\(([^)]+)\)/)?.[1] || '')
   .split('|').map((e) => `.${e}`).join(', ');
@@ -539,6 +540,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && pathname.startsWith('/vendor/gltf-extensions/')) {
       await serveStatic(req, res, pathname, GLTF_EXT_DIR, '/vendor/gltf-extensions');
+      return;
+    }
+
+    if (req.method === 'GET' && pathname.startsWith('/vendor/occt/')) {
+      await serveStatic(req, res, pathname, OCCT_DIR, '/vendor/occt');
       return;
     }
 

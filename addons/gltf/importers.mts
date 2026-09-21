@@ -6,12 +6,14 @@ import { render } from '../../core/i18n.mjs';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { importFbx } from './import-fbx.mjs';
 import { importObj } from './import-obj.mjs';
+import { importCad } from './import-cad.mjs';
+import { CAD_FORMATS } from './cad-shared.mjs';
 import { emptyNote, importNote, setImportNote } from './import-notes.mjs';
 import { attachNeighbourTextures } from './import-textures.mjs';
 import { PLYLoader } from 'three/examples/jsm/loaders/PLYLoader.js';
 import { TYPE_BY_SIZE } from './media.mjs';
 
-export const IMPORT_FORMATS = ['stl', 'ply', 'fbx', 'obj'] as const;
+export const IMPORT_FORMATS = ['stl', 'ply', 'fbx', 'obj', ...CAD_FORMATS] as const;
 
 export function isImportFormat(srcPath: string): boolean {
   const ext = path.extname(String(srcPath)).toLowerCase().replace(/^\./, '');
@@ -132,6 +134,9 @@ export async function importForeign(srcPath: string): Promise<Document> {
   }
   if (ext === 'fbx') {
     return withNeighbours(importFbx(srcPath, buf, importError));
+  }
+  if ((CAD_FORMATS as readonly string[]).includes(ext)) {
+    return importCad(ext, buf, name, importError);
   }
   throw new Error(`unsupported_import_format:${ext}`);
 }

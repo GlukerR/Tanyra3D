@@ -42,6 +42,7 @@
     "draco3dgltf": "^1.5.7",
     "gltf-validator": "^2.0.0-dev.3.10",
     "meshoptimizer": "^0.22.0",
+    "occt-import-js": "0.0.23",
     "sharp": "^0.35.3",
     "three": "^0.185.1",
     "three-gltf-extensions": "^0.0.15"

@@ -21,8 +21,8 @@ window.I18N_CATALOGS.ru = {
   'outliner.validation.count': '✓ Проверка ({n})',
   'outliner.validation.range': '✓ Проверка ({from} → {to})',
   'dropzone.title': 'Перетащите сюда 3D-модель',
-  'dropzone.sub': 'или нажмите + · GLB, glTF, STL, FBX, OBJ',
-  'dropzone.rejected': 'Принимаются: .glb, .gltf, .stl, .fbx, .obj',
+  'dropzone.sub': 'или нажмите + · GLB, glTF, STL, STEP, IGES, FBX, OBJ',
+  'dropzone.rejected': 'Принимаются: .glb, .gltf, .stl, .ply, .obj, .fbx, .step, .stp, .iges, .igs, .brep',
 
   'logs.label': 'Журнал',
   'logs.open': 'Открыть журнал',
@@ -237,6 +237,7 @@ window.I18N_CATALOGS.ru = {
   'log.loadedMany': ({ n }) => `Добавлено моделей: ${n}`,
   'log.tooHeavy': ({ size, limit }) => `Модель весит ${size}, а программа рассчитана на модели до ${limit}. Она откроется и соберётся, но просмотр будет вязким, а сборка может занять очень долго.`,
   'log.packAssets': ({ n }) => `Файлов рядом с моделями: ${n} — загружены вместе с ними`,
+  'log.packFromFolder': ({ n }) => `Взято из папки модели: ${n}`,
   'log.packMissing': ({ name }) => `Модель ссылается на «${name}», а этот файл не бросили`,
   'log.packMissingMany': ({ n }) => `Файлов, на которые модель ссылается, а их не бросили: ${n}`,
   'log.packUploadFailed': ({ name, error }) => `Не удалось отправить на сервер «${name}»: ${error}`,
@@ -247,7 +248,7 @@ window.I18N_CATALOGS.ru = {
   'log.texturesReplaced': ({ n }) => (n === 1
     ? 'Прежняя карта того же назначения убрана — осталась новая.'
     : `Прежних карт того же назначения убрано: ${n} — остались новые.`),
-  'log.rejectedMany': ({ n }) => `Пропущено файлов: ${n} — принимаются .glb, .gltf, .stl, .fbx, .obj`,
+  'log.rejectedMany': ({ n }) => `Пропущено файлов: ${n} — принимаются .glb, .gltf, .stl, .ply, .obj, .fbx, .step, .stp, .iges, .igs, .brep`,
   'log.batchAlreadyBuilt': ({ n }) => `Уже собрано этими настройками, пропущено: ${n}`,
   'log.batchStarted': ({ n }) => `Пакетная сборка: моделей в очереди — ${n}`,
   'log.batchDone': ({ ok, failed }) => `Пакетная сборка закончена: собрано ${ok}, не вышло ${failed}`,
@@ -366,7 +367,7 @@ window.I18N_CATALOGS.ru = {
   'log.platform': ({ id }) => `Целевая платформа: ${id}`,
   'log.engine': ({ id }) => `Движок: ${id}`,
   'log.platform.reset': ({ platform }) => `${platform} на этом движке не работает — площадка снята`,
-  'log.rejected': ({ name }) => `Файл «${name}» отклонён — принимаются .glb, .gltf, .stl, .fbx`,
+  'log.rejected': ({ name }) => `Файл «${name}» отклонён — принимаются .glb, .gltf, .stl, .ply, .obj, .fbx, .step, .stp, .iges, .igs, .brep`,
   'log.loaded': ({ name, size }) => `Модель загружена: ${name} (${size})`,
   'log.foundCompression': ({ list }) => `В исходнике найдено сжатие: ${list}`,
   'log.inspectFailed': ({ status }) => `Инспекция не удалась (${status}) — метаданные и проверка недоступны`,

@@ -162,6 +162,10 @@ addons/gltf/media.mjs
 addons/gltf/media.d.mts
 addons/gltf/instance.mjs
 addons/gltf/instance.d.mts
+addons/gltf/import-cad.mjs
+addons/gltf/import-cad.d.mts
+addons/gltf/cad-shared.mjs
+addons/gltf/cad-shared.d.mts
 optimize2.mjs
 optimize2.d.mts
 server.mjs
@@ -183,3 +187,4 @@ ui/viewer/interactivity-runtime.js
 ui/viewer/interactivity.js
 ui/viewer/lod.js
 ui/viewer/diffuse-transmission.js
+ui/viewer/cad.js

@@ -1,8 +1,9 @@
-const { app, BrowserWindow, shell, dialog } = require('electron');
+const { app, BrowserWindow, shell, dialog, ipcMain } = require('electron');
 const { fork } = require('node:child_process');
 const path = require('node:path');
 const fs = require('node:fs');
 const { isOwnPage, isExternalWeb } = require('./url-policy.cjs');
+const { readNeighbors } = require('./neighbors.cjs');
 
 const ROOT = app.getAppPath();
 const SERVER = path.join(ROOT, 'server.mjs');
@@ -123,6 +124,7 @@ function createWindow(address) {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      preload: path.join(__dirname, 'preload.cjs'),
     },
   });
 
@@ -142,6 +144,12 @@ function createWindow(address) {
 
   mainWindow.on('closed', () => { mainWindow = null; });
 }
+
+ipcMain.handle('neighbors:read', (e, modelPath, names) => {
+  const url = e.senderFrame && e.senderFrame.url;
+  if (!serverAddress || !isOwnPage(url, serverAddress)) return [];
+  return readNeighbors(modelPath, names);
+});
 
 if (gotTheLock) app.whenReady().then(async () => {
   try {
