@@ -806,13 +806,14 @@ function missingResources(srcPath: string): string[] {
 
 function validatorOptions(srcPath: string) {
   const dir = path.resolve(path.dirname(srcPath));
+  const dirPrefix = dir.endsWith(path.sep) ? dir : dir + path.sep;
   return {
     uri: path.basename(srcPath),
     externalResourceFunction: async (uri: string) => {
       let rel = uri;
       try { rel = decodeURIComponent(uri); } catch {  }
       const full = path.resolve(dir, rel);
-      if (!full.startsWith(dir + path.sep)) throw new Error('outside');
+      if (!full.startsWith(dirPrefix)) throw new Error('outside');
       return new Uint8Array(await fs.promises.readFile(full));
     },
   };
