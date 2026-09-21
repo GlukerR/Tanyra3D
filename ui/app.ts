@@ -1380,7 +1380,8 @@
         try { rel = decodeURIComponent(rel); } catch {  }
         const base = rel.split(/[\\/]/).pop() || rel;
         rec.pack.push({ path: rel, file: new File([f.data as BlobPart], base) });
-        missing.splice(missing.indexOf(f.name), 1);
+        const at = missing.indexOf(f.name);
+        if (at >= 0) missing.splice(at, 1);
       }
       if (found.length) {
         rec.packSourceId = null;

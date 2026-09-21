@@ -14,6 +14,8 @@ function readNeighbors(modelPath, names) {
   if (typeof modelPath !== 'string' || !path.isAbsolute(modelPath) || !MODEL_RE.test(modelPath)) return [];
   if (!Array.isArray(names)) return [];
   const dir = path.resolve(path.dirname(modelPath));
+  let realDir;
+  try { realDir = fs.realpathSync(dir); } catch { return []; }
   const out = [];
   let total = 0;
   for (const name of names.slice(0, MAX_FILES)) {
@@ -23,11 +25,15 @@ function readNeighbors(modelPath, names) {
     if (path.isAbsolute(rel)) continue;
     const full = path.resolve(dir, rel);
     if (!insideDir(dir, full)) continue;
+    // reject symlink/junction escape
+    let real;
+    try { real = fs.realpathSync(full); } catch { continue; }
+    if (!insideDir(realDir, real)) continue;
     let st;
-    try { st = fs.statSync(full); } catch { continue; }
+    try { st = fs.statSync(real); } catch { continue; }
     if (!st.isFile() || total + st.size > MAX_TOTAL) continue;
     total += st.size;
-    out.push({ name, data: fs.readFileSync(full) });
+    out.push({ name, data: fs.readFileSync(real) });
   }
   return out;
 }

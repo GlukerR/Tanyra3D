@@ -73,8 +73,8 @@ export async function loadCad(buf: ArrayBuffer, format: string): Promise<THREE.G
 
   const meshes = res.meshes.map((src, i) => {
     const geom = new THREE.BufferGeometry();
-    geom.setAttribute("position", new THREE.Float32BufferAttribute(Array.from(src.attributes.position.array), 3));
-    if (src.attributes.normal) geom.setAttribute("normal", new THREE.Float32BufferAttribute(Array.from(src.attributes.normal.array), 3));
+    geom.setAttribute("position", new THREE.Float32BufferAttribute(Float32Array.from(src.attributes.position.array), 3));
+    if (src.attributes.normal) geom.setAttribute("normal", new THREE.Float32BufferAttribute(Float32Array.from(src.attributes.normal.array), 3));
     const total = Math.floor(src.index.array.length / 3);
     const colorOf: Array<Rgb | null> = new Array(total).fill(src.color || null);
     for (const f of src.brep_faces || []) {

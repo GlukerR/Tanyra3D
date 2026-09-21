@@ -46,6 +46,19 @@ describe('настольная версия: соседние файлы .gltf',
     expect(readNeighbors(model, 'деталь 1.bin')).toEqual([]);
   });
 
+  it('ссылка на папку снаружи не выводит за пределы модели', () => {
+    const outside = path.join(root, 'снаружи');
+    fs.mkdirSync(outside, { recursive: true });
+    fs.writeFileSync(path.join(outside, 'x.bin'), 'OUT');
+    const link = path.join(path.dirname(model), 'ссылка');
+    try {
+      fs.symlinkSync(outside, link, 'junction');
+    } catch {
+      return;
+    }
+    expect(readNeighbors(model, ['ссылка/x.bin'])).toEqual([]);
+  });
+
   it('папка не отдаётся как файл', () => {
     expect(readNeighbors(model, ['textures'])).toEqual([]);
   });
