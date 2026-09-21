@@ -23,5 +23,8 @@ declare module 'gltf-validator' {
     };
   }
 
-  export function validateBytes(bytes: Uint8Array): Promise<ValidatorReport>;
+  export function validateBytes(bytes: Uint8Array, options?: {
+    uri?: string;
+    externalResourceFunction?: (uri: string) => Promise<Uint8Array>;
+  }): Promise<ValidatorReport>;
 }
